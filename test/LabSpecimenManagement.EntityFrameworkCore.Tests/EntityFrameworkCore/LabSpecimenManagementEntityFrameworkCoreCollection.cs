@@ -1,0 +1,9 @@
+﻿using Xunit;
+
+namespace LabSpecimenManagement.EntityFrameworkCore;
+
+[CollectionDefinition(LabSpecimenManagementTestConsts.CollectionDefinitionName)]
+public class LabSpecimenManagementEntityFrameworkCoreCollection : ICollectionFixture<LabSpecimenManagementEntityFrameworkCoreFixture>
+{
+
+}

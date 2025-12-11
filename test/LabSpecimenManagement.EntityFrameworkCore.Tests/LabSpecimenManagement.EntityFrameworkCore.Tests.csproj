@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <Import Project="..\..\common.props" />
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <RootNamespace>LabSpecimenManagement</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\LabSpecimenManagement.EntityFrameworkCore\LabSpecimenManagement.EntityFrameworkCore.csproj" />
+    <ProjectReference Include="..\LabSpecimenManagement.Application.Tests\LabSpecimenManagement.Application.Tests.csproj" />
+    <PackageReference Include="Volo.Abp.EntityFrameworkCore.Sqlite" Version="9.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.11.1.0" />
+  </ItemGroup>
+
+</Project>

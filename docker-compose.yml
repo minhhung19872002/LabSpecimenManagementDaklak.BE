@@ -1,0 +1,45 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: lab_postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: myPassword
+      POSTGRES_DB: LabSpecimenManagement
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - lab_network
+
+  redis:
+    image: redis:7-alpine
+    container_name: lab_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - lab_network
+
+  mongodb:
+    image: mongo:7
+    container_name: lab_mongodb
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: myPassword
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    networks:
+      - lab_network
+
+volumes:
+  postgres_data:
+  mongodb_data:
+
+networks:
+  lab_network:
+    driver: bridge

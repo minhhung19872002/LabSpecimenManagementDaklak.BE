@@ -1,0 +1,9 @@
+﻿using LabSpecimenManagement.EntityFrameworkCore;
+using Xunit;
+
+namespace LabSpecimenManagement.EntityFrameworkCore;
+
+public class LabSpecimenManagementEntityFrameworkCoreCollectionFixtureBase : ICollectionFixture<LabSpecimenManagementEntityFrameworkCoreFixture>
+{
+
+}
