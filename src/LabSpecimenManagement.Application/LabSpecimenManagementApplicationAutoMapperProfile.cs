@@ -1,4 +1,5 @@
 ﻿using AutoMapper;
+using LabSpecimenManagement.TestResults;
 
 namespace LabSpecimenManagement;
 
