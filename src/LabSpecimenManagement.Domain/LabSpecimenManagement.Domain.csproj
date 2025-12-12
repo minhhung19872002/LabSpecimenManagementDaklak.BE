@@ -10,6 +10,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\LabSpecimenManagement.Domain.Shared\LabSpecimenManagement.Domain.Shared.csproj" />
+    <ProjectReference Include="..\LabSpecimenManagement.Application.Contracts\LabSpecimenManagement.Application.Contracts.csproj" />
   </ItemGroup>
 
   <ItemGroup>

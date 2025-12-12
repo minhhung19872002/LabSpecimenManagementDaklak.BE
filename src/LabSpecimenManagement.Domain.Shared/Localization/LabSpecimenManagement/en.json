@@ -4,6 +4,50 @@
     "AppName": "LabSpecimenManagement",
     "Menu:Home": "Home",
     "Welcome": "Welcome",
-    "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io."
+    "LongWelcomeMessage": "Welcome to the application. This is a startup project based on the ABP framework. For more information, visit abp.io.",
+
+    "Permission:LabSpecimenManagement": "Lab Specimen Management",
+
+    "Permission:TestRequests": "Test Requests",
+    "Permission:TestRequests.Create": "Create",
+    "Permission:TestRequests.Edit": "Edit",
+    "Permission:TestRequests.Delete": "Delete",
+
+    "Permission:Specimens": "Specimens",
+    "Permission:Specimens.Create": "Create",
+    "Permission:Specimens.Edit": "Edit",
+    "Permission:Specimens.Delete": "Delete",
+
+    "Permission:Tests": "Tests",
+    "Permission:Tests.Create": "Create",
+    "Permission:Tests.Edit": "Edit",
+    "Permission:Tests.Delete": "Delete",
+    "Permission:Tests.Assign": "Assign",
+    "Permission:Tests.Execute": "Execute",
+    "Permission:Tests.Review": "Review",
+    "Permission:Tests.Approve": "Approve",
+
+    "Permission:TestResults": "Test Results",
+    "Permission:TestResults.Create": "Create",
+    "Permission:TestResults.Edit": "Edit",
+    "Permission:TestResults.Delete": "Delete",
+    "Permission:TestResults.Submit": "Submit for Review",
+    "Permission:TestResults.Review": "Review (Step 1)",
+    "Permission:TestResults.Approve": "Approve (Step 2)",
+    "Permission:TestResults.Reject": "Reject",
+
+    "Permission:Reports": "Reports",
+    "Permission:Reports.Create": "Create",
+    "Permission:Reports.Edit": "Edit",
+    "Permission:Reports.Delete": "Delete",
+    "Permission:Reports.Approve": "Approve",
+    "Permission:Reports.Export": "Export",
+    "Permission:Reports.Send": "Send",
+
+    "Permission:NCRs": "NCRs",
+    "Permission:NCRs.Create": "Create",
+    "Permission:NCRs.Edit": "Edit",
+    "Permission:NCRs.Delete": "Delete",
+    "Permission:NCRs.Close": "Close"
   }
 }
