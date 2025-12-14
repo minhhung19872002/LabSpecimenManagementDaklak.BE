@@ -4,11 +4,14 @@ using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using LabSpecimenManagement.EntityFrameworkCore;
+using Volo.Abp.Threading;
 using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
@@ -72,6 +75,12 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureVirtualFileSystem(context);
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
+        ConfigureHealthChecks(context);
+    }
+
+    private void ConfigureHealthChecks(ServiceConfigurationContext context)
+    {
+        context.Services.AddHealthChecks();
     }
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
@@ -187,6 +196,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             app.UseDeveloperExceptionPage();
         }
 
+        // Auto-migrate database on startup
+        using (var scope = context.ServiceProvider.CreateScope())
+        {
+            AsyncHelper.RunSync(async () =>
+            {
+                await scope.ServiceProvider
+                    .GetRequiredService<LabSpecimenManagement.EntityFrameworkCore.LabSpecimenManagementDbContext>()
+                    .Database
+                    .MigrateAsync();
+            });
+        }
+
         app.UseAbpRequestLocalization();
 
         if (!env.IsDevelopment())
@@ -222,5 +243,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         app.UseAuditing();
         app.UseAbpSerilogEnrichers();
         app.UseConfiguredEndpoints();
+
+        app.MapHealthChecks("/health");
     }
 }
