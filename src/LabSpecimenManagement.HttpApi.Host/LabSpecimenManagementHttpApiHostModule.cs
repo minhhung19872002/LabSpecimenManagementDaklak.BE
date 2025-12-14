@@ -32,6 +32,8 @@ using Volo.Abp.VirtualFileSystem;
 
 namespace LabSpecimenManagement;
 
+// Lab Specimen Management System - ISO/IEC 17025:2017
+// Last deployment test: 2025-12-14
 [DependsOn(
     typeof(LabSpecimenManagementHttpApiModule),
     typeof(AbpAutofacModule),
