@@ -14,6 +14,7 @@ using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.Reports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -34,6 +35,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
     public DbSet<Test> Tests { get; set; }
     public DbSet<TestResult> TestResults { get; set; }
+    public DbSet<Report> Reports { get; set; }
+    public DbSet<ReportTestResult> ReportTestResults { get; set; }
 
     #region Entities from the modules
 
@@ -191,6 +194,46 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.Test)
                 .WithMany(x => x.Results)
                 .HasForeignKey(x => x.TestId)
+                .IsRequired();
+        });
+
+        // Report configuration
+        builder.Entity<Report>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Reports", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ReportNumber).IsRequired().HasMaxLength(128);
+            b.Property(x => x.QRCode).HasMaxLength(512);
+            b.Property(x => x.RecipientEmail).HasMaxLength(256);
+            b.Property(x => x.RecipientName).HasMaxLength(256);
+
+            b.HasIndex(x => x.ReportNumber);
+            b.HasIndex(x => x.ReportDate);
+            b.HasIndex(x => x.Status);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+        });
+
+        // ReportTestResult configuration (Junction table)
+        builder.Entity<ReportTestResult>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ReportTestResults", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.HasKey(x => new { x.ReportId, x.TestResultId });
+
+            b.HasOne(x => x.Report)
+                .WithMany(x => x.ReportTestResults)
+                .HasForeignKey(x => x.ReportId)
+                .IsRequired();
+
+            b.HasOne(x => x.TestResult)
+                .WithMany()
+                .HasForeignKey(x => x.TestResultId)
                 .IsRequired();
         });
     }
