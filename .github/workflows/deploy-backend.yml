@@ -84,6 +84,12 @@ jobs:
           script: |
             cd /opt/lab-specimen-management
 
+            # Copy docker-compose.yml from backend directory to parent
+            if [ -f lab-specimen-management-be/docker-compose.yml ]; then
+              cp lab-specimen-management-be/docker-compose.yml .
+              echo "docker-compose.yml copied to /opt/lab-specimen-management/"
+            fi
+
             # Create .env file with environment variables
             cat > .env << EOF
             ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
