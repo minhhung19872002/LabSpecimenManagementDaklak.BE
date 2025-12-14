@@ -89,9 +89,10 @@ public class ReportAppService :
 
         // Update test results
         // First, remove all existing relationships
-        var existingReportTestResults = await _reportTestResultRepository
-            .Where(r => r.ReportId == id)
-            .ToListAsync();
+        var queryable = await _reportTestResultRepository.GetQueryableAsync();
+        var existingReportTestResults = await AsyncExecuter.ToListAsync(
+            queryable.Where(r => r.ReportId == id)
+        );
 
         await _reportTestResultRepository.DeleteManyAsync(existingReportTestResults);
 
@@ -121,10 +122,10 @@ public class ReportAppService :
         var dto = await MapToGetOutputDtoAsync(report);
 
         // Load test result IDs
-        var testResultIds = await _reportTestResultRepository
-            .Where(r => r.ReportId == id)
-            .Select(r => r.TestResultId)
-            .ToListAsync();
+        var queryable = await _reportTestResultRepository.GetQueryableAsync();
+        var testResultIds = await AsyncExecuter.ToListAsync(
+            queryable.Where(r => r.ReportId == id).Select(r => r.TestResultId)
+        );
 
         dto.TestResultIds = testResultIds;
 
@@ -263,10 +264,12 @@ public class ReportAppService :
         var today = DateTime.Now.ToString("yyyyMMdd");
         var prefix = $"REP-{today}-";
 
-        var lastReport = await Repository
-            .Where(r => r.ReportNumber.StartsWith(prefix))
-            .OrderByDescending(r => r.ReportNumber)
-            .FirstOrDefaultAsync();
+        var queryable = await Repository.GetQueryableAsync();
+        var lastReport = await AsyncExecuter.FirstOrDefaultAsync(
+            queryable
+                .Where(r => r.ReportNumber.StartsWith(prefix))
+                .OrderByDescending(r => r.ReportNumber)
+        );
 
         if (lastReport == null)
         {
