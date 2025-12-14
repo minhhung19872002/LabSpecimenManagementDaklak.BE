@@ -120,23 +120,33 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
     {
         var hostingEnvironment = context.Services.GetHostingEnvironment();
 
+        // Only configure physical file replacement for local development with source code
+        // Docker containers only have published DLLs, so skip this configuration
         if (hostingEnvironment.IsDevelopment())
         {
-            Configure<AbpVirtualFileSystemOptions>(options =>
+            // Check if we're running in Docker (published app without source directories)
+            var domainSharedPath = Path.Combine(hostingEnvironment.ContentRootPath,
+                $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared");
+
+            // Only configure if source directories actually exist
+            if (Directory.Exists(domainSharedPath))
             {
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainSharedModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationContractsModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application.Contracts"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application"));
-            });
+                Configure<AbpVirtualFileSystemOptions>(options =>
+                {
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainSharedModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationContractsModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application.Contracts"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application"));
+                });
+            }
         }
     }
 
