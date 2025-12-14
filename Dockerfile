@@ -2,21 +2,13 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
 WORKDIR /src
 
-# Copy solution and project files for dependency caching
+# Copy ALL project files first (this allows Docker to cache dependencies)
+COPY src/ ./src/
+COPY test/ ./test/
 COPY *.sln ./
-COPY src/LabSpecimenManagement.Domain/LabSpecimenManagement.Domain.csproj ./src/LabSpecimenManagement.Domain/
-COPY src/LabSpecimenManagement.Application.Contracts/LabSpecimenManagement.Application.Contracts.csproj ./src/LabSpecimenManagement.Application.Contracts/
-COPY src/LabSpecimenManagement.Application/LabSpecimenManagement.Application.csproj ./src/LabSpecimenManagement.Application/
-COPY src/LabSpecimenManagement.EntityFrameworkCore/LabSpecimenManagement.EntityFrameworkCore.csproj ./src/LabSpecimenManagement.EntityFrameworkCore/
-COPY src/LabSpecimenManagement.HttpApi/LabSpecimenManagement.HttpApi.csproj ./src/LabSpecimenManagement.HttpApi/
-COPY src/LabSpecimenManagement.HttpApi.Host/LabSpecimenManagement.HttpApi.Host.csproj ./src/LabSpecimenManagement.HttpApi.Host/
-COPY src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj ./src/LabSpecimenManagement.DbMigrator/
 
-# Restore dependencies
-RUN dotnet restore
-
-# Copy the entire source code
-COPY . .
+# Restore dependencies for the main API project
+RUN dotnet restore src/LabSpecimenManagement.HttpApi.Host/LabSpecimenManagement.HttpApi.Host.csproj
 
 # Build and publish the HttpApi.Host project
 WORKDIR /src/src/LabSpecimenManagement.HttpApi.Host
