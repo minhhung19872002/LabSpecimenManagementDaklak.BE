@@ -242,8 +242,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         app.UseAuditing();
         app.UseAbpSerilogEnrichers();
-        app.UseConfiguredEndpoints();
-
-        app.MapHealthChecks("/health");
+        app.UseConfiguredEndpoints(endpoints =>
+        {
+            endpoints.MapHealthChecks("/health");
+        });
     }
 }
