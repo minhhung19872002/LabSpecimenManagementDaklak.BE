@@ -3,6 +3,7 @@ name: Deploy Backend to GCP
 on:
   push:
     branches:
+      - main         # Auto-deploy main branch (production)
       - development  # Auto-deploy development branch
       - staging      # Auto-deploy staging branch
   workflow_dispatch:  # Allow manual trigger
@@ -34,7 +35,7 @@ jobs:
 
     # Determine environment based on branch
     environment:
-      name: ${{ github.ref == 'refs/heads/development' && 'development' || 'staging' }}
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || (github.ref == 'refs/heads/development' && 'development' || 'staging') }}
 
     steps:
       - name: Checkout code
