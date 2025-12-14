@@ -35,10 +35,8 @@ public class UpdateSpecimenDto
     [StringLength(1000)]
     public string? Deviation { get; set; }
 
-    [Required]
     public decimal Quantity { get; set; }
 
-    [Required]
     [StringLength(50)]
-    public string Unit { get; set; }
+    public string? Unit { get; set; }
 }

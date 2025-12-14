@@ -24,5 +24,5 @@ public class CreateTestDto
 
     public decimal? EstimatedDuration { get; set; }
 
-    public string Notes { get; set; }
+    public string? Notes { get; set; }
 }

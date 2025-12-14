@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+﻿using System.Collections.Generic;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp;
 using Volo.Abp.Authorization;
 using Volo.Abp.Autofac;
@@ -25,6 +27,17 @@ public class LabSpecimenManagementTestBaseModule : AbpModule
         });
 
         context.Services.AddAlwaysAllowAuthorization();
+
+        // Add configuration for test environment to skip production seeders
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string>
+            {
+                { "SkipLabUsersSeed", "true" },
+                { "SkipLabSampleSeed", "true" }
+            }!)
+            .Build();
+
+        context.Services.AddSingleton<IConfiguration>(configuration);
     }
 
     public override void OnApplicationInitialization(ApplicationInitializationContext context)

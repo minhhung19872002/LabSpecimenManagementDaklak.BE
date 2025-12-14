@@ -32,10 +32,8 @@ public class CreateSpecimenDto
     [StringLength(1000)]
     public string? Deviation { get; set; }
 
-    [Required]
     public decimal Quantity { get; set; } = 1;
 
-    [Required]
     [StringLength(50)]
-    public string Unit { get; set; } = "Cái";
+    public string? Unit { get; set; } = "Cái";
 }

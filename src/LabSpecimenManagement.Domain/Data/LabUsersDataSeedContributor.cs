@@ -2,6 +2,7 @@ using System;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.Extensions.Configuration;
 using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Guids;
@@ -21,6 +22,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     private readonly IdentityUserManager _userManager;
     private readonly IdentityRoleManager _roleManager;
     private readonly IPermissionManager _permissionManager;
+    private readonly IConfiguration _configuration;
 
     // Role names
     public const string RoleTechnician = "Technician";      // Kỹ thuật viên
@@ -34,7 +36,8 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         IIdentityUserRepository userRepository,
         IdentityUserManager userManager,
         IdentityRoleManager roleManager,
-        IPermissionManager permissionManager)
+        IPermissionManager permissionManager,
+        IConfiguration configuration)
     {
         _guidGenerator = guidGenerator;
         _roleRepository = roleRepository;
@@ -42,10 +45,18 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         _userManager = userManager;
         _roleManager = roleManager;
         _permissionManager = permissionManager;
+        _configuration = configuration;
     }
 
     public async Task SeedAsync(DataSeedContext context)
     {
+        // Skip seeding in test environment
+        var skipSeeding = _configuration.GetValue<bool>("SkipLabUsersSeed", false);
+        if (skipSeeding)
+        {
+            return;
+        }
+
         await CreateRolesAsync();
         await CreateUsersAsync();
     }

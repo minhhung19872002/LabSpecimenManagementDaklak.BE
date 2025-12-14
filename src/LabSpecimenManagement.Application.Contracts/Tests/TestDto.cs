@@ -13,6 +13,7 @@ public class TestDto : FullAuditedEntityDto<Guid>
     public string Standard { get; set; }
     public TestStatus Status { get; set; }
     public Guid? AssigneeId { get; set; }
+    public string? AssigneeName { get; set; }
     public DateTime? AssignmentDate { get; set; }
     public DateTime? StartDate { get; set; }
     public DateTime? CompletionDate { get; set; }

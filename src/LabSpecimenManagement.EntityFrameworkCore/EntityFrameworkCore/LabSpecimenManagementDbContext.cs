@@ -14,6 +14,11 @@ using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.NCRs;
+using LabSpecimenManagement.Reports;
+using LabSpecimenManagement.Tasks;
+using LabSpecimenManagement.Subcontractors;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -34,6 +39,26 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
     public DbSet<Test> Tests { get; set; }
     public DbSet<TestResult> TestResults { get; set; }
+
+    // Master Data Entities
+    public DbSet<Department> Departments { get; set; }
+    public DbSet<SpecimenType> SpecimenTypes { get; set; }
+    public DbSet<TestMethod> TestMethods { get; set; }
+    public DbSet<StorageLocation> StorageLocations { get; set; }
+    public DbSet<Customer> Customers { get; set; }
+
+    // NCR Entities
+    public DbSet<NCR> NCRs { get; set; }
+
+    // Report Entities
+    public DbSet<Report> Reports { get; set; }
+
+    // Task Entities
+    public DbSet<TaskAssignment> TaskAssignments { get; set; }
+
+    // Subcontractor Entities
+    public DbSet<Subcontractor> Subcontractors { get; set; }
+    public DbSet<SubcontractorCertification> SubcontractorCertifications { get; set; }
 
     #region Entities from the modules
 
@@ -191,6 +216,182 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.Test)
                 .WithMany(x => x.Results)
                 .HasForeignKey(x => x.TestId)
+                .IsRequired();
+        });
+
+        // ============ MASTER DATA CONFIGURATIONS ============
+
+        // Department configuration
+        builder.Entity<Department>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Departments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // SpecimenType configuration
+        builder.Entity<SpecimenType>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SpecimenTypes", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.DefaultStorageCondition).HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // TestMethod configuration
+        builder.Entity<TestMethod>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestMethods", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Standard).HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.DepartmentId);
+        });
+
+        // StorageLocation configuration
+        builder.Entity<StorageLocation>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "StorageLocations", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Temperature).HasMaxLength(50);
+            b.Property(x => x.Humidity).HasMaxLength(50);
+
+            b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // Customer configuration
+        builder.Entity<Customer>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Customers", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Email).HasMaxLength(256);
+            b.Property(x => x.Phone).HasMaxLength(50);
+            b.Property(x => x.Address).HasMaxLength(512);
+            b.Property(x => x.TaxCode).HasMaxLength(50);
+            b.Property(x => x.ContactPerson).HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // ============ NCR CONFIGURATION ============
+
+        builder.Entity<NCR>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "NCRs", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.NCRNumber).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Description).HasMaxLength(2000);
+            b.Property(x => x.RootCause).HasMaxLength(2000);
+            b.Property(x => x.CorrectiveAction).HasMaxLength(2000);
+            b.Property(x => x.PreventiveAction).HasMaxLength(2000);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+            b.Property(x => x.Department).HasMaxLength(256);
+            b.Property(x => x.RelatedEntityType).HasMaxLength(100);
+            b.Property(x => x.RelatedEntityCode).HasMaxLength(100);
+
+            b.HasIndex(x => x.NCRNumber).IsUnique();
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.Severity);
+            b.HasIndex(x => x.RelatedEntityId);
+            b.HasIndex(x => x.AssignedToId);
+        });
+
+        // ============ REPORT CONFIGURATION ============
+
+        builder.Entity<Report>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Reports", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ReportNumber).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            b.Property(x => x.CustomerName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.PdfPath).HasMaxLength(512);
+            b.Property(x => x.QRCode).HasMaxLength(512);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.ReportNumber).IsUnique();
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.Status);
+        });
+
+        // ============ TASK ASSIGNMENT CONFIGURATION ============
+
+        builder.Entity<TaskAssignment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TaskAssignments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.TaskNumber).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Description).HasMaxLength(2000);
+            b.Property(x => x.Department).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.TaskNumber).IsUnique();
+            b.HasIndex(x => x.AssignedToId);
+            b.HasIndex(x => x.AssignedById);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.DueDate);
+        });
+
+        // ============ SUBCONTRACTOR CONFIGURATIONS ============
+
+        builder.Entity<Subcontractor>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Subcontractors", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Address).HasMaxLength(512);
+            b.Property(x => x.Phone).HasMaxLength(50);
+            b.Property(x => x.Email).HasMaxLength(256);
+            b.Property(x => x.ContactPerson).HasMaxLength(256);
+            b.Property(x => x.TaxCode).HasMaxLength(50);
+            b.Property(x => x.Capabilities).HasMaxLength(2000);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.IsActive);
+        });
+
+        builder.Entity<SubcontractorCertification>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SubcontractorCertifications", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.CertificateNumber).HasMaxLength(100);
+            b.Property(x => x.IssuedBy).IsRequired().HasMaxLength(256);
+            b.Property(x => x.FilePath).HasMaxLength(512);
+
+            b.HasIndex(x => x.SubcontractorId);
+            b.HasIndex(x => x.ExpiryDate);
+
+            b.HasOne<Subcontractor>()
+                .WithMany(x => x.Certifications)
+                .HasForeignKey(x => x.SubcontractorId)
                 .IsRequired();
         });
     }

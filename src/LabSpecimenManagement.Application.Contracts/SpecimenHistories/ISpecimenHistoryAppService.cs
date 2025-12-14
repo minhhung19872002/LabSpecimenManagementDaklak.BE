@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -11,4 +12,6 @@ public interface ISpecimenHistoryAppService : ICrudAppService<
     CreateSpecimenHistoryDto,
     UpdateSpecimenHistoryDto>
 {
+    Task<PagedResultDto<SpecimenHistoryDto>> GetFilteredListAsync(GetSpecimenHistoryListDto input);
+    Task<ListResultDto<SpecimenHistoryDto>> GetBySpecimenAsync(Guid specimenId);
 }

@@ -1,15 +1,17 @@
 using System;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.SpecimenHistories;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
-using LabSpecimenManagement.SpecimenHistories;
 
 namespace LabSpecimenManagement.Controllers;
 
 [RemoteService]
-[Area("app")]
-[Route("api/app/specimen-history")]
+[Route("api/v1/specimen-histories")]
+[Authorize(LabSpecimenManagementPermissions.Specimens.Default)]
 public class SpecimenHistoryController : LabSpecimenManagementController
 {
     private readonly ISpecimenHistoryAppService _specimenHistoryAppService;
@@ -20,9 +22,9 @@ public class SpecimenHistoryController : LabSpecimenManagementController
     }
 
     [HttpGet]
-    public virtual Task<PagedResultDto<SpecimenHistoryDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<SpecimenHistoryDto>> GetListAsync([FromQuery] GetSpecimenHistoryListDto input)
     {
-        return _specimenHistoryAppService.GetListAsync(input);
+        return await _specimenHistoryAppService.GetFilteredListAsync(input);
     }
 
     [HttpGet("{id}")]
@@ -31,14 +33,20 @@ public class SpecimenHistoryController : LabSpecimenManagementController
         return _specimenHistoryAppService.GetAsync(id);
     }
 
+    [HttpGet("by-specimen/{specimenId}")]
+    public virtual Task<ListResultDto<SpecimenHistoryDto>> GetBySpecimenAsync(Guid specimenId)
+    {
+        return _specimenHistoryAppService.GetBySpecimenAsync(specimenId);
+    }
+
     [HttpPost]
-    public virtual Task<SpecimenHistoryDto> CreateAsync(CreateSpecimenHistoryDto input)
+    public virtual Task<SpecimenHistoryDto> CreateAsync([FromBody] CreateSpecimenHistoryDto input)
     {
         return _specimenHistoryAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    public virtual Task<SpecimenHistoryDto> UpdateAsync(Guid id, UpdateSpecimenHistoryDto input)
+    public virtual Task<SpecimenHistoryDto> UpdateAsync(Guid id, [FromBody] UpdateSpecimenHistoryDto input)
     {
         return _specimenHistoryAppService.UpdateAsync(id, input);
     }

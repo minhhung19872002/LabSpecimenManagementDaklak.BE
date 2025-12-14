@@ -1,17 +1,19 @@
 using System;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Tests;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
-using Volo.Abp.AspNetCore.Mvc;
 
 namespace LabSpecimenManagement.Controllers;
 
 [RemoteService]
-[Area("app")]
-[Route("api/app/test")]
-public class TestController : AbpController
+[Route("api/v1/tests")]
+[Authorize(LabSpecimenManagementPermissions.Tests.Default)]
+public class TestController : LabSpecimenManagementController
 {
     private readonly ITestAppService _testAppService;
 
@@ -21,9 +23,9 @@ public class TestController : AbpController
     }
 
     [HttpGet]
-    public virtual async Task<PagedResultDto<TestDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<TestDto>> GetListAsync([FromQuery] GetTestListDto input)
     {
-        return await _testAppService.GetListAsync(input);
+        return await _testAppService.GetFilteredListAsync(input);
     }
 
     [HttpGet("{id}")]
@@ -33,20 +35,29 @@ public class TestController : AbpController
     }
 
     [HttpPost]
-    public virtual async Task<TestDto> CreateAsync(CreateTestDto input)
+    [Authorize(LabSpecimenManagementPermissions.Tests.Create)]
+    public virtual async Task<TestDto> CreateAsync([FromBody] CreateTestDto input)
     {
         return await _testAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    public virtual async Task<TestDto> UpdateAsync(Guid id, UpdateTestDto input)
+    [Authorize(LabSpecimenManagementPermissions.Tests.Edit)]
+    public virtual async Task<TestDto> UpdateAsync(Guid id, [FromBody] UpdateTestDto input)
     {
         return await _testAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
+    [Authorize(LabSpecimenManagementPermissions.Tests.Delete)]
     public virtual async Task DeleteAsync(Guid id)
     {
         await _testAppService.DeleteAsync(id);
+    }
+
+    [HttpGet("by-specimen/{specimenId}")]
+    public virtual async Task<ListResultDto<TestDto>> GetBySpecimenAsync(Guid specimenId)
+    {
+        return await _testAppService.GetBySpecimenAsync(specimenId);
     }
 }
