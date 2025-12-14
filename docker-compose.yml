@@ -85,7 +85,7 @@ services:
       dockerfile: Dockerfile
     container_name: lab-specimen-backend
     environment:
-      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Development}
+      - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
       - ASPNETCORE_URLS=http://+:5002
       # Database connection
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
