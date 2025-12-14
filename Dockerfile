@@ -6,6 +6,7 @@ WORKDIR /src
 COPY src/ ./src/
 COPY test/ ./test/
 COPY *.sln ./
+COPY *.props ./
 
 # Restore dependencies for the main API project
 RUN dotnet restore src/LabSpecimenManagement.HttpApi.Host/LabSpecimenManagement.HttpApi.Host.csproj
