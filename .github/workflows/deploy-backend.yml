@@ -91,6 +91,25 @@ jobs:
               echo "docker-compose.yml copied to /opt/lab-specimen-management/"
             fi
 
+            # Copy nginx reverse proxy config from backend directory to parent
+            if [ -f lab-specimen-management-be/nginx-reverse-proxy.conf ]; then
+              cp lab-specimen-management-be/nginx-reverse-proxy.conf .
+              echo "nginx-reverse-proxy.conf copied to /opt/lab-specimen-management/"
+            fi
+
+            # Setup Nginx reverse proxy if not already configured
+            if [ -f nginx-reverse-proxy.conf ]; then
+              sudo cp nginx-reverse-proxy.conf /etc/nginx/sites-available/lab-specimen-management
+              sudo ln -sf /etc/nginx/sites-available/lab-specimen-management /etc/nginx/sites-enabled/lab-specimen-management
+              sudo rm -f /etc/nginx/sites-enabled/default
+              if sudo nginx -t; then
+                sudo systemctl reload nginx
+                echo "Nginx reverse proxy configured and reloaded"
+              else
+                echo "Nginx configuration test failed"
+              fi
+            fi
+
             # Create .env file with environment variables
             cat > .env << EOF
             ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
