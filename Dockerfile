@@ -1,5 +1,5 @@
 # Build Stage
-FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
 # Copy ALL project files first (this allows Docker to cache dependencies)
@@ -16,11 +16,11 @@ WORKDIR /src/src/LabSpecimenManagement.HttpApi.Host
 RUN dotnet publish -c Release -o /app/publish --no-restore
 
 # Runtime Stage
-FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
+FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
 # Install curl for health checks
-RUN apk add --no-cache curl
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # Copy published application from build stage
 COPY --from=build /app/publish .
