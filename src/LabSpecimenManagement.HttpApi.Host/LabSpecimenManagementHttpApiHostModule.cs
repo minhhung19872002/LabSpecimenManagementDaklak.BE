@@ -6,12 +6,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
-using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using LabSpecimenManagement.EntityFrameworkCore;
-using Volo.Abp.Threading;
 using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
@@ -194,18 +192,6 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         if (env.IsDevelopment())
         {
             app.UseDeveloperExceptionPage();
-        }
-
-        // Auto-migrate database on startup
-        using (var scope = context.ServiceProvider.CreateScope())
-        {
-            AsyncHelper.RunSync(async () =>
-            {
-                await scope.ServiceProvider
-                    .GetRequiredService<LabSpecimenManagement.EntityFrameworkCore.LabSpecimenManagementDbContext>()
-                    .Database
-                    .MigrateAsync();
-            });
         }
 
         app.UseAbpRequestLocalization();

@@ -1,0 +1,29 @@
+# Build Stage
+FROM mcr.microsoft.com/dotnet/sdk:9.0-alpine AS build
+WORKDIR /src
+
+# Copy ALL project files first (this allows Docker to cache dependencies)
+COPY src/ ./src/
+COPY test/ ./test/
+COPY *.sln ./
+COPY *.props ./
+
+# Restore dependencies for the DbMigrator project
+RUN dotnet restore src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj
+
+# Build and publish the DbMigrator project
+WORKDIR /src/src/LabSpecimenManagement.DbMigrator
+RUN dotnet publish -c Release -o /app/publish --no-restore
+
+# Runtime Stage
+FROM mcr.microsoft.com/dotnet/aspnet:9.0-alpine AS runtime
+WORKDIR /app
+
+# Copy published application from build stage
+COPY --from=build /app/publish .
+
+# Set environment variables
+ENV ASPNETCORE_ENVIRONMENT=Production
+
+# Run the migrator (it will exit after completion)
+ENTRYPOINT ["dotnet", "LabSpecimenManagement.DbMigrator.dll"]
