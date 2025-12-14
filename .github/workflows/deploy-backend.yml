@@ -5,14 +5,7 @@ on:
     branches:
       - development  # Auto-deploy development branch
       - staging      # Auto-deploy staging branch
-    paths:
-      - 'lab-specimen-management-be/**'
-      - 'docker-compose.yml'
-      - '.github/workflows/deploy-backend.yml'
   workflow_dispatch:  # Allow manual trigger
-
-env:
-  PROJECT_DIR: lab-specimen-management-be
 
 jobs:
   build:
@@ -29,14 +22,10 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Restore dependencies
-        run: |
-          cd ${{ env.PROJECT_DIR }}
-          dotnet restore
+        run: dotnet restore
 
       - name: Build
-        run: |
-          cd ${{ env.PROJECT_DIR }}
-          dotnet build --configuration Release --no-restore
+        run: dotnet build --configuration Release --no-restore
 
   deploy:
     name: Deploy to GCP VM
@@ -54,8 +43,8 @@ jobs:
       - name: Clean unnecessary files to reduce transfer size
         run: |
           # Remove backend build artifacts (will rebuild on server)
-          find ${{ env.PROJECT_DIR }} -type d -name "bin" -exec rm -rf {} + 2>/dev/null || true
-          find ${{ env.PROJECT_DIR }} -type d -name "obj" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "bin" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "obj" -exec rm -rf {} + 2>/dev/null || true
 
           # Show transfer size
           echo "Transfer size:"
@@ -72,11 +61,10 @@ jobs:
         run: |
           rsync -avz --delete \
             -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
-            --exclude 'lab-specimen-management-fe' \
             --exclude '.git' \
             --exclude 'node_modules' \
             --exclude '.nuget-packages' \
-            . ${{ secrets.SSH_USER }}@${{ secrets.VM_HOST }}:/opt/lab-specimen-management/
+            . ${{ secrets.SSH_USER }}@${{ secrets.VM_HOST }}:/opt/lab-specimen-management/lab-specimen-management-be/
 
       - name: Deploy Backend on GCP VM
         uses: appleboy/ssh-action@v1.0.0
