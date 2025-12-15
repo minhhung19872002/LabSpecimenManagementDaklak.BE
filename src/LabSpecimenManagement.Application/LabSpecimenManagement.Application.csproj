@@ -24,4 +24,8 @@
     <PackageReference Include="MiniExcel" Version="1.34.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
 </Project>

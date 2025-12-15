@@ -6,7 +6,6 @@ using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -14,6 +13,7 @@ using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
+using IdentityUser = Volo.Abp.Identity.IdentityUser;
 
 namespace LabSpecimenManagement.Employees;
 

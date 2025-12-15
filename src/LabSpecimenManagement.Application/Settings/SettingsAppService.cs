@@ -6,7 +6,6 @@ using System.Net.Mail;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Identity;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
@@ -14,6 +13,7 @@ using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.SettingManagement;
 using Volo.Abp.Settings;
+using IdentityUser = Volo.Abp.Identity.IdentityUser;
 
 namespace LabSpecimenManagement.Settings;
 

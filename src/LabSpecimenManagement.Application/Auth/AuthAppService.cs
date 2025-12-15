@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Users;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
@@ -14,6 +15,7 @@ using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.Users;
+using IdentityUser = Volo.Abp.Identity.IdentityUser;
 
 namespace LabSpecimenManagement.Auth;
 
@@ -25,19 +27,22 @@ public class AuthAppService : ApplicationService, IAuthAppService
     private readonly IPermissionChecker _permissionChecker;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityRoleRepository _roleRepository;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
     public AuthAppService(
         IdentityUserManager userManager,
         IConfiguration configuration,
         IPermissionChecker permissionChecker,
         IRepository<Department, Guid> departmentRepository,
-        IIdentityRoleRepository roleRepository)
+        IIdentityRoleRepository roleRepository,
+        IHttpContextAccessor httpContextAccessor)
     {
         _userManager = userManager;
         _configuration = configuration;
         _permissionChecker = permissionChecker;
         _departmentRepository = departmentRepository;
         _roleRepository = roleRepository;
+        _httpContextAccessor = httpContextAccessor;
     }
 
     public async Task<LoginResultDto> LoginAsync(LoginDto input)
@@ -335,7 +340,11 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
     private async Task<LoginResultDto> GetTokenAsync(string username, string password)
     {
-        var authority = _configuration["AuthServer:Authority"];
+        // Get base URL from current request context instead of config
+        var request = _httpContextAccessor.HttpContext?.Request;
+        var authority = request != null
+            ? $"{request.Scheme}://{request.Host}"
+            : _configuration["AuthServer:Authority"];
         var clientId = _configuration["AuthServer:ClientId"] ?? "LabSpecimenManagement_App";
 
         // Create HttpClient that bypasses SSL certificate validation for development
@@ -391,11 +400,11 @@ public class AuthAppService : ApplicationService, IAuthAppService
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error getting token");
+            Logger.LogError(ex, "Error getting token from {Authority}", authority);
             return new LoginResultDto
             {
                 Success = false,
-                ErrorMessage = "Lỗi kết nối đến server xác thực."
+                ErrorMessage = $"Lỗi kết nối đến server xác thực: {ex.Message}"
             };
         }
     }

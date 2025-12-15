@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading.Tasks;
 using Volo.Abp;
+using Volo.Abp.Content;
 
 namespace LabSpecimenManagement.Controllers;
 
@@ -30,5 +31,11 @@ public class StatisticsController : LabSpecimenManagementController
     public virtual Task<StatisticsDataDto> GetStatisticsDataAsync([FromQuery] DateTime? fromDate = null, [FromQuery] DateTime? toDate = null)
     {
         return _statisticsAppService.GetStatisticsDataAsync(fromDate, toDate);
+    }
+
+    [HttpGet("export")]
+    public virtual Task<IRemoteStreamContent> ExportToExcelAsync([FromQuery] DateTime? fromDate = null, [FromQuery] DateTime? toDate = null)
+    {
+        return _statisticsAppService.ExportToExcelAsync(fromDate, toDate);
     }
 }

@@ -1,5 +1,4 @@
 using System;
-using Volo.Abp.Domain.Entities;
 using LabSpecimenManagement.TestRequests;
 
 namespace LabSpecimenManagement.Reports;
@@ -7,7 +6,7 @@ namespace LabSpecimenManagement.Reports;
 /// <summary>
 /// Junction table cho Report và TestResult
 /// </summary>
-public class ReportTestResult : Entity
+public class ReportTestResult
 {
     public Guid ReportId { get; set; }
     public Guid TestResultId { get; set; }
@@ -23,10 +22,5 @@ public class ReportTestResult : Entity
     {
         ReportId = reportId;
         TestResultId = testResultId;
-    }
-
-    public override object[] GetKeys()
-    {
-        return new object[] { ReportId, TestResultId };
     }
 }
