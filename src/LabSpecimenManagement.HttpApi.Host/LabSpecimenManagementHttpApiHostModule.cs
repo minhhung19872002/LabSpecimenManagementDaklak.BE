@@ -68,15 +68,12 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         // Disable HTTPS requirement for OpenIddict when behind reverse proxy
         // This is safe because nginx handles HTTPS termination
-        if (!hostingEnvironment.IsDevelopment())
+        PreConfigure<OpenIddictServerBuilder>(builder =>
         {
-            PreConfigure<OpenIddictServerBuilder>(builder =>
-            {
-                // Allow HTTP requests from nginx reverse proxy
-                builder.UseAspNetCore()
-                    .DisableTransportSecurityRequirement();
-            });
-        }
+            // Allow HTTP requests from nginx reverse proxy
+            builder.UseAspNetCore()
+                .DisableTransportSecurityRequirement();
+        });
     }
 
     public override void ConfigureServices(ServiceConfigurationContext context)
