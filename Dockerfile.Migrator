@@ -42,19 +42,26 @@ RUN printf '#!/bin/bash\n\
 set -e\n\
 \n\
 echo "=== Database Migration Started ==="\n\
-echo "Waiting 10 seconds for database to be fully ready..."\n\
-sleep 10\n\
+echo "Environment: $ASPNETCORE_ENVIRONMENT"\n\
+echo "Waiting 15 seconds for database to be fully ready..."\n\
+sleep 15\n\
+\n\
+echo "Testing database connection..."\n\
+pg_isready -h postgres -p 5432 -U postgres || echo "Warning: Database may not be ready"\n\
 \n\
 echo "Running migrations..."\n\
 dotnet LabSpecimenManagement.DbMigrator.dll 2>&1 | tee /tmp/migration.log\n\
+migration_status=${PIPESTATUS[0]}\n\
 \n\
-if [ ${PIPESTATUS[0]} -eq 0 ]; then\n\
+echo ""\n\
+if [ $migration_status -eq 0 ]; then\n\
   echo "=== Migration Completed Successfully ==="\n\
   exit 0\n\
 else\n\
-  echo "=== Migration Failed ==="\n\
-  cat /tmp/migration.log\n\
-  exit 1\n\
+  echo "=== Migration Failed with exit code: $migration_status ==="\n\
+  echo "Last 100 lines of migration log:"\n\
+  tail -100 /tmp/migration.log\n\
+  exit $migration_status\n\
 fi\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 # Run the migrator
