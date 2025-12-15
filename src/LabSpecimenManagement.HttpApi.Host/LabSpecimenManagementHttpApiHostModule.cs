@@ -17,6 +17,7 @@ using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Microsoft.OpenApi.Models;
+using OpenIddict.Server;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp;
 using Volo.Abp.Account;
@@ -53,6 +54,8 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 {
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
+        var hostingEnvironment = context.Services.GetHostingEnvironment();
+
         PreConfigure<OpenIddictBuilder>(builder =>
         {
             builder.AddValidation(options =>
@@ -60,6 +63,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 options.AddAudiences("LabSpecimenManagement");
                 options.UseLocalServer();
                 options.UseAspNetCore();
+            });
+        });
+
+        // Disable HTTPS requirement for OpenIddict when behind reverse proxy
+        // This is safe because nginx handles HTTPS termination
+        PreConfigure<OpenIddictServerBuilder>(builder =>
+        {
+            builder.Configure(options =>
+            {
+                // Allow HTTP requests (nginx proxy forwards as HTTP)
+                options.DisableTransportSecurityRequirement = true;
             });
         });
     }
