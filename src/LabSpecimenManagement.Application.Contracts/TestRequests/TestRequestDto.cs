@@ -5,9 +5,9 @@ namespace LabSpecimenManagement.TestRequests;
 
 public class TestRequestDto : FullAuditedEntityDto<Guid>
 {
-    public string RequestNumber { get; set; }
+    public string RequestNumber { get; set; } = string.Empty;
     public DateTime RequestDate { get; set; }
-    public string CustomerName { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
     public string? CustomerInfo { get; set; }
     public string? CustomerEmail { get; set; }
     public string? CustomerPhone { get; set; }

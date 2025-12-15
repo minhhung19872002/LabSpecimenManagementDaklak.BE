@@ -36,4 +36,19 @@ public interface ITestResultAppService : ICrudAppService<
     /// Get list of test results pending approval (for director)
     /// </summary>
     Task<PagedResultDto<TestResultDto>> GetPendingApprovalListAsync(PagedAndSortedResultRequestDto input);
+
+    /// <summary>
+    /// Get filtered list of test results
+    /// </summary>
+    Task<PagedResultDto<TestResultDto>> GetFilteredListAsync(GetTestResultListDto input);
+
+    /// <summary>
+    /// Reject test result
+    /// </summary>
+    Task<TestResultDto> RejectAsync(Guid id, RejectResultDto input);
+
+    /// <summary>
+    /// Get test results by test ID
+    /// </summary>
+    Task<ListResultDto<TestResultDto>> GetByTestAsync(Guid testId);
 }
