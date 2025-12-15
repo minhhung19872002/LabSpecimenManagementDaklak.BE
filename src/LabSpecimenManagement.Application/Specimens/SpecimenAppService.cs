@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -7,6 +9,7 @@ using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Domain.Entities;
 using LabSpecimenManagement.TestRequests;
+using Microsoft.Extensions.Logging;
 
 namespace LabSpecimenManagement.Specimens;
 
@@ -53,6 +56,84 @@ public class SpecimenAppService :
         entity.Unit = createInput.Unit;
 
         return entity;
+    }
+
+    public async Task<PagedResultDto<SpecimenDto>> GetFilteredListAsync(GetSpecimenListDto input)
+    {
+        var query = await Repository.WithDetailsAsync(x => x.TestRequest);
+
+        // Apply search filter
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.ToLower();
+            query = query.Where(x =>
+                x.Code.ToLower().Contains(search) ||
+                x.Name.ToLower().Contains(search) ||
+                x.Type.ToLower().Contains(search) ||
+                (x.TestRequest != null && x.TestRequest.RequestNumber.ToLower().Contains(search)));
+        }
+
+        // Apply status filter
+        if (input.Status.HasValue)
+        {
+            query = query.Where(x => x.Status == input.Status.Value);
+        }
+
+        // Apply type filter
+        if (!string.IsNullOrWhiteSpace(input.Type))
+        {
+            query = query.Where(x => x.Type == input.Type);
+        }
+
+        // Apply test request filter
+        if (input.TestRequestId.HasValue)
+        {
+            query = query.Where(x => x.TestRequestId == input.TestRequestId.Value);
+        }
+
+        // Apply date range filter
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.ReceivedDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.ReceivedDate <= input.ToDate.Value);
+        }
+
+        // Get total count
+        var totalCount = await AsyncExecuter.CountAsync(query);
+
+        // Apply sorting
+        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        {
+            query = query.OrderBy(input.Sorting);
+        }
+        else
+        {
+            query = query.OrderByDescending(x => x.ReceivedDate);
+        }
+
+        // Apply paging
+        query = query
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount);
+
+        var entities = await AsyncExecuter.ToListAsync(query);
+
+        var dtos = ObjectMapper.Map<List<Specimen>, List<SpecimenDto>>(entities);
+
+        foreach (var dto in dtos)
+        {
+            var entity = entities.FirstOrDefault(x => x.Id == dto.Id);
+            if (entity?.TestRequest != null)
+            {
+                dto.TestRequestNumber = entity.TestRequest.RequestNumber;
+            }
+        }
+
+        return new PagedResultDto<SpecimenDto>(totalCount, dtos);
     }
 
     public override async Task<PagedResultDto<SpecimenDto>> GetListAsync(PagedAndSortedResultRequestDto input)
@@ -115,5 +196,95 @@ public class SpecimenAppService :
         var sequence = (count + 1).ToString("D4");
 
         return $"{prefix}-{sequence}";
+    }
+
+    public async Task<ListResultDto<SpecimenDto>> GetByTestRequestAsync(Guid testRequestId)
+    {
+        var query = await Repository.GetQueryableAsync();
+        var items = query
+            .Where(x => x.TestRequestId == testRequestId)
+            .OrderBy(x => x.Code)
+            .ToList();
+
+        return new ListResultDto<SpecimenDto>(
+            ObjectMapper.Map<System.Collections.Generic.List<Specimen>, System.Collections.Generic.List<SpecimenDto>>(items)
+        );
+    }
+
+    public async Task<CreateManySpecimensResultDto> CreateManyAsync(CreateManySpecimensDto input)
+    {
+        var result = new CreateManySpecimensResultDto
+        {
+            TotalRequested = input.Specimens.Count
+        };
+
+        // Validate test request exists
+        var testRequest = await _testRequestRepository.FindAsync(input.TestRequestId);
+        if (testRequest == null)
+        {
+            result.Errors.Add($"Không tìm thấy phiếu yêu cầu với ID: {input.TestRequestId}");
+            result.FailedCount = input.Specimens.Count;
+            return result;
+        }
+
+        var createdSpecimens = new List<Specimen>();
+
+        foreach (var specimenItem in input.Specimens)
+        {
+            try
+            {
+                // Generate code if not provided
+                var code = string.IsNullOrWhiteSpace(specimenItem.Code)
+                    ? await GenerateSpecimenCodeAsync()
+                    : specimenItem.Code;
+
+                var specimen = new Specimen(
+                    GuidGenerator.Create(),
+                    input.TestRequestId,
+                    code,
+                    specimenItem.Name,
+                    specimenItem.Type,
+                    specimenItem.ReceivedDate
+                );
+
+                specimen.Quantity = specimenItem.Quantity;
+                specimen.Unit = specimenItem.Unit;
+                specimen.Status = specimenItem.Status;
+                specimen.StorageLocation = input.StorageLocation;
+                specimen.Notes = input.Description;
+
+                // Add storage condition to notes if provided
+                if (!string.IsNullOrWhiteSpace(input.StorageCondition))
+                {
+                    specimen.Notes = string.IsNullOrWhiteSpace(specimen.Notes)
+                        ? $"Điều kiện bảo quản: {input.StorageCondition}"
+                        : $"{specimen.Notes}\nĐiều kiện bảo quản: {input.StorageCondition}";
+                }
+
+                createdSpecimens.Add(specimen);
+            }
+            catch (Exception ex)
+            {
+                result.Errors.Add($"Lỗi tạo mẫu '{specimenItem.Name}': {ex.Message}");
+                result.FailedCount++;
+            }
+        }
+
+        // Batch insert all specimens
+        if (createdSpecimens.Any())
+        {
+            await Repository.InsertManyAsync(createdSpecimens, autoSave: true);
+
+            // Map to DTOs
+            foreach (var specimen in createdSpecimens)
+            {
+                var dto = ObjectMapper.Map<Specimen, SpecimenDto>(specimen);
+                dto.TestRequestNumber = testRequest.RequestNumber;
+                result.CreatedSpecimens.Add(dto);
+                result.SuccessCount++;
+            }
+        }
+
+        return result;
     }
 }

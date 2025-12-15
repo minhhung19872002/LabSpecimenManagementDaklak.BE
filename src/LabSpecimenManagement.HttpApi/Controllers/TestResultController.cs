@@ -1,15 +1,19 @@
 using System;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.TestResults;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
-using LabSpecimenManagement.TestResults;
 
 namespace LabSpecimenManagement.Controllers;
 
 [RemoteService]
-[Area("app")]
-[Route("api/app/test-result")]
+[Route("api/v1/test-results")]
+[Authorize(LabSpecimenManagementPermissions.TestResults.Default)]
 public class TestResultController : LabSpecimenManagementController
 {
     private readonly ITestResultAppService _testResultAppService;
@@ -20,9 +24,26 @@ public class TestResultController : LabSpecimenManagementController
     }
 
     [HttpGet]
-    public virtual Task<PagedResultDto<TestResultDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<TestResultDto>> GetListAsync(
+        [FromQuery] int skipCount = 0,
+        [FromQuery] int maxResultCount = 50,
+        [FromQuery] string? sorting = null,
+        [FromQuery] string? search = null,
+        [FromQuery] ResultApprovalStatus? approvalStatus = null,
+        [FromQuery] bool? isPass = null,
+        [FromQuery] Guid? testId = null)
     {
-        return _testResultAppService.GetListAsync(input);
+        var input = new GetTestResultListDto
+        {
+            SkipCount = skipCount,
+            MaxResultCount = maxResultCount,
+            Sorting = sorting,
+            Search = search,
+            ApprovalStatus = approvalStatus,
+            IsPass = isPass,
+            TestId = testId
+        };
+        return await _testResultAppService.GetFilteredListAsync(input);
     }
 
     [HttpGet("{id}")]
@@ -32,18 +53,21 @@ public class TestResultController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    public virtual Task<TestResultDto> CreateAsync(CreateTestResultDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Create)]
+    public virtual Task<TestResultDto> CreateAsync([FromBody] CreateTestResultDto input)
     {
         return _testResultAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    public virtual Task<TestResultDto> UpdateAsync(Guid id, UpdateTestResultDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Edit)]
+    public virtual Task<TestResultDto> UpdateAsync(Guid id, [FromBody] UpdateTestResultDto input)
     {
         return _testResultAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _testResultAppService.DeleteAsync(id);
@@ -53,51 +77,82 @@ public class TestResultController : LabSpecimenManagementController
 
     /// <summary>
     /// KTV submit kết quả để chờ duyệt
-    /// POST /api/app/test-result/{id}/submit
     /// </summary>
     [HttpPost("{id}/submit")]
-    public virtual Task<TestResultDto> SubmitForReviewAsync(Guid id, SubmitForReviewDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Submit)]
+    public virtual Task<TestResultDto> SubmitForReviewAsync(Guid id, [FromBody] SubmitForReviewDto input)
     {
         return _testResultAppService.SubmitForReviewAsync(id, input);
     }
 
     /// <summary>
     /// Trưởng phòng duyệt kết quả (Step 1)
-    /// POST /api/app/test-result/{id}/review
     /// </summary>
     [HttpPost("{id}/review")]
-    public virtual Task<TestResultDto> ReviewAsync(Guid id, ReviewResultDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Review)]
+    public virtual Task<TestResultDto> ReviewAsync(Guid id, [FromBody] ReviewResultDto input)
     {
         return _testResultAppService.ReviewAsync(id, input);
     }
 
     /// <summary>
     /// Giám đốc phê duyệt kết quả (Step 2)
-    /// POST /api/app/test-result/{id}/approve
     /// </summary>
     [HttpPost("{id}/approve")]
-    public virtual Task<TestResultDto> ApproveAsync(Guid id, ApproveResultDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Approve)]
+    public virtual Task<TestResultDto> ApproveAsync(Guid id, [FromBody] ApproveResultDto input)
     {
         return _testResultAppService.ApproveAsync(id, input);
     }
 
     /// <summary>
     /// Lấy danh sách kết quả chờ duyệt B1 (cho Trưởng phòng)
-    /// GET /api/app/test-result/pending-review
     /// </summary>
     [HttpGet("pending-review")]
-    public virtual Task<PagedResultDto<TestResultDto>> GetPendingReviewListAsync(PagedAndSortedResultRequestDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Review)]
+    public virtual async Task<PagedResultDto<TestResultDto>> GetPendingReviewListAsync([FromQuery] PagedRequestDto input)
     {
-        return _testResultAppService.GetPendingReviewListAsync(input);
+        var abpInput = new PagedAndSortedResultRequestDto
+        {
+            SkipCount = input.SkipCount,
+            MaxResultCount = input.MaxResultCount,
+            Sorting = input.Sorting
+        };
+        return await _testResultAppService.GetPendingReviewListAsync(abpInput);
     }
 
     /// <summary>
     /// Lấy danh sách kết quả chờ duyệt B2 (cho Giám đốc)
-    /// GET /api/app/test-result/pending-approval
     /// </summary>
     [HttpGet("pending-approval")]
-    public virtual Task<PagedResultDto<TestResultDto>> GetPendingApprovalListAsync(PagedAndSortedResultRequestDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Approve)]
+    public virtual async Task<PagedResultDto<TestResultDto>> GetPendingApprovalListAsync([FromQuery] PagedRequestDto input)
     {
-        return _testResultAppService.GetPendingApprovalListAsync(input);
+        var abpInput = new PagedAndSortedResultRequestDto
+        {
+            SkipCount = input.SkipCount,
+            MaxResultCount = input.MaxResultCount,
+            Sorting = input.Sorting
+        };
+        return await _testResultAppService.GetPendingApprovalListAsync(abpInput);
+    }
+
+    /// <summary>
+    /// Từ chối kết quả
+    /// </summary>
+    [HttpPost("{id}/reject")]
+    [Authorize(LabSpecimenManagementPermissions.TestResults.Reject)]
+    public virtual Task<TestResultDto> RejectAsync(Guid id, [FromBody] RejectResultDto input)
+    {
+        return _testResultAppService.RejectAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lấy kết quả theo phép thử
+    /// </summary>
+    [HttpGet("by-test/{testId}")]
+    public virtual Task<ListResultDto<TestResultDto>> GetByTestAsync(Guid testId)
+    {
+        return _testResultAppService.GetByTestAsync(testId);
     }
 }

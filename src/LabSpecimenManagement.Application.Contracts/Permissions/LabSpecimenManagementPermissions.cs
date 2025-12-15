@@ -70,5 +70,118 @@ public static class LabSpecimenManagementPermissions
         public const string Edit = Default + ".Edit";
         public const string Delete = Default + ".Delete";
         public const string Close = Default + ".Close";
+        public const string Assign = Default + ".Assign";
+    }
+
+    // Task Assignment Permissions
+    public static class TaskAssignments
+    {
+        public const string Default = GroupName + ".TaskAssignments";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Accept = Default + ".Accept";
+        public const string Reject = Default + ".Reject";
+        public const string Complete = Default + ".Complete";
+    }
+
+    // Subcontractor Permissions
+    public static class Subcontractors
+    {
+        public const string Default = GroupName + ".Subcontractors";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Dashboard Permissions
+    public static class Dashboard
+    {
+        public const string Default = GroupName + ".Dashboard";
+    }
+
+    // Statistics Permissions
+    public static class Statistics
+    {
+        public const string Default = GroupName + ".Statistics";
+        public const string Export = Default + ".Export";
+    }
+
+    // Master Data - Department Permissions
+    public static class Departments
+    {
+        public const string Default = GroupName + ".Departments";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Specimen Type Permissions
+    public static class SpecimenTypes
+    {
+        public const string Default = GroupName + ".SpecimenTypes";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Test Method Permissions
+    public static class TestMethods
+    {
+        public const string Default = GroupName + ".TestMethods";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Storage Location Permissions
+    public static class StorageLocations
+    {
+        public const string Default = GroupName + ".StorageLocations";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Customer Permissions
+    public static class Customers
+    {
+        public const string Default = GroupName + ".Customers";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Audit Log Permissions
+    public static class AuditLogs
+    {
+        public const string Default = GroupName + ".AuditLogs";
+    }
+
+    // Import Permissions
+    public static class Import
+    {
+        public const string Default = GroupName + ".Import";
+        public const string TestRequests = Default + ".TestRequests";
+        public const string Specimens = Default + ".Specimens";
+        public const string Customers = Default + ".Customers";
+        public const string TestMethods = Default + ".TestMethods";
+    }
+
+    // User Management Permissions
+    public static class Users
+    {
+        public const string Default = GroupName + ".Users";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string ManageRoles = Default + ".ManageRoles";
+    }
+
+    // Settings Permissions
+    public static class Settings
+    {
+        public const string Default = GroupName + ".Settings";
+        public const string Edit = Default + ".Edit";
     }
 }

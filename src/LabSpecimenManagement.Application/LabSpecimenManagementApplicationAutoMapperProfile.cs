@@ -1,4 +1,9 @@
-﻿using AutoMapper;
+using AutoMapper;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.NCRs;
+using LabSpecimenManagement.Reports;
+using LabSpecimenManagement.Subcontractors;
+using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestResults;
 
 namespace LabSpecimenManagement;
@@ -13,18 +18,24 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
 
         // TestRequest mappings
         CreateMap<TestRequests.TestRequest, TestRequests.TestRequestDto>();
-        CreateMap<TestRequests.CreateTestRequestDto, TestRequests.TestRequest>();
-        CreateMap<TestRequests.UpdateTestRequestDto, TestRequests.TestRequest>();
+        // Note: CreateTestRequestDto -> TestRequest mapping is handled by TestRequestAppService.MapToEntityAsync()
+        // to auto-generate the Request Number
+        CreateMap<TestRequests.UpdateTestRequestDto, TestRequests.TestRequest>()
+            .ForMember(dest => dest.RequestNumber, opt => opt.Ignore()); // Don't overwrite RequestNumber on update
 
         // Specimen mappings
         CreateMap<TestRequests.Specimen, Specimens.SpecimenDto>();
-        CreateMap<Specimens.CreateSpecimenDto, TestRequests.Specimen>();
-        CreateMap<Specimens.UpdateSpecimenDto, TestRequests.Specimen>();
+        // Note: CreateSpecimenDto -> Specimen mapping is handled by SpecimenAppService.MapToEntityAsync()
+        // to auto-generate the Specimen Code
+        CreateMap<Specimens.UpdateSpecimenDto, TestRequests.Specimen>()
+            .ForMember(dest => dest.Code, opt => opt.Ignore()); // Don't overwrite Code on update
 
         // Test mappings
         CreateMap<TestRequests.Test, Tests.TestDto>();
-        CreateMap<Tests.CreateTestDto, TestRequests.Test>();
-        CreateMap<Tests.UpdateTestDto, TestRequests.Test>();
+        // Note: CreateTestDto -> Test mapping is handled by TestAppService.MapToEntityAsync()
+        // to auto-generate the Test Code
+        CreateMap<Tests.UpdateTestDto, TestRequests.Test>()
+            .ForMember(dest => dest.Code, opt => opt.Ignore()); // Don't overwrite Code on update
 
         // TestResult mappings
         CreateMap<TestRequests.TestResult, TestResults.TestResultDto>();
@@ -35,5 +46,48 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<TestRequests.SpecimenHistory, SpecimenHistories.SpecimenHistoryDto>();
         CreateMap<SpecimenHistories.CreateSpecimenHistoryDto, TestRequests.SpecimenHistory>();
         CreateMap<SpecimenHistories.UpdateSpecimenHistoryDto, TestRequests.SpecimenHistory>();
+
+        // ============ NEW MAPPINGS ============
+
+        // Department mappings
+        CreateMap<Department, DepartmentDto>();
+        CreateMap<CreateUpdateDepartmentDto, Department>();
+
+        // SpecimenType mappings
+        CreateMap<SpecimenType, SpecimenTypeDto>();
+        CreateMap<CreateUpdateSpecimenTypeDto, SpecimenType>();
+
+        // TestMethod mappings
+        CreateMap<TestMethod, TestMethodDto>();
+        CreateMap<CreateUpdateTestMethodDto, TestMethod>();
+
+        // StorageLocation mappings
+        CreateMap<StorageLocation, StorageLocationDto>();
+        CreateMap<CreateUpdateStorageLocationDto, StorageLocation>();
+
+        // Customer mappings
+        CreateMap<Customer, CustomerDto>();
+        CreateMap<CreateUpdateCustomerDto, Customer>();
+
+        // NCR mappings
+        CreateMap<NCR, NCRDto>();
+        CreateMap<CreateNCRDto, NCR>();
+        CreateMap<UpdateNCRDto, NCR>();
+
+        // Report mappings
+        CreateMap<Report, ReportDto>();
+        CreateMap<CreateReportDto, Report>();
+        CreateMap<UpdateReportDto, Report>();
+
+        // TaskAssignment mappings
+        CreateMap<TaskAssignment, TaskAssignmentDto>();
+        CreateMap<CreateTaskAssignmentDto, TaskAssignment>();
+        CreateMap<UpdateTaskAssignmentDto, TaskAssignment>();
+
+        // Subcontractor mappings
+        CreateMap<Subcontractor, SubcontractorDto>();
+        CreateMap<CreateUpdateSubcontractorDto, Subcontractor>();
+        CreateMap<SubcontractorCertification, SubcontractorCertificationDto>();
+        CreateMap<CreateUpdateCertificationDto, SubcontractorCertification>();
     }
 }

@@ -40,22 +40,22 @@ public class Specimen : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Vị trí lưu mẫu - Storage Location
     /// </summary>
-    public string StorageLocation { get; set; }
+    public string? StorageLocation { get; set; }
 
     /// <summary>
     /// Ghi chú - Notes
     /// </summary>
-    public string Notes { get; set; }
+    public string? Notes { get; set; }
 
     /// <summary>
     /// Hình ảnh mẫu - Specimen images
     /// </summary>
-    public string Images { get; set; }
+    public string? Images { get; set; }
 
     /// <summary>
     /// Sai lệch (deviation) nếu có
     /// </summary>
-    public string Deviation { get; set; }
+    public string? Deviation { get; set; }
 
     /// <summary>
     /// Số lượng mẫu
@@ -65,7 +65,7 @@ public class Specimen : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Đơn vị
     /// </summary>
-    public string Unit { get; set; }
+    public string? Unit { get; set; }
 
     public virtual TestRequest TestRequest { get; set; }
 

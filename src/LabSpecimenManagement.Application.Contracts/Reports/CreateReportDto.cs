@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.Reports;
@@ -7,22 +6,28 @@ namespace LabSpecimenManagement.Reports;
 public class CreateReportDto
 {
     [Required]
+    [StringLength(256)]
+    public string Title { get; set; }
+
+    [Required]
     public Guid TestRequestId { get; set; }
 
-    public DateTime ReportDate { get; set; } = DateTime.Now;
+    public Guid? CustomerId { get; set; }
 
-    public string? RecipientEmail { get; set; }
-
-    public string? RecipientName { get; set; }
-
-    public string? Standards { get; set; }
-
-    public string? Conclusion { get; set; }
-
-    public string? Notes { get; set; }
+    [Required]
+    [StringLength(256)]
+    public string CustomerName { get; set; }
 
     /// <summary>
-    /// List of TestResult IDs to include in the report
+    /// JSON array of specimen IDs
     /// </summary>
-    public List<Guid> TestResultIds { get; set; } = new();
+    public string? SpecimenIds { get; set; }
+
+    /// <summary>
+    /// JSON array of test IDs
+    /// </summary>
+    public string? TestIds { get; set; }
+
+    [StringLength(2000)]
+    public string? Notes { get; set; }
 }

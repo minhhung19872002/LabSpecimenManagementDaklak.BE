@@ -1,17 +1,20 @@
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Reports;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading.Tasks;
-using LabSpecimenManagement.Reports;
-using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
-using Volo.Abp.AspNetCore.Mvc;
+using Volo.Abp.Content;
 
 namespace LabSpecimenManagement.Controllers;
 
 [RemoteService(Name = "Default")]
-[Area("app")]
-[Route("api/app/report")]
-public class ReportController : AbpControllerBase
+[Route("api/v1/reports")]
+[Authorize(LabSpecimenManagementPermissions.Reports.Default)]
+public class ReportController : LabSpecimenManagementController
 {
     private readonly IReportAppService _reportAppService;
 
@@ -21,9 +24,15 @@ public class ReportController : AbpControllerBase
     }
 
     [HttpGet]
-    public virtual Task<PagedResultDto<ReportDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<ReportDto>> GetListAsync([FromQuery] PagedRequestDto input)
     {
-        return _reportAppService.GetListAsync(input);
+        var abpInput = new PagedAndSortedResultRequestDto
+        {
+            SkipCount = input.SkipCount,
+            MaxResultCount = input.MaxResultCount,
+            Sorting = input.Sorting
+        };
+        return await _reportAppService.GetListAsync(abpInput);
     }
 
     [HttpGet("{id}")]
@@ -33,76 +42,78 @@ public class ReportController : AbpControllerBase
     }
 
     [HttpPost]
-    public virtual Task<ReportDto> CreateAsync(CreateReportDto input)
+    [Authorize(LabSpecimenManagementPermissions.Reports.Create)]
+    public virtual Task<ReportDto> CreateAsync([FromBody] CreateReportDto input)
     {
         return _reportAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    public virtual Task<ReportDto> UpdateAsync(Guid id, UpdateReportDto input)
+    [Authorize(LabSpecimenManagementPermissions.Reports.Edit)]
+    public virtual Task<ReportDto> UpdateAsync(Guid id, [FromBody] UpdateReportDto input)
     {
         return _reportAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _reportAppService.DeleteAsync(id);
     }
 
-    /// <summary>
-    /// Generate QR code for the report
-    /// </summary>
-    [HttpPost("{id}/generate-qr-code")]
-    public virtual Task<ReportDto> GenerateQRCodeAsync(Guid id)
+    [HttpPost("{id}/submit")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Create)]
+    public virtual Task<ReportDto> SubmitForApprovalAsync(Guid id)
     {
-        return _reportAppService.GenerateQRCodeAsync(id);
+        return _reportAppService.SubmitForApprovalAsync(id);
     }
 
-    /// <summary>
-    /// Approve the report
-    /// </summary>
     [HttpPost("{id}/approve")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Approve)]
     public virtual Task<ReportDto> ApproveAsync(Guid id)
     {
         return _reportAppService.ApproveAsync(id);
     }
 
-    /// <summary>
-    /// Send report via email
-    /// </summary>
-    [HttpPost("{id}/send")]
-    public virtual Task<ReportDto> SendReportAsync(Guid id)
+    [HttpPost("{id}/reject")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Approve)]
+    public virtual Task<ReportDto> RejectAsync(Guid id, [FromBody] string reason)
     {
-        return _reportAppService.SendReportAsync(id);
+        return _reportAppService.RejectAsync(id, reason);
     }
 
-    /// <summary>
-    /// Cancel the report
-    /// </summary>
-    [HttpPost("{id}/cancel")]
-    public virtual Task<ReportDto> CancelAsync(Guid id)
+    [HttpPost("{id}/issue")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Approve)]
+    public virtual Task<ReportDto> IssueAsync(Guid id)
     {
-        return _reportAppService.CancelAsync(id);
+        return _reportAppService.IssueAsync(id);
     }
 
-    /// <summary>
-    /// Export report as PDF
-    /// </summary>
-    [HttpGet("{id}/export-pdf")]
-    public virtual Task<byte[]> ExportToPdfAsync(Guid id)
+    [HttpPost("{id}/send-email")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Send)]
+    public virtual Task SendEmailAsync(Guid id)
     {
-        return _reportAppService.ExportToPdfAsync(id);
+        return _reportAppService.SendEmailAsync(id);
     }
 
-    /// <summary>
-    /// Get reports by Test Request ID
-    /// </summary>
     [HttpGet("by-test-request/{testRequestId}")]
-    public virtual Task<PagedResultDto<ReportDto>> GetByTestRequestIdAsync(
-        Guid testRequestId,
-        [FromQuery] PagedAndSortedResultRequestDto input)
+    public virtual Task<ListResultDto<ReportDto>> GetByTestRequestAsync(Guid testRequestId)
     {
-        return _reportAppService.GetByTestRequestIdAsync(testRequestId, input);
+        return _reportAppService.GetByTestRequestAsync(testRequestId);
+    }
+
+    [HttpGet("{id}/pdf")]
+    [Authorize(LabSpecimenManagementPermissions.Reports.Export)]
+    public virtual Task<IRemoteStreamContent> ExportPdfAsync(Guid id)
+    {
+        return _reportAppService.ExportPdfAsync(id);
+    }
+
+    [HttpGet("verify/{reportNumber}")]
+    [AllowAnonymous]
+    public virtual Task<ReportVerifyResultDto> VerifyReportAsync(string reportNumber)
+    {
+        return _reportAppService.VerifyReportAsync(reportNumber);
     }
 }

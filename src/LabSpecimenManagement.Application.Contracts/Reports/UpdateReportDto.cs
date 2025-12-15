@@ -1,24 +1,27 @@
 using System;
-using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.Reports;
 
 public class UpdateReportDto
 {
-    public DateTime ReportDate { get; set; }
+    [Required]
+    [StringLength(256)]
+    public string Title { get; set; }
 
-    public string? RecipientEmail { get; set; }
+    public Guid? CustomerId { get; set; }
 
-    public string? RecipientName { get; set; }
+    [Required]
+    [StringLength(256)]
+    public string CustomerName { get; set; }
 
-    public string? Standards { get; set; }
+    public string? SpecimenIds { get; set; }
 
-    public string? Conclusion { get; set; }
+    public string? TestIds { get; set; }
 
+    [Required]
+    public ReportStatus Status { get; set; }
+
+    [StringLength(2000)]
     public string? Notes { get; set; }
-
-    /// <summary>
-    /// List of TestResult IDs to include in the report
-    /// </summary>
-    public List<Guid> TestResultIds { get; set; } = new();
 }

@@ -1,104 +1,132 @@
 using System;
-using System.Collections.Generic;
 using Volo.Abp.Domain.Entities.Auditing;
-using LabSpecimenManagement.TestRequests;
 
 namespace LabSpecimenManagement.Reports;
 
 /// <summary>
-/// Báo cáo kết quả thử nghiệm - Test Report
-/// ISO/IEC 17025:2017 - Section 7.8 Reporting of results
+/// Phiếu kết quả thử nghiệm - Test Report
+/// ISO/IEC 17025:2017 Section 7.8
 /// </summary>
 public class Report : FullAuditedAggregateRoot<Guid>
 {
     /// <summary>
-    /// Số báo cáo - Report number (REP-YYYYMMDD-XXXX)
+    /// Số báo cáo (auto-generated: RPT-YYYYMMDD-XXXX)
     /// </summary>
     public string ReportNumber { get; set; }
 
     /// <summary>
-    /// Ngày báo cáo - Report date
+    /// Tiêu đề báo cáo
     /// </summary>
-    public DateTime ReportDate { get; set; }
+    public string Title { get; set; }
 
     /// <summary>
-    /// Phiếu yêu cầu - Test Request
+    /// ID yêu cầu thử nghiệm
     /// </summary>
     public Guid TestRequestId { get; set; }
 
     /// <summary>
-    /// Mã QR code cho báo cáo
+    /// ID khách hàng
     /// </summary>
-    public string? QRCode { get; set; }
+    public Guid? CustomerId { get; set; }
 
     /// <summary>
-    /// Trạng thái báo cáo - Report status
+    /// Tên khách hàng (denormalized)
+    /// </summary>
+    public string CustomerName { get; set; }
+
+    /// <summary>
+    /// Danh sách ID mẫu (JSON array)
+    /// </summary>
+    public string? SpecimenIds { get; set; }
+
+    /// <summary>
+    /// Danh sách ID phép thử (JSON array)
+    /// </summary>
+    public string? TestIds { get; set; }
+
+    /// <summary>
+    /// Trạng thái báo cáo
     /// </summary>
     public ReportStatus Status { get; set; }
 
     /// <summary>
-    /// Người phê duyệt - Approver
+    /// Ngày lập báo cáo
+    /// </summary>
+    public DateTime ReportDate { get; set; }
+
+    /// <summary>
+    /// Ngày phát hành
+    /// </summary>
+    public DateTime? IssuedDate { get; set; }
+
+    /// <summary>
+    /// Người lập báo cáo
+    /// </summary>
+    public Guid? PreparedById { get; set; }
+
+    /// <summary>
+    /// Người kiểm tra
+    /// </summary>
+    public Guid? ReviewedById { get; set; }
+
+    /// <summary>
+    /// Ngày kiểm tra
+    /// </summary>
+    public DateTime? ReviewedDate { get; set; }
+
+    /// <summary>
+    /// Người phê duyệt
     /// </summary>
     public Guid? ApprovedById { get; set; }
 
     /// <summary>
-    /// Ngày phê duyệt - Approved date
+    /// Ngày phê duyệt
     /// </summary>
     public DateTime? ApprovedDate { get; set; }
 
     /// <summary>
-    /// Ngày gửi báo cáo - Sent date
+    /// QR Code URL
     /// </summary>
-    public DateTime? SentDate { get; set; }
+    public string? QRCode { get; set; }
 
     /// <summary>
-    /// Email người nhận - Recipient email
+    /// Đường dẫn file PDF
     /// </summary>
-    public string? RecipientEmail { get; set; }
+    public string? PdfPath { get; set; }
 
     /// <summary>
-    /// Tên người nhận - Recipient name
+    /// Đã gửi email cho khách hàng chưa
     /// </summary>
-    public string? RecipientName { get; set; }
+    public bool IsEmailSent { get; set; }
 
     /// <summary>
-    /// Tiêu chuẩn áp dụng (JSON) - Applied standards
+    /// Ngày gửi email
     /// </summary>
-    public string? Standards { get; set; }
+    public DateTime? EmailSentDate { get; set; }
 
     /// <summary>
-    /// Kết luận chung - General conclusion
-    /// </summary>
-    public string? Conclusion { get; set; }
-
-    /// <summary>
-    /// Ghi chú - Notes
+    /// Ghi chú
     /// </summary>
     public string? Notes { get; set; }
 
-    public virtual TestRequest TestRequest { get; set; }
-
-    /// <summary>
-    /// Danh sách kết quả trong báo cáo - Test results included in report
-    /// </summary>
-    public virtual ICollection<ReportTestResult> ReportTestResults { get; set; }
-
     protected Report()
     {
-        ReportTestResults = new List<ReportTestResult>();
     }
 
     public Report(
         Guid id,
         string reportNumber,
-        DateTime reportDate,
-        Guid testRequestId
+        string title,
+        Guid testRequestId,
+        string customerName
     ) : base(id)
     {
         ReportNumber = reportNumber;
-        ReportDate = reportDate;
+        Title = title;
         TestRequestId = testRequestId;
+        CustomerName = customerName;
+        ReportDate = DateTime.Now;
         Status = ReportStatus.Draft;
-        ReportTestResults = new List<ReportTestResult>();
+        IsEmailSent = false;
     }
 }

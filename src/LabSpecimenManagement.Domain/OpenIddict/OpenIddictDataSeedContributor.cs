@@ -79,8 +79,20 @@ public class OpenIddictDataSeedContributor : IDataSeedContributor, ITransientDep
 
         var configurationSection = _configuration.GetSection("OpenIddict:Applications");
 
-
-
+        // App Client (for password grant - used by frontend login)
+        await CreateApplicationAsync(
+            name: "LabSpecimenManagement_App",
+            type: OpenIddictConstants.ClientTypes.Public,
+            consentType: OpenIddictConstants.ConsentTypes.Implicit,
+            displayName: "LabSpecimenManagement App",
+            secret: null,
+            grantTypes: new List<string>
+            {
+                OpenIddictConstants.GrantTypes.Password,
+                OpenIddictConstants.GrantTypes.RefreshToken
+            },
+            scopes: commonScopes
+        );
 
 
 

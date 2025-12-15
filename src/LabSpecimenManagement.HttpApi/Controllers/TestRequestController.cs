@@ -1,17 +1,19 @@
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.TestRequests;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
-using Volo.Abp.AspNetCore.Mvc;
 
 namespace LabSpecimenManagement.Controllers;
 
 [RemoteService(Name = "Default")]
-[Area("app")]
-[Route("api/app/test-request")]
-public class TestRequestController : AbpControllerBase
+[Route("api/v1/test-requests")]
+[Authorize(LabSpecimenManagementPermissions.TestRequests.Default)]
+public class TestRequestController : LabSpecimenManagementController
 {
     private readonly ITestRequestAppService _testRequestAppService;
 
@@ -21,33 +23,33 @@ public class TestRequestController : AbpControllerBase
     }
 
     [HttpGet]
-    public virtual Task<PagedResultDto<TestRequestDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<TestRequestDto>> GetListAsync([FromQuery] GetTestRequestListDto input)
     {
-        return _testRequestAppService.GetListAsync(input);
+        return await _testRequestAppService.GetFilteredListAsync(input);
     }
 
-    [HttpGet]
-    [Route("{id}")]
+    [HttpGet("{id}")]
     public virtual Task<TestRequestDto> GetAsync(Guid id)
     {
         return _testRequestAppService.GetAsync(id);
     }
 
     [HttpPost]
-    public virtual Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Create)]
+    public virtual Task<TestRequestDto> CreateAsync([FromBody] CreateTestRequestDto input)
     {
         return _testRequestAppService.CreateAsync(input);
     }
 
-    [HttpPut]
-    [Route("{id}")]
-    public virtual Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
+    [HttpPut("{id}")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<TestRequestDto> UpdateAsync(Guid id, [FromBody] UpdateTestRequestDto input)
     {
         return _testRequestAppService.UpdateAsync(id, input);
     }
 
-    [HttpDelete]
-    [Route("{id}")]
+    [HttpDelete("{id}")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _testRequestAppService.DeleteAsync(id);

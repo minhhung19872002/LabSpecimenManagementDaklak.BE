@@ -65,9 +65,9 @@ public class Test : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Ghi chú - Notes
     /// </summary>
-    public string Notes { get; set; }
+    public string? Notes { get; set; }
 
-    public virtual Specimen Specimen { get; set; }
+    public virtual Specimen? Specimen { get; set; }
 
     /// <summary>
     /// Kết quả thử nghiệm - Test results

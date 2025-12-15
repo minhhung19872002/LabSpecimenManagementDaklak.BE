@@ -1,4 +1,5 @@
 using System;
+using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -12,4 +13,8 @@ public interface ITestRequestAppService :
         CreateTestRequestDto,
         UpdateTestRequestDto>
 {
+    /// <summary>
+    /// Get filtered and paged list of test requests
+    /// </summary>
+    Task<PagedResultDto<TestRequestDto>> GetFilteredListAsync(GetTestRequestListDto input);
 }

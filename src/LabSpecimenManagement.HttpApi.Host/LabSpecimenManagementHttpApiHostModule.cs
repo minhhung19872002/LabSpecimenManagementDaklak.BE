@@ -6,10 +6,13 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using LabSpecimenManagement.Email;
 using LabSpecimenManagement.EntityFrameworkCore;
+using LabSpecimenManagement.Filters;
 using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
@@ -74,6 +77,22 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
         ConfigureHealthChecks(context);
+        ConfigureApiFilters(context);
+        ConfigureEmail(context, configuration);
+    }
+
+    private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        context.Services.Configure<EmailSettings>(configuration.GetSection("Email"));
+    }
+
+    private void ConfigureAuthentication(ServiceConfigurationContext context)
+    {
+        context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
+        {
+            options.IsDynamicClaimsEnabled = true;
+        });
     }
 
     private void ConfigureHealthChecks(ServiceConfigurationContext context)
@@ -168,7 +187,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             },
             options =>
             {
-                options.SwaggerDoc("v1", new OpenApiInfo { Title = "LabSpecimenManagement API", Version = "v1" });
+                options.SwaggerDoc("v1", new OpenApiInfo { Title = "LabSpecimenManagement API", Version = "v1.0" });
                 options.DocInclusionPredicate((docName, description) => true);
                 options.CustomSchemaIds(type => type.FullName);
             });
@@ -191,6 +210,15 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
+        });
+    }
+
+    private void ConfigureApiFilters(ServiceConfigurationContext context)
+    {
+        context.Services.Configure<MvcOptions>(options =>
+        {
+            options.Filters.Add<ApiResponseWrapperFilter>();
+            options.Filters.Add<ApiExceptionFilter>();
         });
     }
 

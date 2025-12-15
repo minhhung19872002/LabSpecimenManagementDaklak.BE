@@ -7,19 +7,38 @@ namespace LabSpecimenManagement.Reports;
 public class ReportDto : FullAuditedEntityDto<Guid>
 {
     public string ReportNumber { get; set; }
-    public DateTime ReportDate { get; set; }
+    public string Title { get; set; }
     public Guid TestRequestId { get; set; }
-    public string? QRCode { get; set; }
-    public ReportStatus Status { get; set; }
-    public Guid? ApprovedById { get; set; }
-    public DateTime? ApprovedDate { get; set; }
-    public DateTime? SentDate { get; set; }
-    public string? RecipientEmail { get; set; }
-    public string? RecipientName { get; set; }
-    public string? Standards { get; set; }
-    public string? Conclusion { get; set; }
-    public string? Notes { get; set; }
+    public string? TestRequestNumber { get; set; }
+    public Guid? CustomerId { get; set; }
+    public string CustomerName { get; set; }
+    public string? SpecimenIds { get; set; }
+    public string? TestIds { get; set; }
 
-    // Navigation properties (optional, for frontend convenience)
-    public List<Guid> TestResultIds { get; set; } = new();
+    /// <summary>
+    /// List of specimen codes (populated from SpecimenIds)
+    /// </summary>
+    public List<string>? SpecimenCodes { get; set; }
+
+    /// <summary>
+    /// Number of tests in this report
+    /// </summary>
+    public int TestCount { get; set; }
+
+    public ReportStatus Status { get; set; }
+    public DateTime ReportDate { get; set; }
+    public DateTime? IssuedDate { get; set; }
+    public Guid? PreparedById { get; set; }
+    public string? PreparedByName { get; set; }
+    public Guid? ReviewedById { get; set; }
+    public string? ReviewedByName { get; set; }
+    public DateTime? ReviewedDate { get; set; }
+    public Guid? ApprovedById { get; set; }
+    public string? ApprovedByName { get; set; }
+    public DateTime? ApprovedDate { get; set; }
+    public string? QRCode { get; set; }
+    public string? PdfPath { get; set; }
+    public bool IsEmailSent { get; set; }
+    public DateTime? EmailSentDate { get; set; }
+    public string? Notes { get; set; }
 }

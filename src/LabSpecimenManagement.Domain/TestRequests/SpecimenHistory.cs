@@ -29,7 +29,22 @@ public class SpecimenHistory : CreationAuditedEntity<Guid>
     /// <summary>
     /// Ghi chú - Notes
     /// </summary>
-    public string Notes { get; set; }
+    public string? Notes { get; set; }
+
+    /// <summary>
+    /// Nhiệt độ (°C) - Temperature
+    /// </summary>
+    public decimal? Temperature { get; set; }
+
+    /// <summary>
+    /// Độ ẩm (%) - Humidity
+    /// </summary>
+    public decimal? Humidity { get; set; }
+
+    /// <summary>
+    /// Thời gian thực hiện - Timestamp
+    /// </summary>
+    public DateTime? Timestamp { get; set; }
 
     /// <summary>
     /// Người thực hiện - Performed by
