@@ -33,32 +33,32 @@ public class DashboardStatisticsDto
 public class RecentTestRequestDto
 {
     public Guid Id { get; set; }
-    public string RequestNumber { get; set; }
+    public string RequestNumber { get; set; } = string.Empty;
     public DateTime RequestDate { get; set; }
-    public string CustomerName { get; set; }
-    public string Status { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
     public int SpecimenCount { get; set; }
 }
 
 public class PendingApprovalDto
 {
     public Guid Id { get; set; }
-    public string Code { get; set; }
-    public string Type { get; set; } // TestResult, Report
-    public string Title { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public string Type { get; set; } = string.Empty; // TestResult, Report
+    public string Title { get; set; } = string.Empty;
     public DateTime CreatedAt { get; set; }
-    public string CreatedByName { get; set; }
-    public string Status { get; set; }
+    public string CreatedByName { get; set; } = string.Empty;
+    public string Status { get; set; } = string.Empty;
 }
 
 public class ActivityLogDto
 {
     public Guid Id { get; set; }
-    public string Action { get; set; }
-    public string EntityType { get; set; }
-    public string EntityCode { get; set; }
-    public string Description { get; set; }
-    public string UserName { get; set; }
+    public string Action { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
+    public string EntityCode { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string UserName { get; set; } = string.Empty;
     public DateTime Timestamp { get; set; }
 }
 
@@ -101,7 +101,7 @@ public class ChartDataDto
 
 public class ChartDatasetDto
 {
-    public string Label { get; set; }
+    public string Label { get; set; } = string.Empty;
     public List<int> Data { get; set; } = new();
     public string? BackgroundColor { get; set; }
     public string? BorderColor { get; set; }
@@ -113,11 +113,11 @@ public class ChartDatasetDto
 public class RecentActivityDto
 {
     public Guid Id { get; set; }
-    public string Type { get; set; }
-    public string Description { get; set; }
-    public string EntityType { get; set; }
+    public string Type { get; set; } = string.Empty;
+    public string Description { get; set; } = string.Empty;
+    public string EntityType { get; set; } = string.Empty;
     public Guid? EntityId { get; set; }
-    public string EntityCode { get; set; }
+    public string EntityCode { get; set; } = string.Empty;
     public Guid? PerformedById { get; set; }
     public string? PerformedByName { get; set; }
     public DateTime PerformedAt { get; set; }
