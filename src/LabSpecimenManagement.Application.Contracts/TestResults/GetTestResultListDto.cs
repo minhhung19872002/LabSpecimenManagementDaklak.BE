@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.TestResults;
