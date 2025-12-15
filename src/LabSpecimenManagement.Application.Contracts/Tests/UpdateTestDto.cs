@@ -8,15 +8,15 @@ public class UpdateTestDto
 {
     [Required]
     [StringLength(200)]
-    public string Name { get; set; }
+    public string Name { get; set; } = string.Empty;
 
     [Required]
     [StringLength(500)]
-    public string Method { get; set; }
+    public string Method { get; set; } = string.Empty;
 
     [Required]
     [StringLength(200)]
-    public string Standard { get; set; }
+    public string Standard { get; set; } = string.Empty;
 
     public TestStatus Status { get; set; }
 
