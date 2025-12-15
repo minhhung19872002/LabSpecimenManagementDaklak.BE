@@ -52,9 +52,6 @@ public class LabSpecimenManagementDbContext :
     // NCR Entities
     public DbSet<NCR> NCRs { get; set; }
 
-    // Report Entities
-    public DbSet<Report> Reports { get; set; }
-
     // Task Entities
     public DbSet<TaskAssignment> TaskAssignments { get; set; }
 

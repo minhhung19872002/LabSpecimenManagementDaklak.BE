@@ -9,7 +9,7 @@ public class UserLookupDto
 {
     public Guid Id { get; set; }
 
-    public string UserName { get; set; }
+    public string UserName { get; set; } = string.Empty;
 
     public string? Name { get; set; }
 
@@ -18,7 +18,7 @@ public class UserLookupDto
     /// <summary>
     /// Tên hiển thị đầy đủ (Họ Tên - Username)
     /// </summary>
-    public string DisplayName { get; set; }
+    public string DisplayName { get; set; } = string.Empty;
 
     public string? Email { get; set; }
 
