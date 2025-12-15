@@ -8,15 +8,15 @@ public class UpdateTestResultDto
 {
     [Required]
     [StringLength(200)]
-    public string Parameter { get; set; }
+    public string Parameter { get; set; } = string.Empty;
 
     [Required]
     [StringLength(500)]
-    public string Value { get; set; }
+    public string Value { get; set; } = string.Empty;
 
     [Required]
     [StringLength(50)]
-    public string Unit { get; set; }
+    public string Unit { get; set; } = string.Empty;
 
     public decimal? LowerLimit { get; set; }
 

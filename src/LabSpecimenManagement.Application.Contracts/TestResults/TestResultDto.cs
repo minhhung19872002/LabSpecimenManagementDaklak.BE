@@ -8,11 +8,11 @@ public class TestResultDto : FullAuditedEntityDto<Guid>
 {
     public Guid TestId { get; set; }
 
-    public string Parameter { get; set; }
+    public string Parameter { get; set; } = string.Empty;
 
-    public string Value { get; set; }
+    public string Value { get; set; } = string.Empty;
 
-    public string Unit { get; set; }
+    public string Unit { get; set; } = string.Empty;
 
     public decimal? LowerLimit { get; set; }
 
