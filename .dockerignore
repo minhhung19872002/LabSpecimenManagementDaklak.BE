@@ -1,0 +1,31 @@
+**/.dockerignore
+**/.git
+**/.gitignore
+**/.vs
+**/.vscode
+**/*.*proj.user
+**/*.dbmdl
+**/*.jfm
+**/bin
+**/obj
+**/out
+**/TestResults
+**/node_modules
+**/.idea
+**/.DS_Store
+**/docker-compose*
+**/Dockerfile*
+**/*.md
+**/.env
+**/.env.*
+**/secrets
+**/wwwroot/lib
+**/wwwroot/node_modules
+# Exclude test projects to reduce build context
+**/test/**
+# Keep only necessary files
+!src/**/*.cs
+!src/**/*.csproj
+!src/**/*.json
+!*.sln
+!*.props
