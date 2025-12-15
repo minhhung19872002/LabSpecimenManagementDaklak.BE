@@ -2,22 +2,31 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy ALL project files first (this allows Docker to cache dependencies)
+# Copy only necessary project files (avoid copying test projects to save memory)
 COPY src/ ./src/
-COPY test/ ./test/
 COPY *.sln ./
 COPY *.props ./
 
-# Restore dependencies for the DbMigrator project
-RUN dotnet restore src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj
+# Restore dependencies for the DbMigrator project with limited parallelism
+RUN dotnet restore src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj \
+    --runtime linux-x64
 
-# Build and publish the DbMigrator project
+# Build and publish the DbMigrator project with memory optimization
 WORKDIR /src/src/LabSpecimenManagement.DbMigrator
-RUN dotnet publish -c Release -o /app/publish --no-restore
+RUN dotnet publish -c Release -o /app/publish \
+    --no-restore \
+    --runtime linux-x64 \
+    --self-contained false \
+    /p:PublishTrimmed=false \
+    /p:PublishSingleFile=false \
+    /maxcpucount:1
 
 # Runtime Stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
+
+# Install PostgreSQL client for database readiness check
+RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
 
 # Copy published application from build stage
 COPY --from=build /app/publish .

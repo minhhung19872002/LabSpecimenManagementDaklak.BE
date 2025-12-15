@@ -61,12 +61,16 @@ services:
     build:
       context: ./lab-specimen-management-be
       dockerfile: Dockerfile.Migrator
+      shm_size: '256mb'
+      args:
+        BUILDKIT_INLINE_CACHE: 1
     container_name: lab-specimen-db-migrator
     environment:
       - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
       - Redis__Configuration=redis:6379
       - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
       - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+      - DOTNET_EnableDiagnostics=0
     depends_on:
       postgres:
         condition: service_healthy
@@ -77,6 +81,12 @@ services:
     networks:
       - lab-specimen-network
     restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+        reservations:
+          memory: 256M
 
   # Backend API (.NET 9.0)
   backend:
