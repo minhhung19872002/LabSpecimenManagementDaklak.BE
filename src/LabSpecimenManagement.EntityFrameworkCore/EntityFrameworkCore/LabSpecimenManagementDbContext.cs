@@ -334,6 +334,30 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Status);
         });
 
+        // ============ REPORT TEST RESULT CONFIGURATION (Junction Table) ============
+
+        builder.Entity<ReportTestResult>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ReportTestResults", LabSpecimenManagementConsts.DbSchema);
+            
+            // Configure composite primary key
+            b.HasKey(x => new { x.ReportId, x.TestResultId });
+
+            // Configure relationships
+            b.HasOne(x => x.Report)
+                .WithMany()
+                .HasForeignKey(x => x.ReportId)
+                .IsRequired();
+
+            b.HasOne(x => x.TestResult)
+                .WithMany()
+                .HasForeignKey(x => x.TestResultId)
+                .IsRequired();
+
+            b.HasIndex(x => x.ReportId);
+            b.HasIndex(x => x.TestResultId);
+        });
+
         // ============ TASK ASSIGNMENT CONFIGURATION ============
 
         builder.Entity<TaskAssignment>(b =>
