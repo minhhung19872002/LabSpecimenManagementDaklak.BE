@@ -2,67 +2,28 @@
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
 
-# Copy only necessary project files (avoid copying test projects to save memory)
+# Copy ALL project files first (this allows Docker to cache dependencies)
 COPY src/ ./src/
+COPY test/ ./test/
 COPY *.sln ./
 COPY *.props ./
 
-# Restore dependencies for the DbMigrator project with limited parallelism
-RUN dotnet restore src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj \
-    --runtime linux-x64
+# Restore dependencies for the DbMigrator project
+RUN dotnet restore src/LabSpecimenManagement.DbMigrator/LabSpecimenManagement.DbMigrator.csproj
 
-# Build and publish the DbMigrator project with memory optimization
+# Build and publish the DbMigrator project
 WORKDIR /src/src/LabSpecimenManagement.DbMigrator
-RUN dotnet publish -c Release -o /app/publish \
-    --no-restore \
-    --runtime linux-x64 \
-    --self-contained false \
-    /p:PublishTrimmed=false \
-    /p:PublishSingleFile=false \
-    /maxcpucount:1
+RUN dotnet publish -c Release -o /app/publish --no-restore
 
 # Runtime Stage
 FROM mcr.microsoft.com/dotnet/aspnet:9.0 AS runtime
 WORKDIR /app
 
-# Install PostgreSQL client for database readiness check
-RUN apt-get update && apt-get install -y postgresql-client && rm -rf /var/lib/apt/lists/*
-
 # Copy published application from build stage
 COPY --from=build /app/publish .
 
-# Set environment variables for better error handling
-ENV ASPNETCORE_ENVIRONMENT=Production \
-    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
-    LC_ALL=en_US.UTF-8 \
-    LANG=en_US.UTF-8
+# Set environment variables
+ENV ASPNETCORE_ENVIRONMENT=Production
 
-# Create a simple entrypoint script
-RUN printf '#!/bin/bash\n\
-set -e\n\
-\n\
-echo "=== Database Migration Started ==="\n\
-echo "Environment: $ASPNETCORE_ENVIRONMENT"\n\
-echo "Waiting 15 seconds for database to be fully ready..."\n\
-sleep 15\n\
-\n\
-echo "Testing database connection..."\n\
-pg_isready -h postgres -p 5432 -U postgres || echo "Warning: Database may not be ready"\n\
-\n\
-echo "Running migrations..."\n\
-dotnet LabSpecimenManagement.DbMigrator.dll 2>&1 | tee /tmp/migration.log\n\
-migration_status=${PIPESTATUS[0]}\n\
-\n\
-echo ""\n\
-if [ $migration_status -eq 0 ]; then\n\
-  echo "=== Migration Completed Successfully ==="\n\
-  exit 0\n\
-else\n\
-  echo "=== Migration Failed with exit code: $migration_status ==="\n\
-  echo "Last 100 lines of migration log:"\n\
-  tail -100 /tmp/migration.log\n\
-  exit $migration_status\n\
-fi\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
-
-# Run the migrator
-ENTRYPOINT ["/app/entrypoint.sh"]
+# Run the migrator (it will exit after completion)
+ENTRYPOINT ["dotnet", "LabSpecimenManagement.DbMigrator.dll"]
