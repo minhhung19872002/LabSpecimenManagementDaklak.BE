@@ -100,15 +100,6 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         context.Services.AddHealthChecks();
     }
 
-    private void ConfigureAuthentication(ServiceConfigurationContext context)
-    {
-        context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
-        context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
-        {
-            options.IsDynamicClaimsEnabled = true;
-        });
-    }
-
     private void ConfigureBundles()
     {
         Configure<AbpBundlingOptions>(options =>

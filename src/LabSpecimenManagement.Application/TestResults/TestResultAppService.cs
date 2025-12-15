@@ -196,4 +196,111 @@ public class TestResultAppService : CrudAppService<
 
         return new PagedResultDto<TestResultDto>(totalCount, dtos);
     }
+
+    public async Task<PagedResultDto<TestResultDto>> GetFilteredListAsync(GetTestResultListDto input)
+    {
+        var queryable = await Repository.WithDetailsAsync(x => x.Test);
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            queryable = queryable.Where(x =>
+                x.Parameter.Contains(input.Search) ||
+                x.Value.Contains(input.Search) ||
+                x.Unit.Contains(input.Search)
+            );
+        }
+
+        if (input.ApprovalStatus.HasValue)
+        {
+            queryable = queryable.Where(x => x.ApprovalStatus == input.ApprovalStatus.Value);
+        }
+
+        if (input.IsPass.HasValue)
+        {
+            queryable = queryable.Where(x => x.IsPass == input.IsPass.Value);
+        }
+
+        if (input.TestId.HasValue)
+        {
+            queryable = queryable.Where(x => x.TestId == input.TestId.Value);
+        }
+
+        var totalCount = await AsyncExecuter.CountAsync(queryable);
+
+        queryable = ApplyPaging(queryable, input);
+        queryable = ApplySorting(queryable, input);
+
+        var entities = await AsyncExecuter.ToListAsync(queryable);
+
+        var dtos = entities.Select(entity =>
+        {
+            var dto = ObjectMapper.Map<TestResult, TestResultDto>(entity);
+            if (entity.Test != null)
+            {
+                dto.TestCode = entity.Test.Code;
+                dto.TestName = entity.Test.Name;
+            }
+            return dto;
+        }).ToList();
+
+        return new PagedResultDto<TestResultDto>(totalCount, dtos);
+    }
+
+    public async Task<TestResultDto> RejectAsync(Guid id, RejectResultDto input)
+    {
+        var testResult = await Repository.GetAsync(id);
+
+        if (testResult.ApprovalStatus == ResultApprovalStatus.Draft)
+        {
+            throw new BusinessException("Draft test results cannot be rejected");
+        }
+
+        if (testResult.ApprovalStatus == ResultApprovalStatus.Rejected)
+        {
+            throw new BusinessException("Test result is already rejected");
+        }
+
+        testResult.ApprovalStatus = ResultApprovalStatus.Rejected;
+        testResult.Notes = input.RejectionReason;
+
+        // Set reviewer or approver based on current status
+        if (testResult.ApprovalStatus == ResultApprovalStatus.Submitted)
+        {
+            testResult.ReviewerId = CurrentUser.Id;
+            testResult.ReviewDate = DateTime.UtcNow;
+            testResult.ReviewComment = input.RejectionReason;
+        }
+        else if (testResult.ApprovalStatus == ResultApprovalStatus.Step1Reviewed)
+        {
+            testResult.ApproverId = CurrentUser.Id;
+            testResult.ApprovalDate = DateTime.UtcNow;
+            testResult.ApprovalComment = input.RejectionReason;
+        }
+
+        await Repository.UpdateAsync(testResult);
+
+        return await GetAsync(id);
+    }
+
+    public async Task<ListResultDto<TestResultDto>> GetByTestAsync(Guid testId)
+    {
+        var queryable = await Repository.WithDetailsAsync(x => x.Test);
+        queryable = queryable.Where(x => x.TestId == testId);
+
+        var entities = await AsyncExecuter.ToListAsync(queryable);
+
+        var dtos = entities.Select(entity =>
+        {
+            var dto = ObjectMapper.Map<TestResult, TestResultDto>(entity);
+            if (entity.Test != null)
+            {
+                dto.TestCode = entity.Test.Code;
+                dto.TestName = entity.Test.Name;
+            }
+            return dto;
+        }).ToList();
+
+        return new ListResultDto<TestResultDto>(dtos);
+    }
 }
