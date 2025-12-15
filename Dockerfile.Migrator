@@ -22,8 +22,31 @@ WORKDIR /app
 # Copy published application from build stage
 COPY --from=build /app/publish .
 
-# Set environment variables
-ENV ASPNETCORE_ENVIRONMENT=Production
+# Set environment variables for better error handling
+ENV ASPNETCORE_ENVIRONMENT=Production \
+    DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=false \
+    LC_ALL=en_US.UTF-8 \
+    LANG=en_US.UTF-8
 
-# Run the migrator (it will exit after completion)
-ENTRYPOINT ["dotnet", "LabSpecimenManagement.DbMigrator.dll"]
+# Create a simple entrypoint script
+RUN printf '#!/bin/bash\n\
+set -e\n\
+\n\
+echo "=== Database Migration Started ==="\n\
+echo "Waiting 10 seconds for database to be fully ready..."\n\
+sleep 10\n\
+\n\
+echo "Running migrations..."\n\
+dotnet LabSpecimenManagement.DbMigrator.dll 2>&1 | tee /tmp/migration.log\n\
+\n\
+if [ ${PIPESTATUS[0]} -eq 0 ]; then\n\
+  echo "=== Migration Completed Successfully ==="\n\
+  exit 0\n\
+else\n\
+  echo "=== Migration Failed ==="\n\
+  cat /tmp/migration.log\n\
+  exit 1\n\
+fi\n' > /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+
+# Run the migrator
+ENTRYPOINT ["/app/entrypoint.sh"]

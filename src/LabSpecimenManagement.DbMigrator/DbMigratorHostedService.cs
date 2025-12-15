@@ -23,24 +23,38 @@ public class DbMigratorHostedService : IHostedService
 
     public async Task StartAsync(CancellationToken cancellationToken)
     {
-        using (var application = await AbpApplicationFactory.CreateAsync<LabSpecimenManagementDbMigratorModule>(options =>
+        try
         {
-           options.Services.ReplaceConfiguration(_configuration);
-           options.UseAutofac();
-           options.Services.AddLogging(c => c.AddSerilog());
-           options.AddDataMigrationEnvironment();
-        }))
+            Log.Information("Starting database migration...");
+            
+            using (var application = await AbpApplicationFactory.CreateAsync<LabSpecimenManagementDbMigratorModule>(options =>
+            {
+               options.Services.ReplaceConfiguration(_configuration);
+               options.UseAutofac();
+               options.Services.AddLogging(c => c.AddSerilog());
+               options.AddDataMigrationEnvironment();
+            }))
+            {
+                Log.Information("Application initialized, running migrations...");
+                await application.InitializeAsync();
+
+                await application
+                    .ServiceProvider
+                    .GetRequiredService<LabSpecimenManagementDbMigrationService>()
+                    .MigrateAsync();
+
+                Log.Information("Migration completed successfully!");
+                await application.ShutdownAsync();
+
+                _hostApplicationLifetime.StopApplication();
+            }
+        }
+        catch (System.Exception ex)
         {
-            await application.InitializeAsync();
-
-            await application
-                .ServiceProvider
-                .GetRequiredService<LabSpecimenManagementDbMigrationService>()
-                .MigrateAsync();
-
-            await application.ShutdownAsync();
-
+            Log.Fatal(ex, "Migration failed with error: {Message}", ex.Message);
+            Log.Fatal("Stack trace: {StackTrace}", ex.StackTrace);
             _hostApplicationLifetime.StopApplication();
+            throw;
         }
     }
 

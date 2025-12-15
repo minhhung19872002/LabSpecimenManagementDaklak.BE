@@ -14,20 +14,34 @@ class Program
     static async Task Main(string[] args)
     {
         Log.Logger = new LoggerConfiguration()
-            .MinimumLevel.Information()
-            .MinimumLevel.Override("Microsoft", LogEventLevel.Warning)
-            .MinimumLevel.Override("Volo.Abp", LogEventLevel.Warning)
-#if DEBUG
-                .MinimumLevel.Override("LabSpecimenManagement", LogEventLevel.Debug)
-#else
-                .MinimumLevel.Override("LabSpecimenManagement", LogEventLevel.Information)
-#endif
-                .Enrich.FromLogContext()
-            .WriteTo.Async(c => c.File("Logs/logs.txt"))
-            .WriteTo.Async(c => c.Console())
+            .MinimumLevel.Debug()
+            .MinimumLevel.Override("Microsoft", LogEventLevel.Information)
+            .MinimumLevel.Override("Volo.Abp", LogEventLevel.Information)
+            .MinimumLevel.Override("LabSpecimenManagement", LogEventLevel.Debug)
+            .Enrich.FromLogContext()
+            .WriteTo.Console(
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
+            .WriteTo.File("Logs/logs.txt",
+                rollingInterval: RollingInterval.Day,
+                outputTemplate: "[{Timestamp:HH:mm:ss} {Level:u3}] {Message:lj}{NewLine}{Exception}")
             .CreateLogger();
+        
+        try
+        {
+            Log.Information("Starting Database Migrator...");
+            await CreateHostBuilder(args).RunConsoleAsync();
+            Log.Information("Database Migrator completed!");
+        }
+        catch (System.Exception ex)
+        {
+            Log.Fatal(ex, "Database Migrator terminated unexpectedly!");
+            throw;
+        }
+        finally
+        {
+            Log.CloseAndFlush();
+        }
 
-        await CreateHostBuilder(args).RunConsoleAsync();
     }
 
     public static IHostBuilder CreateHostBuilder(string[] args) =>
