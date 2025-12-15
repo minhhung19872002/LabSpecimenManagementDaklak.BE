@@ -39,6 +39,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
     public DbSet<Test> Tests { get; set; }
     public DbSet<TestResult> TestResults { get; set; }
+    public DbSet<Report> Reports { get; set; }
+    public DbSet<ReportTestResult> ReportTestResults { get; set; }
 
     // Master Data Entities
     public DbSet<Department> Departments { get; set; }

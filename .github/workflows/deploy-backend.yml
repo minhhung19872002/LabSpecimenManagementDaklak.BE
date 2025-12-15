@@ -1,0 +1,143 @@
+name: Deploy Backend to GCP
+
+on:
+  push:
+    branches:
+      - main         # Auto-deploy main branch (production)
+      - development  # Auto-deploy development branch
+      - staging      # Auto-deploy staging branch
+  workflow_dispatch:  # Allow manual trigger
+
+jobs:
+  build:
+    name: Build Backend
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 9.0
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore dependencies
+        run: dotnet restore
+
+      - name: Build
+        run: dotnet build --configuration Release --no-restore
+
+  deploy:
+    name: Deploy to GCP VM
+    needs: build
+    runs-on: ubuntu-latest
+
+    # Determine environment based on branch
+    environment:
+      name: ${{ github.ref == 'refs/heads/main' && 'production' || (github.ref == 'refs/heads/development' && 'development' || 'staging') }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Clean unnecessary files to reduce transfer size
+        run: |
+          # Remove backend build artifacts (will rebuild on server)
+          find . -type d -name "bin" -exec rm -rf {} + 2>/dev/null || true
+          find . -type d -name "obj" -exec rm -rf {} + 2>/dev/null || true
+
+          # Show transfer size
+          echo "Transfer size:"
+          du -sh .
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -H ${{ secrets.VM_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Transfer files to GCP VM
+        run: |
+          rsync -avz --delete \
+            -e "ssh -i ~/.ssh/deploy_key -o StrictHostKeyChecking=no" \
+            --exclude '.git' \
+            --exclude 'node_modules' \
+            --exclude '.nuget-packages' \
+            . ${{ secrets.SSH_USER }}@${{ secrets.VM_HOST }}:/opt/lab-specimen-management/lab-specimen-management-be/
+
+      - name: Deploy Backend on GCP VM
+        uses: appleboy/ssh-action@v1.0.0
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.POSTGRES_PASSWORD }}
+          MONGO_PASSWORD: ${{ secrets.MONGO_PASSWORD }}
+          BACKEND_URL: ${{ secrets.BACKEND_URL }}
+          FRONTEND_URL_PROD: ${{ secrets.FRONTEND_URL_PROD }}
+          FRONTEND_API_URL: ${{ secrets.FRONTEND_API_URL }}
+          ENCRYPTION_KEY: ${{ secrets.ENCRYPTION_KEY }}
+          ASPNETCORE_ENVIRONMENT: ${{ secrets.ASPNETCORE_ENVIRONMENT }}
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          envs: POSTGRES_PASSWORD,MONGO_PASSWORD,BACKEND_URL,FRONTEND_URL_PROD,FRONTEND_API_URL,ENCRYPTION_KEY,ASPNETCORE_ENVIRONMENT
+          script: |
+            cd /opt/lab-specimen-management
+
+            # Copy docker-compose.yml from backend directory to parent
+            if [ -f lab-specimen-management-be/docker-compose.yml ]; then
+              cp lab-specimen-management-be/docker-compose.yml .
+              echo "docker-compose.yml copied to /opt/lab-specimen-management/"
+            fi
+
+            # Copy nginx reverse proxy config from backend directory to parent
+            if [ -f lab-specimen-management-be/nginx-reverse-proxy.conf ]; then
+              cp lab-specimen-management-be/nginx-reverse-proxy.conf .
+              echo "nginx-reverse-proxy.conf copied to /opt/lab-specimen-management/"
+            fi
+
+            # Setup Nginx reverse proxy if not already configured
+            if [ -f nginx-reverse-proxy.conf ]; then
+              sudo cp nginx-reverse-proxy.conf /etc/nginx/sites-available/lab-specimen-management
+              sudo ln -sf /etc/nginx/sites-available/lab-specimen-management /etc/nginx/sites-enabled/lab-specimen-management
+              sudo rm -f /etc/nginx/sites-enabled/default
+              if sudo nginx -t; then
+                sudo systemctl reload nginx
+                echo "Nginx reverse proxy configured and reloaded"
+              else
+                echo "Nginx configuration test failed"
+              fi
+            fi
+
+            # Create .env file with environment variables
+            cat > .env << EOF
+            ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT}
+            POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+            MONGO_PASSWORD=${MONGO_PASSWORD}
+            BACKEND_URL=${BACKEND_URL}
+            FRONTEND_URL_PROD=${FRONTEND_URL_PROD}
+            FRONTEND_API_URL=${FRONTEND_API_URL}
+            ENCRYPTION_KEY=${ENCRYPTION_KEY}
+            EOF
+
+            echo "Stopping backend container..."
+            docker-compose stop backend || true
+            docker-compose rm -f backend || true
+
+            echo "Rebuilding and starting backend..."
+            docker-compose up -d --build backend
+
+            echo "Waiting for backend to be healthy..."
+            sleep 30
+
+            echo "Checking backend status..."
+            docker-compose ps backend
+
+            echo "Recent backend logs:"
+            docker-compose logs --tail=50 backend
+
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key

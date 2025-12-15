@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -35,6 +36,8 @@ using Volo.Abp.VirtualFileSystem;
 
 namespace LabSpecimenManagement;
 
+// Lab Specimen Management System - ISO/IEC 17025:2017
+// Last deployment test: 2025-12-14
 [DependsOn(
     typeof(LabSpecimenManagementHttpApiModule),
     typeof(AbpAutofacModule),
@@ -73,6 +76,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureVirtualFileSystem(context);
         ConfigureCors(context, configuration);
         ConfigureSwaggerServices(context, configuration);
+        ConfigureHealthChecks(context);
         ConfigureApiFilters(context);
         ConfigureEmail(context, configuration);
     }
@@ -80,6 +84,20 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
     private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
     {
         context.Services.Configure<EmailSettings>(configuration.GetSection("Email"));
+    }
+
+    private void ConfigureAuthentication(ServiceConfigurationContext context)
+    {
+        context.Services.ForwardIdentityAuthenticationForBearer(OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme);
+        context.Services.Configure<AbpClaimsPrincipalFactoryOptions>(options =>
+        {
+            options.IsDynamicClaimsEnabled = true;
+        });
+    }
+
+    private void ConfigureHealthChecks(ServiceConfigurationContext context)
+    {
+        context.Services.AddHealthChecks();
     }
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
@@ -121,23 +139,33 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
     {
         var hostingEnvironment = context.Services.GetHostingEnvironment();
 
+        // Only configure physical file replacement for local development with source code
+        // Docker containers only have published DLLs, so skip this configuration
         if (hostingEnvironment.IsDevelopment())
         {
-            Configure<AbpVirtualFileSystemOptions>(options =>
+            // Check if we're running in Docker (published app without source directories)
+            var domainSharedPath = Path.Combine(hostingEnvironment.ContentRootPath,
+                $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared");
+
+            // Only configure if source directories actually exist
+            if (Directory.Exists(domainSharedPath))
             {
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainSharedModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationContractsModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application.Contracts"));
-                options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationModule>(
-                    Path.Combine(hostingEnvironment.ContentRootPath,
-                        $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application"));
-            });
+                Configure<AbpVirtualFileSystemOptions>(options =>
+                {
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainSharedModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain.Shared"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementDomainModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Domain"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationContractsModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application.Contracts"));
+                    options.FileSets.ReplaceEmbeddedByPhysical<LabSpecimenManagementApplicationModule>(
+                        Path.Combine(hostingEnvironment.ContentRootPath,
+                            $"..{Path.DirectorySeparatorChar}LabSpecimenManagement.Application"));
+                });
+            }
         }
     }
 
@@ -238,6 +266,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         app.UseAuditing();
         app.UseAbpSerilogEnrichers();
-        app.UseConfiguredEndpoints();
+        app.UseConfiguredEndpoints(endpoints =>
+        {
+            endpoints.MapHealthChecks("/health");
+        });
     }
 }
