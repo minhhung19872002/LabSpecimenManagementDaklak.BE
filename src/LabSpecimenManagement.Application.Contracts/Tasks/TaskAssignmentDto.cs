@@ -5,8 +5,8 @@ namespace LabSpecimenManagement.Tasks;
 
 public class TaskAssignmentDto : FullAuditedEntityDto<Guid>
 {
-    public string TaskNumber { get; set; }
-    public string Title { get; set; }
+    public string TaskNumber { get; set; } = string.Empty;
+    public string Title { get; set; } = string.Empty;
     public string? Description { get; set; }
     public TaskType Type { get; set; }
     public TaskPriority Priority { get; set; }
@@ -15,7 +15,7 @@ public class TaskAssignmentDto : FullAuditedEntityDto<Guid>
     public string? AssignedToName { get; set; }
     public Guid AssignedById { get; set; }
     public string? AssignedByName { get; set; }
-    public string Department { get; set; }
+    public string Department { get; set; } = string.Empty;
     public string? RelatedTestRequestIds { get; set; }
     public string? RelatedSpecimenIds { get; set; }
     public string? RelatedTestIds { get; set; }

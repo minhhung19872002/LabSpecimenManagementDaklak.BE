@@ -10,7 +10,7 @@ public class UpdateTestRequestDto
 
     [Required]
     [StringLength(256)]
-    public string CustomerName { get; set; }
+    public string CustomerName { get; set; } = string.Empty;
 
     [StringLength(1000)]
     public string? CustomerInfo { get; set; }

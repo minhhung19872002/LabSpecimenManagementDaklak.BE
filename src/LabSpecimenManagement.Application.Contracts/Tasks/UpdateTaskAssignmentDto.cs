@@ -7,7 +7,7 @@ public class UpdateTaskAssignmentDto
 {
     [Required]
     [StringLength(256)]
-    public string Title { get; set; }
+    public string Title { get; set; } = string.Empty;
 
     [StringLength(2000)]
     public string? Description { get; set; }
@@ -26,7 +26,7 @@ public class UpdateTaskAssignmentDto
 
     [Required]
     [StringLength(100)]
-    public string Department { get; set; }
+    public string Department { get; set; } = string.Empty;
 
     public string? RelatedTestRequestIds { get; set; }
 
