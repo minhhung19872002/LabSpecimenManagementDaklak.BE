@@ -127,12 +127,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                     _guidGenerator.Create(),
                     requestNumber,
                     DateTime.Now,
-                    row.CustomerName,
-                    row.CustomerEmail,
-                    row.CustomerPhone
+                    row.CustomerName
                 );
 
-                entity.CustomerInfo = row.CustomerAddress;
+                entity.Phone = row.CustomerPhone;
+                entity.Address = row.CustomerAddress;
                 entity.Notes = row.Notes;
                 entity.Subcontractor = row.Subcontractor;
 

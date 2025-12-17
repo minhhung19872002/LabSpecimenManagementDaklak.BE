@@ -15,6 +15,7 @@ using Volo.Abp.TenantManagement;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
@@ -35,6 +36,8 @@ public class LabSpecimenManagementDbContext :
     // Lab Specimen Management Entities
     public DbSet<TestRequest> TestRequests { get; set; }
     public DbSet<TestRequestAttachment> TestRequestAttachments { get; set; }
+    public DbSet<TestRequestSample> TestRequestSamples { get; set; }
+    public DbSet<TestRequestSampleIndicator> TestRequestSampleIndicators { get; set; }
     public DbSet<Specimen> Specimens { get; set; }
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
     public DbSet<Test> Tests { get; set; }
@@ -48,6 +51,11 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TestMethod> TestMethods { get; set; }
     public DbSet<StorageLocation> StorageLocations { get; set; }
     public DbSet<Customer> Customers { get; set; }
+    public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
+    public DbSet<Indicator> Indicators { get; set; }
+
+    // Junction Tables
+    public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
 
     // NCR Entities
     public DbSet<NCR> NCRs { get; set; }
@@ -116,15 +124,80 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequests", LabSpecimenManagementConsts.DbSchema);
             b.ConfigureByConvention();
 
-            b.Property(x => x.RequestNumber).IsRequired().HasMaxLength(128);
+            // Contract info
+            b.Property(x => x.ContractNumber).HasMaxLength(100);
             b.Property(x => x.CustomerName).IsRequired().HasMaxLength(256);
-            b.Property(x => x.CustomerEmail).HasMaxLength(256);
-            b.Property(x => x.CustomerPhone).HasMaxLength(50);
+            b.Property(x => x.Province).HasMaxLength(100);
+            b.Property(x => x.District).HasMaxLength(100);
+            b.Property(x => x.Ward).HasMaxLength(100);
+            b.Property(x => x.Address).HasMaxLength(500);
+            b.Property(x => x.TaxCode).HasMaxLength(50);
+            b.Property(x => x.ContactPerson).HasMaxLength(256);
+            b.Property(x => x.Phone).HasMaxLength(50);
+
+            // Test method info
+            b.Property(x => x.MethodCustomerDetail).HasMaxLength(500);
+            b.Property(x => x.ResultCopyCount).HasMaxLength(50);
+            b.Property(x => x.ConformityDeclaration).HasMaxLength(500);
+            b.Property(x => x.OtherRequirements).HasMaxLength(1000);
+            b.Property(x => x.SubContract).HasMaxLength(256);
+            b.Property(x => x.TotalCost).HasPrecision(18, 2);
+            b.Property(x => x.TotalCostInWords).HasMaxLength(500);
+            b.Property(x => x.ReceiptNumber).HasMaxLength(100);
+
+            // Legacy fields
+            b.Property(x => x.RequestNumber).IsRequired().HasMaxLength(128);
             b.Property(x => x.Subcontractor).HasMaxLength(256);
 
             b.HasIndex(x => x.RequestNumber);
+            b.HasIndex(x => x.ContractNumber);
             b.HasIndex(x => x.RequestDate);
             b.HasIndex(x => x.Status);
+        });
+
+        // TestRequestSample configuration
+        builder.Entity<TestRequestSample>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestSamples", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.SampleCode).IsRequired().HasMaxLength(50);
+            b.Property(x => x.SampleName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.SamplingAddress).HasMaxLength(500);
+            b.Property(x => x.SampleQuantity).HasMaxLength(100);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.Property(x => x.StorageLocation).HasMaxLength(256);
+            b.Property(x => x.TotalIndicatorCost).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.SampleCode);
+            b.HasIndex(x => x.TestRequestId);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany(x => x.Samples)
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+        });
+
+        // TestRequestSampleIndicator configuration
+        builder.Entity<TestRequestSampleIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestSampleIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.Notes).HasMaxLength(500);
+
+            b.HasIndex(x => x.TestRequestSampleId);
+            b.HasIndex(x => x.IndicatorId);
+
+            b.HasOne(x => x.TestRequestSample)
+                .WithMany(x => x.Indicators)
+                .HasForeignKey(x => x.TestRequestSampleId)
+                .IsRequired();
+
+            b.HasOne(x => x.Indicator)
+                .WithMany()
+                .HasForeignKey(x => x.IndicatorId)
+                .IsRequired();
         });
 
         // TestRequestAttachment configuration
@@ -288,6 +361,42 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.ContactPerson).HasMaxLength(256);
 
             b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // IndicatorGroup configuration
+        builder.Entity<IndicatorGroup>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorGroups", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+
+            b.HasIndex(x => x.Name).IsUnique();
+        });
+
+        // Indicator configuration
+        builder.Entity<Indicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Indicators", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.IndicatorGroupId);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // TestRequestIndicator configuration (Junction Table)
+        builder.Entity<TestRequestIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => new { x.TestRequestId, x.IndicatorId }).IsUnique();
         });
 
         // ============ NCR CONFIGURATION ============

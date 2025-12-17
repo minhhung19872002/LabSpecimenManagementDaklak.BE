@@ -152,6 +152,26 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // Master Data - Indicator Group Permissions
+    public static class IndicatorGroups
+    {
+        public const string Default = GroupName + ".IndicatorGroups";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Import = Default + ".Import";
+    }
+
+    // Master Data - Indicator Permissions
+    public static class Indicators
+    {
+        public const string Default = GroupName + ".Indicators";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Import = Default + ".Import";
+    }
+
     // Audit Log Permissions
     public static class AuditLogs
     {

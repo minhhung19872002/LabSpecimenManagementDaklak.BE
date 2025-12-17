@@ -52,6 +52,7 @@ public class ApiResponseWrapperFilter : IAsyncResultFilter
                     Errors = null
                 };
                 objectResult.Value = wrappedResponse;
+                objectResult.DeclaredType = typeof(ApiResponse<object>); // Fix for primitive types like bool
                 objectResult.StatusCode = 200; // Always return 200, actual status in body
             }
         }

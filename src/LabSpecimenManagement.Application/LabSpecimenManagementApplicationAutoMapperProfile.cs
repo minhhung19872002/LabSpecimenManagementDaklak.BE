@@ -1,5 +1,6 @@
 using AutoMapper;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
@@ -17,11 +18,18 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
          * into multiple profile classes for a better organization. */
 
         // TestRequest mappings
-        CreateMap<TestRequests.TestRequest, TestRequests.TestRequestDto>();
+        CreateMap<TestRequests.TestRequest, TestRequests.TestRequestDto>()
+            .ForMember(dest => dest.Samples, opt => opt.Ignore()) // Loaded separately in AppService
+            .ForMember(dest => dest.SupervisorName, opt => opt.Ignore())
+            .ForMember(dest => dest.DirectorName, opt => opt.Ignore());
         // Note: CreateTestRequestDto -> TestRequest mapping is handled by TestRequestAppService.MapToEntityAsync()
         // to auto-generate the Request Number
         CreateMap<TestRequests.UpdateTestRequestDto, TestRequests.TestRequest>()
             .ForMember(dest => dest.RequestNumber, opt => opt.Ignore()); // Don't overwrite RequestNumber on update
+
+        // TestRequestSample mappings
+        CreateMap<TestRequests.TestRequestSample, TestRequests.TestRequestSampleDto>()
+            .ForMember(dest => dest.Indicators, opt => opt.Ignore()); // Loaded separately in AppService
 
         // Specimen mappings
         CreateMap<TestRequests.Specimen, Specimens.SpecimenDto>();
@@ -89,5 +97,14 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<CreateUpdateSubcontractorDto, Subcontractor>();
         CreateMap<SubcontractorCertification, SubcontractorCertificationDto>();
         CreateMap<CreateUpdateCertificationDto, SubcontractorCertification>();
+
+        // IndicatorGroup mappings
+        CreateMap<IndicatorGroup, IndicatorGroupDto>();
+        CreateMap<CreateUpdateIndicatorGroupDto, IndicatorGroup>();
+
+        // Indicator mappings
+        CreateMap<Indicator, IndicatorDto>()
+            .ForMember(dest => dest.IndicatorGroupName, opt => opt.Ignore())
+            .ForMember(dest => dest.CanDelete, opt => opt.Ignore());
     }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.NCRs;
@@ -24,6 +25,10 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<StorageLocation, Guid> _storageLocationRepository;
     private readonly IRepository<Customer, Guid> _customerRepository;
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
+    private readonly IRepository<TestRequestSample, Guid> _testRequestSampleRepository;
+    private readonly IRepository<TestRequestSampleIndicator, Guid> _testRequestSampleIndicatorRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Specimen, Guid> _specimenRepository;
     private readonly IRepository<Test, Guid> _testRepository;
     private readonly IRepository<TestResult, Guid> _testResultRepository;
@@ -39,6 +44,10 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<StorageLocation, Guid> storageLocationRepository,
         IRepository<Customer, Guid> customerRepository,
         IRepository<TestRequest, Guid> testRequestRepository,
+        IRepository<TestRequestSample, Guid> testRequestSampleRepository,
+        IRepository<TestRequestSampleIndicator, Guid> testRequestSampleIndicatorRepository,
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<Specimen, Guid> specimenRepository,
         IRepository<Test, Guid> testRepository,
         IRepository<TestResult, Guid> testResultRepository,
@@ -53,6 +62,10 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _storageLocationRepository = storageLocationRepository;
         _customerRepository = customerRepository;
         _testRequestRepository = testRequestRepository;
+        _testRequestSampleRepository = testRequestSampleRepository;
+        _testRequestSampleIndicatorRepository = testRequestSampleIndicatorRepository;
+        _indicatorRepository = indicatorRepository;
+        _indicatorGroupRepository = indicatorGroupRepository;
         _specimenRepository = specimenRepository;
         _testRepository = testRepository;
         _testResultRepository = testResultRepository;
@@ -76,7 +89,76 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         await SeedTestMethodsAsync();
         await SeedStorageLocationsAsync();
         await SeedCustomersAsync();
+        await SeedIndicatorGroupsAndIndicatorsAsync();
         await SeedTestRequestsAndRelatedDataAsync();
+    }
+
+    private async Task SeedIndicatorGroupsAndIndicatorsAsync()
+    {
+        if (await _indicatorGroupRepository.GetCountAsync() > 0) return;
+
+        var now = DateTime.Now;
+
+        // Seed Indicator Groups
+        var groupViSinh = new IndicatorGroup(_guidGenerator.Create(), "Vi sinh");
+        groupViSinh.IsActive = true;
+        groupViSinh.SortOrder = 1;
+        await _indicatorGroupRepository.InsertAsync(groupViSinh);
+
+        var groupHoaLy = new IndicatorGroup(_guidGenerator.Create(), "Hóa lý");
+        groupHoaLy.IsActive = true;
+        groupHoaLy.SortOrder = 2;
+        await _indicatorGroupRepository.InsertAsync(groupHoaLy);
+
+        var groupKimLoai = new IndicatorGroup(_guidGenerator.Create(), "Kim loại nặng");
+        groupKimLoai.IsActive = true;
+        groupKimLoai.SortOrder = 3;
+        await _indicatorGroupRepository.InsertAsync(groupKimLoai);
+
+        var groupThuocBVTV = new IndicatorGroup(_guidGenerator.Create(), "Dư lượng thuốc BVTV");
+        groupThuocBVTV.IsActive = true;
+        groupThuocBVTV.SortOrder = 4;
+        await _indicatorGroupRepository.InsertAsync(groupThuocBVTV);
+
+        // Seed Indicators
+        var indicators = new[]
+        {
+            // Vi sinh
+            new { GroupId = groupViSinh.Id, Code = "VS-001", Name = "Tổng vi khuẩn hiếu khí", Price = 150000m, SortOrder = 1 },
+            new { GroupId = groupViSinh.Id, Code = "VS-002", Name = "Coliform tổng số", Price = 120000m, SortOrder = 2 },
+            new { GroupId = groupViSinh.Id, Code = "VS-003", Name = "E.coli", Price = 180000m, SortOrder = 3 },
+            new { GroupId = groupViSinh.Id, Code = "VS-004", Name = "Salmonella", Price = 250000m, SortOrder = 4 },
+            new { GroupId = groupViSinh.Id, Code = "VS-005", Name = "Staphylococcus aureus", Price = 200000m, SortOrder = 5 },
+
+            // Hóa lý
+            new { GroupId = groupHoaLy.Id, Code = "HL-001", Name = "pH", Price = 50000m, SortOrder = 1 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-002", Name = "Độ ẩm", Price = 80000m, SortOrder = 2 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-003", Name = "Độ tro", Price = 100000m, SortOrder = 3 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-004", Name = "Protein", Price = 150000m, SortOrder = 4 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-005", Name = "Chất béo", Price = 120000m, SortOrder = 5 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-006", Name = "Caffeine", Price = 200000m, SortOrder = 6 },
+            new { GroupId = groupHoaLy.Id, Code = "HL-007", Name = "Nitơ tổng", Price = 180000m, SortOrder = 7 },
+
+            // Kim loại nặng
+            new { GroupId = groupKimLoai.Id, Code = "KL-001", Name = "Chì (Pb)", Price = 250000m, SortOrder = 1 },
+            new { GroupId = groupKimLoai.Id, Code = "KL-002", Name = "Cadmium (Cd)", Price = 250000m, SortOrder = 2 },
+            new { GroupId = groupKimLoai.Id, Code = "KL-003", Name = "Thủy ngân (Hg)", Price = 300000m, SortOrder = 3 },
+            new { GroupId = groupKimLoai.Id, Code = "KL-004", Name = "Asen (As)", Price = 280000m, SortOrder = 4 },
+
+            // BVTV
+            new { GroupId = groupThuocBVTV.Id, Code = "BVTV-001", Name = "Dư lượng Chlorpyrifos", Price = 350000m, SortOrder = 1 },
+            new { GroupId = groupThuocBVTV.Id, Code = "BVTV-002", Name = "Dư lượng Cypermethrin", Price = 350000m, SortOrder = 2 },
+            new { GroupId = groupThuocBVTV.Id, Code = "BVTV-003", Name = "Dư lượng Glyphosate", Price = 400000m, SortOrder = 3 },
+        };
+
+        foreach (var ind in indicators)
+        {
+            var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
+            indicator.UnitPrice = ind.Price;
+            indicator.SortOrder = ind.SortOrder;
+            indicator.IsActive = true;
+            await _indicatorRepository.InsertAsync(indicator);
+        }
     }
 
     private async Task SeedDepartmentsAsync()
@@ -220,20 +302,101 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         var now = DateTime.Now;
         var userId = Guid.NewGuid(); // Placeholder for user reference
 
+        // Get indicators for use in samples
+        var allIndicators = await _indicatorRepository.GetListAsync();
+
         // Test Request 1 - Completed
         var req1Id = _guidGenerator.Create();
         var req1 = new TestRequest(
             req1Id,
             "REQ-20251201-0001",
             now.AddDays(-12),
-            "Công ty TNHH Cà phê Tây Nguyên",
-            "info@capheTN.com.vn",
-            "0262 3852 115"
+            "Công ty TNHH Cà phê Tây Nguyên"
         );
+        req1.Phone = "0262 3852 115";
+        req1.Address = "123 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk";
+        req1.Province = "Đắk Lắk";
+        req1.District = "TP. Buôn Ma Thuột";
         req1.Status = TestRequestStatus.Completed;
         req1.ExpectedCompletionDate = now.AddDays(-5);
         req1.Notes = "Khách hàng yêu cầu kết quả gấp";
+        req1.TotalSampleCount = 2;
+        req1.TotalCost = 830000;
         await _testRequestRepository.InsertAsync(req1);
+
+        // Sample 1 for Request 1
+        var sample1Id = _guidGenerator.Create();
+        var sample1 = new TestRequestSample(sample1Id, req1Id, "M001", "Mẫu cà phê nhân - Lô A001");
+        sample1.SortOrder = 1;
+        sample1.SamplingAddress = "Nông trại Tây Nguyên, Xã Ea Tu, TP. Buôn Ma Thuột";
+        sample1.SampleQuantity = "2 kg";
+        sample1.Status = SampleStatus.Completed;
+        sample1.ProcessingStatus = "Hoàn thành";
+        sample1.StorageLocation = "PMT1";
+        sample1.Notes = "Mẫu cà phê nhân sống, lô thu hoạch tháng 11/2025";
+        sample1.TotalIndicatorCost = 430000;
+        await _testRequestSampleRepository.InsertAsync(sample1);
+
+        // Add indicators to Sample 1
+        var indDoAm = allIndicators.FirstOrDefault(i => i.Code == "HL-002");
+        var indCaffeine = allIndicators.FirstOrDefault(i => i.Code == "HL-006");
+        var indPH = allIndicators.FirstOrDefault(i => i.Code == "HL-001");
+
+        if (indDoAm != null)
+        {
+            var si1 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indDoAm.Id, indDoAm.UnitPrice);
+            si1.TransferDate = now.AddDays(-11);
+            si1.RequestDate = now.AddDays(-12);
+            si1.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si1);
+        }
+        if (indCaffeine != null)
+        {
+            var si2 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indCaffeine.Id, indCaffeine.UnitPrice);
+            si2.TransferDate = now.AddDays(-11);
+            si2.RequestDate = now.AddDays(-12);
+            si2.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si2);
+        }
+        if (indPH != null)
+        {
+            var si3 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indPH.Id, indPH.UnitPrice);
+            si3.TransferDate = now.AddDays(-11);
+            si3.RequestDate = now.AddDays(-12);
+            si3.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si3);
+        }
+
+        // Sample 2 for Request 1
+        var sample2Id = _guidGenerator.Create();
+        var sample2 = new TestRequestSample(sample2Id, req1Id, "M002", "Mẫu cà phê bột - Lô A001");
+        sample2.SortOrder = 2;
+        sample2.SamplingAddress = "Xưởng chế biến Tây Nguyên";
+        sample2.SampleQuantity = "500 g";
+        sample2.Status = SampleStatus.Completed;
+        sample2.ProcessingStatus = "Hoàn thành";
+        sample2.StorageLocation = "PMT1";
+        sample2.Notes = "Mẫu cà phê bột rang xay";
+        sample2.TotalIndicatorCost = 400000;
+        await _testRequestSampleRepository.InsertAsync(sample2);
+
+        // Add indicators to Sample 2
+        if (indCaffeine != null)
+        {
+            var si4 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indCaffeine.Id, indCaffeine.UnitPrice);
+            si4.TransferDate = now.AddDays(-11);
+            si4.RequestDate = now.AddDays(-12);
+            si4.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si4);
+        }
+        if (indDoAm != null)
+        {
+            var si5 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indDoAm.Id, indDoAm.UnitPrice);
+            si5.TransferDate = now.AddDays(-11);
+            si5.RequestDate = now.AddDays(-12);
+            si5.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si5);
+        }
 
         // Specimen 1 for Request 1
         var spe1Id = _guidGenerator.Create();
@@ -307,13 +470,88 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             req2Id,
             "REQ-20251203-0002",
             now.AddDays(-10),
-            "HTX Nông nghiệp Ea H'leo",
-            "htxeahleo@gmail.com",
-            "0262 3777 222"
+            "HTX Nông nghiệp Ea H'leo"
         );
+        req2.Phone = "0262 3777 222";
+        req2.Address = "Xã Ea Hiao, Huyện Ea H'leo, Đắk Lắk";
+        req2.Province = "Đắk Lắk";
+        req2.District = "Ea H'leo";
         req2.Status = TestRequestStatus.InProgress;
         req2.ExpectedCompletionDate = now.AddDays(-3);
+        req2.TotalSampleCount = 2;
+        req2.TotalCost = 1080000;
         await _testRequestRepository.InsertAsync(req2);
+
+        // Sample 3 for Request 2
+        var sample3Id = _guidGenerator.Create();
+        var sample3 = new TestRequestSample(sample3Id, req2Id, "M003", "Mẫu đất nông nghiệp - Khu vực A");
+        sample3.SortOrder = 1;
+        sample3.SamplingAddress = "Xã Ea Hiao, Huyện Ea H'leo";
+        sample3.SampleQuantity = "3 kg";
+        sample3.Status = SampleStatus.Testing;
+        sample3.ProcessingStatus = "Đang thử nghiệm";
+        sample3.StorageLocation = "PMT1";
+        sample3.Notes = "Mẫu đất trồng cà phê, độ sâu 0-30cm";
+        sample3.TotalIndicatorCost = 540000;
+        await _testRequestSampleRepository.InsertAsync(sample3);
+
+        // Add indicators to Sample 3
+        var indNito = allIndicators.FirstOrDefault(i => i.Code == "HL-007");
+        var indChi = allIndicators.FirstOrDefault(i => i.Code == "KL-001");
+        var indCadmium = allIndicators.FirstOrDefault(i => i.Code == "KL-002");
+
+        if (indPH != null)
+        {
+            var si6 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indPH.Id, indPH.UnitPrice);
+            si6.TransferDate = now.AddDays(-9);
+            si6.RequestDate = now.AddDays(-10);
+            si6.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si6);
+        }
+        if (indNito != null)
+        {
+            var si7 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indNito.Id, indNito.UnitPrice);
+            si7.TransferDate = now.AddDays(-9);
+            si7.RequestDate = now.AddDays(-10);
+            si7.SentToDepartment = false; // Chưa gửi
+            await _testRequestSampleIndicatorRepository.InsertAsync(si7);
+        }
+        if (indChi != null)
+        {
+            var si8 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indChi.Id, indChi.UnitPrice);
+            si8.RequestDate = now.AddDays(-10);
+            si8.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si8);
+        }
+
+        // Sample 4 for Request 2
+        var sample4Id = _guidGenerator.Create();
+        var sample4 = new TestRequestSample(sample4Id, req2Id, "M004", "Mẫu đất nông nghiệp - Khu vực B");
+        sample4.SortOrder = 2;
+        sample4.SamplingAddress = "Xã Ea Hiao, Huyện Ea H'leo";
+        sample4.SampleQuantity = "3 kg";
+        sample4.Status = SampleStatus.Testing;
+        sample4.ProcessingStatus = "Đang thử nghiệm";
+        sample4.StorageLocation = "PMT1";
+        sample4.Notes = "Mẫu đất trồng hồ tiêu, độ sâu 0-30cm";
+        sample4.TotalIndicatorCost = 540000;
+        await _testRequestSampleRepository.InsertAsync(sample4);
+
+        if (indPH != null)
+        {
+            var si9 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indPH.Id, indPH.UnitPrice);
+            si9.TransferDate = now.AddDays(-8);
+            si9.RequestDate = now.AddDays(-10);
+            si9.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si9);
+        }
+        if (indCadmium != null)
+        {
+            var si10 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indCadmium.Id, indCadmium.UnitPrice);
+            si10.RequestDate = now.AddDays(-10);
+            si10.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si10);
+        }
 
         // Specimen 3 for Request 2
         var spe3Id = _guidGenerator.Create();
@@ -372,14 +610,87 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             req3Id,
             "REQ-20251205-0003",
             now.AddDays(-8),
-            "Viện Nghiên cứu Khoa học Tây Nguyên",
-            "viennc@taynguyen.gov.vn",
-            "0262 3856 789"
+            "Viện Nghiên cứu Khoa học Tây Nguyên"
         );
+        req3.Phone = "0262 3856 789";
+        req3.Address = "45 Nguyễn Tất Thành, TP. Buôn Ma Thuột, Đắk Lắk";
+        req3.Province = "Đắk Lắk";
+        req3.District = "TP. Buôn Ma Thuột";
         req3.Status = TestRequestStatus.InProgress;
         req3.ExpectedCompletionDate = now.AddDays(-1);
         req3.Notes = "Mẫu nghiên cứu đặc biệt";
+        req3.TotalSampleCount = 2;
+        req3.TotalCost = 920000;
         await _testRequestRepository.InsertAsync(req3);
+
+        // Sample 5 for Request 3
+        var sample5Id = _guidGenerator.Create();
+        var sample5 = new TestRequestSample(sample5Id, req3Id, "M005", "Mẫu nước ngầm - Giếng khoan GK01");
+        sample5.SortOrder = 1;
+        sample5.SamplingAddress = "Giếng khoan GK01, Xã Ea Tu";
+        sample5.SampleQuantity = "2 L";
+        sample5.Status = SampleStatus.Testing;
+        sample5.ProcessingStatus = "Đang thử nghiệm";
+        sample5.StorageLocation = "KLA1";
+        sample5.Notes = "Mẫu nước ngầm lấy từ giếng khoan sâu 50m";
+        sample5.TotalIndicatorCost = 520000;
+        await _testRequestSampleRepository.InsertAsync(sample5);
+
+        // Add indicators to Sample 5
+        var indColiform = allIndicators.FirstOrDefault(i => i.Code == "VS-002");
+        var indEcoli = allIndicators.FirstOrDefault(i => i.Code == "VS-003");
+        var indAsen = allIndicators.FirstOrDefault(i => i.Code == "KL-004");
+
+        if (indPH != null)
+        {
+            var si11 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indPH.Id, indPH.UnitPrice);
+            si11.TransferDate = now.AddDays(-7);
+            si11.RequestDate = now.AddDays(-8);
+            si11.SentToDepartment = true;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si11);
+        }
+        if (indColiform != null)
+        {
+            var si12 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indColiform.Id, indColiform.UnitPrice);
+            si12.RequestDate = now.AddDays(-8);
+            si12.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si12);
+        }
+        if (indAsen != null)
+        {
+            var si13 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indAsen.Id, indAsen.UnitPrice);
+            si13.RequestDate = now.AddDays(-8);
+            si13.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si13);
+        }
+
+        // Sample 6 for Request 3
+        var sample6Id = _guidGenerator.Create();
+        var sample6 = new TestRequestSample(sample6Id, req3Id, "M006", "Mẫu nước mặt - Suối Ea Kao");
+        sample6.SortOrder = 2;
+        sample6.SamplingAddress = "Suối Ea Kao, Điểm lấy mẫu QT-01";
+        sample6.SampleQuantity = "2 L";
+        sample6.Status = SampleStatus.Normal;
+        sample6.ProcessingStatus = "Đã nhận";
+        sample6.StorageLocation = "KLA1";
+        sample6.Notes = "Mẫu nước suối Ea Kao, điểm lấy mẫu QT-01";
+        sample6.TotalIndicatorCost = 400000;
+        await _testRequestSampleRepository.InsertAsync(sample6);
+
+        if (indPH != null)
+        {
+            var si14 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indPH.Id, indPH.UnitPrice);
+            si14.RequestDate = now.AddDays(-8);
+            si14.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si14);
+        }
+        if (indChi != null)
+        {
+            var si15 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indChi.Id, indChi.UnitPrice);
+            si15.RequestDate = now.AddDays(-8);
+            si15.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si15);
+        }
 
         // Specimen 5 - Groundwater
         var spe5Id = _guidGenerator.Create();
@@ -443,13 +754,47 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             req4Id,
             "REQ-20251208-0004",
             now.AddDays(-5),
-            "Công ty CP Phân bón Đắk Lắk",
-            "phanbondaklak@gmail.com",
-            "0262 3859 999"
+            "Công ty CP Phân bón Đắk Lắk"
         );
+        req4.Phone = "0262 3859 999";
+        req4.Address = "KCN Hòa Phú, TP. Buôn Ma Thuột, Đắk Lắk";
+        req4.Province = "Đắk Lắk";
+        req4.District = "TP. Buôn Ma Thuột";
         req4.Status = TestRequestStatus.Pending;
         req4.ExpectedCompletionDate = now.AddDays(2);
+        req4.TotalSampleCount = 1;
+        req4.TotalCost = 380000;
         await _testRequestRepository.InsertAsync(req4);
+
+        // Sample 7 for Request 4
+        var sample7Id = _guidGenerator.Create();
+        var sample7 = new TestRequestSample(sample7Id, req4Id, "M007", "Mẫu phân bón NPK 16-16-8");
+        sample7.SortOrder = 1;
+        sample7.SamplingAddress = "Nhà máy Phân bón Đắk Lắk";
+        sample7.SampleQuantity = "1 kg";
+        sample7.Status = SampleStatus.Normal;
+        sample7.ProcessingStatus = "Đã nhận";
+        sample7.StorageLocation = "PMT1";
+        sample7.Notes = "Mẫu phân bón NPK lô sản xuất PB-2025-1208";
+        sample7.TotalIndicatorCost = 380000;
+        await _testRequestSampleRepository.InsertAsync(sample7);
+
+        // Add indicators to Sample 7
+        var indProtein = allIndicators.FirstOrDefault(i => i.Code == "HL-004");
+        if (indNito != null)
+        {
+            var si16 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indNito.Id, indNito.UnitPrice);
+            si16.RequestDate = now.AddDays(-5);
+            si16.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si16);
+        }
+        if (indPH != null)
+        {
+            var si17 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indPH.Id, indPH.UnitPrice);
+            si17.RequestDate = now.AddDays(-5);
+            si17.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si17);
+        }
 
         // Specimen 7 - Fertilizer
         var spe7 = new Specimen(_guidGenerator.Create(), req4Id, "SPE-20251208-0007", "Mẫu phân bón NPK 16-16-8", "Phân bón", now.AddDays(-5));
@@ -466,14 +811,54 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             req5Id,
             "REQ-20251210-0005",
             now.AddDays(-3),
-            "Sở Tài nguyên và Môi trường Đắk Lắk",
-            "stnmt@daklak.gov.vn",
-            "0262 3851 234"
+            "Sở Tài nguyên và Môi trường Đắk Lắk"
         );
+        req5.Phone = "0262 3851 234";
+        req5.Address = "18 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk";
+        req5.Province = "Đắk Lắk";
+        req5.District = "TP. Buôn Ma Thuột";
         req5.Status = TestRequestStatus.Pending;
         req5.ExpectedCompletionDate = now.AddDays(4);
         req5.Notes = "Yêu cầu quan trắc định kỳ";
+        req5.TotalSampleCount = 1;
+        req5.TotalCost = 620000;
         await _testRequestRepository.InsertAsync(req5);
+
+        // Sample 8 for Request 5
+        var sample8Id = _guidGenerator.Create();
+        var sample8 = new TestRequestSample(sample8Id, req5Id, "M008", "Mẫu nước thải - KCN Hòa Phú");
+        sample8.SortOrder = 1;
+        sample8.SamplingAddress = "Nhà máy XLNT KCN Hòa Phú, Đầu ra";
+        sample8.SampleQuantity = "5 L";
+        sample8.Status = SampleStatus.Normal;
+        sample8.ProcessingStatus = "Đã nhận";
+        sample8.StorageLocation = "KLA1";
+        sample8.Notes = "Mẫu nước thải đầu ra nhà máy xử lý nước thải KCN";
+        sample8.TotalIndicatorCost = 620000;
+        await _testRequestSampleRepository.InsertAsync(sample8);
+
+        // Add indicators to Sample 8
+        if (indPH != null)
+        {
+            var si18 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indPH.Id, indPH.UnitPrice);
+            si18.RequestDate = now.AddDays(-3);
+            si18.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si18);
+        }
+        if (indColiform != null)
+        {
+            var si19 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indColiform.Id, indColiform.UnitPrice);
+            si19.RequestDate = now.AddDays(-3);
+            si19.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si19);
+        }
+        if (indChi != null)
+        {
+            var si20 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indChi.Id, indChi.UnitPrice);
+            si20.RequestDate = now.AddDays(-3);
+            si20.SentToDepartment = false;
+            await _testRequestSampleIndicatorRepository.InsertAsync(si20);
+        }
 
         // Specimen 8 - Wastewater
         var spe8 = new Specimen(_guidGenerator.Create(), req5Id, "SPE-20251210-0008", "Mẫu nước thải - KCN Hòa Phú", "Nước thải", now.AddDays(-3));

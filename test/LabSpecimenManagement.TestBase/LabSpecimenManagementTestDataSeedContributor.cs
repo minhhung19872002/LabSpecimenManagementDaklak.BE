@@ -145,10 +145,9 @@ public class LabSpecimenManagementTestDataSeedContributor : IDataSeedContributor
             LabSpecimenManagementTestData.TestRequest1Id,
             "TR-20240101-0001",
             DateTime.Now.AddDays(-5),
-            "Công ty TNHH ABC",
-            "abc@company.com",
-            "0901234567"
+            "Công ty TNHH ABC"
         );
+        testRequest1.Phone = "0901234567";
         testRequest1.Status = TestRequestStatus.InProgress;
         testRequest1.Notes = "Yêu cầu thử nghiệm mẫu nước thải";
         await _testRequestRepository.InsertAsync(testRequest1);
@@ -158,10 +157,9 @@ public class LabSpecimenManagementTestDataSeedContributor : IDataSeedContributor
             LabSpecimenManagementTestData.TestRequest2Id,
             "TR-20240101-0002",
             DateTime.Now.AddDays(-3),
-            "Công ty CP XYZ",
-            "xyz@company.com",
-            "0902345678"
+            "Công ty CP XYZ"
         );
+        testRequest2.Phone = "0902345678";
         testRequest2.Status = TestRequestStatus.Pending;
         testRequest2.Notes = "Yêu cầu thử nghiệm mẫu đất";
         await _testRequestRepository.InsertAsync(testRequest2);

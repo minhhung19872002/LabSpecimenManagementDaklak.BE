@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.TestRequests;
 using Shouldly;
@@ -42,8 +43,7 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         result.Id.ShouldBe(LabSpecimenManagementTestData.TestRequest1Id);
         result.RequestNumber.ShouldBe("TR-20240101-0001");
         result.CustomerName.ShouldBe("Công ty TNHH ABC");
-        result.CustomerEmail.ShouldBe("abc@company.com");
-        result.CustomerPhone.ShouldBe("0901234567");
+        result.Phone.ShouldBe("0901234567");
         result.Status.ShouldBe(TestRequestStatus.InProgress);
     }
 
@@ -55,12 +55,11 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         {
             RequestDate = DateTime.Now,
             CustomerName = "Công ty Test ABC",
-            CustomerEmail = "test@abc.com",
-            CustomerPhone = "0903456789",
-            CustomerInfo = "Thông tin liên hệ: 123 Đường Test",
+            Phone = "0903456789",
+            Address = "123 Đường Test",
             Notes = "Ghi chú yêu cầu thử nghiệm",
             ExpectedCompletionDate = DateTime.Now.AddDays(7),
-            Subcontractor = null
+            Samples = new List<CreateTestRequestSampleDto>()
         };
 
         // Act
@@ -71,8 +70,7 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         result.Id.ShouldNotBe(Guid.Empty);
         result.RequestNumber.ShouldStartWith("TR-");
         result.CustomerName.ShouldBe("Công ty Test ABC");
-        result.CustomerEmail.ShouldBe("test@abc.com");
-        result.CustomerPhone.ShouldBe("0903456789");
+        result.Phone.ShouldBe("0903456789");
         result.Status.ShouldBe(TestRequestStatus.Pending);
     }
 
@@ -84,12 +82,12 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         {
             RequestDate = DateTime.Now.AddDays(-5),
             CustomerName = "Công ty TNHH ABC - Updated",
-            CustomerEmail = "updated@abc.com",
-            CustomerPhone = "0904567890",
-            CustomerInfo = "Địa chỉ đã cập nhật",
+            Phone = "0904567890",
+            Address = "Địa chỉ đã cập nhật",
             Notes = "Ghi chú đã cập nhật",
             Status = TestRequestStatus.Completed,
-            ExpectedCompletionDate = DateTime.Now.AddDays(3)
+            ExpectedCompletionDate = DateTime.Now.AddDays(3),
+            Samples = new List<UpdateTestRequestSampleDto>()
         };
 
         // Act
@@ -98,8 +96,7 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         // Assert
         result.ShouldNotBeNull();
         result.CustomerName.ShouldBe("Công ty TNHH ABC - Updated");
-        result.CustomerEmail.ShouldBe("updated@abc.com");
-        result.CustomerPhone.ShouldBe("0904567890");
+        result.Phone.ShouldBe("0904567890");
         result.Status.ShouldBe(TestRequestStatus.Completed);
     }
 
@@ -126,13 +123,15 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         var request1 = await _testRequestAppService.CreateAsync(new CreateTestRequestDto
         {
             RequestDate = DateTime.Now,
-            CustomerName = "Customer 1"
+            CustomerName = "Customer 1",
+            Samples = new List<CreateTestRequestSampleDto>()
         });
 
         var request2 = await _testRequestAppService.CreateAsync(new CreateTestRequestDto
         {
             RequestDate = DateTime.Now,
-            CustomerName = "Customer 2"
+            CustomerName = "Customer 2",
+            Samples = new List<CreateTestRequestSampleDto>()
         });
 
         // Assert
@@ -148,7 +147,8 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         var input = new CreateTestRequestDto
         {
             RequestDate = DateTime.Now,
-            CustomerName = "New Customer"
+            CustomerName = "New Customer",
+            Samples = new List<CreateTestRequestSampleDto>()
         };
 
         // Act
@@ -175,5 +175,48 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         result.ShouldNotBeNull();
         result.Items.Count.ShouldBe(1);
         result.TotalCount.ShouldBeGreaterThanOrEqualTo(2);
+    }
+
+    [Fact]
+    public async Task Should_Create_TestRequest_With_Samples()
+    {
+        // Arrange
+        var input = new CreateTestRequestDto
+        {
+            RequestDate = DateTime.Now,
+            CustomerName = "Customer With Samples",
+            Samples = new List<CreateTestRequestSampleDto>
+            {
+                new CreateTestRequestSampleDto
+                {
+                    SortOrder = 1,
+                    SampleCode = "SAMPLE-001",
+                    SampleName = "Mẫu test 1",
+                    SamplingAddress = "Địa chỉ lấy mẫu 1",
+                    SampleQuantity = "1kg",
+                    Status = SampleStatus.Normal,
+                    Indicators = new List<CreateTestRequestSampleIndicatorDto>()
+                },
+                new CreateTestRequestSampleDto
+                {
+                    SortOrder = 2,
+                    SampleCode = "SAMPLE-002",
+                    SampleName = "Mẫu test 2",
+                    SamplingAddress = "Địa chỉ lấy mẫu 2",
+                    SampleQuantity = "500g",
+                    Status = SampleStatus.Normal,
+                    Indicators = new List<CreateTestRequestSampleIndicatorDto>()
+                }
+            }
+        };
+
+        // Act
+        var result = await _testRequestAppService.CreateAsync(input);
+
+        // Assert
+        result.ShouldNotBeNull();
+        result.Samples.Count.ShouldBe(2);
+        result.Samples.ShouldContain(s => s.SampleCode == "SAMPLE-001");
+        result.Samples.ShouldContain(s => s.SampleCode == "SAMPLE-002");
     }
 }

@@ -111,6 +111,20 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         customerPermission.AddChild(LabSpecimenManagementPermissions.Customers.Edit, L("Permission:Customers.Edit"));
         customerPermission.AddChild(LabSpecimenManagementPermissions.Customers.Delete, L("Permission:Customers.Delete"));
 
+        // Master Data - Indicator Group Permissions
+        var indicatorGroupPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.IndicatorGroups.Default, L("Permission:IndicatorGroups"));
+        indicatorGroupPermission.AddChild(LabSpecimenManagementPermissions.IndicatorGroups.Create, L("Permission:IndicatorGroups.Create"));
+        indicatorGroupPermission.AddChild(LabSpecimenManagementPermissions.IndicatorGroups.Edit, L("Permission:IndicatorGroups.Edit"));
+        indicatorGroupPermission.AddChild(LabSpecimenManagementPermissions.IndicatorGroups.Delete, L("Permission:IndicatorGroups.Delete"));
+        indicatorGroupPermission.AddChild(LabSpecimenManagementPermissions.IndicatorGroups.Import, L("Permission:IndicatorGroups.Import"));
+
+        // Master Data - Indicator Permissions
+        var indicatorPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Indicators.Default, L("Permission:Indicators"));
+        indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Create, L("Permission:Indicators.Create"));
+        indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Edit, L("Permission:Indicators.Edit"));
+        indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Delete, L("Permission:Indicators.Delete"));
+        indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Import, L("Permission:Indicators.Import"));
+
         // Audit Log Permissions
         myGroup.AddPermission(LabSpecimenManagementPermissions.AuditLogs.Default, L("Permission:AuditLogs"));
 
