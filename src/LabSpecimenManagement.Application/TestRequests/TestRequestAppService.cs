@@ -51,6 +51,8 @@ public class TestRequestAppService :
         var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
         dto.Samples = new List<TestRequestSampleDto>();
 
+        decimal calculatedTotalCost = 0;
+
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
             var sampleDto = ObjectMapper.Map<TestRequestSample, TestRequestSampleDto>(sample);
@@ -59,6 +61,7 @@ public class TestRequestAppService :
             var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
             sampleDto.Indicators = new List<TestRequestSampleIndicatorDto>();
 
+            decimal sampleIndicatorCost = 0;
             foreach (var indicator in indicators)
             {
                 var indicatorEntity = await _indicatorRepository.GetAsync(indicator.IndicatorId);
@@ -75,10 +78,18 @@ public class TestRequestAppService :
                     RequestDate = indicator.RequestDate,
                     SentToDepartment = indicator.SentToDepartment
                 });
+                sampleIndicatorCost += indicator.UnitPrice;
             }
+
+            // Calculate sample total cost from indicators
+            sampleDto.TotalIndicatorCost = sampleIndicatorCost;
+            calculatedTotalCost += sampleIndicatorCost;
 
             dto.Samples.Add(sampleDto);
         }
+
+        // Set total cost from calculated value
+        dto.TotalCost = calculatedTotalCost;
 
         // Load user names
         if (dto.SupervisorId.HasValue)
@@ -135,6 +146,17 @@ public class TestRequestAppService :
             queryable = queryable.Where(x => x.CustomerName.ToLower().Contains(customerName));
         }
 
+        // Apply expected completion date range filter
+        if (input.ExpectedCompletionDateFrom.HasValue)
+        {
+            queryable = queryable.Where(x => x.ExpectedCompletionDate.HasValue && x.ExpectedCompletionDate.Value >= input.ExpectedCompletionDateFrom.Value);
+        }
+
+        if (input.ExpectedCompletionDateTo.HasValue)
+        {
+            queryable = queryable.Where(x => x.ExpectedCompletionDate.HasValue && x.ExpectedCompletionDate.Value <= input.ExpectedCompletionDateTo.Value);
+        }
+
         // Get total count
         var totalCount = await AsyncExecuter.CountAsync(queryable);
 
@@ -155,6 +177,21 @@ public class TestRequestAppService :
 
         var entities = await AsyncExecuter.ToListAsync(queryable);
         var dtos = ObjectMapper.Map<List<TestRequest>, List<TestRequestDto>>(entities);
+
+        // Calculate total cost for each test request from samples and indicators
+        foreach (var dto in dtos)
+        {
+            var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == dto.Id);
+            decimal totalCost = 0;
+
+            foreach (var sample in samples)
+            {
+                var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
+                totalCost += indicators.Sum(i => i.UnitPrice);
+            }
+
+            dto.TotalCost = totalCost;
+        }
 
         return new PagedResultDto<TestRequestDto>(totalCount, dtos);
     }
@@ -299,8 +336,11 @@ public class TestRequestAppService :
         entity.SentToDepartment = input.SentToDepartment;
         entity.ResultReturned = input.ResultReturned;
         entity.CustomerName = input.CustomerName;
+        entity.ProvinceCode = input.ProvinceCode;
         entity.Province = input.Province;
+        entity.DistrictCode = input.DistrictCode;
         entity.District = input.District;
+        entity.WardCode = input.WardCode;
         entity.Ward = input.Ward;
         entity.Address = input.Address;
         entity.TaxCode = input.TaxCode;
@@ -333,6 +373,8 @@ public class TestRequestAppService :
         entity.ReceiptNumber = input.ReceiptNumber;
         entity.SupervisorId = input.SupervisorId;
         entity.DirectorId = input.DirectorId;
+        entity.ChangeRequest = input.ChangeRequest;
+        entity.AgreeTerms = input.AgreeTerms;
 
         // Legacy fields
         entity.RequestDate = input.RequestDate;

@@ -25,11 +25,20 @@ public class UpdateTestRequestDto
     [StringLength(256)]
     public string CustomerName { get; set; } = string.Empty;
 
+    [StringLength(20)]
+    public string? ProvinceCode { get; set; }
+
     [StringLength(100)]
     public string? Province { get; set; }
 
+    [StringLength(20)]
+    public string? DistrictCode { get; set; }
+
     [StringLength(100)]
     public string? District { get; set; }
+
+    [StringLength(20)]
+    public string? WardCode { get; set; }
 
     [StringLength(100)]
     public string? Ward { get; set; }
@@ -111,6 +120,11 @@ public class UpdateTestRequestDto
     public Guid? SupervisorId { get; set; }
 
     public Guid? DirectorId { get; set; }
+
+    [StringLength(1000)]
+    public string? ChangeRequest { get; set; }
+
+    public bool AgreeTerms { get; set; }
 
     #endregion
 

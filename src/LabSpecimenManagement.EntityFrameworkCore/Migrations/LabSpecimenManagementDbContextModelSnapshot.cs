@@ -1450,6 +1450,12 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<bool>("AgreeTerms")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("ChangeRequest")
+                        .HasColumnType("text");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -1506,6 +1512,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<string>("DistrictCode")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("ExpectedCompletionDate")
                         .HasColumnType("timestamp without time zone");
 
@@ -1555,6 +1564,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Province")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ProvinceCode")
+                        .HasColumnType("text");
 
                     b.Property<string>("ReceiptNumber")
                         .HasMaxLength(100)
@@ -1643,6 +1655,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Ward")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("WardCode")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
