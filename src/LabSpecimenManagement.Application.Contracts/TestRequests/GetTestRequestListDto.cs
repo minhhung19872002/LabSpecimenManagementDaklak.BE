@@ -32,4 +32,14 @@ public class GetTestRequestListDto : PagedAndSortedResultRequestDto
     /// Filter by customer name (partial match)
     /// </summary>
     public string? CustomerName { get; set; }
+
+    /// <summary>
+    /// Filter by expected completion date (ExpectedCompletionDate >= ExpectedCompletionDateFrom)
+    /// </summary>
+    public DateTime? ExpectedCompletionDateFrom { get; set; }
+
+    /// <summary>
+    /// Filter by expected completion date (ExpectedCompletionDate <= ExpectedCompletionDateTo)
+    /// </summary>
+    public DateTime? ExpectedCompletionDateTo { get; set; }
 }

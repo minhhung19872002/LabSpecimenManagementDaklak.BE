@@ -15,8 +15,11 @@ public class TestRequestDto : FullAuditedEntityDto<Guid>
     public bool SentToDepartment { get; set; }
     public bool ResultReturned { get; set; }
     public string CustomerName { get; set; } = string.Empty;
+    public string? ProvinceCode { get; set; }
     public string? Province { get; set; }
+    public string? DistrictCode { get; set; }
     public string? District { get; set; }
+    public string? WardCode { get; set; }
     public string? Ward { get; set; }
     public string? Address { get; set; }
     public string? TaxCode { get; set; }
@@ -59,6 +62,8 @@ public class TestRequestDto : FullAuditedEntityDto<Guid>
     public string? SupervisorName { get; set; }
     public Guid? DirectorId { get; set; }
     public string? DirectorName { get; set; }
+    public string? ChangeRequest { get; set; }
+    public bool AgreeTerms { get; set; }
 
     #endregion
 

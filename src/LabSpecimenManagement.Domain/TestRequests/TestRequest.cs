@@ -48,14 +48,29 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     public string CustomerName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Mã tỉnh thành
+    /// </summary>
+    public string? ProvinceCode { get; set; }
+
+    /// <summary>
     /// Tỉnh thành
     /// </summary>
     public string? Province { get; set; }
 
     /// <summary>
+    /// Mã quận huyện
+    /// </summary>
+    public string? DistrictCode { get; set; }
+
+    /// <summary>
     /// Quận huyện
     /// </summary>
     public string? District { get; set; }
+
+    /// <summary>
+    /// Mã phường xã
+    /// </summary>
+    public string? WardCode { get; set; }
 
     /// <summary>
     /// Phường xã
@@ -214,6 +229,16 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// GĐ Trung tâm (UserId)
     /// </summary>
     public Guid? DirectorId { get; set; }
+
+    /// <summary>
+    /// Thay đổi yêu cầu
+    /// </summary>
+    public string? ChangeRequest { get; set; }
+
+    /// <summary>
+    /// Đã đọc và đồng ý với quy định chung
+    /// </summary>
+    public bool AgreeTerms { get; set; }
 
     #endregion
 
