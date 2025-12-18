@@ -35,6 +35,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<NCR, Guid> _ncrRepository;
     private readonly IRepository<TaskAssignment, Guid> _taskAssignmentRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IConfiguration _configuration;
 
@@ -55,6 +56,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<NCR, Guid> ncrRepository,
         IRepository<TaskAssignment, Guid> taskAssignmentRepository,
         IRepository<Organization, Guid> organizationRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
         IGuidGenerator guidGenerator,
         IConfiguration configuration)
     {
@@ -74,6 +76,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _ncrRepository = ncrRepository;
         _taskAssignmentRepository = taskAssignmentRepository;
         _organizationRepository = organizationRepository;
+        _laboratoryRepository = laboratoryRepository;
         _guidGenerator = guidGenerator;
         _configuration = configuration;
     }
@@ -93,6 +96,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         await SeedStorageLocationsAsync();
         await SeedCustomersAsync();
         await SeedOrganizationsAsync();
+        await SeedLaboratoriesAsync();
         await SeedIndicatorGroupsAndIndicatorsAsync();
         await SeedTestRequestsAndRelatedDataAsync();
     }
@@ -296,6 +300,32 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             entity.Phone = cust.Phone;
             entity.Address = cust.Address;
             await _customerRepository.InsertAsync(entity);
+        }
+    }
+
+    private async Task SeedLaboratoriesAsync()
+    {
+        if (await _laboratoryRepository.GetCountAsync() > 0) return;
+
+        var laboratories = new[]
+        {
+            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1 },
+            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2 },
+            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3 },
+            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4 },
+            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5 },
+            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6 },
+            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7 },
+            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8 },
+            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9 },
+        };
+
+        foreach (var lab in laboratories)
+        {
+            var entity = new Laboratory(_guidGenerator.Create(), lab.Code, lab.Name);
+            entity.SortOrder = lab.SortOrder;
+            entity.IsActive = true;
+            await _laboratoryRepository.InsertAsync(entity);
         }
     }
 

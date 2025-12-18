@@ -111,5 +111,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         // Organization mappings
         CreateMap<Organization, OrganizationDto>();
         CreateMap<CreateUpdateOrganizationDto, Organization>();
+
+        // Laboratory mappings
+        CreateMap<Laboratory, LaboratoryDto>()
+            .ForMember(dest => dest.TechnicalManagerName, opt => opt.Ignore());
+        CreateMap<CreateUpdateLaboratoryDto, Laboratory>();
     }
 }

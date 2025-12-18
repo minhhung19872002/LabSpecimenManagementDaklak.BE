@@ -27,6 +27,7 @@ public class TestRequestAppService :
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IIdentityUserRepository _userRepository;
 
     public TestRequestAppService(
@@ -35,6 +36,7 @@ public class TestRequestAppService :
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
         IIdentityUserRepository userRepository)
         : base(repository)
     {
@@ -42,6 +44,7 @@ public class TestRequestAppService :
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _organizationRepository = organizationRepository;
+        _laboratoryRepository = laboratoryRepository;
         _userRepository = userRepository;
     }
 
@@ -68,6 +71,15 @@ public class TestRequestAppService :
             foreach (var indicator in indicators)
             {
                 var indicatorEntity = await _indicatorRepository.GetAsync(indicator.IndicatorId);
+
+                // Get laboratory name if assigned
+                string? laboratoryName = null;
+                if (indicator.LaboratoryId.HasValue)
+                {
+                    var laboratory = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
+                    laboratoryName = laboratory?.Name;
+                }
+
                 sampleDto.Indicators.Add(new TestRequestSampleIndicatorDto
                 {
                     Id = indicator.Id,
@@ -77,6 +89,8 @@ public class TestRequestAppService :
                     IndicatorName = indicatorEntity.Name,
                     UnitPrice = indicator.UnitPrice,
                     Notes = indicator.Notes,
+                    LaboratoryId = indicator.LaboratoryId,
+                    LaboratoryName = laboratoryName,
                     TransferDate = indicator.TransferDate,
                     RequestDate = indicator.RequestDate,
                     SentToDepartment = indicator.SentToDepartment
@@ -218,8 +232,11 @@ public class TestRequestAppService :
         entity.PaymentReceived = createInput.PaymentReceived;
         entity.SentToDepartment = createInput.SentToDepartment;
         entity.ResultReturned = createInput.ResultReturned;
+        entity.ProvinceCode = createInput.ProvinceCode;
         entity.Province = createInput.Province;
+        entity.DistrictCode = createInput.DistrictCode;
         entity.District = createInput.District;
+        entity.WardCode = createInput.WardCode;
         entity.Ward = createInput.Ward;
         entity.Address = createInput.Address;
         entity.TaxCode = createInput.TaxCode;
@@ -252,6 +269,8 @@ public class TestRequestAppService :
         entity.ReceiptNumber = createInput.ReceiptNumber;
         entity.SupervisorId = createInput.SupervisorId;
         entity.DirectorId = createInput.DirectorId;
+        entity.ChangeRequest = createInput.ChangeRequest;
+        entity.AgreeTerms = createInput.AgreeTerms;
 
         // Legacy fields
         entity.Notes = createInput.Notes;
@@ -305,6 +324,7 @@ public class TestRequestAppService :
                             indicatorDto.UnitPrice
                         );
                         sampleIndicator.Notes = indicatorDto.Notes;
+                        sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
                         sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -481,6 +501,7 @@ public class TestRequestAppService :
                             var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
                             indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.Notes = indicatorDto.Notes;
+                            indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -496,6 +517,7 @@ public class TestRequestAppService :
                                 indicatorDto.UnitPrice
                             );
                             indicator.Notes = indicatorDto.Notes;
+                            indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;

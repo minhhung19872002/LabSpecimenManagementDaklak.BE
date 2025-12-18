@@ -196,6 +196,11 @@ public class UpdateTestRequestSampleIndicatorDto
     [Required]
     public Guid IndicatorId { get; set; }
 
+    /// <summary>
+    /// Khoa phòng thực hiện
+    /// </summary>
+    public Guid? LaboratoryId { get; set; }
+
     public decimal UnitPrice { get; set; }
 
     [StringLength(500)]
@@ -207,7 +212,7 @@ public class UpdateTestRequestSampleIndicatorDto
     public DateTime? TransferDate { get; set; }
 
     /// <summary>
-    /// Ngày yêu cầu
+    /// Ngày yêu cầu hoàn thành
     /// </summary>
     public DateTime? RequestDate { get; set; }
 

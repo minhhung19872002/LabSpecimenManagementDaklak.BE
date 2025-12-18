@@ -115,12 +115,22 @@ public class TestRequestSampleIndicatorDto
     public string? Notes { get; set; }
 
     /// <summary>
+    /// Khoa phòng thực hiện
+    /// </summary>
+    public Guid? LaboratoryId { get; set; }
+
+    /// <summary>
+    /// Tên khoa phòng thực hiện
+    /// </summary>
+    public string? LaboratoryName { get; set; }
+
+    /// <summary>
     /// Ngày chuyển giao
     /// </summary>
     public DateTime? TransferDate { get; set; }
 
     /// <summary>
-    /// Ngày yêu cầu
+    /// Ngày yêu cầu hoàn thành
     /// </summary>
     public DateTime? RequestDate { get; set; }
 

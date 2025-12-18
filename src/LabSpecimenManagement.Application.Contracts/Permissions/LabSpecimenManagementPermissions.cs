@@ -172,6 +172,15 @@ public static class LabSpecimenManagementPermissions
         public const string Import = Default + ".Import";
     }
 
+    // Master Data - Laboratory (Khoa phòng) Permissions
+    public static class Laboratories
+    {
+        public const string Default = GroupName + ".Laboratories";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Audit Log Permissions
     public static class AuditLogs
     {

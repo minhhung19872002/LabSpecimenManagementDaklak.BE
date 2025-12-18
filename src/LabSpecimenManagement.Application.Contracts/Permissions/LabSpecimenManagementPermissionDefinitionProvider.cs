@@ -125,6 +125,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Delete, L("Permission:Indicators.Delete"));
         indicatorPermission.AddChild(LabSpecimenManagementPermissions.Indicators.Import, L("Permission:Indicators.Import"));
 
+        // Master Data - Laboratory (Khoa phòng) Permissions
+        var laboratoryPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Laboratories.Default, L("Permission:Laboratories"));
+        laboratoryPermission.AddChild(LabSpecimenManagementPermissions.Laboratories.Create, L("Permission:Laboratories.Create"));
+        laboratoryPermission.AddChild(LabSpecimenManagementPermissions.Laboratories.Edit, L("Permission:Laboratories.Edit"));
+        laboratoryPermission.AddChild(LabSpecimenManagementPermissions.Laboratories.Delete, L("Permission:Laboratories.Delete"));
+
         // Audit Log Permissions
         myGroup.AddPermission(LabSpecimenManagementPermissions.AuditLogs.Default, L("Permission:AuditLogs"));
 

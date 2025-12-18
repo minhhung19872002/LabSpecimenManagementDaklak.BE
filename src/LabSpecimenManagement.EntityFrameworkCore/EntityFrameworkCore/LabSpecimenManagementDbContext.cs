@@ -54,6 +54,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
     public DbSet<Indicator> Indicators { get; set; }
     public DbSet<Organization> Organizations { get; set; }
+    public DbSet<Laboratory> Laboratories { get; set; }
 
     // Junction Tables
     public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
@@ -199,6 +200,12 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
+
+            b.HasIndex(x => x.LaboratoryId);
+            b.HasOne(x => x.Laboratory)
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryId)
+                .IsRequired(false);
         });
 
         // TestRequestAttachment configuration
@@ -399,6 +406,20 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
 
             b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // Laboratory (Khoa phòng) configuration
+        builder.Entity<Laboratory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Laboratories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(20);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(100);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.Name).IsUnique();
             b.HasIndex(x => x.IsActive);
         });
 

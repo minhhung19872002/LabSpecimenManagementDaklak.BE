@@ -340,6 +340,85 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppIndicatorGroups", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.Laboratory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("TechnicalManagerId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("AppLaboratories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Organization", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1904,6 +1983,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("LaboratoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -1927,6 +2009,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("IndicatorId");
+
+                    b.HasIndex("LaboratoryId");
 
                     b.HasIndex("TestRequestSampleId");
 
@@ -3885,6 +3969,10 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("LabSpecimenManagement.MasterData.Laboratory", "Laboratory")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryId");
+
                     b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSample", "TestRequestSample")
                         .WithMany("Indicators")
                         .HasForeignKey("TestRequestSampleId")
@@ -3892,6 +3980,8 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("Indicator");
+
+                    b.Navigation("Laboratory");
 
                     b.Navigation("TestRequestSample");
                 });
