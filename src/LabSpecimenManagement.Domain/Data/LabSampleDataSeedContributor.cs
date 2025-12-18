@@ -34,6 +34,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<TestResult, Guid> _testResultRepository;
     private readonly IRepository<NCR, Guid> _ncrRepository;
     private readonly IRepository<TaskAssignment, Guid> _taskAssignmentRepository;
+    private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IConfiguration _configuration;
 
@@ -53,6 +54,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<TestResult, Guid> testResultRepository,
         IRepository<NCR, Guid> ncrRepository,
         IRepository<TaskAssignment, Guid> taskAssignmentRepository,
+        IRepository<Organization, Guid> organizationRepository,
         IGuidGenerator guidGenerator,
         IConfiguration configuration)
     {
@@ -71,6 +73,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _testResultRepository = testResultRepository;
         _ncrRepository = ncrRepository;
         _taskAssignmentRepository = taskAssignmentRepository;
+        _organizationRepository = organizationRepository;
         _guidGenerator = guidGenerator;
         _configuration = configuration;
     }
@@ -89,6 +92,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         await SeedTestMethodsAsync();
         await SeedStorageLocationsAsync();
         await SeedCustomersAsync();
+        await SeedOrganizationsAsync();
         await SeedIndicatorGroupsAndIndicatorsAsync();
         await SeedTestRequestsAndRelatedDataAsync();
     }
@@ -292,6 +296,38 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             entity.Phone = cust.Phone;
             entity.Address = cust.Address;
             await _customerRepository.InsertAsync(entity);
+        }
+    }
+
+    private async Task SeedOrganizationsAsync()
+    {
+        if (await _organizationRepository.GetCountAsync() > 0) return;
+
+        var organizations = new[]
+        {
+            new { Name = "Công ty TNHH Cà phê Tây Nguyên", SortOrder = 1 },
+            new { Name = "HTX Nông nghiệp Ea H'leo", SortOrder = 2 },
+            new { Name = "Viện Nghiên cứu Khoa học Tây Nguyên", SortOrder = 3 },
+            new { Name = "Công ty CP Phân bón Đắk Lắk", SortOrder = 4 },
+            new { Name = "Sở Tài nguyên và Môi trường Đắk Lắk", SortOrder = 5 },
+            new { Name = "Công ty TNHH MTV Cao su Đắk Lắk", SortOrder = 6 },
+            new { Name = "HTX Nông nghiệp xanh Krông Năng", SortOrder = 7 },
+            new { Name = "Chi cục Bảo vệ môi trường Đắk Lắk", SortOrder = 8 },
+            new { Name = "Trung tâm Khuyến nông Đắk Lắk", SortOrder = 9 },
+            new { Name = "Công ty CP Chế biến Nông sản Đắk Lắk", SortOrder = 10 },
+            new { Name = "HTX Dịch vụ Nông nghiệp Buôn Ma Thuột", SortOrder = 11 },
+            new { Name = "Công ty TNHH XNK Cà phê Tây Nguyên", SortOrder = 12 },
+            new { Name = "Trung tâm Quan trắc Môi trường Đắk Lắk", SortOrder = 13 },
+            new { Name = "Viện Khoa học Kỹ thuật Nông lâm nghiệp Tây Nguyên", SortOrder = 14 },
+            new { Name = "Công ty TNHH Thực phẩm sạch Đắk Lắk", SortOrder = 15 },
+        };
+
+        foreach (var org in organizations)
+        {
+            var entity = new Organization(_guidGenerator.Create(), org.Name);
+            entity.SortOrder = org.SortOrder;
+            entity.IsActive = true;
+            await _organizationRepository.InsertAsync(entity);
         }
     }
 

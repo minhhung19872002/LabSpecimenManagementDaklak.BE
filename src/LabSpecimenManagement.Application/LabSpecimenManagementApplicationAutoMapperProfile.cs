@@ -1,6 +1,7 @@
 using AutoMapper;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.Organizations;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
@@ -106,5 +107,9 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<Indicator, IndicatorDto>()
             .ForMember(dest => dest.IndicatorGroupName, opt => opt.Ignore())
             .ForMember(dest => dest.CanDelete, opt => opt.Ignore());
+
+        // Organization mappings
+        CreateMap<Organization, OrganizationDto>();
+        CreateMap<CreateUpdateOrganizationDto, Organization>();
     }
 }

@@ -26,6 +26,7 @@ public class TestRequestAppService :
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IIdentityUserRepository _userRepository;
 
     public TestRequestAppService(
@@ -33,12 +34,14 @@ public class TestRequestAppService :
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<Organization, Guid> organizationRepository,
         IIdentityUserRepository userRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _indicatorRepository = indicatorRepository;
+        _organizationRepository = organizationRepository;
         _userRepository = userRepository;
     }
 
@@ -260,6 +263,9 @@ public class TestRequestAppService :
 
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
+        // Auto-create Organization if customerName doesn't exist
+        await EnsureOrganizationExistsAsync(input.CustomerName);
+
         var entity = await MapToEntityAsync(input);
         await Repository.InsertAsync(entity, autoSave: true);
 
@@ -326,6 +332,9 @@ public class TestRequestAppService :
 
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
+        // Auto-create Organization if customerName doesn't exist
+        await EnsureOrganizationExistsAsync(input.CustomerName);
+
         var entity = await Repository.GetAsync(id);
 
         // Update contract info
@@ -522,5 +531,25 @@ public class TestRequestAppService :
         var sequence = (count + 1).ToString("D4");
 
         return $"{prefix}-{sequence}";
+    }
+
+    /// <summary>
+    /// Check if Organization exists by name, create if not exists
+    /// </summary>
+    private async Task EnsureOrganizationExistsAsync(string customerName)
+    {
+        if (string.IsNullOrWhiteSpace(customerName))
+        {
+            return;
+        }
+
+        var normalizedName = customerName.Trim();
+        var exists = await _organizationRepository.AnyAsync(o => o.Name.ToLower() == normalizedName.ToLower());
+
+        if (!exists)
+        {
+            var organization = new Organization(GuidGenerator.Create(), normalizedName);
+            await _organizationRepository.InsertAsync(organization, autoSave: true);
+        }
     }
 }

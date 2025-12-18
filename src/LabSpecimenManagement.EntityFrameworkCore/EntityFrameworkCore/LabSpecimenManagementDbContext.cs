@@ -53,6 +53,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Customer> Customers { get; set; }
     public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
     public DbSet<Indicator> Indicators { get; set; }
+    public DbSet<Organization> Organizations { get; set; }
 
     // Junction Tables
     public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
@@ -386,6 +387,18 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // Organization configuration
+        builder.Entity<Organization>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Organizations", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+
+            b.HasIndex(x => x.Name);
             b.HasIndex(x => x.IsActive);
         });
 
