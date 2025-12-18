@@ -91,6 +91,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureHealthChecks(context);
         ConfigureApiFilters(context);
         ConfigureEmail(context, configuration);
+
+        // Register HttpClient for OnlyOffice integration
+        context.Services.AddHttpClient();
     }
 
     private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
