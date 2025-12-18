@@ -1,0 +1,90 @@
+{
+  "services": {
+    "CoAuthoring": {
+      "sql": {
+        "type": "postgres",
+        "dbHost": "localhost",
+        "dbPort": "5432",
+        "dbName": "onlyoffice",
+        "dbUser": "onlyoffice",
+        "dbPass": "onlyoffice"
+      },
+      "server": {
+        "forgottenfiles": "forgotten",
+        "forgottenfilesname": "output",
+        "editorDataStorage": "editorDataMemory",
+        "callbackRequestTimeout": {
+          "connectionAndInactivity": "30s",
+          "wholeCycle": "30s"
+        },
+        "edit_singleton": false,
+        "newFileTemplate": "",
+        "commandUrl": "",
+        "maxChangesSize": 524288000
+      },
+      "autoAssembly": {
+        "enable": false,
+        "interval": "5m",
+        "step": "1m"
+      },
+      "openProtectedFile": true,
+      "callbackBackoffOptions": {
+        "retries": 0,
+        "timeout": 0
+      },
+      "editor": {
+        "spellcheckerUrl": "",
+        "reconnection": {
+          "attempts": 50,
+          "delay": 2000
+        }
+      },
+      "token": {
+        "enable": {
+          "request": {
+            "inbox": false,
+            "outbox": false
+          },
+          "browser": false
+        },
+        "inbox": {
+          "header": "Authorization",
+          "inBody": false
+        },
+        "outbox": {
+          "header": "Authorization",
+          "inBody": false
+        }
+      },
+      "secret": {
+        "browser": {
+          "string": "my_jwt_secret_key_here_for_onlyoffice_256bit"
+        },
+        "inbox": {
+          "string": "my_jwt_secret_key_here_for_onlyoffice_256bit"
+        },
+        "outbox": {
+          "string": "my_jwt_secret_key_here_for_onlyoffice_256bit"
+        },
+        "session": {
+          "string": "my_jwt_secret_key_here_for_onlyoffice_256bit"
+        }
+      },
+      "request-filtering-agent": {
+        "allowPrivateIPAddress": true,
+        "allowMetaIPAddress": true
+      },
+      "requestDefaults": {
+        "rejectUnauthorized": false
+      }
+    }
+  },
+  "rabbitmq": {
+    "url": "amqp://guest:guest@localhost"
+  },
+  "storage": {
+    "fs": {
+      "secretString": "verysecretstring"
+    }
+  }
+}

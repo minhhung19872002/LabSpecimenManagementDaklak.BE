@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
@@ -60,6 +62,7 @@ public class FormTemplateController : LabSpecimenManagementController
     /// Download a form template by filename
     /// </summary>
     [HttpGet("download/{*fileName}")]
+    [AllowAnonymous] // OnlyOffice needs to access this without authentication
     public IActionResult Download(string fileName)
     {
         var templatesPath = Path.Combine(_environment.WebRootPath ?? "", "templates");
@@ -127,53 +130,71 @@ public class FormTemplateController : LabSpecimenManagementController
             _ => "word"
         };
 
+        var onlyOfficeConfig = new OnlyOfficeConfig
+        {
+            Document = new OnlyOfficeDocument
+            {
+                FileType = extension.TrimStart('.'),
+                Key = documentKey,
+                Title = fileName,
+                Url = $"{backendUrl}/api/v1/form-templates/download/{Uri.EscapeDataString(fileName)}"
+            },
+            DocumentType = documentType,
+            EditorConfig = new OnlyOfficeEditorSettings
+            {
+                // Temporarily remove callback to allow editing without callback verification
+                // CallbackUrl = $"{backendUrl}/api/v1/form-templates/callback/{Uri.EscapeDataString(fileName)}",
+                CallbackUrl = "",
+                Lang = "vi",
+                Mode = "edit",
+                User = new OnlyOfficeUser
+                {
+                    Id = "1",
+                    Name = "Editor"
+                },
+                Customization = new OnlyOfficeCustomization
+                {
+                    Autosave = true,
+                    Chat = false,
+                    Comments = false,
+                    CompactHeader = true,
+                    CompactToolbar = false,
+                    Feedback = false,
+                    ForceSave = false,
+                    Help = false,
+                    HideRightMenu = false,
+                    HideRulers = false,
+                    IntegrationMode = "embed",
+                    Logo = null,
+                    MacrosMode = "disable",
+                    MentionShare = false,
+                    Plugins = false,
+                    ReviewDisplay = "original",
+                    ToolbarHideFileName = false,
+                    ToolbarNoTabs = false,
+                    Uiicons = true,
+                    Unit = "cm",
+                    Zoom = 100
+                }
+            },
+            Height = "100%",
+            Width = "100%",
+            Type = "desktop"
+        };
+
+        // Generate JWT token for OnlyOffice
+        var jwtSecret = _configuration["OnlyOffice:JwtSecret"];
+        string? token = null;
+        if (!string.IsNullOrEmpty(jwtSecret))
+        {
+            token = GenerateOnlyOfficeJwtToken(onlyOfficeConfig, jwtSecret);
+            onlyOfficeConfig.Token = token;
+        }
+
         var config = new OnlyOfficeEditorConfigDto
         {
             DocumentServerUrl = onlyOfficeUrl,
-            Config = new OnlyOfficeConfig
-            {
-                Document = new OnlyOfficeDocument
-                {
-                    FileType = extension.TrimStart('.'),
-                    Key = documentKey,
-                    Title = fileName,
-                    Url = $"{backendUrl}/api/v1/form-templates/download/{Uri.EscapeDataString(fileName)}"
-                },
-                DocumentType = documentType,
-                EditorConfig = new OnlyOfficeEditorSettings
-                {
-                    CallbackUrl = $"{backendUrl}/api/v1/form-templates/callback/{Uri.EscapeDataString(fileName)}",
-                    Lang = "vi",
-                    Mode = "edit",
-                    Customization = new OnlyOfficeCustomization
-                    {
-                        Autosave = false,
-                        Chat = false,
-                        Comments = false,
-                        CompactHeader = true,
-                        CompactToolbar = false,
-                        Feedback = false,
-                        ForceSave = false,
-                        Help = false,
-                        HideRightMenu = false,
-                        HideRulers = false,
-                        IntegrationMode = "embed",
-                        Logo = null,
-                        MacrosMode = "disable",
-                        MentionShare = false,
-                        Plugins = false,
-                        ReviewDisplay = "original",
-                        ToolbarHideFileName = false,
-                        ToolbarNoTabs = false,
-                        Uiicons = true,
-                        Unit = "cm",
-                        Zoom = 100
-                    }
-                },
-                Height = "100%",
-                Width = "100%",
-                Type = "desktop"
-            }
+            Config = onlyOfficeConfig
         };
 
         return config;
@@ -183,6 +204,7 @@ public class FormTemplateController : LabSpecimenManagementController
     /// OnlyOffice callback endpoint for saving documents
     /// </summary>
     [HttpPost("callback/{*fileName}")]
+    [AllowAnonymous] // OnlyOffice callback doesn't have authentication
     [IgnoreAntiforgeryToken]
     public async Task<IActionResult> OnlyOfficeCallback(string fileName, [FromBody] OnlyOfficeCallbackDto callback)
     {
@@ -241,6 +263,102 @@ public class FormTemplateController : LabSpecimenManagementController
         // For all other status codes, respond with success
         return Ok(new { error = 0 });
     }
+
+    /// <summary>
+    /// Generate JWT token for OnlyOffice Document Server
+    /// </summary>
+    private string GenerateOnlyOfficeJwtToken(OnlyOfficeConfig config, string secret)
+    {
+        // OnlyOffice requires the payload to match the config structure EXACTLY
+        // The JWT payload must contain the same structure that is sent to DocsAPI.DocEditor
+        var payload = new
+        {
+            document = new
+            {
+                fileType = config.Document.FileType,
+                key = config.Document.Key,
+                title = config.Document.Title,
+                url = config.Document.Url,
+                permissions = new
+                {
+                    comment = true,
+                    copy = true,
+                    download = true,
+                    edit = true,
+                    fillForms = true,
+                    modifyContentControl = true,
+                    modifyFilter = true,
+                    print = true,
+                    review = true
+                }
+            },
+            documentType = config.DocumentType,
+            editorConfig = new
+            {
+                callbackUrl = config.EditorConfig.CallbackUrl,
+                lang = config.EditorConfig.Lang,
+                mode = config.EditorConfig.Mode,
+                user = new
+                {
+                    id = config.EditorConfig.User?.Id ?? "1",
+                    name = config.EditorConfig.User?.Name ?? "Editor"
+                },
+                customization = new
+                {
+                    autosave = config.EditorConfig.Customization.Autosave,
+                    chat = config.EditorConfig.Customization.Chat,
+                    comments = config.EditorConfig.Customization.Comments,
+                    compactHeader = config.EditorConfig.Customization.CompactHeader,
+                    compactToolbar = config.EditorConfig.Customization.CompactToolbar,
+                    feedback = config.EditorConfig.Customization.Feedback,
+                    forcesave = config.EditorConfig.Customization.ForceSave,
+                    help = config.EditorConfig.Customization.Help,
+                    hideRightMenu = config.EditorConfig.Customization.HideRightMenu,
+                    hideRulers = config.EditorConfig.Customization.HideRulers,
+                    integrationMode = config.EditorConfig.Customization.IntegrationMode,
+                    macrosMode = config.EditorConfig.Customization.MacrosMode,
+                    mentionShare = config.EditorConfig.Customization.MentionShare,
+                    plugins = config.EditorConfig.Customization.Plugins,
+                    reviewDisplay = config.EditorConfig.Customization.ReviewDisplay,
+                    toolbarHideFileName = config.EditorConfig.Customization.ToolbarHideFileName,
+                    toolbarNoTabs = config.EditorConfig.Customization.ToolbarNoTabs,
+                    unit = config.EditorConfig.Customization.Unit,
+                    zoom = config.EditorConfig.Customization.Zoom
+                }
+            },
+            height = config.Height,
+            width = config.Width,
+            type = config.Type
+        };
+
+        var options = new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            WriteIndented = false
+        };
+
+        // Use manual JWT creation for proper JSON serialization
+        var header = new { alg = "HS256", typ = "JWT" };
+        var headerJson = JsonSerializer.Serialize(header, options);
+        var payloadJson = JsonSerializer.Serialize(payload, options);
+
+        var headerBase64 = Base64UrlEncode(Encoding.UTF8.GetBytes(headerJson));
+        var payloadBase64 = Base64UrlEncode(Encoding.UTF8.GetBytes(payloadJson));
+
+        var signatureInput = $"{headerBase64}.{payloadBase64}";
+        using var hmac = new System.Security.Cryptography.HMACSHA256(Encoding.UTF8.GetBytes(secret));
+        var signatureBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(signatureInput));
+        var signatureBase64 = Base64UrlEncode(signatureBytes);
+
+        return $"{headerBase64}.{payloadBase64}.{signatureBase64}";
+    }
+
+    private static string Base64UrlEncode(byte[] input)
+    {
+        var output = Convert.ToBase64String(input);
+        output = output.Replace('+', '-').Replace('/', '_').TrimEnd('=');
+        return output;
+    }
 }
 
 public class FormTemplateDto
@@ -251,58 +369,176 @@ public class FormTemplateDto
 
 public class OnlyOfficeEditorConfigDto
 {
+    [System.Text.Json.Serialization.JsonPropertyName("documentServerUrl")]
     public string DocumentServerUrl { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("config")]
     public OnlyOfficeConfig Config { get; set; } = new();
 }
 
 public class OnlyOfficeConfig
 {
+    [System.Text.Json.Serialization.JsonPropertyName("document")]
     public OnlyOfficeDocument Document { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonPropertyName("documentType")]
     public string DocumentType { get; set; } = "word";
+
+    [System.Text.Json.Serialization.JsonPropertyName("editorConfig")]
     public OnlyOfficeEditorSettings EditorConfig { get; set; } = new();
+
+    [System.Text.Json.Serialization.JsonPropertyName("height")]
     public string Height { get; set; } = "100%";
+
+    [System.Text.Json.Serialization.JsonPropertyName("width")]
     public string Width { get; set; } = "100%";
+
+    [System.Text.Json.Serialization.JsonPropertyName("type")]
     public string Type { get; set; } = "desktop";
+
+    [System.Text.Json.Serialization.JsonPropertyName("token")]
+    public string? Token { get; set; }
 }
 
 public class OnlyOfficeDocument
 {
+    [System.Text.Json.Serialization.JsonPropertyName("fileType")]
     public string FileType { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("key")]
     public string Key { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("title")]
     public string Title { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("url")]
     public string Url { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("permissions")]
+    public OnlyOfficePermissions Permissions { get; set; } = new();
+}
+
+public class OnlyOfficePermissions
+{
+    [System.Text.Json.Serialization.JsonPropertyName("comment")]
+    public bool Comment { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("copy")]
+    public bool Copy { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("download")]
+    public bool Download { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("edit")]
+    public bool Edit { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("fillForms")]
+    public bool FillForms { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("modifyContentControl")]
+    public bool ModifyContentControl { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("modifyFilter")]
+    public bool ModifyFilter { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("print")]
+    public bool Print { get; set; } = true;
+
+    [System.Text.Json.Serialization.JsonPropertyName("review")]
+    public bool Review { get; set; } = true;
 }
 
 public class OnlyOfficeEditorSettings
 {
+    [System.Text.Json.Serialization.JsonPropertyName("callbackUrl")]
     public string CallbackUrl { get; set; } = string.Empty;
+
+    [System.Text.Json.Serialization.JsonPropertyName("lang")]
     public string Lang { get; set; } = "vi";
+
+    [System.Text.Json.Serialization.JsonPropertyName("mode")]
     public string Mode { get; set; } = "edit";
+
+    [System.Text.Json.Serialization.JsonPropertyName("user")]
+    public OnlyOfficeUser? User { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("customization")]
     public OnlyOfficeCustomization Customization { get; set; } = new();
+}
+
+public class OnlyOfficeUser
+{
+    [System.Text.Json.Serialization.JsonPropertyName("id")]
+    public string Id { get; set; } = "1";
+
+    [System.Text.Json.Serialization.JsonPropertyName("name")]
+    public string Name { get; set; } = "Editor";
 }
 
 public class OnlyOfficeCustomization
 {
+    [System.Text.Json.Serialization.JsonPropertyName("autosave")]
     public bool Autosave { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("chat")]
     public bool Chat { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("comments")]
     public bool Comments { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("compactHeader")]
     public bool CompactHeader { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("compactToolbar")]
     public bool CompactToolbar { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("feedback")]
     public bool Feedback { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("forcesave")]
     public bool ForceSave { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("help")]
     public bool Help { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("hideRightMenu")]
     public bool HideRightMenu { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("hideRulers")]
     public bool HideRulers { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("integrationMode")]
     public string IntegrationMode { get; set; } = "embed";
+
+    [System.Text.Json.Serialization.JsonPropertyName("logo")]
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public object? Logo { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("macrosMode")]
     public string MacrosMode { get; set; } = "disable";
+
+    [System.Text.Json.Serialization.JsonPropertyName("mentionShare")]
     public bool MentionShare { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("plugins")]
     public bool Plugins { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("reviewDisplay")]
     public string ReviewDisplay { get; set; } = "original";
+
+    [System.Text.Json.Serialization.JsonPropertyName("toolbarHideFileName")]
     public bool ToolbarHideFileName { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("toolbarNoTabs")]
     public bool ToolbarNoTabs { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("uiTheme")]
     public bool Uiicons { get; set; }
+
+    [System.Text.Json.Serialization.JsonPropertyName("unit")]
     public string Unit { get; set; } = "cm";
+
+    [System.Text.Json.Serialization.JsonPropertyName("zoom")]
     public int Zoom { get; set; } = 100;
 }
 

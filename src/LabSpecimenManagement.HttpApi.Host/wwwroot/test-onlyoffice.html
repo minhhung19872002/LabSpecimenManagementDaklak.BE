@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>OnlyOffice Test</title>
+    <style>
+        body { margin: 0; padding: 0; }
+        #editor { width: 100%; height: 100vh; }
+    </style>
+</head>
+<body>
+    <div id="editor"></div>
+    <script src="http://localhost:8088/web-apps/apps/api/documents/api.js"></script>
+    <script>
+        // Simple test config without callback
+        const config = {
+            document: {
+                fileType: "docx",
+                key: "test_" + Date.now(),
+                title: "Test Document",
+                url: "http://host.docker.internal:51511/api/v1/form-templates/download/form%20m%E1%BA%ABu%20QLNN%20BM05-QT13-BCKQ_3.2.docx",
+                permissions: {
+                    edit: true,
+                    download: true,
+                    print: true,
+                    comment: true,
+                    copy: true,
+                    fillForms: true,
+                    modifyContentControl: true,
+                    modifyFilter: true,
+                    review: true
+                }
+            },
+            documentType: "word",
+            editorConfig: {
+                mode: "edit",
+                lang: "vi",
+                user: {
+                    id: "1",
+                    name: "Test User"
+                },
+                customization: {
+                    autosave: false,
+                    forcesave: true
+                }
+            },
+            height: "100%",
+            width: "100%",
+            type: "desktop",
+            events: {
+                onDocumentReady: function() {
+                    console.log("Document is ready for editing!");
+                },
+                onError: function(event) {
+                    console.error("Error:", event);
+                },
+                onWarning: function(event) {
+                    console.warn("Warning:", event);
+                }
+            }
+        };
+
+        // Create editor without JWT token to test basic functionality
+        new DocsAPI.DocEditor("editor", config);
+    </script>
+</body>
+</html>

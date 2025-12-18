@@ -56,106 +56,134 @@ services:
         networks:
             - lab-specimen-network
 
+    # OnlyOffice Document Server
+    onlyoffice:
+        image: onlyoffice/documentserver:latest
+        container_name: lab-specimen-onlyoffice
+        environment:
+            - JWT_ENABLED=false
+            - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-my_jwt_secret_key_here_for_onlyoffice_256bit}
+            - USE_UNAUTHORIZED_STORAGE=true
+            - ALLOW_PRIVATE_IP_ADDRESS=true
+            - ALLOW_META_IP_ADDRESS=true
+            - SECURE_LINK_SECRET=verysecretstring
+        ports:
+            - "8088:80"
+        volumes:
+            - onlyoffice_data:/var/www/onlyoffice/Data
+            - onlyoffice_logs:/var/log/onlyoffice
+            - ./onlyoffice-config/local.json:/onlyoffice-config/local.json:ro
+            - ./onlyoffice-config/entrypoint-override.sh:/entrypoint-override.sh:ro
+        entrypoint: ["/bin/bash", "/entrypoint-override.sh"]
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+            start_period: 120s
+        networks:
+            - lab-specimen-network
+
     # Database Migrator (runs migrations then exits)
-    # db-migrator:
-    #     build:
-    #         context: ./lab-specimen-management-be
-    #         dockerfile: Dockerfile.Migrator
-    #     container_name: lab-specimen-db-migrator
-    #     environment:
-    #         - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
-    #         - Redis__Configuration=redis:6379
-    #         - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
-    #         - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
-    #     depends_on:
-    #         postgres:
-    #             condition: service_healthy
-    #         redis:
-    #             condition: service_healthy
-    #         mongodb:
-    #             condition: service_healthy
-    #     networks:
-    #         - lab-specimen-network
-    #     restart: "no"
+    db-migrator:
+        build:
+            context: ./lab-specimen-management-be
+            dockerfile: Dockerfile.Migrator
+        container_name: lab-specimen-db-migrator
+        environment:
+            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
+            - Redis__Configuration=redis:6379
+            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            mongodb:
+                condition: service_healthy
+        networks:
+            - lab-specimen-network
+        restart: "no"
 
     # # Backend API (.NET 9.0)
-    # backend:
-    #     build:
-    #         context: ./lab-specimen-management-be
-    #         dockerfile: Dockerfile
-    #     container_name: lab-specimen-backend
-    #     environment:
-    #         - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
-    #         - ASPNETCORE_URLS=http://+:5002
-    #         # Database connection
-    #         - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
-    #         # Redis configuration
-    #         - Redis__Configuration=redis:6379
-    #         # MongoDB configuration
-    #         - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
-    #         # Application URLs
-    #         - App__SelfUrl=${BACKEND_URL:-http://localhost:5002}
-    #         - App__CorsOrigins=http://localhost:3001,http://localhost:8080,http://34.59.178.231,https://34.59.178.231,http://starlab.bluestar.com.vn,https://starlab.bluestar.com.vn
-    #         - App__RedirectAllowedUrls=http://localhost:3001,http://34.59.178.231,http://starlab.bluestar.com.vn
-    #         # Auth Server
-    #         - AuthServer__Authority=${BACKEND_URL:-http://localhost:5002}
-    #         - AuthServer__RequireHttpsMetadata=false
-    #         # String Encryption
-    #         - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
-    #     ports:
-    #         - "5002:5002"
-    #     volumes:
-    #         - backend_logs:/app/Logs
-    #         - uploaded_images:/app/wwwroot/images
-    #     depends_on:
-    #         postgres:
-    #             condition: service_healthy
-    #         redis:
-    #             condition: service_healthy
-    #         mongodb:
-    #             condition: service_healthy
-    #         db-migrator:
-    #             condition: service_completed_successfully
-    #     healthcheck:
-    #         test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
-    #         interval: 30s
-    #         timeout: 10s
-    #         retries: 3
-    #         start_period: 40s
-    #     networks:
-    #         - lab-specimen-network
+    backend:
+        build:
+            context: ./lab-specimen-management-be
+            dockerfile: Dockerfile
+        container_name: lab-specimen-backend
+        environment:
+            - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+            - ASPNETCORE_URLS=http://+:5002
+            # Database connection
+            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
+            # Redis configuration
+            - Redis__Configuration=redis:6379
+            # MongoDB configuration
+            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
+            # Application URLs
+            - App__SelfUrl=${BACKEND_URL:-http://localhost:5002}
+            - App__CorsOrigins=http://localhost:3001,http://localhost:8080,http://34.59.178.231,https://34.59.178.231,http://starlab.bluestar.com.vn,https://starlab.bluestar.com.vn
+            - App__RedirectAllowedUrls=http://localhost:3001,http://34.59.178.231,http://starlab.bluestar.com.vn
+            # Auth Server
+            - AuthServer__Authority=${BACKEND_URL:-http://localhost:5002}
+            - AuthServer__RequireHttpsMetadata=false
+            # String Encryption
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+        ports:
+            - "5002:5002"
+        volumes:
+            - backend_logs:/app/Logs
+            - uploaded_images:/app/wwwroot/images
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            mongodb:
+                condition: service_healthy
+            db-migrator:
+                condition: service_completed_successfully
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+        networks:
+            - lab-specimen-network
 
     # Frontend (React + Vite)
-    # frontend:
-    #     build:
-    #         context: ./lab-specimen-management-fe
-    #         dockerfile: Dockerfile
-    #         args:
-    #             - VITE_API_BASE_URL=${FRONTEND_API_URL:-http://localhost:5002}
-    #             - VITE_APP_NAME=Lab Specimen Management System
-    #             - VITE_NODE_ENV=${NODE_ENV:-production}
-    #     container_name: lab-specimen-frontend
-    #     ports:
-    #         - "8080:8080"
-    #     depends_on:
-    #         backend:
-    #             condition: service_healthy
-    #     healthcheck:
-    #         test:
-    #             [
-    #                 "CMD",
-    #                 "wget",
-    #                 "--quiet",
-    #                 "--tries=1",
-    #                 "--spider",
-    #                 "http://localhost:8080/health",
-    #             ]
-    #         interval: 30s
-    #         timeout: 3s
-    #         retries: 3
-    #         start_period: 10s
-    #     networks:
-    #         - lab-specimen-network
+    frontend:
+        build:
+            context: ./lab-specimen-management-fe
+            dockerfile: Dockerfile
+            args:
+                - VITE_API_BASE_URL=${FRONTEND_API_URL:-http://localhost:5002}
+                - VITE_APP_NAME=Lab Specimen Management System
+                - VITE_NODE_ENV=${NODE_ENV:-production}
+        container_name: lab-specimen-frontend
+        ports:
+            - "8080:8080"
+        depends_on:
+            backend:
+                condition: service_healthy
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "wget",
+                    "--quiet",
+                    "--tries=1",
+                    "--spider",
+                    "http://localhost:8080/health",
+                ]
+            interval: 30s
+            timeout: 3s
+            retries: 3
+            start_period: 10s
+        networks:
+            - lab-specimen-network
 
 volumes:
     postgres_data:
@@ -167,6 +195,10 @@ volumes:
     backend_logs:
         driver: local
     uploaded_images:
+        driver: local
+    onlyoffice_data:
+        driver: local
+    onlyoffice_logs:
         driver: local
 
 networks:
