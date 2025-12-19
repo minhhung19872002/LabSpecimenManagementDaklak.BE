@@ -85,6 +85,15 @@ public static class LabSpecimenManagementPermissions
         public const string Complete = Default + ".Complete";
     }
 
+    // Laboratory Task Permissions (Quản lý công việc khoa phòng)
+    public static class LaboratoryTasks
+    {
+        public const string Default = GroupName + ".LaboratoryTasks";
+        public const string Edit = Default + ".Edit";
+        public const string UpdateStatus = Default + ".UpdateStatus";
+        public const string ViewAll = Default + ".ViewAll";
+    }
+
     // Subcontractor Permissions
     public static class Subcontractors
     {
