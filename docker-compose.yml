@@ -135,6 +135,7 @@ services:
         volumes:
             - backend_logs:/app/Logs
             - uploaded_images:/app/wwwroot/images
+            - ./lab-specimen-management-be/src/LabSpecimenManagement.HttpApi.Host/wwwroot/templates:/app/wwwroot/templates
         depends_on:
             postgres:
                 condition: service_healthy
