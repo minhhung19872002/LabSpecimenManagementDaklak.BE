@@ -97,6 +97,12 @@ jobs:
               echo "nginx-reverse-proxy.conf copied to /opt/lab-specimen-management/"
             fi
 
+            # Copy onlyoffice-config directory
+            if [ -d lab-specimen-management-be/onlyoffice-config ]; then
+              cp -r lab-specimen-management-be/onlyoffice-config .
+              echo "onlyoffice-config copied to /opt/lab-specimen-management/"
+            fi
+
             # Setup Nginx reverse proxy if not already configured
             if [ -f nginx-reverse-proxy.conf ]; then
               sudo cp nginx-reverse-proxy.conf /etc/nginx/sites-available/lab-specimen-management
@@ -126,7 +132,11 @@ jobs:
             docker-compose rm -f backend || true
 
             echo "Rebuilding and starting backend..."
-            docker-compose up -d --build backend
+            docker-compose build --no-cache backend
+            docker-compose up -d backend
+
+            echo "Starting OnlyOffice if not running..."
+            docker-compose up -d onlyoffice
 
             echo "Checking db-migrator logs..."
             docker-compose logs db-migrator || echo "No migrator logs available"
@@ -136,6 +146,9 @@ jobs:
 
             echo "Checking backend status..."
             docker-compose ps backend
+
+            echo "Checking OnlyOffice status..."
+            docker-compose ps onlyoffice
 
             echo "Recent backend logs:"
             docker-compose logs --tail=50 backend
