@@ -68,6 +68,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         taskPermission.AddChild(LabSpecimenManagementPermissions.TaskAssignments.Reject, L("Permission:TaskAssignments.Reject"));
         taskPermission.AddChild(LabSpecimenManagementPermissions.TaskAssignments.Complete, L("Permission:TaskAssignments.Complete"));
 
+        // Laboratory Task Permissions (Quản lý công việc khoa phòng)
+        var laboratoryTaskPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.LaboratoryTasks.Default, L("Permission:LaboratoryTasks"));
+        laboratoryTaskPermission.AddChild(LabSpecimenManagementPermissions.LaboratoryTasks.Edit, L("Permission:LaboratoryTasks.Edit"));
+        laboratoryTaskPermission.AddChild(LabSpecimenManagementPermissions.LaboratoryTasks.UpdateStatus, L("Permission:LaboratoryTasks.UpdateStatus"));
+        laboratoryTaskPermission.AddChild(LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll, L("Permission:LaboratoryTasks.ViewAll"));
+
         // Subcontractor Permissions
         var subcontractorPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Subcontractors.Default, L("Permission:Subcontractors"));
         subcontractorPermission.AddChild(LabSpecimenManagementPermissions.Subcontractors.Create, L("Permission:Subcontractors.Create"));

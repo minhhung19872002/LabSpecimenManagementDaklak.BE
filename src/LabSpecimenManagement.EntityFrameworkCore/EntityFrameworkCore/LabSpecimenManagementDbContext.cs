@@ -20,6 +20,7 @@ using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.Subcontractors;
+using LabSpecimenManagement.LaboratoryTasks;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -68,6 +69,10 @@ public class LabSpecimenManagementDbContext :
     // Subcontractor Entities
     public DbSet<Subcontractor> Subcontractors { get; set; }
     public DbSet<SubcontractorCertification> SubcontractorCertifications { get; set; }
+
+    // Laboratory Task Entities
+    public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
+    public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
 
     #region Entities from the modules
 
@@ -558,6 +563,62 @@ public class LabSpecimenManagementDbContext :
             b.HasOne<Subcontractor>()
                 .WithMany(x => x.Certifications)
                 .HasForeignKey(x => x.SubcontractorId)
+                .IsRequired();
+        });
+
+        // ============ LABORATORY TASK CONFIGURATION ============
+
+        builder.Entity<LaboratoryTask>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryTasks", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ContractNumber).HasMaxLength(100);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.LaboratoryId);
+            b.HasIndex(x => x.TechnicalManagerId);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.TransferDate);
+            b.HasIndex(x => x.RequestCompletionDate);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+
+            b.HasOne(x => x.Laboratory)
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryId)
+                .IsRequired();
+        });
+
+        builder.Entity<LaboratoryTaskIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryTaskIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            // String properties
+            b.Property(x => x.Result).HasMaxLength(500);
+            b.Property(x => x.Unit).HasMaxLength(50);
+            b.Property(x => x.RejectionReason).HasMaxLength(1000);
+
+            // Indexes
+            b.HasIndex(x => x.LaboratoryTaskId);
+            b.HasIndex(x => x.TestRequestSampleIndicatorId);
+            b.HasIndex(x => x.MethodId);
+            b.HasIndex(x => x.TechnicianId);
+            b.HasIndex(x => x.ApprovalStatus);
+
+            // Foreign keys
+            b.HasOne(x => x.LaboratoryTask)
+                .WithMany(x => x.Indicators)
+                .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired();
+
+            b.HasOne(x => x.TestRequestSampleIndicator)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestSampleIndicatorId)
                 .IsRequired();
         });
     }

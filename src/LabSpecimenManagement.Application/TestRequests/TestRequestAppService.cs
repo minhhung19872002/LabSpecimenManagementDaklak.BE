@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -29,6 +30,8 @@ public class TestRequestAppService :
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
+    private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -37,7 +40,9 @@ public class TestRequestAppService :
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
-        IIdentityUserRepository userRepository)
+        IIdentityUserRepository userRepository,
+        IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
+        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -46,6 +51,8 @@ public class TestRequestAppService :
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
         _userRepository = userRepository;
+        _laboratoryTaskRepository = laboratoryTaskRepository;
+        _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -347,6 +354,9 @@ public class TestRequestAppService :
             }
         }
 
+        // Auto-create LaboratoryTasks grouped by Laboratory
+        await CreateLaboratoryTasksAsync(entity);
+
         return await GetAsync(entity.Id);
     }
 
@@ -572,6 +582,74 @@ public class TestRequestAppService :
         {
             var organization = new Organization(GuidGenerator.Create(), normalizedName);
             await _organizationRepository.InsertAsync(organization, autoSave: true);
+        }
+    }
+
+    /// <summary>
+    /// Auto-create LaboratoryTask records grouped by Laboratory when TestRequest is created
+    /// </summary>
+    private async Task CreateLaboratoryTasksAsync(TestRequest testRequest)
+    {
+        // Get all samples for this TestRequest
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequest.Id);
+
+        if (!samples.Any())
+        {
+            return;
+        }
+
+        // Group indicators by LaboratoryId
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid IndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate)>>();
+
+        foreach (var sample in samples)
+        {
+            var indicators = await _sampleIndicatorRepository.GetListAsync(
+                i => i.TestRequestSampleId == sample.Id && i.LaboratoryId.HasValue);
+
+            foreach (var indicator in indicators)
+            {
+                var labId = indicator.LaboratoryId!.Value;
+                if (!indicatorsByLab.ContainsKey(labId))
+                {
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?)>();
+                }
+
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate));
+            }
+        }
+
+        // Create LaboratoryTask for each Laboratory
+        foreach (var (labId, indicatorList) in indicatorsByLab)
+        {
+            var laboratory = await _laboratoryRepository.GetAsync(labId);
+            var sampleCount = indicatorList.Select(i => i.SampleId).Distinct().Count();
+
+            // Get TransferDate and RequestDate from first indicator (they should be the same for the group)
+            var firstIndicator = indicatorList.First();
+
+            var task = new LaboratoryTask(
+                GuidGenerator.Create(),
+                testRequest.Id,
+                labId,
+                testRequest.ContractNumber,
+                sampleCount,
+                laboratory.TechnicalManagerId,
+                firstIndicator.TransferDate,
+                firstIndicator.RequestDate
+            );
+
+            await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+
+            // Create junction records linking LaboratoryTask to TestRequestSampleIndicator
+            foreach (var indicator in indicatorList)
+            {
+                var taskIndicator = new LaboratoryTaskIndicator(
+                    GuidGenerator.Create(),
+                    task.Id,
+                    indicator.IndicatorId
+                );
+                await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
+            }
         }
     }
 }
