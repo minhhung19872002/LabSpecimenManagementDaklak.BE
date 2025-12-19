@@ -437,6 +437,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
 
         taskIndicator.Result = input.Result;
+        taskIndicator.Unit = input.Unit;
         taskIndicator.EntryDate = DateTime.Now;
         taskIndicator.EnteredById = CurrentUser.Id;
         taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
@@ -475,10 +476,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             taskIndicator.RejectionReason = input.RejectionReason;
             taskIndicator.ApprovalDate = DateTime.Now;
             taskIndicator.ApprovedById = CurrentUser.Id;
-            // Clear result for re-entry
-            taskIndicator.Result = null;
-            taskIndicator.EntryDate = null;
-            taskIndicator.EnteredById = null;
+            // Giữ lại Result và Unit để user có thể sửa và gửi lại
         }
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);

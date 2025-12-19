@@ -13,4 +13,10 @@ public class UpdateIndicatorResultDto
     [Required]
     [StringLength(500)]
     public string Result { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Đơn vị tính
+    /// </summary>
+    [StringLength(50)]
+    public string? Unit { get; set; }
 }
