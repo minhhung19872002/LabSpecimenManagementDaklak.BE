@@ -144,13 +144,41 @@ jobs:
             echo "Waiting for backend to be healthy..."
             sleep 30
 
-            echo "Checking backend status..."
+            echo "=============================================="
+            echo "📋 ALL CONTAINERS STATUS AND PORTS"
+            echo "=============================================="
+            docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+            echo ""
+            echo "=============================================="
+            echo "🔧 BACKEND STATUS"
+            echo "=============================================="
             docker-compose ps backend
 
-            echo "Checking OnlyOffice status..."
+            echo ""
+            echo "=============================================="
+            echo "📄 ONLYOFFICE STATUS"
+            echo "=============================================="
             docker-compose ps onlyoffice
 
-            echo "Recent backend logs:"
+            echo ""
+            echo "=============================================="
+            echo "🌐 TESTING ONLYOFFICE CONNECTIVITY"
+            echo "=============================================="
+            echo "Testing OnlyOffice from inside server..."
+            ONLYOFFICE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8088/welcome/ || echo "FAILED")
+            echo "OnlyOffice HTTP Status: $ONLYOFFICE_STATUS"
+            if [ "$ONLYOFFICE_STATUS" = "200" ]; then
+              echo "✅ OnlyOffice is accessible on port 8088"
+            else
+              echo "❌ OnlyOffice NOT accessible. Checking logs..."
+              docker-compose logs --tail=30 onlyoffice
+            fi
+
+            echo ""
+            echo "=============================================="
+            echo "📝 RECENT BACKEND LOGS"
+            echo "=============================================="
             docker-compose logs --tail=50 backend
 
       - name: Cleanup SSH key
