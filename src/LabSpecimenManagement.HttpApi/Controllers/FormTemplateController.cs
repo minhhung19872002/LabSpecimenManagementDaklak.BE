@@ -35,6 +35,8 @@ public class FormTemplateController : LabSpecimenManagementController
 
     /// <summary>
     /// Get list of available form templates
+    /// Filters out template files (files with .template. in the name)
+    /// Only shows original files (e.g., "form.docx", not "form.template.docx")
     /// </summary>
     [HttpGet]
     public ActionResult<List<FormTemplateDto>> GetList()
@@ -47,6 +49,7 @@ public class FormTemplateController : LabSpecimenManagementController
         }
 
         var files = Directory.GetFiles(templatesPath)
+            .Where(f => !IsTemplateFile(Path.GetFileName(f))) // Filter out template files
             .Select(f => new FormTemplateDto
             {
                 FileName = Path.GetFileName(f),
@@ -56,6 +59,17 @@ public class FormTemplateController : LabSpecimenManagementController
             .ToList();
 
         return files;
+    }
+
+    /// <summary>
+    /// Checks if a file is a template file based on naming convention.
+    /// Template files have the pattern: name.template.extension (e.g., "form.template.docx")
+    /// Original files have the pattern: name.extension (e.g., "form.docx")
+    /// </summary>
+    private static bool IsTemplateFile(string fileName)
+    {
+        // Check for ".template." pattern in the filename (case-insensitive)
+        return fileName.Contains(".template.", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
