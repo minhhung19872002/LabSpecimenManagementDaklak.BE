@@ -68,7 +68,7 @@ services:
             - ALLOW_META_IP_ADDRESS=true
             - SECURE_LINK_SECRET=verysecretstring
         ports:
-            - "8088:80"
+            - "8089:80"
         volumes:
             - onlyoffice_data:/var/www/onlyoffice/Data
             - onlyoffice_logs:/var/log/onlyoffice
