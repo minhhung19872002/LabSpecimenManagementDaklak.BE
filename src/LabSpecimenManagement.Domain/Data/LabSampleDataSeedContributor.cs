@@ -10,6 +10,7 @@ using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Data;
 
@@ -36,6 +37,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<TaskAssignment, Guid> _taskAssignmentRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IIdentityUserRepository _userRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IConfiguration _configuration;
 
@@ -57,6 +59,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<TaskAssignment, Guid> taskAssignmentRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IIdentityUserRepository userRepository,
         IGuidGenerator guidGenerator,
         IConfiguration configuration)
     {
@@ -77,6 +80,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _taskAssignmentRepository = taskAssignmentRepository;
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
+        _userRepository = userRepository;
         _guidGenerator = guidGenerator;
         _configuration = configuration;
     }
@@ -307,17 +311,28 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     {
         if (await _laboratoryRepository.GetCountAsync() > 0) return;
 
+        // Lấy danh sách users có role Reviewer hoặc LabManager để làm TechnicalManager
+        var reviewer01 = await _userRepository.FindByNormalizedUserNameAsync("REVIEWER01");
+        var reviewer02 = await _userRepository.FindByNormalizedUserNameAsync("REVIEWER02");
+        var labManager = await _userRepository.FindByNormalizedUserNameAsync("LABMANAGER");
+        var approver = await _userRepository.FindByNormalizedUserNameAsync("APPROVER");
+
+        // Gán TechnicalManager cho từng phòng lab
+        // reviewer01 = Pham Thi D - Truong phong Vi sinh
+        // reviewer02 = Hoang Van E - Truong phong Hoa
+        // labManager = ThS. Tran Van G - Quan ly PTN
+        // approver = PGS.TS Nguyen Van F - Giam doc PTN
         var laboratories = new[]
         {
-            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1 },
-            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2 },
-            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3 },
-            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4 },
-            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5 },
-            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6 },
-            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7 },
-            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8 },
-            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9 },
+            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1, TechnicalManagerId = labManager?.Id },
+            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2, TechnicalManagerId = reviewer02?.Id },
+            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3, TechnicalManagerId = reviewer01?.Id },
+            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4, TechnicalManagerId = labManager?.Id },
+            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5, TechnicalManagerId = reviewer01?.Id },
+            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6, TechnicalManagerId = labManager?.Id },
+            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7, TechnicalManagerId = labManager?.Id },
+            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8, TechnicalManagerId = reviewer02?.Id },
+            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9, TechnicalManagerId = reviewer02?.Id },
         };
 
         foreach (var lab in laboratories)
@@ -325,6 +340,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             var entity = new Laboratory(_guidGenerator.Create(), lab.Code, lab.Name);
             entity.SortOrder = lab.SortOrder;
             entity.IsActive = true;
+            entity.TechnicalManagerId = lab.TechnicalManagerId;
             await _laboratoryRepository.InsertAsync(entity);
         }
     }

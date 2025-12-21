@@ -275,7 +275,11 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
     public async Task<LoginResultDto> RefreshTokenAsync(string refreshToken)
     {
-        var authority = _configuration["AuthServer:Authority"];
+        // Get base URL from current request context instead of config (same as login)
+        var request = _httpContextAccessor.HttpContext?.Request;
+        var authority = request != null
+            ? $"{request.Scheme}://{request.Host}"
+            : _configuration["AuthServer:Authority"];
         var clientId = _configuration["AuthServer:ClientId"] ?? "LabSpecimenManagement_App";
 
         // Create HttpClient that bypasses SSL certificate validation for development

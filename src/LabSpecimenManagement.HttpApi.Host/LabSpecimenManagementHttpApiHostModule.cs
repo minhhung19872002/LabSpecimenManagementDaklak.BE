@@ -73,6 +73,10 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             // Allow HTTP requests from nginx reverse proxy
             builder.UseAspNetCore()
                 .DisableTransportSecurityRequirement();
+
+            // Set token lifetimes
+            builder.SetAccessTokenLifetime(TimeSpan.FromHours(2));
+            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
         });
     }
 
