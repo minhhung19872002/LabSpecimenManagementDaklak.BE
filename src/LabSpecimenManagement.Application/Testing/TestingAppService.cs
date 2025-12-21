@@ -16,6 +16,7 @@ using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
 
+[RemoteService(IsEnabled = false)]
 [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
 public class TestingAppService : ApplicationService, ITestingAppService
 {
