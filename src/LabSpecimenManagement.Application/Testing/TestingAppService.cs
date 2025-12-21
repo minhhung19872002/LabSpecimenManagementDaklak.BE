@@ -335,39 +335,45 @@ public class TestingAppService : ApplicationService, ITestingAppService
             return;
         }
 
-        // Don't change status if already ResultSent
+        // Don't change status if already ResultSent (final state)
         if (task.Status == LaboratoryTaskStatus.ResultSent)
         {
             return;
         }
 
-        // Check conditions
-        var allHaveMethod = taskIndicators.All(ti => ti.MethodId.HasValue);
-        var anyHaveResult = taskIndicators.Any(ti => !string.IsNullOrEmpty(ti.Result));
-        var allHaveResult = taskIndicators.All(ti => !string.IsNullOrEmpty(ti.Result));
+        // Check conditions - LOGIC MỚI (giống LaboratoryTaskAppService)
+        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
         var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+        var allEnteredOrApproved = taskIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         LaboratoryTaskStatus newStatus;
 
-        if (!allHaveMethod)
+        if (!allAssigned)
         {
+            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
             newStatus = LaboratoryTaskStatus.NotAssignedMethod;
         }
         else if (allApproved)
         {
+            // Tất cả đã được duyệt
             newStatus = LaboratoryTaskStatus.Approved;
         }
-        else if (anyEntered || (allHaveResult && !allApproved))
+        else if (allEnteredOrApproved)
         {
+            // TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
             newStatus = LaboratoryTaskStatus.PendingApproval;
         }
-        else if (anyHaveResult)
+        else if (anyEntered)
         {
+            // Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
             newStatus = LaboratoryTaskStatus.Testing;
         }
         else
         {
+            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
             newStatus = LaboratoryTaskStatus.AssignedMethod;
         }
 

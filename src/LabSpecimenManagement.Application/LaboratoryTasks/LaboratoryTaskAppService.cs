@@ -368,6 +368,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     public async Task DeleteAsync(Guid id)
     {
+        var task = await _laboratoryTaskRepository.GetAsync(id);
+
+        // Validation: Không cho xóa khi đang thí nghiệm trở đi
+        if (!CanEditTask(task.Status))
+        {
+            throw new UserFriendlyException($"Không thể xóa công việc khi trạng thái là '{GetStatusLabel(task.Status)}'");
+        }
+
         // Delete junction records first
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(ti => ti.LaboratoryTaskId == id);
         foreach (var taskIndicator in taskIndicators)
@@ -385,6 +393,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public async Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(Guid taskId, Guid sampleId, List<AssignIndicatorDto> assignments)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validation: Không cho assign lại khi đang thí nghiệm trở đi
+        if (!CanEditTask(task.Status))
+        {
+            throw new UserFriendlyException($"Không thể giao việc khi trạng thái là '{GetStatusLabel(task.Status)}'");
+        }
 
         // Get all task indicators for this sample
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
@@ -576,13 +590,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Tự động cập nhật trạng thái task dựa trên trạng thái các indicators
-    /// Logic:
-    /// - Nếu có 1 chỉ tiêu chưa gắn Phương Pháp --> Trạng thái = Chưa gán phương pháp (0)
-    /// - Nếu tất cả chỉ tiêu đã được gắn phương pháp --> Trạng thái = Đã gán phương pháp (1)
-    /// - Nếu có 1 số chỉ tiêu đã có kết quả (nhưng chưa đủ) --> Trạng thái = Đang thí nghiệm (2)
-    /// - Khi KTV gửi kết quả hoặc QL chưa duyệt hết --> Trạng thái = Chờ duyệt kết quả (3)
-    /// - Khi tất cả chỉ tiêu đã được phê duyệt --> Trạng thái = Đã duyệt (4)
-    /// - Khi QL gửi kết quả --> Trạng thái = Đã gửi kết quả (5)
+    /// Logic MỚI:
+    /// - Chưa gắn phương pháp (0): Có chỉ tiêu chưa gắn method HOẶC chưa assign KTV
+    /// - Đã gán phương pháp (1): Tất cả chỉ tiêu đã gắn method VÀ KTV
+    /// - Đang thí nghiệm (2): Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
+    /// - Chờ duyệt kết quả (3): TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
+    /// - Đã duyệt (4): Tất cả chỉ tiêu đã được Approved
+    /// - Đã gửi kết quả (5): QL đã gửi kết quả (trạng thái cuối cùng)
     /// </summary>
     private async Task UpdateTaskStatusAsync(LaboratoryTask task)
     {
@@ -593,24 +607,25 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Don't change status if already ResultSent
+        // Don't change status if already ResultSent (final state)
         if (task.Status == LaboratoryTaskStatus.ResultSent)
         {
             return;
         }
 
-        // Check conditions
-        var allHaveMethod = taskIndicators.All(ti => ti.MethodId.HasValue);
-        var anyHaveResult = taskIndicators.Any(ti => !string.IsNullOrEmpty(ti.Result));
-        var allHaveResult = taskIndicators.All(ti => !string.IsNullOrEmpty(ti.Result));
+        // Check conditions - LOGIC MỚI
+        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
         var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+        var allEnteredOrApproved = taskIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         LaboratoryTaskStatus newStatus;
 
-        if (!allHaveMethod)
+        if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gắn phương pháp
+            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
             newStatus = LaboratoryTaskStatus.NotAssignedMethod;
         }
         else if (allApproved)
@@ -618,19 +633,19 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             // Tất cả đã được duyệt
             newStatus = LaboratoryTaskStatus.Approved;
         }
-        else if (anyEntered || (allHaveResult && !allApproved))
+        else if (allEnteredOrApproved)
         {
-            // Có kết quả đang chờ duyệt
+            // TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
             newStatus = LaboratoryTaskStatus.PendingApproval;
         }
-        else if (anyHaveResult)
+        else if (anyEntered)
         {
-            // Đang trong quá trình thí nghiệm
+            // Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
             newStatus = LaboratoryTaskStatus.Testing;
         }
         else
         {
-            // Tất cả đã có method nhưng chưa có kết quả
+            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
             newStatus = LaboratoryTaskStatus.AssignedMethod;
         }
 
@@ -639,6 +654,33 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             task.Status = newStatus;
             await _laboratoryTaskRepository.UpdateAsync(task);
         }
+    }
+
+    /// <summary>
+    /// Kiểm tra xem task có thể chỉnh sửa không dựa trên trạng thái
+    /// Chỉ cho phép edit khi: Chưa gắn PP hoặc Đã gán PP
+    /// </summary>
+    private static bool CanEditTask(LaboratoryTaskStatus status)
+    {
+        return status == LaboratoryTaskStatus.NotAssignedMethod ||
+               status == LaboratoryTaskStatus.AssignedMethod;
+    }
+
+    /// <summary>
+    /// Lấy nhãn tiếng Việt cho trạng thái
+    /// </summary>
+    private static string GetStatusLabel(LaboratoryTaskStatus status)
+    {
+        return status switch
+        {
+            LaboratoryTaskStatus.NotAssignedMethod => "Chưa gắn phương pháp",
+            LaboratoryTaskStatus.AssignedMethod => "Đã gán phương pháp",
+            LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
+            LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
+            LaboratoryTaskStatus.Approved => "Đã duyệt",
+            LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
+            _ => status.ToString()
+        };
     }
 
     private async Task<LaboratoryTaskIndicatorDto> MapToIndicatorDtoAsync(LaboratoryTaskIndicator taskIndicator)
