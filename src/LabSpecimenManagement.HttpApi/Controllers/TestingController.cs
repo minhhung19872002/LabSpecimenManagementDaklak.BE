@@ -34,10 +34,19 @@ public class TestingController : LabSpecimenManagementController
     /// <summary>
     /// Get testing task detail by LaboratoryTask ID
     /// </summary>
+    /// <param name="id">The LaboratoryTask ID</param>
+    /// <param name="viewMode">Optional view mode - 'my' (only user's data), 'all' (full data)</param>
     [HttpGet("{id}")]
-    public virtual async Task<TestingDetailDto> GetAsync(Guid id)
+    public virtual async Task<TestingDetailDto> GetAsync(Guid id, [FromQuery] string? viewMode = null)
     {
-        return await _testingAppService.GetAsync(id);
+        // Convert string viewMode to enum
+        TestingTabType? tabType = viewMode?.ToLower() switch
+        {
+            "my" => TestingTabType.MyAssignments,
+            "all" => TestingTabType.All,
+            _ => null
+        };
+        return await _testingAppService.GetAsync(id, tabType);
     }
 
     /// <summary>

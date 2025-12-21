@@ -19,7 +19,9 @@ public interface ITestingAppService : IApplicationService
     /// <summary>
     /// Get testing task detail by LaboratoryTask ID
     /// </summary>
-    Task<TestingDetailDto> GetAsync(Guid laboratoryTaskId);
+    /// <param name="laboratoryTaskId">The LaboratoryTask ID</param>
+    /// <param name="viewMode">Optional view mode - MyAssignments shows only current user's data, All shows full data</param>
+    Task<TestingDetailDto> GetAsync(Guid laboratoryTaskId, TestingTabType? viewMode = null);
 
     /// <summary>
     /// Save results (draft) for indicators

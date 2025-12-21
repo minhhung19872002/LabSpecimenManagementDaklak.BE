@@ -68,10 +68,11 @@ public class TestingAppService : ApplicationService, ITestingAppService
             Indicators = indicatorQueryable.Where(i => i.LaboratoryTaskId == task.Id).ToList()
         });
 
-        // Apply tab filter
-        if (input.Tab == TestingTabType.MyAssignments && currentUserId.HasValue)
+        // Apply user filter - both tabs filter tasks where current user is assigned
+        // Tab "MyAssignments": Shows only user's data (samples, indicators, technician name)
+        // Tab "All": Shows full data but still filters tasks where user has assignments
+        if (currentUserId.HasValue)
         {
-            // Only tasks where current user is assigned as technician
             taskQuery = taskQuery.Where(x => x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
 
@@ -150,16 +151,16 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var dtos = new List<TestingListDto>();
         foreach (var item in pagedTasks)
         {
-            dtos.Add(await MapToListDtoAsync(item.Task, item.Indicators, item.TestingStatus, item.IsUrgent));
+            dtos.Add(await MapToListDtoAsync(item.Task, item.Indicators, item.TestingStatus, item.IsUrgent, input.Tab, currentUserId));
         }
 
         return new PagedResultDto<TestingListDto>(totalCount, dtos);
     }
 
-    public async Task<TestingDetailDto> GetAsync(Guid laboratoryTaskId)
+    public async Task<TestingDetailDto> GetAsync(Guid laboratoryTaskId, TestingTabType? viewMode = null)
     {
         var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
-        return await MapToDetailDtoAsync(task);
+        return await MapToDetailDtoAsync(task, viewMode);
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -389,15 +390,15 @@ public class TestingAppService : ApplicationService, ITestingAppService
         LaboratoryTask task,
         List<LaboratoryTaskIndicator> indicators,
         TestingStatus testingStatus,
-        bool isUrgent)
+        bool isUrgent,
+        TestingTabType tabType,
+        Guid? currentUserId)
     {
         var dto = new TestingListDto
         {
             Id = task.Id,
             LaboratoryTaskId = task.Id,
             ContractNumber = task.ContractNumber,
-            TotalSampleCount = task.TotalSampleCount,
-            TotalIndicatorCount = indicators.Count,
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
             TestDate = task.TestDate,
@@ -413,33 +414,80 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
 
-        // Get technician names (distinct)
-        var technicianIds = indicators
-            .Where(i => i.TechnicianId.HasValue)
-            .Select(i => i.TechnicianId!.Value)
-            .Distinct()
-            .ToList();
-
-        if (technicianIds.Any())
+        // Tab "MyAssignments": Show only current user's data
+        if (tabType == TestingTabType.MyAssignments && currentUserId.HasValue)
         {
-            var technicianNames = new List<string>();
-            foreach (var techId in technicianIds)
+            var userIndicators = indicators.Where(i => i.TechnicianId == currentUserId.Value).ToList();
+
+            // TotalIndicatorCount = count of user's indicators only
+            dto.TotalIndicatorCount = userIndicators.Count;
+
+            // TotalSampleCount = count of samples that have at least 1 indicator assigned to user
+            var userSampleIds = new HashSet<Guid>();
+            foreach (var ind in userIndicators)
             {
-                var user = await _userRepository.FindAsync(techId);
-                if (user != null)
+                var sampleIndicator = await _sampleIndicatorRepository.FindAsync(ind.TestRequestSampleIndicatorId);
+                if (sampleIndicator != null)
                 {
-                    technicianNames.Add(user.Name ?? user.UserName ?? "");
+                    userSampleIds.Add(sampleIndicator.TestRequestSampleId);
                 }
             }
-            dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+            dto.TotalSampleCount = userSampleIds.Count;
+
+            // TechnicianNames = current user's name only
+            var currentUser = await _userRepository.FindAsync(currentUserId.Value);
+            dto.TechnicianNames = currentUser?.Name ?? currentUser?.UserName ?? "";
+        }
+        else
+        {
+            // Tab "All": Show full data
+            dto.TotalSampleCount = task.TotalSampleCount;
+            dto.TotalIndicatorCount = indicators.Count;
+
+            // Get all technician names (distinct)
+            var technicianIds = indicators
+                .Where(i => i.TechnicianId.HasValue)
+                .Select(i => i.TechnicianId!.Value)
+                .Distinct()
+                .ToList();
+
+            if (technicianIds.Any())
+            {
+                var technicianNames = new List<string>();
+                foreach (var techId in technicianIds)
+                {
+                    var user = await _userRepository.FindAsync(techId);
+                    if (user != null)
+                    {
+                        technicianNames.Add(user.Name ?? user.UserName ?? "");
+                    }
+                }
+                dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+            }
         }
 
         return dto;
     }
 
-    private async Task<TestingDetailDto> MapToDetailDtoAsync(LaboratoryTask task)
+    private async Task<TestingDetailDto> MapToDetailDtoAsync(LaboratoryTask task, TestingTabType? viewMode = null)
     {
-        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        var currentUserId = CurrentUser.Id;
+
+        // Filter indicators based on viewMode
+        // MyAssignments: Only show indicators assigned to current user
+        // All (or null): Show all indicators
+        List<LaboratoryTaskIndicator> taskIndicators;
+        if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue)
+        {
+            taskIndicators = allTaskIndicators.Where(i => i.TechnicianId == currentUserId.Value).ToList();
+        }
+        else
+        {
+            taskIndicators = allTaskIndicators;
+        }
+
+        // Calculate testing status based on filtered indicators for display
         var testingStatus = CalculateTestingStatus(taskIndicators);
 
         var dto = new TestingDetailDto
