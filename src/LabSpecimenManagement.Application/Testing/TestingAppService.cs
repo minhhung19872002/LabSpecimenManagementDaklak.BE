@@ -282,19 +282,20 @@ public class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.Todo;
         }
 
-        var anyEntered = indicators.Any(i =>
+        // "Đang thí nghiệm" = có ≥1 chỉ tiêu đã nhập/lưu nháp (có result) HOẶC đã gửi duyệt (Entered)
+        var anyInProgress = indicators.Any(i =>
             i.ApprovalStatus >= IndicatorApprovalStatus.Entered ||
             !string.IsNullOrWhiteSpace(i.Result));
 
-        var allSubmittedOrApproved = indicators.All(i =>
-            i.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+        // "Đã xong" = TẤT CẢ chỉ tiêu đã được QLKT phê duyệt (Approved)
+        var allApproved = indicators.All(i =>
             i.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
-        if (allSubmittedOrApproved)
+        if (allApproved)
         {
             return TestingStatus.Done;
         }
-        else if (anyEntered)
+        else if (anyInProgress)
         {
             return TestingStatus.InProgress;
         }
