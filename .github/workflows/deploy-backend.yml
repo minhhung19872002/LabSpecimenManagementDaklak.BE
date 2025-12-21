@@ -131,6 +131,9 @@ jobs:
             docker-compose stop backend || true
             docker-compose rm -f backend || true
 
+            echo "Running database migrations..."
+            docker-compose up --build db-migrator
+
             echo "Rebuilding and starting backend..."
             docker-compose build --no-cache backend
             docker-compose up -d backend
