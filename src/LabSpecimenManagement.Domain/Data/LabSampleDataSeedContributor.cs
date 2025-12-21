@@ -38,6 +38,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly LabUsersDataSeedContributor _labUsersDataSeedContributor;
     private readonly IGuidGenerator _guidGenerator;
     private readonly IConfiguration _configuration;
 
@@ -60,6 +61,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IIdentityUserRepository userRepository,
+        LabUsersDataSeedContributor labUsersDataSeedContributor,
         IGuidGenerator guidGenerator,
         IConfiguration configuration)
     {
@@ -81,6 +83,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
         _userRepository = userRepository;
+        _labUsersDataSeedContributor = labUsersDataSeedContributor;
         _guidGenerator = guidGenerator;
         _configuration = configuration;
     }
@@ -310,6 +313,10 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private async Task SeedLaboratoriesAsync()
     {
         if (await _laboratoryRepository.GetCountAsync() > 0) return;
+
+        // Đảm bảo users đã được seed trước khi seed Laboratory
+        // (vì thứ tự seed của ABP không đảm bảo)
+        await _labUsersDataSeedContributor.SeedAsync(new DataSeedContext());
 
         // Lấy danh sách users có role Reviewer hoặc LabManager để làm TechnicalManager
         var reviewer01 = await _userRepository.FindByNormalizedUserNameAsync("REVIEWER01");
