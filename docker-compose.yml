@@ -130,6 +130,8 @@ services:
             - AuthServer__RequireHttpsMetadata=false
             # String Encryption
             - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+            # OnlyOffice
+            - OnlyOffice__DocumentServerUrl=http://34.59.178.231:8089
         ports:
             - "5002:5002"
         volumes:
