@@ -30,6 +30,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly ITestRequestAppService _testRequestAppService;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -42,7 +43,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
-        IIdentityUserRepository userRepository)
+        IIdentityUserRepository userRepository,
+        ITestRequestAppService testRequestAppService)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -55,6 +57,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _indicatorGroupRepository = indicatorGroupRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _testRequestAppService = testRequestAppService;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -444,6 +447,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Update task status based on all indicators
         await UpdateTaskStatusAsync(task);
 
+        // Update TestRequest status to InProgress when QLKT assigns PP + KTV
+        // Only update if all tasks for this TestRequest have all indicators assigned
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
+
         return await MapToDetailDtoAsync(task);
     }
 
@@ -534,6 +541,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         task.Status = LaboratoryTaskStatus.ResultSent;
         await _laboratoryTaskRepository.UpdateAsync(task);
+
+        // Update TestRequest status to TestingCompleted when all tasks for this TestRequest have sent results
+        await TryUpdateTestRequestToTestingCompletedAsync(task.TestRequestId);
 
         return await MapToDetailDtoAsync(task);
     }
@@ -681,6 +691,52 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
             _ => status.ToString()
         };
+    }
+
+    /// <summary>
+    /// Kiểm tra và cập nhật TestRequest sang InProgress khi QLKT gán PP + KTV cho ≥1 chỉ tiêu
+    /// </summary>
+    private async Task TryUpdateTestRequestToInProgressAsync(Guid testRequestId)
+    {
+        // Get all tasks for this TestRequest
+        var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+
+        // Check if at least one task has all indicators assigned (method + technician)
+        foreach (var task in allTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(ti => ti.LaboratoryTaskId == task.Id);
+            if (taskIndicators.Any())
+            {
+                var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+                if (allAssigned)
+                {
+                    // At least one task has all indicators assigned
+                    await _testRequestAppService.UpdateToInProgressAsync(testRequestId);
+                    return;
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kiểm tra và cập nhật TestRequest sang TestingCompleted khi tất cả tasks đã gửi kết quả
+    /// </summary>
+    private async Task TryUpdateTestRequestToTestingCompletedAsync(Guid testRequestId)
+    {
+        // Get all tasks for this TestRequest
+        var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+
+        if (!allTasks.Any())
+        {
+            return;
+        }
+
+        // Check if all tasks have sent results
+        var allResultsSent = allTasks.All(t => t.Status == LaboratoryTaskStatus.ResultSent);
+        if (allResultsSent)
+        {
+            await _testRequestAppService.UpdateToTestingCompletedAsync(testRequestId);
+        }
     }
 
     private async Task<LaboratoryTaskIndicatorDto> MapToIndicatorDtoAsync(LaboratoryTaskIndicator taskIndicator)

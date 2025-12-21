@@ -24,4 +24,9 @@ public interface IResultFormAppService : IApplicationService
     /// Generate BM01 result form document for single sample
     /// </summary>
     Task<GenerateResultFormOutput> GenerateBM01ResultFormAsync(GenerateBM01ResultFormInput input);
+
+    /// <summary>
+    /// Generate test request form document (BM05 - phiếu yêu cầu XN)
+    /// </summary>
+    Task<GenerateTestRequestFormOutput> GenerateTestRequestFormAsync(GenerateTestRequestFormInput input);
 }

@@ -54,4 +54,54 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.DeleteAsync(id);
     }
+
+    /// <summary>
+    /// Print test request form - update status from New to Pending
+    /// </summary>
+    [HttpPost("{id}/print")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task PrintAsync(Guid id)
+    {
+        return _testRequestAppService.PrintTestRequestAsync(id);
+    }
+
+    /// <summary>
+    /// Update status to PendingApproval after printing result form
+    /// </summary>
+    [HttpPost("{id}/pending-approval")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task UpdateToPendingApprovalAsync(Guid id)
+    {
+        return _testRequestAppService.UpdateToPendingApprovalAsync(id);
+    }
+
+    /// <summary>
+    /// Approve test request - update status to Approved
+    /// </summary>
+    [HttpPost("{id}/approve")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task ApproveAsync(Guid id)
+    {
+        return _testRequestAppService.ApproveAsync(id);
+    }
+
+    /// <summary>
+    /// Send result to customer - update status to ResultSent
+    /// </summary>
+    [HttpPost("{id}/send-result")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task SendResultAsync(Guid id)
+    {
+        return _testRequestAppService.SendResultAsync(id);
+    }
+
+    /// <summary>
+    /// Complete test request - update status to Completed
+    /// </summary>
+    [HttpPost("{id}/complete")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task CompleteAsync(Guid id)
+    {
+        return _testRequestAppService.CompleteAsync(id);
+    }
 }

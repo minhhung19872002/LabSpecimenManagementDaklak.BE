@@ -362,10 +362,22 @@ public class TestRequestAppService :
 
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
+        var entity = await Repository.GetAsync(id);
+
+        // Validate edit permission based on status
+        if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
+        {
+            throw new UserFriendlyException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'");
+        }
+
+        // Validate limited update - check locked fields
+        if (!CanEditFullInfo(entity.Status))
+        {
+            ValidateLimitedUpdate(entity, input);
+        }
+
         // Auto-create Organization if customerName doesn't exist
         await EnsureOrganizationExistsAsync(input.CustomerName);
-
-        var entity = await Repository.GetAsync(id);
 
         // Update contract info
         entity.ContractNumber = input.ContractNumber;
@@ -652,4 +664,244 @@ public class TestRequestAppService :
             }
         }
     }
+
+    #region Status Validation Helpers
+
+    /// <summary>
+    /// Check if full edit is allowed (all fields)
+    /// </summary>
+    private bool CanEditFullInfo(TestRequestStatus status)
+    {
+        return status == TestRequestStatus.New || status == TestRequestStatus.Pending;
+    }
+
+    /// <summary>
+    /// Check if limited edit is allowed (some fields locked)
+    /// </summary>
+    private bool CanEditLimitedInfo(TestRequestStatus status)
+    {
+        return status == TestRequestStatus.InProgress || status == TestRequestStatus.TestingCompleted;
+    }
+
+    /// <summary>
+    /// Check if delete is allowed
+    /// </summary>
+    private bool CanDelete(TestRequestStatus status)
+    {
+        return status == TestRequestStatus.New || status == TestRequestStatus.Pending;
+    }
+
+    /// <summary>
+    /// Get status label for error messages
+    /// </summary>
+    private string GetStatusLabel(TestRequestStatus status)
+    {
+        return status switch
+        {
+            TestRequestStatus.New => "Mới",
+            TestRequestStatus.Pending => "Chờ xử lý",
+            TestRequestStatus.InProgress => "Đang thực hiện",
+            TestRequestStatus.TestingCompleted => "TN Hoàn Thành",
+            TestRequestStatus.PendingApproval => "Chờ Phê duyệt",
+            TestRequestStatus.Approved => "Đã phê duyệt",
+            TestRequestStatus.ResultSent => "Đã gửi kết quả",
+            TestRequestStatus.Completed => "Hoàn Thành",
+            _ => status.ToString()
+        };
+    }
+
+    /// <summary>
+    /// Validate that locked fields are not changed when in limited edit mode
+    /// </summary>
+    private void ValidateLimitedUpdate(TestRequest entity, UpdateTestRequestDto input)
+    {
+        var errors = new List<string>();
+
+        // Check locked fields
+        if (entity.ContractNumber != input.ContractNumber)
+            errors.Add("Số hợp đồng");
+        if (entity.ContractDate != input.ContractDate)
+            errors.Add("Ngày hợp đồng");
+        if (entity.CustomerName != input.CustomerName)
+            errors.Add("Tên khách hàng");
+        if (entity.Address != input.Address)
+            errors.Add("Địa chỉ");
+        if (entity.TaxCode != input.TaxCode)
+            errors.Add("Mã số thuế");
+        if (entity.ContactPerson != input.ContactPerson)
+            errors.Add("Người liên hệ");
+        if (entity.Phone != input.Phone)
+            errors.Add("Số điện thoại");
+        if (entity.ProvinceCode != input.ProvinceCode)
+            errors.Add("Tỉnh/Thành phố");
+        if (entity.DistrictCode != input.DistrictCode)
+            errors.Add("Quận/Huyện");
+        if (entity.WardCode != input.WardCode)
+            errors.Add("Phường/Xã");
+
+        if (errors.Any())
+        {
+            throw new UserFriendlyException(
+                $"Không thể thay đổi các trường sau khi đang thực hiện: {string.Join(", ", errors)}"
+            );
+        }
+    }
+
+    #endregion
+
+    #region Status Transition Methods
+
+    /// <summary>
+    /// When printing test request form - update status from New to Pending
+    /// </summary>
+    public async Task PrintTestRequestAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status == TestRequestStatus.New)
+        {
+            entity.Status = TestRequestStatus.Pending;
+            await Repository.UpdateAsync(entity);
+        }
+        // If already Pending, don't change status (allow re-print)
+    }
+
+    /// <summary>
+    /// When QLKT assigns method + technician - update status to InProgress
+    /// Called from LaboratoryTaskAppService.AssignSampleIndicatorsAsync
+    /// </summary>
+    public async Task UpdateToInProgressAsync(Guid testRequestId)
+    {
+        var entity = await Repository.GetAsync(testRequestId);
+
+        if (entity.Status == TestRequestStatus.New ||
+            entity.Status == TestRequestStatus.Pending)
+        {
+            entity.Status = TestRequestStatus.InProgress;
+            await Repository.UpdateAsync(entity);
+        }
+    }
+
+    /// <summary>
+    /// When QLKT sends results - update status to TestingCompleted
+    /// Called from LaboratoryTaskAppService.SendResultsAsync when all tasks are sent
+    /// </summary>
+    public async Task UpdateToTestingCompletedAsync(Guid testRequestId)
+    {
+        var entity = await Repository.GetAsync(testRequestId);
+
+        if (entity.Status == TestRequestStatus.InProgress)
+        {
+            entity.Status = TestRequestStatus.TestingCompleted;
+            await Repository.UpdateAsync(entity);
+        }
+    }
+
+    /// <summary>
+    /// When printing test result form - update status to PendingApproval
+    /// </summary>
+    public async Task UpdateToPendingApprovalAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status == TestRequestStatus.TestingCompleted)
+        {
+            entity.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(entity);
+        }
+    }
+
+    /// <summary>
+    /// When leader approves - update status to Approved
+    /// </summary>
+    public async Task ApproveAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.PendingApproval)
+        {
+            throw new UserFriendlyException("Chỉ có thể phê duyệt khi trạng thái là 'Chờ Phê duyệt'");
+        }
+
+        entity.Status = TestRequestStatus.Approved;
+        await Repository.UpdateAsync(entity);
+    }
+
+    /// <summary>
+    /// When sending result to customer - update status to ResultSent
+    /// </summary>
+    public async Task SendResultAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.Approved)
+        {
+            throw new UserFriendlyException("Chỉ có thể gửi kết quả khi đã được phê duyệt");
+        }
+
+        entity.Status = TestRequestStatus.ResultSent;
+        await Repository.UpdateAsync(entity);
+
+        // TODO: Send email to customer if requested
+    }
+
+    /// <summary>
+    /// Complete the test request - update status to Completed
+    /// </summary>
+    public async Task CompleteAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.ResultSent)
+        {
+            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+        }
+
+        entity.Status = TestRequestStatus.Completed;
+        await Repository.UpdateAsync(entity);
+    }
+
+    #endregion
+
+    #region Override Delete with Validation
+
+    public override async Task DeleteAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (!CanDelete(entity.Status))
+        {
+            throw new UserFriendlyException(
+                $"Không thể xóa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'"
+            );
+        }
+
+        // Delete samples and indicators first
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
+        foreach (var sample in samples)
+        {
+            var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
+            foreach (var indicator in indicators)
+            {
+                await _sampleIndicatorRepository.DeleteAsync(indicator);
+            }
+            await _sampleRepository.DeleteAsync(sample);
+        }
+
+        // Delete laboratory tasks
+        var tasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        foreach (var task in tasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(ti => ti.LaboratoryTaskId == task.Id);
+            foreach (var taskIndicator in taskIndicators)
+            {
+                await _laboratoryTaskIndicatorRepository.DeleteAsync(taskIndicator);
+            }
+            await _laboratoryTaskRepository.DeleteAsync(task);
+        }
+
+        await Repository.DeleteAsync(id);
+    }
+
+    #endregion
 }

@@ -32,6 +32,11 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
     private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
     private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
+    private const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx"; // Changed to .docx for OpenXML support
+
+    // Checkbox symbols for document placeholders
+    private const string CheckedBox = "☑";
+    private const string UncheckedBox = "☐";
 
     public ResultFormAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -170,6 +175,14 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // Process document
         ProcessDocument(outputPath, placeholders, tableData);
+
+        // Update TestRequest status to PendingApproval after printing result form
+        // Only update if current status is TestingCompleted
+        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
 
         return new GenerateResultFormOutput
         {
@@ -614,10 +627,634 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
+        // Update TestRequest status to PendingApproval after printing result form
+        // Only update if current status is TestingCompleted
+        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
+
         return new GenerateResultFormOutput
         {
             FileName = fileName,
             SampleCode = sample.SampleCode ?? ""
         };
+    }
+
+    /// <summary>
+    /// Generate test request form document (BM05 - phiếu yêu cầu XN)
+    /// This creates a copy of the template for user to edit and print
+    /// When printing, status changes from New to Pending (Chờ xử lý)
+    /// If already Pending, status remains unchanged (allow reprint)
+    /// </summary>
+    public async Task<GenerateTestRequestFormOutput> GenerateTestRequestFormAsync(GenerateTestRequestFormInput input)
+    {
+        // 1. Load test request data with samples
+        var testRequest = await _testRequestRepository.GetAsync(input.TestRequestId);
+        var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == input.TestRequestId);
+
+        // 2. Update status to Pending if currently New
+        // If already Pending or higher, don't change status (allow reprint)
+        if (testRequest.Status == TestRequestStatus.New)
+        {
+            testRequest.Status = TestRequestStatus.Pending;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
+
+        // 3. Check if template exists
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM05);
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM05}");
+        }
+
+        // 4. Create temp directory if not exists
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        // 5. Generate unique filename - keep original extension
+        var safeRequestNumber = testRequest.RequestNumber?.Replace("/", "-") ?? "unknown";
+        var templateExtension = Path.GetExtension(TemplateBM05); // .doc or .docx
+        var fileName = $"{Guid.NewGuid():N}_BM05_{safeRequestNumber}{templateExtension}";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        // 6. Copy template to temp
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await sourceStream.CopyToAsync(destStream);
+        }
+
+        // 7. Process document - replace placeholders
+        // Note: OpenXML only supports .docx format
+        // For .doc files, we just copy the template and let user edit in OnlyOffice
+        if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            var placeholders = BuildTestRequestFormPlaceholders(testRequest, samples);
+            var sampleTableData = await BuildSampleTableDataAsync(samples);
+            ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
+        }
+        // For .doc files, OnlyOffice will handle the editing
+
+        return new GenerateTestRequestFormOutput
+        {
+            FileName = fileName,
+            RequestNumber = testRequest.RequestNumber ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Build sample table data for test request form
+    /// </summary>
+    private async Task<List<TestRequestSampleTableRow>> BuildSampleTableDataAsync(List<TestRequestSample> samples)
+    {
+        var tableData = new List<TestRequestSampleTableRow>();
+        int rowIndex = 1;
+
+        // Get all sample indicator IDs
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var allSampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            x => sampleIds.Contains(x.TestRequestSampleId));
+
+        // Get indicator details
+        var indicatorIds = allSampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var indicators = indicatorIds.Any()
+            ? await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id))
+            : new List<Indicator>();
+        var indicatorDict = indicators.ToDictionary(i => i.Id);
+
+        foreach (var sample in samples.OrderBy(s => s.SortOrder))
+        {
+            // Build indicators text for this sample
+            var sampleIndicatorIds = allSampleIndicators
+                .Where(si => si.TestRequestSampleId == sample.Id)
+                .Select(si => si.IndicatorId)
+                .ToList();
+
+            // Format indicators as list with - prefix and newline
+            var indicatorNames = sampleIndicatorIds
+                .Select(id => indicatorDict.GetValueOrDefault(id)?.Name ?? "")
+                .Where(name => !string.IsNullOrEmpty(name))
+                .ToList();
+            var indicatorsText = indicatorNames.Count > 0
+                ? string.Join("\n", indicatorNames.Select(name => $"- {name}"))
+                : "";
+
+            tableData.Add(new TestRequestSampleTableRow
+            {
+                No = rowIndex++,
+                SampleName = sample.SampleName ?? "",
+                Quantity = sample.SampleQuantity ?? "",
+                SampleInfo = sample.StatusText ?? "",
+                Indicators = indicatorsText
+            });
+        }
+
+        return tableData;
+    }
+
+    /// <summary>
+    /// Process test request form document with sample table
+    /// </summary>
+    private void ProcessTestRequestFormDocumentWithTable(string filePath, Dictionary<string, string> placeholders, List<TestRequestSampleTableRow> sampleTableData)
+    {
+        using var document = WordprocessingDocument.Open(filePath, true);
+        var mainPart = document.MainDocumentPart;
+        if (mainPart?.Document?.Body == null) return;
+
+        var body = mainPart.Document.Body;
+
+        // Process sample table first
+        ProcessSampleTable(body, sampleTableData);
+
+        // Replace placeholders in entire document (including textboxes, headers, footers)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
+
+        mainPart.Document.Save();
+    }
+
+    /// <summary>
+    /// Replace placeholders in entire document including textboxes
+    /// </summary>
+    private void ReplacePlaceholdersInDocument(MainDocumentPart mainPart, Dictionary<string, string> placeholders)
+    {
+        // Process main body
+        if (mainPart.Document?.Body != null)
+        {
+            ReplacePlaceholdersInElement(mainPart.Document.Body, placeholders);
+        }
+
+        // Process headers
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header != null)
+            {
+                ReplacePlaceholdersInElement(headerPart.Header, placeholders);
+            }
+        }
+
+        // Process footers
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer != null)
+            {
+                ReplacePlaceholdersInElement(footerPart.Footer, placeholders);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replace placeholders in any OpenXmlElement (handles textboxes, nested elements)
+    /// </summary>
+    private void ReplacePlaceholdersInElement(OpenXmlElement element, Dictionary<string, string> placeholders)
+    {
+        // First, merge split placeholders in all paragraphs
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Then replace placeholders in all text elements
+        foreach (var text in element.Descendants<Text>())
+        {
+            if (string.IsNullOrEmpty(text.Text)) continue;
+
+            foreach (var placeholder in placeholders)
+            {
+                if (text.Text.Contains(placeholder.Key))
+                {
+                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Process sample table in test request form
+    /// </summary>
+    private void ProcessSampleTable(Body body, List<TestRequestSampleTableRow> tableData)
+    {
+        // Helper to get text from row's direct cells only
+        string GetDirectRowText(TableRow row)
+        {
+            var texts = new List<string>();
+            foreach (var cell in row.Elements<TableCell>())
+            {
+                foreach (var para in cell.Elements<Paragraph>())
+                {
+                    texts.Add(string.Concat(para.Descendants<Text>().Select(t => t.Text ?? "")));
+                }
+            }
+            return string.Join("", texts);
+        }
+
+        // Find the table containing sample row placeholders
+        var allTables = body.Descendants<Table>().ToList();
+        Table? targetTable = null;
+        TableRow? templateRow = null;
+
+        foreach (var table in allTables.AsEnumerable().Reverse())
+        {
+            var directRows = table.Elements<TableRow>().ToList();
+            foreach (var row in directRows)
+            {
+                var hasNestedTable = row.Descendants<Table>().Any();
+                var rowText = GetDirectRowText(row);
+
+                // Look for sample table markers
+                if (!hasNestedTable && (rowText.Contains("{{TestRequestTable}}") || rowText.Contains("{{NameOfSample}}")))
+                {
+                    targetTable = table;
+                    templateRow = row;
+                    break;
+                }
+            }
+            if (targetTable != null) break;
+        }
+
+        if (targetTable == null || templateRow == null) return;
+
+        var allRows = targetTable.Elements<TableRow>().ToList();
+        var templateRowIndex = allRows.IndexOf(templateRow);
+        if (templateRowIndex < 0) return;
+
+        // Clone template row
+        var templateClone = (TableRow)templateRow.CloneNode(true);
+        templateRow.Remove();
+
+        // Re-get rows after removal
+        allRows = targetTable.Elements<TableRow>().ToList();
+
+        // Determine insert position
+        TableRow? insertAfterRow = null;
+        if (templateRowIndex > 0 && allRows.Count > 0)
+        {
+            insertAfterRow = allRows[templateRowIndex - 1];
+        }
+
+        // Create and insert data rows
+        foreach (var data in tableData)
+        {
+            var newRow = CloneAndFillSampleRow(templateClone, data);
+
+            if (insertAfterRow != null)
+            {
+                insertAfterRow.InsertAfterSelf(newRow);
+                insertAfterRow = newRow;
+            }
+            else
+            {
+                var firstRow = targetTable.Elements<TableRow>().FirstOrDefault();
+                if (firstRow != null)
+                {
+                    firstRow.InsertBeforeSelf(newRow);
+                }
+                else
+                {
+                    targetTable.AppendChild(newRow);
+                }
+                insertAfterRow = newRow;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Clone and fill sample row with data
+    /// </summary>
+    private TableRow CloneAndFillSampleRow(TableRow template, TestRequestSampleTableRow data)
+    {
+        var newRow = (TableRow)template.CloneNode(true);
+
+        // First, merge split placeholders in all paragraphs within the row
+        foreach (var para in newRow.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Then replace placeholders
+        foreach (var text in newRow.Descendants<Text>().ToList())
+        {
+            if (string.IsNullOrEmpty(text.Text)) continue;
+
+            // Handle {{SampleIndicators}} separately - need to insert line breaks
+            if (text.Text.Contains("{{SampleIndicators}}"))
+            {
+                ReplaceTextWithLineBreaks(text, "{{SampleIndicators}}", data.Indicators);
+            }
+            else
+            {
+                text.Text = text.Text
+                    .Replace("{{TestRequestTable}}", "")
+                    .Replace("{{No}}", data.No.ToString())
+                    .Replace("{{NameOfSample}}", data.SampleName)
+                    .Replace("{{Quantity}}", data.Quantity)
+                    .Replace("{{SampleInfo}}", data.SampleInfo);
+            }
+        }
+
+        return newRow;
+    }
+
+    /// <summary>
+    /// Replace placeholder with text containing line breaks (using Word's <w:br/> element)
+    /// </summary>
+    private void ReplaceTextWithLineBreaks(Text textElement, string placeholder, string value, bool alignLeft = true)
+    {
+        if (string.IsNullOrEmpty(value))
+        {
+            textElement.Text = textElement.Text.Replace(placeholder, "");
+            return;
+        }
+
+        var originalText = textElement.Text;
+        var placeholderIndex = originalText.IndexOf(placeholder);
+        if (placeholderIndex < 0) return;
+
+        // Text before placeholder
+        var beforeText = originalText.Substring(0, placeholderIndex);
+        // Text after placeholder
+        var afterText = originalText.Substring(placeholderIndex + placeholder.Length);
+
+        // Split value by newline
+        var lines = value.Split('\n');
+
+        // Get the parent Run
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null)
+        {
+            // Fallback: just replace with plain text
+            textElement.Text = originalText.Replace(placeholder, value.Replace("\n", " "));
+            return;
+        }
+
+        // Set paragraph alignment to left if requested
+        if (alignLeft)
+        {
+            var paragraph = parentRun.Ancestors<Paragraph>().FirstOrDefault();
+            if (paragraph != null)
+            {
+                var pPr = paragraph.GetFirstChild<ParagraphProperties>();
+                if (pPr == null)
+                {
+                    pPr = new ParagraphProperties();
+                    paragraph.InsertAt(pPr, 0);
+                }
+                // Set justification to left
+                var justification = pPr.GetFirstChild<Justification>();
+                if (justification != null)
+                {
+                    justification.Val = JustificationValues.Left;
+                }
+                else
+                {
+                    pPr.AppendChild(new Justification() { Val = JustificationValues.Left });
+                }
+            }
+        }
+
+        // Set text before placeholder
+        textElement.Text = beforeText + lines[0];
+
+        // Insert remaining lines with line breaks after the current text element
+        OpenXmlElement insertAfter = textElement;
+        for (int i = 1; i < lines.Length; i++)
+        {
+            // Insert a line break
+            var lineBreak = new Break();
+            insertAfter.InsertAfterSelf(lineBreak);
+            insertAfter = lineBreak;
+
+            // Insert the text
+            var newText = new Text(lines[i]) { Space = SpaceProcessingModeValues.Preserve };
+            insertAfter.InsertAfterSelf(newText);
+            insertAfter = newText;
+        }
+
+        // Add text after placeholder (if any)
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            var afterTextElement = new Text(afterText) { Space = SpaceProcessingModeValues.Preserve };
+            insertAfter.InsertAfterSelf(afterTextElement);
+        }
+    }
+
+    /// <summary>
+    /// Sample table row data for test request form
+    /// </summary>
+    private class TestRequestSampleTableRow
+    {
+        public int No { get; set; }
+        public string SampleName { get; set; } = "";
+        public string Quantity { get; set; } = "";
+        public string SampleInfo { get; set; } = "";
+        public string Indicators { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Build placeholder dictionary for test request form (BM05)
+    /// </summary>
+    private Dictionary<string, string> BuildTestRequestFormPlaceholders(TestRequest testRequest, List<TestRequestSample> samples)
+    {
+        // Address = chỉ lấy địa chỉ người dùng nhập, không nối tỉnh/huyện/xã
+        var address = testRequest.Address ?? "";
+
+        // Build address parts - thêm khoảng trắng phía sau để tránh bị sát với text khác
+        var wardText = !string.IsNullOrWhiteSpace(testRequest.Ward) ? testRequest.Ward : "";
+        var districtText = !string.IsNullOrWhiteSpace(testRequest.District) ? testRequest.District : "";
+        var provinceText = !string.IsNullOrWhiteSpace(testRequest.Province) ? testRequest.Province : "";
+
+        // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
+        var resultCopies = testRequest.ResultCopyCount ?? "";
+
+        // Get customer test method detail
+        var customerTestMethod = testRequest.MethodCustomerDetail ?? "";
+
+        // Compare standard / conformity declaration
+        var compareStandard = testRequest.ConformityDeclaration ?? "";
+
+        // Other requirements
+        var otherRequirements = testRequest.OtherRequirements ?? "";
+
+        // Subcontract info
+        var subContractInfo = testRequest.SubContract ?? "";
+
+        // Format dates
+        var currentDate = DateTime.Now;
+        // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
+        var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+
+        // Total amount formatting
+        var totalAmount = testRequest.TotalCost.ToString("N0");
+        var totalByText = testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost);
+
+        // Receipt number
+        var receiptNumber = testRequest.ReceiptNumber ?? "";
+
+        // Current date formatted - DD/MM/YYYY format
+        var currentDateText = currentDate.ToString("dd/MM/yyyy");
+
+        var placeholders = new Dictionary<string, string>
+        {
+            // Text fields
+            { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
+            { "{{Customer}}", testRequest.CustomerName },
+            { "{{Adress}}", address },  // Note: template may have typo
+            { "{{Address}}", address },
+            { "{{Ward}}", wardText },
+            { "{{District}}", districtText },
+            { "{{Province}}", provinceText },
+            { "{{TaxNo}}", testRequest.TaxCode ?? "" },
+            { "{{ContactPerson}}", testRequest.ContactPerson ?? "" },
+            { "{{PhoneNumber}}", testRequest.Phone ?? "" },
+            { "{{SampleTotal}}", testRequest.TotalSampleCount.ToString() },
+            { "{{ResultCopies}}", resultCopies },
+            { "{{CertifiedCopies}}", resultCopies }, // Same as ResultCopies
+            { "{{CustomerTestMethod}}", customerTestMethod },
+            { "{{CompareStandard}}", compareStandard },
+            { "{{OtherRequirements}}", otherRequirements },
+            { "{{SubContractInfo}}", subContractInfo },
+            { "{{DateReceiving}}", dateReceiving },
+            { "{{TotalAmount}}", totalAmount },
+            { "{{TotalByText}}", totalByText },
+            { "{{ReceiptNumberTTDV}}", receiptNumber },
+            { "{{CurrentDate}}", currentDateText },
+
+            // Checkbox - Test Method
+            { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? CheckedBox : UncheckedBox },
+            { "{{CB_TestMethod_Customer}}", testRequest.MethodCustomer ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Report Language
+            { "{{CB_Report_VN}}", testRequest.ResultLanguage == ResultLanguage.Vietnamese ? CheckedBox : UncheckedBox },
+            { "{{CB_Report_EN}}", testRequest.ResultLanguage == ResultLanguage.English ? CheckedBox : UncheckedBox },
+            { "{{CB_Report_Both}}", testRequest.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Separate Results
+            { "{{CB_SeparateResult}}", testRequest.SeparatePassedResults ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Sampling Requirement
+            { "{{CB_Sampling_Center}}", testRequest.SamplingRequirement == SamplingRequirement.LabSampling ? CheckedBox : UncheckedBox },
+            { "{{CB_Sampling_Customer}}", testRequest.SamplingRequirement == SamplingRequirement.CustomerSampling ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Delivery Method
+            { "{{CB_Delivery_Direct}}", testRequest.DeliveryDirectPickup ? CheckedBox : UncheckedBox },
+            { "{{CB_Delivery_Post}}", testRequest.DeliveryPostal ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Return Sample
+            { "{{CB_ReturnSample}}", testRequest.ReturnStoredSample ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Agree Terms
+            { "{{CB_AgreeTerms}}", testRequest.AgreeTerms ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Sample Type
+            { "{{CB_Service}}", testRequest.SampleTypeService ? CheckedBox : UncheckedBox },
+            { "{{CB_Contract}}", testRequest.SampleTypeContract ? CheckedBox : UncheckedBox },
+            { "{{CB_QLNN}}", testRequest.SampleTypeTask ? CheckedBox : UncheckedBox },
+            { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Sample Storage
+            { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? CheckedBox : UncheckedBox },
+            { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? CheckedBox : UncheckedBox },
+
+            // Checkbox - Payment Method (based on PaymentReceived)
+            { "{{CB_Cash}}", testRequest.PaymentReceived ? CheckedBox : UncheckedBox },
+            { "{{CB_Credit}}", !testRequest.PaymentReceived ? CheckedBox : UncheckedBox }
+        };
+
+        return placeholders;
+    }
+
+    /// <summary>
+    /// Process test request form document and replace placeholders
+    /// </summary>
+    private void ProcessTestRequestFormDocument(string filePath, Dictionary<string, string> placeholders)
+    {
+        using var document = WordprocessingDocument.Open(filePath, true);
+        var body = document.MainDocumentPart?.Document?.Body;
+        if (body == null) return;
+
+        // Replace placeholders in body
+        ReplacePlaceholdersInBody(body, placeholders);
+
+        document.MainDocumentPart?.Document?.Save();
+    }
+
+    /// <summary>
+    /// Convert number to Vietnamese words (simplified version)
+    /// </summary>
+    private string ConvertNumberToVietnameseWords(decimal number)
+    {
+        if (number == 0) return "Không đồng";
+
+        var intPart = (long)number;
+        if (intPart == 0) return "Không đồng";
+
+        var result = ConvertLongToVietnameseWords(intPart);
+        return $"{result} đồng";
+    }
+
+    private string ConvertLongToVietnameseWords(long number)
+    {
+        if (number == 0) return "không";
+
+        var units = new[] { "", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín" };
+        var result = "";
+
+        // Billions (tỷ)
+        if (number >= 1_000_000_000)
+        {
+            result += ConvertLongToVietnameseWords(number / 1_000_000_000) + " tỷ ";
+            number %= 1_000_000_000;
+        }
+
+        // Millions (triệu)
+        if (number >= 1_000_000)
+        {
+            result += ConvertLongToVietnameseWords(number / 1_000_000) + " triệu ";
+            number %= 1_000_000;
+        }
+
+        // Thousands (nghìn)
+        if (number >= 1000)
+        {
+            result += ConvertLongToVietnameseWords(number / 1000) + " nghìn ";
+            number %= 1000;
+        }
+
+        // Hundreds (trăm)
+        if (number >= 100)
+        {
+            result += units[number / 100] + " trăm ";
+            number %= 100;
+        }
+
+        // Tens and units
+        if (number >= 10)
+        {
+            if (number >= 20)
+            {
+                result += units[number / 10] + " mươi ";
+                number %= 10;
+                if (number == 1) result += "mốt";
+                else if (number == 5) result += "lăm";
+                else if (number > 0) result += units[number];
+            }
+            else if (number >= 10)
+            {
+                result += "mười ";
+                number %= 10;
+                if (number == 5) result += "lăm";
+                else if (number > 0) result += units[number];
+            }
+        }
+        else if (number > 0)
+        {
+            result += units[number];
+        }
+
+        return result.Trim();
     }
 }

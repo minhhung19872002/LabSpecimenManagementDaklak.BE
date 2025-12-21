@@ -54,3 +54,31 @@ public class GenerateBM01ResultFormInput
     [Required]
     public Guid SampleId { get; set; }
 }
+
+/// <summary>
+/// Input DTO for generating test request form (BM05 - phiếu yêu cầu XN)
+/// </summary>
+public class GenerateTestRequestFormInput
+{
+    /// <summary>
+    /// TestRequest ID
+    /// </summary>
+    [Required]
+    public Guid TestRequestId { get; set; }
+}
+
+/// <summary>
+/// Output DTO for generating test request form
+/// </summary>
+public class GenerateTestRequestFormOutput
+{
+    /// <summary>
+    /// Generated file name
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Request number for reference
+    /// </summary>
+    public string RequestNumber { get; set; } = string.Empty;
+}

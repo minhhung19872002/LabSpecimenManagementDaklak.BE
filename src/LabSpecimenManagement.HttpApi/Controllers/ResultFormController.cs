@@ -63,6 +63,16 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Generate test request form document (BM05 - phiếu yêu cầu XN)
+    /// </summary>
+    [HttpPost("generate-test-request")]
+    public async Task<ActionResult<GenerateTestRequestFormOutput>> GenerateTestRequestForm([FromBody] GenerateTestRequestFormInput input)
+    {
+        var result = await _resultFormAppService.GenerateTestRequestFormAsync(input);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Download generated result form
     /// </summary>
     [HttpGet("download/{fileName}")]
