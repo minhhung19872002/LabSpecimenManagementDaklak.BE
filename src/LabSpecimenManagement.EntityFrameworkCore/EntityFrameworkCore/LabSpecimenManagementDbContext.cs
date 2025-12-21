@@ -73,6 +73,7 @@ public class LabSpecimenManagementDbContext :
     // Laboratory Task Entities
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
+    public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
 
     #region Entities from the modules
 
@@ -619,6 +620,24 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.TestRequestSampleIndicator)
                 .WithMany()
                 .HasForeignKey(x => x.TestRequestSampleIndicatorId)
+                .IsRequired();
+        });
+
+        // ============ INDICATOR REJECTION HISTORY CONFIGURATION ============
+
+        builder.Entity<IndicatorRejectionHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorRejectionHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.RejectionReason).IsRequired().HasMaxLength(1000);
+
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.RejectedDate);
+
+            b.HasOne(x => x.Indicator)
+                .WithMany(x => x.RejectionHistories)
+                .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
         });
     }

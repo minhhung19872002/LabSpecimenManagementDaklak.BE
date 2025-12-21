@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Domain.Entities;
 
@@ -29,6 +30,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// Kỹ thuật viên thực hiện - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }
+
+    /// <summary>
+    /// Ngày giao việc cho kỹ thuật viên - Assigned Date
+    /// </summary>
+    public DateTime? AssignedDate { get; set; }
 
     /// <summary>
     /// Kết quả thí nghiệm - Result
@@ -79,6 +85,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// Navigation property to TestRequestSampleIndicator
     /// </summary>
     public virtual TestRequestSampleIndicator TestRequestSampleIndicator { get; set; } = null!;
+
+    /// <summary>
+    /// Lịch sử từ chối - Rejection Histories
+    /// </summary>
+    public virtual ICollection<IndicatorRejectionHistory> RejectionHistories { get; set; } = new List<IndicatorRejectionHistory>();
 
     protected LaboratoryTaskIndicator()
     {

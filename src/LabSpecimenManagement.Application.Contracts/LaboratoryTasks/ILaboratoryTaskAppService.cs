@@ -80,9 +80,9 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid indicatorId);
 
     /// <summary>
-    /// Lấy danh sách kỹ thuật viên theo khoa phòng
+    /// Lấy danh sách kỹ thuật viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
     /// </summary>
-    Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid laboratoryId);
+    Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId);
 
     #endregion
 }

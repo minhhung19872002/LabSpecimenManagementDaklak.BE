@@ -21,6 +21,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<IndicatorRejectionHistory, Guid> _rejectionHistoryRepository;
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
@@ -33,6 +34,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<IndicatorRejectionHistory, Guid> rejectionHistoryRepository,
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
@@ -44,6 +46,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _rejectionHistoryRepository = rejectionHistoryRepository;
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
@@ -413,6 +416,11 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator != null)
             {
+                // Set AssignedDate when technician is assigned for the first time
+                if (!taskIndicator.TechnicianId.HasValue && assignment.TechnicianId.HasValue)
+                {
+                    taskIndicator.AssignedDate = DateTime.Now;
+                }
                 taskIndicator.MethodId = assignment.MethodId;
                 taskIndicator.TechnicianId = assignment.TechnicianId;
                 await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
@@ -477,6 +485,15 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             taskIndicator.ApprovalDate = DateTime.Now;
             taskIndicator.ApprovedById = CurrentUser.Id;
             // Giữ lại Result và Unit để user có thể sửa và gửi lại
+
+            // Save rejection history
+            var rejectionHistory = new IndicatorRejectionHistory(
+                GuidGenerator.Create(),
+                indicatorId,
+                input.RejectionReason,
+                CurrentUser.Id!.Value
+            );
+            await _rejectionHistoryRepository.InsertAsync(rejectionHistory);
         }
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
@@ -527,9 +544,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         return new ListResultDto<MethodLookupDto>(dtos);
     }
 
-    public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid laboratoryId)
+    public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId)
     {
         // Get all users - later can filter by role or laboratory assignment
+        // If laboratoryId is null, return all technicians
         var users = await _userRepository.GetListAsync();
         var dtos = users
             .Where(u => u.IsActive)

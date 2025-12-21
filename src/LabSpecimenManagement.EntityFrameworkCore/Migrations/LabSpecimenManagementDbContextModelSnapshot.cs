@@ -120,6 +120,40 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppLaboratoryTasks", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RejectedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("RejectedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("RejectionReason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.ToTable("AppIndicatorRejectionHistories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
                 {
                     b.Property<Guid>("Id")
@@ -133,6 +167,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid?>("ApprovedById")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("AssignedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid?>("EnteredById")
                         .HasColumnType("uuid");
@@ -167,6 +204,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("AssignedDate");
 
                     b.HasIndex("LaboratoryTaskId");
 
@@ -4043,6 +4082,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("TestRequest");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "Indicator")
+                        .WithMany("RejectionHistories")
+                        .HasForeignKey("IndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Indicator");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
@@ -4335,6 +4385,11 @@ namespace LabSpecimenManagement.Migrations
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", b =>
                 {
                     b.Navigation("Indicators");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
+                {
+                    b.Navigation("RejectionHistories");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Subcontractors.Subcontractor", b =>

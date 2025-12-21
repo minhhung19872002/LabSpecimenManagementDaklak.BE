@@ -162,7 +162,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Lấy danh sách kỹ thuật viên theo khoa phòng
     /// </summary>
     [HttpGet("technicians-lookup")]
-    public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync([FromQuery] Guid laboratoryId)
+    public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync([FromQuery] Guid? laboratoryId)
     {
         return _laboratoryTaskAppService.GetTechniciansByLaboratoryAsync(laboratoryId);
     }
