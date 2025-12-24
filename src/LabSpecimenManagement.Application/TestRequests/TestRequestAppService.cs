@@ -200,14 +200,14 @@ public class TestRequestAppService :
         // Get total count
         var totalCount = await AsyncExecuter.CountAsync(queryable);
 
-        // Apply sorting
+        // Apply sorting - default sort by CreationTime descending (newest first)
         if (!string.IsNullOrWhiteSpace(input.Sorting))
         {
             queryable = queryable.OrderBy(input.Sorting);
         }
         else
         {
-            queryable = queryable.OrderByDescending(x => x.RequestDate);
+            queryable = queryable.OrderByDescending(x => x.CreationTime);
         }
 
         // Apply paging
