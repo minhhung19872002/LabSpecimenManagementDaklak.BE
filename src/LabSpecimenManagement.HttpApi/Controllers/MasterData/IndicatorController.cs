@@ -76,7 +76,7 @@ public class IndicatorController : LabSpecimenManagementController
         return _indicatorAppService.GetByGroupAsync(groupId);
     }
 
-    [HttpGet("active")]
+    [HttpGet("get-active")]
     public virtual Task<List<IndicatorDto>> GetActiveIndicatorsAsync()
     {
         return _indicatorAppService.GetActiveIndicatorsAsync();
@@ -101,5 +101,26 @@ public class IndicatorController : LabSpecimenManagementController
     {
         var template = await _indicatorAppService.GetExcelTemplateAsync();
         return File(template, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "indicators-template.xlsx");
+    }
+
+    [HttpPost("batch-delete")]
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    public virtual Task<BatchOperationResultDto> DeleteBatchAsync([FromBody] BatchIndicatorIdsDto input)
+    {
+        return _indicatorAppService.DeleteBatchAsync(input);
+    }
+
+    [HttpPost("batch-deactivate")]
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    public virtual Task<BatchOperationResultDto> DeactivateBatchAsync([FromBody] BatchIndicatorIdsDto input)
+    {
+        return _indicatorAppService.DeactivateBatchAsync(input);
+    }
+
+    [HttpPost("batch-activate")]
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    public virtual Task<BatchOperationResultDto> ActivateBatchAsync([FromBody] BatchIndicatorIdsDto input)
+    {
+        return _indicatorAppService.ActivateBatchAsync(input);
     }
 }

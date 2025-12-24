@@ -110,9 +110,14 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
         var results = new List<Indicator>();
 
-        foreach (var item in input.Indicators)
+        // Get next sequence once and increment for each new indicator
+        var nextSequence = await GetNextSequenceAsync();
+
+        for (int i = 0; i < input.Indicators.Count; i++)
         {
-            var code = await GenerateCodeAsync();
+            var item = input.Indicators[i];
+            var code = $"CT-{(nextSequence + i).ToString("D4")}";
+
             var entity = new Indicator(GuidGenerator.Create(), code, item.Name, input.IndicatorGroupId)
             {
                 UnitPrice = item.UnitPrice,
@@ -210,6 +215,10 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
         result.TotalRows = rows.Count;
 
+        // Get next sequence once before the loop
+        var nextSequence = await GetNextSequenceAsync();
+        var sequenceOffset = 0;
+
         foreach (var row in rows.Select((value, index) => new { value, index }))
         {
             var rowNumber = row.index + 2; // +2 because header is row 1, and index starts at 0
@@ -292,7 +301,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             // Create indicator
             try
             {
-                var code = await GenerateCodeAsync();
+                var code = $"CT-{(nextSequence + sequenceOffset).ToString("D4")}";
                 var entity = new Indicator(GuidGenerator.Create(), code, name, groups[groupKey])
                 {
                     UnitPrice = unitPrice,
@@ -301,6 +310,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
                 await _indicatorRepository.InsertAsync(entity, autoSave: true);
                 result.SuccessCount++;
+                sequenceOffset++; // Only increment on success
             }
             catch (Exception ex)
             {
@@ -375,12 +385,34 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return stream.ToArray();
     }
 
-    private async Task<string> GenerateCodeAsync()
+    private async Task<int> GetNextSequenceAsync()
     {
         var query = await _indicatorRepository.GetQueryableAsync();
-        var count = query.Count();
-        var sequence = (count + 1).ToString("D4");
-        return $"CT-{sequence}";
+        var maxCode = query
+            .Where(x => x.Code.StartsWith("CT-"))
+            .Select(x => x.Code)
+            .OrderByDescending(x => x)
+            .FirstOrDefault();
+
+        if (string.IsNullOrEmpty(maxCode))
+        {
+            return 1;
+        }
+
+        // Extract number from code like "CT-0001"
+        var numberPart = maxCode.Replace("CT-", "");
+        if (int.TryParse(numberPart, out var currentMax))
+        {
+            return currentMax + 1;
+        }
+
+        return 1;
+    }
+
+    private async Task<string> GenerateCodeAsync()
+    {
+        var nextSequence = await GetNextSequenceAsync();
+        return $"CT-{nextSequence.ToString("D4")}";
     }
 
     private async Task<IndicatorDto> MapToDtoAsync(Indicator entity)
@@ -422,5 +454,89 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         }
 
         return dtos;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    public async Task<BatchOperationResultDto> DeleteBatchAsync(BatchIndicatorIdsDto input)
+    {
+        var result = new BatchOperationResultDto
+        {
+            TotalCount = input.Ids.Count
+        };
+
+        // Get all indicators to delete
+        var query = await _indicatorRepository.GetQueryableAsync();
+        var indicators = query.Where(x => input.Ids.Contains(x.Id)).ToList();
+
+        // Check which indicators are used in test requests
+        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        var usedIndicatorIds = testRequestIndicatorQuery
+            .Where(x => input.Ids.Contains(x.IndicatorId))
+            .Select(x => x.IndicatorId)
+            .Distinct()
+            .ToList();
+
+        foreach (var indicator in indicators)
+        {
+            if (usedIndicatorIds.Contains(indicator.Id))
+            {
+                result.FailedCount++;
+                result.Errors.Add(new BatchOperationErrorDto
+                {
+                    Id = indicator.Id,
+                    Name = indicator.Name,
+                    ErrorMessage = "Không thể xóa vì đã được sử dụng trong phiếu yêu cầu"
+                });
+            }
+            else
+            {
+                await _indicatorRepository.DeleteAsync(indicator.Id);
+                result.SuccessCount++;
+            }
+        }
+
+        return result;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    public async Task<BatchOperationResultDto> DeactivateBatchAsync(BatchIndicatorIdsDto input)
+    {
+        var result = new BatchOperationResultDto
+        {
+            TotalCount = input.Ids.Count
+        };
+
+        var query = await _indicatorRepository.GetQueryableAsync();
+        var indicators = query.Where(x => input.Ids.Contains(x.Id)).ToList();
+
+        foreach (var indicator in indicators)
+        {
+            indicator.IsActive = false;
+            await _indicatorRepository.UpdateAsync(indicator);
+            result.SuccessCount++;
+        }
+
+        return result;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    public async Task<BatchOperationResultDto> ActivateBatchAsync(BatchIndicatorIdsDto input)
+    {
+        var result = new BatchOperationResultDto
+        {
+            TotalCount = input.Ids.Count
+        };
+
+        var query = await _indicatorRepository.GetQueryableAsync();
+        var indicators = query.Where(x => input.Ids.Contains(x.Id)).ToList();
+
+        foreach (var indicator in indicators)
+        {
+            indicator.IsActive = true;
+            await _indicatorRepository.UpdateAsync(indicator);
+            result.SuccessCount++;
+        }
+
+        return result;
     }
 }

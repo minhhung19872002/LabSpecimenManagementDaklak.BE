@@ -71,4 +71,19 @@ public interface IIndicatorAppService : IApplicationService
     /// Lấy template Excel mẫu
     /// </summary>
     Task<byte[]> GetExcelTemplateAsync();
+
+    /// <summary>
+    /// Xóa nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task<BatchOperationResultDto> DeleteBatchAsync(BatchIndicatorIdsDto input);
+
+    /// <summary>
+    /// Ngưng hoạt động nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task<BatchOperationResultDto> DeactivateBatchAsync(BatchIndicatorIdsDto input);
+
+    /// <summary>
+    /// Kích hoạt nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task<BatchOperationResultDto> ActivateBatchAsync(BatchIndicatorIdsDto input);
 }

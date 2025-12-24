@@ -116,3 +116,34 @@ public class ImportIndicatorErrorDto
     public string IndicatorName { get; set; }
     public string ErrorMessage { get; set; }
 }
+
+/// <summary>
+/// DTO cho batch delete/deactivate
+/// </summary>
+public class BatchIndicatorIdsDto
+{
+    [Required(ErrorMessage = "Vui lòng chọn ít nhất một chỉ tiêu")]
+    [MinLength(1, ErrorMessage = "Danh sách chỉ tiêu phải có ít nhất 1 phần tử")]
+    public List<Guid> Ids { get; set; } = new();
+}
+
+/// <summary>
+/// DTO kết quả batch operation
+/// </summary>
+public class BatchOperationResultDto
+{
+    public int TotalCount { get; set; }
+    public int SuccessCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<BatchOperationErrorDto> Errors { get; set; } = new();
+}
+
+/// <summary>
+/// DTO lỗi batch operation
+/// </summary>
+public class BatchOperationErrorDto
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; }
+    public string ErrorMessage { get; set; }
+}
