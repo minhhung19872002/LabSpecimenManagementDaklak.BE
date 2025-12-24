@@ -91,12 +91,10 @@ public class LabSpecimenManagementTestDataSeedContributor : IDataSeedContributor
         // Seed Test Methods
         if (await _testMethodRepository.GetCountAsync() == 0)
         {
-            var tm1 = new TestMethod(LabSpecimenManagementTestData.TestMethod1Id, "TM-001", "TCVN 6492:2011");
-            tm1.Description = "Phương pháp đo pH";
+            var tm1 = new TestMethod(LabSpecimenManagementTestData.TestMethod1Id, "TM-001", "TCVN 6492:2011 - Phương pháp đo pH", "");
             await _testMethodRepository.InsertAsync(tm1);
 
-            var tm2 = new TestMethod(LabSpecimenManagementTestData.TestMethod2Id, "TM-002", "TCVN 6625:2000");
-            tm2.Description = "Phương pháp xác định TSS";
+            var tm2 = new TestMethod(LabSpecimenManagementTestData.TestMethod2Id, "TM-002", "TCVN 6625:2000 - Phương pháp xác định TSS", "mg/L");
             await _testMethodRepository.InsertAsync(tm2);
         }
 

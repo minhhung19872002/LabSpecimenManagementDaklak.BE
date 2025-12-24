@@ -68,7 +68,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
 
         // TestMethod mappings
         CreateMap<TestMethod, TestMethodDto>();
-        CreateMap<CreateUpdateTestMethodDto, TestMethod>();
+        CreateMap<TestMethod, TestMethodWithIndicatorsDto>();
+        CreateMap<CreateTestMethodDto, TestMethod>();
+        CreateMap<UpdateTestMethodDto, TestMethod>();
+        CreateMap<TestMethodIndicator, TestMethodIndicatorDto>();
 
         // StorageLocation mappings
         CreateMap<StorageLocation, StorageLocationDto>();

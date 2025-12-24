@@ -112,10 +112,8 @@ public class TestMethodImportRow
     [MaxLength(256)]
     public string Name { get; set; } = string.Empty;
 
-    [MaxLength(256)]
-    public string? Standard { get; set; }
-
-    public string? DepartmentCode { get; set; }
+    [MaxLength(50)]
+    public string? Unit { get; set; }
 }
 
 #endregion

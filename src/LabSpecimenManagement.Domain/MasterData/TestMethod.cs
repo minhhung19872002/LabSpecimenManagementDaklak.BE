@@ -9,39 +9,19 @@ namespace LabSpecimenManagement.MasterData;
 public class TestMethod : FullAuditedAggregateRoot<Guid>
 {
     /// <summary>
-    /// Mã phương pháp - Method Code (VD: TCVN6492, AOAC950)
+    /// Mã phương pháp - Auto generated: PPddmmyyyyxxx
     /// </summary>
     public string Code { get; set; }
 
     /// <summary>
-    /// Tên phương pháp đầy đủ
+    /// Tên phương pháp
     /// </summary>
     public string Name { get; set; }
 
     /// <summary>
-    /// Mô tả - Description
+    /// Đơn vị tính
     /// </summary>
-    public string? Description { get; set; }
-
-    /// <summary>
-    /// Tiêu chuẩn áp dụng (TCVN, ISO, ASTM...)
-    /// </summary>
-    public string? Standard { get; set; }
-
-    /// <summary>
-    /// Phòng ban thực hiện
-    /// </summary>
-    public Guid? DepartmentId { get; set; }
-
-    /// <summary>
-    /// Thời gian thực hiện ước tính (giờ)
-    /// </summary>
-    public int? EstimatedDurationHours { get; set; }
-
-    /// <summary>
-    /// Giá dịch vụ (VND)
-    /// </summary>
-    public decimal? Price { get; set; }
+    public string Unit { get; set; }
 
     /// <summary>
     /// Trạng thái hoạt động
@@ -57,10 +37,11 @@ public class TestMethod : FullAuditedAggregateRoot<Guid>
     {
     }
 
-    public TestMethod(Guid id, string code, string name) : base(id)
+    public TestMethod(Guid id, string code, string name, string unit) : base(id)
     {
         Code = code;
         Name = name;
+        Unit = unit;
         IsActive = true;
         SortOrder = 0;
     }

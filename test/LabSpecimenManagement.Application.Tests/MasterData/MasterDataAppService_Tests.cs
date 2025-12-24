@@ -204,11 +204,10 @@ public abstract class MasterDataAppService_Tests<TStartupModule> : LabSpecimenMa
     public async Task Should_Create_TestMethod()
     {
         // Arrange
-        var input = new CreateUpdateTestMethodDto
+        var input = new CreateTestMethodDto
         {
-            Code = "TM-003",
-            Name = "TCVN 5501:2010",
-            Description = "Phương pháp xác định COD",
+            Name = "TCVN 5501:2010 - Phương pháp xác định COD",
+            Unit = "mg/L",
             IsActive = true
         };
 
@@ -217,15 +216,15 @@ public abstract class MasterDataAppService_Tests<TStartupModule> : LabSpecimenMa
 
         // Assert
         result.ShouldNotBeNull();
-        result.Code.ShouldBe("TM-003");
-        result.Name.ShouldBe("TCVN 5501:2010");
+        result.Code.ShouldStartWith("PP");  // Auto-generated code
+        result.Name.ShouldBe("TCVN 5501:2010 - Phương pháp xác định COD");
     }
 
     [Fact]
     public async Task Should_Get_Active_TestMethods()
     {
         // Act
-        var result = await _testMethodAppService.GetActiveTestMethodsAsync();
+        var result = await _testMethodAppService.GetActiveAsync();
 
         // Assert
         result.ShouldNotBeNull();

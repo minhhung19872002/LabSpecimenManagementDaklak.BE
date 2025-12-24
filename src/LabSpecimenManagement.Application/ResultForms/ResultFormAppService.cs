@@ -142,7 +142,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Code ?? method?.Name ?? "",
                 Result = taskIndicator?.Result ?? "",
-                Standards = method?.Standard ?? "",
+                Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
                 Proclaim = ""      // TODO: Add Proclaim field to LaboratoryTaskIndicator if needed
             });

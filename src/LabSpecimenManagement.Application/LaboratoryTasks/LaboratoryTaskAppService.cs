@@ -561,7 +561,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 Id = m.Id,
                 Code = m.Code,
                 Name = m.Name,
-                Description = m.Description
+                Description = ""  // Description removed from TestMethod entity
             })
             .ToList();
 

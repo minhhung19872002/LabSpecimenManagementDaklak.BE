@@ -354,10 +354,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         var skippedCount = 0;
         var errors = new List<ImportRowError>();
 
-        // Cache departments and existing methods
-        var departments = await _departmentRepository.GetListAsync();
-        var departmentDict = departments.ToDictionary(x => x.Code, x => x.Id, StringComparer.OrdinalIgnoreCase);
-
+        // Cache existing methods
         var existingMethods = await _testMethodRepository.GetListAsync();
         var existingCodes = existingMethods.Select(x => x.Code.ToLower()).ToHashSet();
 
@@ -374,16 +371,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     continue;
                 }
 
-                Guid? departmentId = null;
-                if (!string.IsNullOrWhiteSpace(row.DepartmentCode))
-                {
-                    departmentDict.TryGetValue(row.DepartmentCode, out var deptId);
-                    departmentId = deptId == Guid.Empty ? null : deptId;
-                }
-
-                var entity = new TestMethod(_guidGenerator.Create(), row.Code, row.Name);
-                entity.Standard = row.Standard;
-                entity.DepartmentId = departmentId;
+                var entity = new TestMethod(_guidGenerator.Create(), row.Code, row.Name, row.Unit ?? "");
 
                 await _testMethodRepository.InsertAsync(entity);
                 existingCodes.Add(row.Code.ToLower());
@@ -530,26 +518,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                     ColumnName = "Code",
                     ErrorMessage = $"Mã phương pháp '{rows[i].Code}' bị trùng trong file",
                     Value = rows[i].Code
-                });
-            }
-        }
-
-        // Validate department codes if provided
-        var departments = await _departmentRepository.GetListAsync();
-        var validDeptCodes = departments.Select(x => x.Code.ToLower()).ToHashSet();
-
-        for (var i = 0; i < rows.Count; i++)
-        {
-            var row = rows[i];
-            if (!string.IsNullOrWhiteSpace(row.DepartmentCode) &&
-                !validDeptCodes.Contains(row.DepartmentCode.ToLower()))
-            {
-                result.Errors.Add(new ImportRowError
-                {
-                    RowNumber = i + 2,
-                    ColumnName = "DepartmentCode",
-                    ErrorMessage = $"Mã phòng ban '{row.DepartmentCode}' không tồn tại",
-                    Value = row.DepartmentCode
                 });
             }
         }

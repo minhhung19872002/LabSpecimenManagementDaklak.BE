@@ -224,45 +224,33 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
     private async Task SeedTestMethodsAsync()
     {
+        // Skip if already seeded
+        if (await _testMethodRepository.GetCountAsync() > 0) return;
+
         var methods = new[]
         {
-            new { Code = "TCVN6492", Name = "TCVN 6492:2011 - Xác định pH", Standard = "QCVN 08-MT:2015/BTNMT" },
-            new { Code = "TCVN4559", Name = "TCVN 4559:1998 - Xác định EC", Standard = "QCVN 08-MT:2015/BTNMT" },
-            new { Code = "TCVN6638", Name = "TCVN 6638:2000 - Xác định Nitơ tổng", Standard = "QCVN 08-MT:2015/BTNMT" },
-            new { Code = "TCVN6187", Name = "TCVN 6187-1:2019 - Xác định Coliform", Standard = "QCVN 09-MT:2015/BTNMT" },
-            new { Code = "AOAC950", Name = "AOAC 950.40 - Xác định Caffeine", Standard = "TCVN 5253:1990" },
-            new { Code = "TCVN6193", Name = "TCVN 6193:1996 - Xác định kim loại nặng", Standard = "QCVN 08-MT:2015/BTNMT" },
-            new { Code = "TCVN5979", Name = "TCVN 5979:2007 - Xác định pH đất", Standard = "TCVN 5979:2007" },
-            new { Code = "TCVN6498", Name = "TCVN 6498:1999 - Xác định Nitơ tổng đất", Standard = "TCVN 6498:1999" },
-            new { Code = "TCVN6928", Name = "TCVN 6928:2007 - Xác định độ ẩm cà phê", Standard = "TCVN 4193:2014" },
-            new { Code = "TCVN4325", Name = "TCVN 4325:2007 - Xác định chất béo", Standard = "TCVN 4325:2007" },
-            new { Code = "TCVN5501", Name = "TCVN 5501:2010 - Xác định protein", Standard = "TCVN 5501:2010" },
-            new { Code = "ISO17025", Name = "ISO 17025:2017 - Phương pháp chuẩn PTN", Standard = "ISO 17025:2017" },
-            new { Code = "TCVN7538", Name = "TCVN 7538-1:2006 - Xác định độ ẩm đất", Standard = "TCVN 7538-1:2006" },
-            new { Code = "SMEWW4500", Name = "SMEWW 4500-NO3 - Xác định Nitrat", Standard = "QCVN 08-MT:2015/BTNMT" },
-            new { Code = "SMEWW5210", Name = "SMEWW 5210B - Xác định BOD5", Standard = "QCVN 40:2011/BTNMT" },
-            new { Code = "SMEWW5220", Name = "SMEWW 5220C - Xác định COD", Standard = "QCVN 40:2011/BTNMT" },
+            new { Code = "PP241224001", Name = "TCVN 6492:2011 - Xác định pH", Unit = "" },
+            new { Code = "PP241224002", Name = "TCVN 4559:1998 - Xác định EC", Unit = "mS/cm" },
+            new { Code = "PP241224003", Name = "TCVN 6638:2000 - Xác định Nitơ tổng", Unit = "mg/L" },
+            new { Code = "PP241224004", Name = "TCVN 6187-1:2019 - Xác định Coliform", Unit = "CFU/100mL" },
+            new { Code = "PP241224005", Name = "AOAC 950.40 - Xác định Caffeine", Unit = "%" },
+            new { Code = "PP241224006", Name = "TCVN 6193:1996 - Xác định kim loại nặng", Unit = "mg/L" },
+            new { Code = "PP241224007", Name = "TCVN 5979:2007 - Xác định pH đất", Unit = "" },
+            new { Code = "PP241224008", Name = "TCVN 6498:1999 - Xác định Nitơ tổng đất", Unit = "%" },
+            new { Code = "PP241224009", Name = "TCVN 6928:2007 - Xác định độ ẩm cà phê", Unit = "%" },
+            new { Code = "PP241224010", Name = "TCVN 4325:2007 - Xác định chất béo", Unit = "%" },
+            new { Code = "PP241224011", Name = "TCVN 5501:2010 - Xác định protein", Unit = "%" },
+            new { Code = "PP241224012", Name = "ISO 17025:2017 - Phương pháp chuẩn PTN", Unit = "mg/L" },
+            new { Code = "PP241224013", Name = "TCVN 7538-1:2006 - Xác định độ ẩm đất", Unit = "%" },
+            new { Code = "PP241224014", Name = "SMEWW 4500-NO3 - Xác định Nitrat", Unit = "mg/L" },
+            new { Code = "PP241224015", Name = "SMEWW 5210B - Xác định BOD5", Unit = "mg/L" },
+            new { Code = "PP241224016", Name = "SMEWW 5220C - Xác định COD", Unit = "mg/L" },
         };
 
         foreach (var method in methods)
         {
-            var existing = await _testMethodRepository.FirstOrDefaultAsync(x => x.Code == method.Code);
-            if (existing != null)
-            {
-                // Update Standard if missing
-                if (string.IsNullOrEmpty(existing.Standard))
-                {
-                    existing.Standard = method.Standard;
-                    await _testMethodRepository.UpdateAsync(existing);
-                }
-            }
-            else
-            {
-                // Insert new
-                var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name);
-                entity.Standard = method.Standard;
-                await _testMethodRepository.InsertAsync(entity);
-            }
+            var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name, method.Unit);
+            await _testMethodRepository.InsertAsync(entity);
         }
     }
 

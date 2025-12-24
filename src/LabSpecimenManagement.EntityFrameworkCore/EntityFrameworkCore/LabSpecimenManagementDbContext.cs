@@ -50,6 +50,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Department> Departments { get; set; }
     public DbSet<SpecimenType> SpecimenTypes { get; set; }
     public DbSet<TestMethod> TestMethods { get; set; }
+    public DbSet<TestMethodIndicator> TestMethodIndicators { get; set; }
     public DbSet<StorageLocation> StorageLocations { get; set; }
     public DbSet<Customer> Customers { get; set; }
     public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
@@ -340,10 +341,22 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
-            b.Property(x => x.Standard).HasMaxLength(256);
+            b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
 
             b.HasIndex(x => x.Code).IsUnique();
-            b.HasIndex(x => x.DepartmentId);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // TestMethodIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<TestMethodIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestMethodIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.TestMethodId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId }).IsUnique();
         });
 
         // StorageLocation configuration

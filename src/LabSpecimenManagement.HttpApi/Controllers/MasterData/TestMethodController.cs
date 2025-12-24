@@ -4,6 +4,7 @@ using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -42,14 +43,14 @@ public class TestMethodController : LabSpecimenManagementController
 
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.TestMethods.Create)]
-    public virtual Task<TestMethodDto> CreateAsync([FromBody] CreateUpdateTestMethodDto input)
+    public virtual Task<TestMethodDto> CreateAsync([FromBody] CreateTestMethodDto input)
     {
         return _testMethodAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
-    public virtual Task<TestMethodDto> UpdateAsync(Guid id, [FromBody] CreateUpdateTestMethodDto input)
+    public virtual Task<TestMethodDto> UpdateAsync(Guid id, [FromBody] UpdateTestMethodDto input)
     {
         return _testMethodAppService.UpdateAsync(id, input);
     }
@@ -62,14 +63,40 @@ public class TestMethodController : LabSpecimenManagementController
     }
 
     [HttpGet("active")]
-    public virtual Task<ListResultDto<TestMethodDto>> GetActiveTestMethodsAsync()
+    public virtual Task<ListResultDto<TestMethodDto>> GetActiveAsync()
     {
-        return _testMethodAppService.GetActiveTestMethodsAsync();
+        return _testMethodAppService.GetActiveAsync();
     }
 
-    [HttpGet("by-department/{departmentId}")]
-    public virtual Task<ListResultDto<TestMethodDto>> GetByDepartmentAsync(Guid departmentId)
+    [HttpGet("with-indicators")]
+    public virtual Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync()
     {
-        return _testMethodAppService.GetByDepartmentAsync(departmentId);
+        return _testMethodAppService.GetAllWithIndicatorsAsync();
+    }
+
+    [HttpGet("{id}/with-indicators")]
+    public virtual Task<TestMethodWithIndicatorsDto> GetWithIndicatorsAsync(Guid id)
+    {
+        return _testMethodAppService.GetWithIndicatorsAsync(id);
+    }
+
+    [HttpGet("{id}/indicators")]
+    public virtual Task<List<TestMethodIndicatorDto>> GetIndicatorsAsync(Guid id)
+    {
+        return _testMethodAppService.GetIndicatorsAsync(id);
+    }
+
+    [HttpPost("{id}/indicators")]
+    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    public virtual Task AddIndicatorsAsync(Guid id, [FromBody] AddIndicatorsToTestMethodDto input)
+    {
+        return _testMethodAppService.AddIndicatorsAsync(id, input);
+    }
+
+    [HttpDelete("{id}/indicators/{indicatorId}")]
+    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)
+    {
+        return _testMethodAppService.RemoveIndicatorAsync(id, indicatorId);
     }
 }
