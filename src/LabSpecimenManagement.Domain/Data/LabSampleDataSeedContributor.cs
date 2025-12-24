@@ -344,28 +344,36 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     {
         if (await _organizationRepository.GetCountAsync() > 0) return;
 
+        // ProvinceCode: 66 = Đắk Lắk
+        // WardCodes: 24124 = Phường Tân Lợi, 24127 = Phường Thắng Lợi, 24130 = Phường Tân An, etc.
         var organizations = new[]
         {
-            new { Name = "Công ty TNHH Cà phê Tây Nguyên", SortOrder = 1 },
-            new { Name = "HTX Nông nghiệp Ea H'leo", SortOrder = 2 },
-            new { Name = "Viện Nghiên cứu Khoa học Tây Nguyên", SortOrder = 3 },
-            new { Name = "Công ty CP Phân bón Đắk Lắk", SortOrder = 4 },
-            new { Name = "Sở Tài nguyên và Môi trường Đắk Lắk", SortOrder = 5 },
-            new { Name = "Công ty TNHH MTV Cao su Đắk Lắk", SortOrder = 6 },
-            new { Name = "HTX Nông nghiệp xanh Krông Năng", SortOrder = 7 },
-            new { Name = "Chi cục Bảo vệ môi trường Đắk Lắk", SortOrder = 8 },
-            new { Name = "Trung tâm Khuyến nông Đắk Lắk", SortOrder = 9 },
-            new { Name = "Công ty CP Chế biến Nông sản Đắk Lắk", SortOrder = 10 },
-            new { Name = "HTX Dịch vụ Nông nghiệp Buôn Ma Thuột", SortOrder = 11 },
-            new { Name = "Công ty TNHH XNK Cà phê Tây Nguyên", SortOrder = 12 },
-            new { Name = "Trung tâm Quan trắc Môi trường Đắk Lắk", SortOrder = 13 },
-            new { Name = "Viện Khoa học Kỹ thuật Nông lâm nghiệp Tây Nguyên", SortOrder = 14 },
-            new { Name = "Công ty TNHH Thực phẩm sạch Đắk Lắk", SortOrder = 15 },
+            new { Name = "Công ty TNHH Cà phê Tây Nguyên", ProvinceCode = "66", WardCode = "24124", Address = "123 Lê Duẩn, TP. Buôn Ma Thuột", ContactPerson = "Nguyễn Văn A", Phone = "0262385211", TaxCode = "6001234567", SortOrder = 1 },
+            new { Name = "HTX Nông nghiệp Ea H'leo", ProvinceCode = "66", WardCode = "24364", Address = "Xã Ea Hiao, Huyện Ea H'leo", ContactPerson = "Trần Thị B", Phone = "0262377722", TaxCode = "6001234568", SortOrder = 2 },
+            new { Name = "Viện Nghiên cứu Khoa học Tây Nguyên", ProvinceCode = "66", WardCode = "24127", Address = "45 Nguyễn Tất Thành, TP. Buôn Ma Thuột", ContactPerson = "Lê Văn C", Phone = "0262385678", TaxCode = "6001234569", SortOrder = 3 },
+            new { Name = "Công ty CP Phân bón Đắk Lắk", ProvinceCode = "66", WardCode = "24130", Address = "KCN Hòa Phú, TP. Buôn Ma Thuột", ContactPerson = "Phạm Văn D", Phone = "0262385999", TaxCode = "6001234570", SortOrder = 4 },
+            new { Name = "Sở Tài nguyên và Môi trường Đắk Lắk", ProvinceCode = "66", WardCode = "24124", Address = "18 Lê Duẩn, TP. Buôn Ma Thuột", ContactPerson = "Hoàng Thị E", Phone = "0262385123", TaxCode = (string?)null, SortOrder = 5 },
+            new { Name = "Công ty TNHH MTV Cao su Đắk Lắk", ProvinceCode = "66", WardCode = "24133", Address = "Số 5 Phan Chu Trinh, TP. Buôn Ma Thuột", ContactPerson = "Võ Văn F", Phone = "0262385456", TaxCode = "6001234571", SortOrder = 6 },
+            new { Name = "HTX Nông nghiệp xanh Krông Năng", ProvinceCode = "66", WardCode = "24454", Address = "Thị trấn Krông Năng", ContactPerson = "Đặng Thị G", Phone = "0262378901", TaxCode = (string?)null, SortOrder = 7 },
+            new { Name = "Chi cục Bảo vệ môi trường Đắk Lắk", ProvinceCode = "66", WardCode = "24127", Address = "20 Nguyễn Tất Thành, TP. Buôn Ma Thuột", ContactPerson = "Bùi Văn H", Phone = "0262385234", TaxCode = (string?)null, SortOrder = 8 },
+            new { Name = "Trung tâm Khuyến nông Đắk Lắk", ProvinceCode = "66", WardCode = "24130", Address = "56 Lê Duẩn, TP. Buôn Ma Thuột", ContactPerson = "Ngô Thị I", Phone = "0262385345", TaxCode = (string?)null, SortOrder = 9 },
+            new { Name = "Công ty CP Chế biến Nông sản Đắk Lắk", ProvinceCode = "66", WardCode = "24136", Address = "KCN Tân An, TP. Buôn Ma Thuột", ContactPerson = "Trương Văn K", Phone = "0262385567", TaxCode = "6001234572", SortOrder = 10 },
+            new { Name = "HTX Dịch vụ Nông nghiệp Buôn Ma Thuột", ProvinceCode = "66", WardCode = "24139", Address = "Xã Hòa Thuận, TP. Buôn Ma Thuột", ContactPerson = "Lý Thị L", Phone = "0262385678", TaxCode = (string?)null, SortOrder = 11 },
+            new { Name = "Công ty TNHH XNK Cà phê Tây Nguyên", ProvinceCode = "66", WardCode = "24124", Address = "89 Lê Duẩn, TP. Buôn Ma Thuột", ContactPerson = "Mai Văn M", Phone = "0262385789", TaxCode = "6001234573", SortOrder = 12 },
+            new { Name = "Trung tâm Quan trắc Môi trường Đắk Lắk", ProvinceCode = "66", WardCode = "24127", Address = "30 Nguyễn Tất Thành, TP. Buôn Ma Thuột", ContactPerson = "Đinh Thị N", Phone = "0262385890", TaxCode = (string?)null, SortOrder = 13 },
+            new { Name = "Viện Khoa học Kỹ thuật Nông lâm nghiệp Tây Nguyên", ProvinceCode = "66", WardCode = "24142", Address = "Xã Ea Tu, TP. Buôn Ma Thuột", ContactPerson = "Phan Văn O", Phone = "0262385901", TaxCode = "6001234574", SortOrder = 14 },
+            new { Name = "Công ty TNHH Thực phẩm sạch Đắk Lắk", ProvinceCode = "66", WardCode = "24133", Address = "15 Phan Chu Trinh, TP. Buôn Ma Thuột", ContactPerson = "Hồ Thị P", Phone = "0262386012", TaxCode = "6001234575", SortOrder = 15 },
         };
 
         foreach (var org in organizations)
         {
             var entity = new Organization(_guidGenerator.Create(), org.Name);
+            entity.ProvinceCode = org.ProvinceCode;
+            entity.WardCode = org.WardCode;
+            entity.Address = org.Address;
+            entity.ContactPerson = org.ContactPerson;
+            entity.Phone = org.Phone;
+            entity.TaxCode = org.TaxCode;
             entity.SortOrder = org.SortOrder;
             entity.IsActive = true;
             await _organizationRepository.InsertAsync(entity);

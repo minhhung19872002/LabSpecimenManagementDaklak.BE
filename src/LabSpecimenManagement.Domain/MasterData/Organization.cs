@@ -14,6 +14,36 @@ public class Organization : FullAuditedAggregateRoot<Guid>
     public string Name { get; set; }
 
     /// <summary>
+    /// Ma tinh thanh
+    /// </summary>
+    public string ProvinceCode { get; set; }
+
+    /// <summary>
+    /// Ma phuong xa
+    /// </summary>
+    public string WardCode { get; set; }
+
+    /// <summary>
+    /// Dia chi chi tiet
+    /// </summary>
+    public string Address { get; set; }
+
+    /// <summary>
+    /// Ma so thue
+    /// </summary>
+    public string? TaxCode { get; set; }
+
+    /// <summary>
+    /// Nguoi lien he
+    /// </summary>
+    public string ContactPerson { get; set; }
+
+    /// <summary>
+    /// So dien thoai
+    /// </summary>
+    public string Phone { get; set; }
+
+    /// <summary>
     /// Trang thai hoat dong
     /// </summary>
     public bool IsActive { get; set; }
