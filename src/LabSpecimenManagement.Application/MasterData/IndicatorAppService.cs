@@ -23,17 +23,23 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestRequestIndicator, Guid> _testRequestIndicatorRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IDataFilter _dataFilter;
 
     public IndicatorAppService(
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
         IDataFilter dataFilter)
     {
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _testRequestIndicatorRepository = testRequestIndicatorRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _testMethodRepository = testMethodRepository;
         _dataFilter = dataFilter;
     }
 
@@ -609,6 +615,89 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             indicator.IsActive = true;
             await _indicatorRepository.UpdateAsync(indicator);
             result.SuccessCount++;
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu với phương pháp thử (chỉ lấy phương pháp đang hoạt động)
+    /// </summary>
+    public async Task<List<IndicatorWithMethodsDto>> GetAllWithMethodsAsync()
+    {
+        // Get all active indicators
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var indicators = indicatorQuery
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Name)
+            .ToList();
+
+        if (!indicators.Any())
+        {
+            return new List<IndicatorWithMethodsDto>();
+        }
+
+        // Get indicator group names
+        var groupIds = indicators.Select(x => x.IndicatorGroupId).Distinct().ToList();
+        var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+        var groups = groupQuery
+            .Where(x => groupIds.Contains(x.Id))
+            .ToDictionary(x => x.Id, x => x.Name);
+
+        // Get all test method indicators for active indicators
+        var indicatorIds = indicators.Select(x => x.Id).ToList();
+        var testMethodIndicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var testMethodIndicators = testMethodIndicatorQuery
+            .Where(x => indicatorIds.Contains(x.IndicatorId))
+            .ToList();
+
+        // Get all test methods (only active ones)
+        var testMethodIds = testMethodIndicators.Select(x => x.TestMethodId).Distinct().ToList();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var testMethods = testMethodQuery
+            .Where(x => testMethodIds.Contains(x.Id) && x.IsActive)
+            .ToDictionary(x => x.Id);
+
+        // Map to DTOs
+        var result = new List<IndicatorWithMethodsDto>();
+        foreach (var indicator in indicators)
+        {
+            var dto = new IndicatorWithMethodsDto
+            {
+                Id = indicator.Id,
+                Code = indicator.Code,
+                Name = indicator.Name,
+                IndicatorGroupId = indicator.IndicatorGroupId,
+                IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId, ""),
+                IsActive = indicator.IsActive,
+                SortOrder = indicator.SortOrder,
+                Methods = new List<IndicatorMethodDto>()
+            };
+
+            // Get methods for this indicator
+            var indicatorMethods = testMethodIndicators
+                .Where(x => x.IndicatorId == indicator.Id)
+                .OrderBy(x => x.SortOrder)
+                .ToList();
+
+            foreach (var methodIndicator in indicatorMethods)
+            {
+                if (testMethods.TryGetValue(methodIndicator.TestMethodId, out var testMethod))
+                {
+                    dto.Methods.Add(new IndicatorMethodDto
+                    {
+                        TestMethodId = testMethod.Id,
+                        TestMethodCode = testMethod.Code,
+                        TestMethodName = testMethod.Name,
+                        UnitPrice = methodIndicator.UnitPrice,
+                        IsActive = testMethod.IsActive,
+                        SortOrder = methodIndicator.SortOrder
+                    });
+                }
+            }
+
+            result.Add(dto);
         }
 
         return result;

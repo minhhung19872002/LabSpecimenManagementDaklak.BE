@@ -125,6 +125,21 @@ public class TestRequestSampleIndicatorDto
     public string? LaboratoryName { get; set; }
 
     /// <summary>
+    /// Phương pháp thử
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
+    /// Mã phương pháp thử
+    /// </summary>
+    public string? TestMethodCode { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp thử
+    /// </summary>
+    public string? TestMethodName { get; set; }
+
+    /// <summary>
     /// Ngày chuyển giao
     /// </summary>
     public DateTime? TransferDate { get; set; }

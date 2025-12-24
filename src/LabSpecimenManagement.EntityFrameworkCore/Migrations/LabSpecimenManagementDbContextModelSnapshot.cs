@@ -2356,6 +2356,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("SentToDepartment")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("TestMethodId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TestRequestSampleId")
                         .HasColumnType("uuid");
 
@@ -2371,6 +2374,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("IndicatorId");
 
                     b.HasIndex("LaboratoryId");
+
+                    b.HasIndex("TestMethodId");
 
                     b.HasIndex("TestRequestSampleId");
 
@@ -4382,6 +4387,10 @@ namespace LabSpecimenManagement.Migrations
                         .WithMany()
                         .HasForeignKey("LaboratoryId");
 
+                    b.HasOne("LabSpecimenManagement.MasterData.TestMethod", "TestMethod")
+                        .WithMany()
+                        .HasForeignKey("TestMethodId");
+
                     b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSample", "TestRequestSample")
                         .WithMany("Indicators")
                         .HasForeignKey("TestRequestSampleId")
@@ -4391,6 +4400,8 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("Indicator");
 
                     b.Navigation("Laboratory");
+
+                    b.Navigation("TestMethod");
 
                     b.Navigation("TestRequestSample");
                 });

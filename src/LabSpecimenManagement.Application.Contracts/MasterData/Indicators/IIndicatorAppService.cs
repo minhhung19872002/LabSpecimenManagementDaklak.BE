@@ -86,4 +86,9 @@ public interface IIndicatorAppService : IApplicationService
     /// Kích hoạt nhiều chỉ tiêu cùng lúc
     /// </summary>
     Task<BatchOperationResultDto> ActivateBatchAsync(BatchIndicatorIdsDto input);
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu với phương pháp thử
+    /// </summary>
+    Task<List<IndicatorWithMethodsDto>> GetAllWithMethodsAsync();
 }

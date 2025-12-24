@@ -29,6 +29,7 @@ public class TestRequestAppService :
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
@@ -40,6 +41,7 @@ public class TestRequestAppService :
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository)
@@ -50,6 +52,7 @@ public class TestRequestAppService :
         _indicatorRepository = indicatorRepository;
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
+        _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -87,6 +90,16 @@ public class TestRequestAppService :
                     laboratoryName = laboratory?.Name;
                 }
 
+                // Get test method info if assigned
+                string? testMethodCode = null;
+                string? testMethodName = null;
+                if (indicator.TestMethodId.HasValue)
+                {
+                    var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
+                    testMethodCode = testMethod?.Code;
+                    testMethodName = testMethod?.Name;
+                }
+
                 sampleDto.Indicators.Add(new TestRequestSampleIndicatorDto
                 {
                     Id = indicator.Id,
@@ -94,6 +107,9 @@ public class TestRequestAppService :
                     IndicatorId = indicator.IndicatorId,
                     IndicatorCode = indicatorEntity.Code,
                     IndicatorName = indicatorEntity.Name,
+                    TestMethodId = indicator.TestMethodId,
+                    TestMethodCode = testMethodCode,
+                    TestMethodName = testMethodName,
                     UnitPrice = indicator.UnitPrice,
                     Notes = indicator.Notes,
                     LaboratoryId = indicator.LaboratoryId,
@@ -332,6 +348,7 @@ public class TestRequestAppService :
                         );
                         sampleIndicator.Notes = indicatorDto.Notes;
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
+                        sampleIndicator.TestMethodId = indicatorDto.TestMethodId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
                         sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -524,6 +541,7 @@ public class TestRequestAppService :
                             indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.Notes = indicatorDto.Notes;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                            indicator.TestMethodId = indicatorDto.TestMethodId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -540,6 +558,7 @@ public class TestRequestAppService :
                             );
                             indicator.Notes = indicatorDto.Notes;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                            indicator.TestMethodId = indicatorDto.TestMethodId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;

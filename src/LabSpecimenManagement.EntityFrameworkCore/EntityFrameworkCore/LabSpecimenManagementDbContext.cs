@@ -215,6 +215,12 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.LaboratoryId)
                 .IsRequired(false);
+
+            b.HasIndex(x => x.TestMethodId);
+            b.HasOne(x => x.TestMethod)
+                .WithMany()
+                .HasForeignKey(x => x.TestMethodId)
+                .IsRequired(false);
         });
 
         // TestRequestAttachment configuration

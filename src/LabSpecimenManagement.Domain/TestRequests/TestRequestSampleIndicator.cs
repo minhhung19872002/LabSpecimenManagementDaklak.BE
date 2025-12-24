@@ -25,6 +25,11 @@ public class TestRequestSampleIndicator : Entity<Guid>
     public Guid? LaboratoryId { get; set; }
 
     /// <summary>
+    /// Test Method ID - Phương pháp thử (Foreign Key)
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
     /// Đơn giá tại thời điểm tạo (snapshot)
     /// </summary>
     public decimal UnitPrice { get; set; }
@@ -63,6 +68,11 @@ public class TestRequestSampleIndicator : Entity<Guid>
     /// Navigation property to Laboratory
     /// </summary>
     public virtual Laboratory? Laboratory { get; set; }
+
+    /// <summary>
+    /// Navigation property to TestMethod
+    /// </summary>
+    public virtual TestMethod? TestMethod { get; set; }
 
     protected TestRequestSampleIndicator()
     {

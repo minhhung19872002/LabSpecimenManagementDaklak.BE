@@ -197,6 +197,11 @@ public class UpdateTestRequestSampleIndicatorDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
+    /// Phương pháp thử
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
     /// Khoa phòng thực hiện
     /// </summary>
     public Guid? LaboratoryId { get; set; }

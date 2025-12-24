@@ -123,4 +123,13 @@ public class IndicatorController : LabSpecimenManagementController
     {
         return _indicatorAppService.ActivateBatchAsync(input);
     }
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu với phương pháp thử
+    /// </summary>
+    [HttpGet("with-methods")]
+    public virtual Task<List<IndicatorWithMethodsDto>> GetAllWithMethodsAsync()
+    {
+        return _indicatorAppService.GetAllWithMethodsAsync();
+    }
 }

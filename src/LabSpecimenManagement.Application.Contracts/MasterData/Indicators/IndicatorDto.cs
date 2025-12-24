@@ -147,3 +147,31 @@ public class BatchOperationErrorDto
     public string Name { get; set; }
     public string ErrorMessage { get; set; }
 }
+
+/// <summary>
+/// DTO Chỉ tiêu với danh sách phương pháp thử
+/// </summary>
+public class IndicatorWithMethodsDto
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; }
+    public string Name { get; set; }
+    public Guid IndicatorGroupId { get; set; }
+    public string IndicatorGroupName { get; set; }
+    public bool IsActive { get; set; }
+    public int SortOrder { get; set; }
+    public List<IndicatorMethodDto> Methods { get; set; } = new();
+}
+
+/// <summary>
+/// DTO Phương pháp thử cho một chỉ tiêu
+/// </summary>
+public class IndicatorMethodDto
+{
+    public Guid TestMethodId { get; set; }
+    public string TestMethodCode { get; set; }
+    public string TestMethodName { get; set; }
+    public decimal UnitPrice { get; set; }
+    public bool IsActive { get; set; }
+    public int SortOrder { get; set; }
+}

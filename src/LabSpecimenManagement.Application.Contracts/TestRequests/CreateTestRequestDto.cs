@@ -191,6 +191,11 @@ public class CreateTestRequestSampleIndicatorDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
+    /// Phương pháp thử
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
     /// Khoa phòng thực hiện
     /// </summary>
     public Guid? LaboratoryId { get; set; }
