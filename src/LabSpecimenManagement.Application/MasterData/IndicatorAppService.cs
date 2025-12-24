@@ -10,6 +10,8 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 
 namespace LabSpecimenManagement.MasterData;
@@ -21,15 +23,18 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestRequestIndicator, Guid> _testRequestIndicatorRepository;
+    private readonly IDataFilter _dataFilter;
 
     public IndicatorAppService(
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
-        IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository)
+        IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository,
+        IDataFilter dataFilter)
     {
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _testRequestIndicatorRepository = testRequestIndicatorRepository;
+        _dataFilter = dataFilter;
     }
 
     public async Task<PagedResultDto<IndicatorDto>> GetListAsync(IndicatorFilterDto input)
@@ -110,13 +115,30 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
         var results = new List<Indicator>();
 
-        // Get next sequence once and increment for each new indicator
-        var nextSequence = await GetNextSequenceAsync();
+        // Get all existing codes once (including soft deleted to avoid duplicate code)
+        var existingCodes = await GetAllExistingCodesAsync();
+
+        // Find max sequence number
+        var nextSequence = 1;
+        if (existingCodes.Any())
+        {
+            nextSequence = existingCodes
+                .Select(code =>
+                {
+                    var numberPart = code.Replace("CT-", "");
+                    return int.TryParse(numberPart, out var num) ? num : 0;
+                })
+                .Max() + 1;
+        }
 
         for (int i = 0; i < input.Indicators.Count; i++)
         {
             var item = input.Indicators[i];
-            var code = $"CT-{(nextSequence + i).ToString("D4")}";
+
+            // Generate code and add to existingCodes to prevent duplicates in same batch
+            var code = $"CT-{nextSequence.ToString("D4")}";
+            existingCodes.Add(code);
+            nextSequence++;
 
             var entity = new Indicator(GuidGenerator.Create(), code, item.Name, input.IndicatorGroupId)
             {
@@ -388,31 +410,83 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private async Task<int> GetNextSequenceAsync()
     {
         var query = await _indicatorRepository.GetQueryableAsync();
-        var maxCode = query
+
+        // Get all codes that start with CT- and extract the max number
+        var codes = query
             .Where(x => x.Code.StartsWith("CT-"))
             .Select(x => x.Code)
-            .OrderByDescending(x => x)
-            .FirstOrDefault();
+            .ToList();
 
-        if (string.IsNullOrEmpty(maxCode))
+        if (!codes.Any())
         {
             return 1;
         }
 
-        // Extract number from code like "CT-0001"
-        var numberPart = maxCode.Replace("CT-", "");
-        if (int.TryParse(numberPart, out var currentMax))
-        {
-            return currentMax + 1;
-        }
+        // Find the maximum number from all codes
+        var maxNumber = codes
+            .Select(code =>
+            {
+                var numberPart = code.Replace("CT-", "");
+                return int.TryParse(numberPart, out var num) ? num : 0;
+            })
+            .DefaultIfEmpty(0)
+            .Max();
 
-        return 1;
+        return maxNumber + 1;
     }
 
     private async Task<string> GenerateCodeAsync()
     {
         var nextSequence = await GetNextSequenceAsync();
         return $"CT-{nextSequence.ToString("D4")}";
+    }
+
+    /// <summary>
+    /// Get all existing codes including soft deleted records to avoid duplicate code violation
+    /// </summary>
+    private async Task<HashSet<string>> GetAllExistingCodesAsync()
+    {
+        // Disable soft delete filter to include deleted records
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var query = await _indicatorRepository.GetQueryableAsync();
+            return query
+                .Where(x => x.Code.StartsWith("CT-"))
+                .Select(x => x.Code)
+                .ToHashSet();
+        }
+    }
+
+    private async Task<string> GenerateUniqueCodeAsync()
+    {
+        var query = await _indicatorRepository.GetQueryableAsync();
+        var existingCodes = query
+            .Where(x => x.Code.StartsWith("CT-"))
+            .Select(x => x.Code)
+            .ToHashSet();
+
+        var nextSequence = 1;
+        if (existingCodes.Any())
+        {
+            nextSequence = existingCodes
+                .Select(code =>
+                {
+                    var numberPart = code.Replace("CT-", "");
+                    return int.TryParse(numberPart, out var num) ? num : 0;
+                })
+                .Max() + 1;
+        }
+
+        var newCode = $"CT-{nextSequence.ToString("D4")}";
+
+        // Double check to ensure uniqueness (in case of race condition)
+        while (existingCodes.Contains(newCode))
+        {
+            nextSequence++;
+            newCode = $"CT-{nextSequence.ToString("D4")}";
+        }
+
+        return newCode;
     }
 
     private async Task<IndicatorDto> MapToDtoAsync(Indicator entity)
