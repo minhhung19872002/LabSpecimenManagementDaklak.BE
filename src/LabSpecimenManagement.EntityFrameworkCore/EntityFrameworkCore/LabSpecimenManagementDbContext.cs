@@ -57,6 +57,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Indicator> Indicators { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
+    public DbSet<Standard> Standards { get; set; }
+    public DbSet<StandardIndicator> StandardIndicators { get; set; }
 
     // Junction Tables
     public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
@@ -440,6 +442,35 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.Name).IsUnique();
             b.HasIndex(x => x.IsActive);
+        });
+
+        // Standard (Tiêu chuẩn) configuration
+        builder.Entity<Standard>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Standards", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.LimitDescription).HasMaxLength(500);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // StandardIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<StandardIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "StandardIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
+            b.Property(x => x.ComparisonOperator).HasMaxLength(10);
+            b.Property(x => x.AllowedLimit).HasMaxLength(256);
+
+            b.HasIndex(x => x.StandardId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.TestMethodId);
+            b.HasIndex(x => new { x.StandardId, x.IndicatorId, x.TestMethodId }).IsUnique();
         });
 
         // TestRequestIndicator configuration (Junction Table)

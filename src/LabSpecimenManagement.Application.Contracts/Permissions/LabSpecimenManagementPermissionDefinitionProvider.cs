@@ -105,6 +105,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         testMethodPermission.AddChild(LabSpecimenManagementPermissions.TestMethods.Edit, L("Permission:TestMethods.Edit"));
         testMethodPermission.AddChild(LabSpecimenManagementPermissions.TestMethods.Delete, L("Permission:TestMethods.Delete"));
 
+        // Master Data - Standard Permissions
+        var standardPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Standards.Default, L("Permission:Standards"));
+        standardPermission.AddChild(LabSpecimenManagementPermissions.Standards.Create, L("Permission:Standards.Create"));
+        standardPermission.AddChild(LabSpecimenManagementPermissions.Standards.Edit, L("Permission:Standards.Edit"));
+        standardPermission.AddChild(LabSpecimenManagementPermissions.Standards.Delete, L("Permission:Standards.Delete"));
+
         // Master Data - Storage Location Permissions
         var storageLocationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.StorageLocations.Default, L("Permission:StorageLocations"));
         storageLocationPermission.AddChild(LabSpecimenManagementPermissions.StorageLocations.Create, L("Permission:StorageLocations.Create"));

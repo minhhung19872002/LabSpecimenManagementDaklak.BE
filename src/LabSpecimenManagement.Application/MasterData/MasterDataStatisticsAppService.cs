@@ -17,6 +17,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
     private readonly IRepository<StorageLocation, Guid> _storageLocationRepository;
     private readonly IRepository<Customer, Guid> _customerRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
@@ -28,6 +29,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Standard, Guid> standardRepository,
         IRepository<StorageLocation, Guid> storageLocationRepository,
         IRepository<Customer, Guid> customerRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
@@ -38,6 +40,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         _laboratoryRepository = laboratoryRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _testMethodRepository = testMethodRepository;
+        _standardRepository = standardRepository;
         _storageLocationRepository = storageLocationRepository;
         _customerRepository = customerRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
@@ -51,6 +54,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         var laboratoryCount = await _laboratoryRepository.CountAsync();
         var specimenTypeCount = await _specimenTypeRepository.CountAsync();
         var testMethodCount = await _testMethodRepository.CountAsync();
+        var standardCount = await _standardRepository.CountAsync();
         var storageLocationCount = await _storageLocationRepository.CountAsync();
         var customerCount = await _customerRepository.CountAsync();
         var indicatorGroupCount = await _indicatorGroupRepository.CountAsync();
@@ -71,6 +75,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
             LaboratoryCount = (int)laboratoryCount,
             SpecimenTypeCount = (int)specimenTypeCount,
             TestMethodCount = (int)testMethodCount,
+            StandardCount = (int)standardCount,
             StorageLocationCount = (int)storageLocationCount,
             CustomerCount = (int)customerCount,
             IndicatorGroupCount = (int)indicatorGroupCount,
