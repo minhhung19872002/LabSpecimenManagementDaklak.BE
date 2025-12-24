@@ -23,4 +23,7 @@ public interface ITestMethodAppService : IApplicationService
     Task<List<TestMethodIndicatorDto>> GetIndicatorsAsync(Guid testMethodId);
     Task AddIndicatorsAsync(Guid testMethodId, AddIndicatorsToTestMethodDto input);
     Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId);
+
+    // Toggle active status
+    Task<TestMethodDto> ToggleActiveAsync(Guid id);
 }

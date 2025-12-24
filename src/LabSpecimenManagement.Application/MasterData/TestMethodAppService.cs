@@ -317,6 +317,19 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         await _testMethodIndicatorRepository.DeleteAsync(entity);
     }
 
+    public async Task<TestMethodDto> ToggleActiveAsync(Guid id)
+    {
+        var entity = await _testMethodRepository.GetAsync(id);
+        entity.IsActive = !entity.IsActive;
+        await _testMethodRepository.UpdateAsync(entity);
+
+        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(entity);
+        dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == id);
+
+        return dto;
+    }
+
     private async Task<string> GenerateCodeAsync()
     {
         var today = DateTime.Now;

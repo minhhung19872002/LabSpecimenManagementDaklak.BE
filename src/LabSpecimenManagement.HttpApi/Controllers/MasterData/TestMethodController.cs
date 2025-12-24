@@ -99,4 +99,11 @@ public class TestMethodController : LabSpecimenManagementController
     {
         return _testMethodAppService.RemoveIndicatorAsync(id, indicatorId);
     }
+
+    [HttpPost("{id}/toggle-active")]
+    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    public virtual Task<TestMethodDto> ToggleActiveAsync(Guid id)
+    {
+        return _testMethodAppService.ToggleActiveAsync(id);
+    }
 }
