@@ -407,11 +407,21 @@ public class TestRequestAppService :
             ValidateLimitedUpdate(entity, input);
         }
 
-        // If requires approval (SampleSent/InProgress), save change history
+        // If requires approval (SampleSent/InProgress), only save change history and change status
+        // DO NOT apply changes to entity - changes will be applied when approved
         if (requiresApproval)
         {
-            await SaveChangeHistoryAsync(entity, input, previousStatus);
+            var hasChanges = await SaveChangeHistoryAsync(entity, input, previousStatus);
+            if (hasChanges)
+            {
+                // Only change status to PendingChangeApproval, don't update entity data
+                entity.Status = TestRequestStatus.PendingChangeApproval;
+                await Repository.UpdateAsync(entity, autoSave: true);
+            }
+            return await GetAsync(id);
         }
+
+        // === Below code only runs when NOT requiring approval (New/Pending status) ===
 
         // Auto-create Organization if customerName doesn't exist
         await EnsureOrganizationExistsAsync(input.CustomerName);
@@ -470,12 +480,6 @@ public class TestRequestAppService :
         entity.ExpectedCompletionDate = input.ExpectedCompletionDate;
         entity.Subcontractor = input.Subcontractor;
 
-        // Handle status: if requires approval, change to PendingChangeApproval
-        // otherwise, keep current status (don't allow status change via update)
-        if (requiresApproval)
-        {
-            entity.Status = TestRequestStatus.PendingChangeApproval;
-        }
         // Note: When not requiring approval (New/Pending status), keep current status
         // Status transitions are handled by dedicated methods like PrintTestRequestAsync, SendSampleAsync, etc.
 
@@ -1001,7 +1005,7 @@ public class TestRequestAppService :
     #region Change Approval Flow
 
     /// <summary>
-    /// QLCL phê duyệt thay đổi: PendingChangeApproval → Previous status
+    /// QLCL phê duyệt thay đổi: Apply changes from newValue and restore previous status
     /// </summary>
     public async Task ApproveChangesAsync(Guid id)
     {
@@ -1024,6 +1028,9 @@ public class TestRequestAppService :
         var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
+        // Apply changes from newValue in change history (also restores previous status)
+        await ApplyChangesFromHistoryAsync(entity, pendingChanges, previousStatus);
+
         // Update all pending changes to approved
         foreach (var change in pendingChanges)
         {
@@ -1032,10 +1039,6 @@ public class TestRequestAppService :
             change.ApprovalDate = DateTime.UtcNow;
         }
         await _changeHistoryRepository.UpdateManyAsync(pendingChanges);
-
-        // Restore previous status
-        entity.Status = previousStatus;
-        await Repository.UpdateAsync(entity);
 
         // Create notification for the person who made the change
         var creatorId = pendingChanges.First().CreatorId;
@@ -1054,7 +1057,353 @@ public class TestRequestAppService :
     }
 
     /// <summary>
-    /// QLCL từ chối thay đổi: Rollback + PendingChangeApproval → Previous status
+    /// Apply changes from change history newValue to entity
+    /// </summary>
+    private async Task ApplyChangesFromHistoryAsync(TestRequest entity, List<TestRequestChangeHistory> changes, TestRequestStatus previousStatus)
+    {
+        foreach (var change in changes)
+        {
+            if (string.IsNullOrEmpty(change.FieldName)) continue;
+
+            // Skip snapshot (no longer used)
+            if (change.FieldName == "Snapshot") continue;
+
+            // Handle Samples separately
+            if (change.FieldName == "Samples")
+            {
+                await ApplySampleChangesAsync(entity.Id, change.NewValue);
+                continue;
+            }
+
+            // Apply simple field changes
+            ApplyFieldChange(entity, change.FieldName, change.NewValue);
+        }
+
+        // Restore previous status
+        entity.Status = previousStatus;
+
+        await Repository.UpdateAsync(entity, autoSave: true);
+    }
+
+    /// <summary>
+    /// Apply a single field change to entity
+    /// </summary>
+    private void ApplyFieldChange(TestRequest entity, string fieldName, string? newValue)
+    {
+        // Map field name (case insensitive) to entity property
+        var lowerField = fieldName.ToLower();
+
+        switch (lowerField)
+        {
+            case "contractnumber":
+                entity.ContractNumber = newValue;
+                break;
+            case "contractdate":
+                entity.ContractDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
+                break;
+            case "customername":
+                entity.CustomerName = newValue ?? "";
+                break;
+            case "address":
+                entity.Address = newValue;
+                break;
+            case "taxcode":
+                entity.TaxCode = newValue;
+                break;
+            case "contactperson":
+                entity.ContactPerson = newValue;
+                break;
+            case "phone":
+                entity.Phone = newValue;
+                break;
+            case "provincecode":
+                entity.ProvinceCode = newValue;
+                break;
+            case "province":
+                entity.Province = newValue;
+                break;
+            case "districtcode":
+                entity.DistrictCode = newValue;
+                break;
+            case "district":
+                entity.District = newValue;
+                break;
+            case "wardcode":
+                entity.WardCode = newValue;
+                break;
+            case "ward":
+                entity.Ward = newValue;
+                break;
+            case "notes":
+                entity.Notes = newValue;
+                break;
+            case "expectedcompletiondate":
+                entity.ExpectedCompletionDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
+                break;
+            case "resultdeliverydate":
+                entity.ResultDeliveryDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
+                break;
+            case "totalcost":
+                entity.TotalCost = string.IsNullOrEmpty(newValue) ? 0 : decimal.Parse(newValue);
+                break;
+            case "totalcostinwords":
+                entity.TotalCostInWords = newValue;
+                break;
+            case "methodwesthighlandinstitute":
+                entity.MethodWestHighlandInstitute = newValue?.ToLower() == "true";
+                break;
+            case "methodcustomer":
+                entity.MethodCustomer = newValue?.ToLower() == "true";
+                break;
+            case "methodcustomerdetail":
+                entity.MethodCustomerDetail = newValue;
+                break;
+            case "resultlanguage":
+                entity.ResultLanguage = string.IsNullOrEmpty(newValue) ? ResultLanguage.Vietnamese : (ResultLanguage)int.Parse(newValue);
+                break;
+            case "resultcopycount":
+                entity.ResultCopyCount = newValue;
+                break;
+            case "separatepassedresults":
+                entity.SeparatePassedResults = newValue?.ToLower() == "true";
+                break;
+            case "conformitydeclaration":
+                entity.ConformityDeclaration = newValue;
+                break;
+            case "otherrequirements":
+                entity.OtherRequirements = newValue;
+                break;
+            case "subcontract":
+                entity.SubContract = newValue;
+                break;
+            case "samplingrequirement":
+                entity.SamplingRequirement = string.IsNullOrEmpty(newValue) ? SamplingRequirement.CustomerSampling : (SamplingRequirement)int.Parse(newValue);
+                break;
+            case "deliverydirectpickup":
+                entity.DeliveryDirectPickup = newValue?.ToLower() == "true";
+                break;
+            case "deliverypostal":
+                entity.DeliveryPostal = newValue?.ToLower() == "true";
+                break;
+            case "returnstoredsample":
+                entity.ReturnStoredSample = newValue?.ToLower() == "true";
+                break;
+            case "sampletypeservice":
+                entity.SampleTypeService = newValue?.ToLower() == "true";
+                break;
+            case "sampletypecontract":
+                entity.SampleTypeContract = newValue?.ToLower() == "true";
+                break;
+            case "sampletypetask":
+                entity.SampleTypeTask = newValue?.ToLower() == "true";
+                break;
+            case "sampletypesubcontract":
+                entity.SampleTypeSubContract = newValue?.ToLower() == "true";
+                break;
+            case "samplestorage":
+                entity.SampleStorage = string.IsNullOrEmpty(newValue) ? SampleStorageOption.No : (SampleStorageOption)int.Parse(newValue);
+                break;
+            case "receiptnumber":
+                entity.ReceiptNumber = newValue;
+                break;
+            case "senttoaccounting":
+                entity.SentToAccounting = newValue?.ToLower() == "true";
+                break;
+            case "paymentreceived":
+                entity.PaymentReceived = newValue?.ToLower() == "true";
+                break;
+            case "senttodepartment":
+                entity.SentToDepartment = newValue?.ToLower() == "true";
+                break;
+            case "resultreturned":
+                entity.ResultReturned = newValue?.ToLower() == "true";
+                break;
+            case "agreeterms":
+                entity.AgreeTerms = newValue?.ToLower() == "true";
+                break;
+            case "changerequest":
+                entity.ChangeRequest = newValue;
+                break;
+            case "supervisorid":
+                entity.SupervisorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
+                break;
+            case "directorid":
+                entity.DirectorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
+                break;
+            case "subcontractor":
+                entity.Subcontractor = newValue;
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Apply sample changes from JSON newValue
+    /// </summary>
+    private async Task ApplySampleChangesAsync(Guid testRequestId, string? newSamplesJson)
+    {
+        if (string.IsNullOrEmpty(newSamplesJson)) return;
+
+        var newSamples = JsonSerializer.Deserialize<List<SampleChangeDto>>(newSamplesJson, new JsonSerializerOptions
+        {
+            PropertyNameCaseInsensitive = true
+        });
+
+        if (newSamples == null) return;
+
+        // Get existing samples
+        var existingSamples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
+        var newSampleIds = newSamples.Where(s => s.Id != null).Select(s => s.Id!.Value).ToList();
+
+        // Delete samples not in new list
+        foreach (var existingSample in existingSamples)
+        {
+            if (!newSampleIds.Contains(existingSample.Id))
+            {
+                // Delete indicators first
+                var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == existingSample.Id);
+                foreach (var indicator in indicators)
+                {
+                    // Check if indicator is being tested
+                    var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                        lti => lti.TestRequestSampleIndicatorId == indicator.Id
+                    );
+
+                    if (labTaskIndicator != null)
+                    {
+                        if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                            labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                            labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+                        {
+                            throw new UserFriendlyException($"Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                        }
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                    }
+                    else
+                    {
+                        await _sampleIndicatorRepository.DeleteAsync(indicator);
+                    }
+                }
+                await _sampleRepository.DeleteAsync(existingSample);
+            }
+        }
+
+        decimal totalCost = 0;
+        int sortOrder = 0;
+
+        // Update or create samples
+        foreach (var sampleDto in newSamples)
+        {
+            sortOrder++;
+            TestRequestSample sample;
+
+            if (sampleDto.Id.HasValue && existingSamples.Any(s => s.Id == sampleDto.Id.Value))
+            {
+                // Update existing sample
+                sample = await _sampleRepository.GetAsync(sampleDto.Id.Value);
+                sample.SortOrder = sortOrder;
+                sample.SampleCode = sampleDto.SampleCode ?? sample.SampleCode;
+                sample.SampleName = sampleDto.SampleName ?? sample.SampleName;
+                sample.SamplingAddress = sampleDto.SamplingAddress;
+                sample.SampleQuantity = sampleDto.SampleQuantity;
+                sample.Notes = sampleDto.Notes;
+                sample.StorageLocation = sampleDto.StorageLocation;
+            }
+            else
+            {
+                // Create new sample
+                sample = new TestRequestSample(
+                    GuidGenerator.Create(),
+                    testRequestId,
+                    sampleDto.SampleCode ?? "",
+                    sampleDto.SampleName ?? ""
+                );
+                sample.SortOrder = sortOrder;
+                sample.SamplingAddress = sampleDto.SamplingAddress;
+                sample.SampleQuantity = sampleDto.SampleQuantity;
+                sample.Notes = sampleDto.Notes;
+                sample.StorageLocation = sampleDto.StorageLocation;
+                await _sampleRepository.InsertAsync(sample, autoSave: true);
+            }
+
+            // Update indicators
+            var existingIndicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
+            var newIndicatorIds = sampleDto.Indicators?.Where(i => i.Id != null).Select(i => i.Id!.Value).ToList() ?? new List<Guid>();
+
+            // Delete indicators not in new list
+            foreach (var existingIndicator in existingIndicators)
+            {
+                if (!newIndicatorIds.Contains(existingIndicator.Id))
+                {
+                    var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                        lti => lti.TestRequestSampleIndicatorId == existingIndicator.Id
+                    );
+
+                    if (labTaskIndicator != null)
+                    {
+                        if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                            labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                            labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+                        {
+                            throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                        }
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                    }
+                    else
+                    {
+                        await _sampleIndicatorRepository.DeleteAsync(existingIndicator);
+                    }
+                }
+            }
+
+            decimal sampleIndicatorCost = 0;
+            if (sampleDto.Indicators != null)
+            {
+                foreach (var indicatorDto in sampleDto.Indicators)
+                {
+                    if (indicatorDto.Id.HasValue && existingIndicators.Any(i => i.Id == indicatorDto.Id.Value))
+                    {
+                        // Update existing indicator
+                        var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
+                        indicator.UnitPrice = indicatorDto.UnitPrice;
+                        indicator.Notes = indicatorDto.Notes;
+                        indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                        indicator.TestMethodId = indicatorDto.TestMethodId;
+                        await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
+                    }
+                    else
+                    {
+                        // Create new indicator
+                        var indicator = new TestRequestSampleIndicator(
+                            GuidGenerator.Create(),
+                            sample.Id,
+                            indicatorDto.IndicatorId
+                        );
+                        indicator.UnitPrice = indicatorDto.UnitPrice;
+                        indicator.Notes = indicatorDto.Notes;
+                        indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                        indicator.TestMethodId = indicatorDto.TestMethodId;
+                        await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
+                    }
+                    sampleIndicatorCost += indicatorDto.UnitPrice;
+                }
+            }
+
+            sample.TotalIndicatorCost = sampleIndicatorCost;
+            await _sampleRepository.UpdateAsync(sample, autoSave: true);
+            totalCost += sampleIndicatorCost;
+        }
+
+        // Update entity total cost
+        var testRequest = await Repository.GetAsync(testRequestId);
+        testRequest.TotalCost = totalCost;
+        testRequest.TotalSampleCount = newSamples.Count;
+        await Repository.UpdateAsync(testRequest, autoSave: true);
+    }
+
+    /// <summary>
+    /// QLCL từ chối thay đổi: No rollback needed (entity unchanged), just restore previous status
     /// </summary>
     public async Task RejectChangesAsync(Guid id, string reason)
     {
@@ -1077,17 +1426,8 @@ public class TestRequestAppService :
         var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
-        // Rollback changes using snapshot
-        var snapshotChange = pendingChanges.FirstOrDefault(c => c.FieldName == "Snapshot");
-        if (snapshotChange?.OldValue != null)
-        {
-            // Rollback entity from snapshot
-            var snapshot = JsonSerializer.Deserialize<TestRequestSnapshot>(snapshotChange.OldValue);
-            if (snapshot != null)
-            {
-                RollbackFromSnapshot(entity, snapshot);
-            }
-        }
+        // No rollback needed - entity was never changed, only status was changed to PendingChangeApproval
+        // The changes are stored in change history's newValue, not applied to entity
 
         // Update all pending changes to rejected
         foreach (var change in pendingChanges)
@@ -1099,7 +1439,7 @@ public class TestRequestAppService :
         }
         await _changeHistoryRepository.UpdateManyAsync(pendingChanges);
 
-        // Restore previous status
+        // Restore previous status (entity data is already unchanged)
         entity.Status = previousStatus;
         await Repository.UpdateAsync(entity);
 
@@ -1126,8 +1466,9 @@ public class TestRequestAppService :
     /// NEW: Sử dụng ChangeHistory từ frontend thay vì tự tính toán
     /// Frontend so sánh originalData (từ API response khi load form) với newData (khi submit)
     /// và gửi danh sách các thay đổi lên backend
+    /// Returns true if there are changes, false otherwise
     /// </summary>
-    private async Task SaveChangeHistoryAsync(TestRequest entity, UpdateTestRequestDto input, TestRequestStatus previousStatus)
+    private async Task<bool> SaveChangeHistoryAsync(TestRequest entity, UpdateTestRequestDto input, TestRequestStatus previousStatus)
     {
         var changes = new List<TestRequestChangeHistory>();
 
@@ -1147,42 +1488,38 @@ public class TestRequestAppService :
             }
         }
 
-        // If there are any changes, save them with a snapshot for rollback
-        if (changes.Any())
+        // If there are no changes, return false
+        if (!changes.Any())
         {
-            // Create snapshot for rollback using FromEntity helper
-            var snapshot = TestRequestSnapshot.FromEntity(entity);
-
-            // Add snapshot as a change history record
-            changes.Add(new TestRequestChangeHistory(
-                GuidGenerator.Create(),
-                entity.Id,
-                "Snapshot",
-                JsonSerializer.Serialize(snapshot),
-                null,
-                previousStatus
-            ));
-
-            await _changeHistoryRepository.InsertManyAsync(changes);
-
-            // Send notification to QLCL users
-            // Get all users with QLCL role
-            var qlclUsers = await _userRepository.GetListAsync();
-            var adminUsers = qlclUsers.Where(u => u.UserName == "admin").ToList();
-
-            foreach (var user in adminUsers)
-            {
-                await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
-                {
-                    UserId = user.Id,
-                    Title = "Yêu cầu phê duyệt thay đổi",
-                    Message = $"Phiếu yêu cầu {entity.RequestNumber} có thay đổi cần phê duyệt",
-                    Type = NotificationType.ChangeApprovalRequest,
-                    ReferenceId = entity.Id.ToString(),
-                    ReferenceType = "TestRequest"
-                });
-            }
+            return false;
         }
+
+        // No need to save snapshot anymore since we don't apply changes immediately
+        // The original data is preserved in the entity itself
+        // When approved, we apply newValue from change history
+        // When rejected, we just delete change history (entity unchanged)
+
+        await _changeHistoryRepository.InsertManyAsync(changes);
+
+        // Send notification to QLCL users
+        // Get all users with QLCL role
+        var qlclUsers = await _userRepository.GetListAsync();
+        var adminUsers = qlclUsers.Where(u => u.UserName == "admin").ToList();
+
+        foreach (var user in adminUsers)
+        {
+            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
+            {
+                UserId = user.Id,
+                Title = "Yêu cầu phê duyệt thay đổi",
+                Message = $"Phiếu yêu cầu {entity.RequestNumber} có thay đổi cần phê duyệt",
+                Type = NotificationType.ChangeApprovalRequest,
+                ReferenceId = entity.Id.ToString(),
+                ReferenceType = "TestRequest"
+            });
+        }
+
+        return true;
     }
 
     /// <summary>
