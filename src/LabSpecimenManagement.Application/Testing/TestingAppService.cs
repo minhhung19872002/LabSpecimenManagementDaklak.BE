@@ -567,11 +567,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
             string? methodName = null;
             string? technicianName = null;
+            string? unit = taskIndicator.Unit;
 
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+                if (string.IsNullOrEmpty(unit) && method != null)
+                {
+                    unit = method.Unit;
+                }
             }
 
             if (taskIndicator.TechnicianId.HasValue)
@@ -605,7 +611,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 IndicatorName = indicator?.Name,
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
-                Unit = taskIndicator.Unit,
+                Unit = unit,
                 Result = taskIndicator.Result,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,

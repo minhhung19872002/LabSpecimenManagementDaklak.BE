@@ -149,7 +149,23 @@ public class UpdateTestRequestDto
 
     public List<UpdateTestRequestSampleDto> Samples { get; set; } = new();
 
+    /// <summary>
+    /// Change history từ frontend (so sánh originalData vs newData)
+    /// Chỉ gửi khi cần phê duyệt (SampleSent/InProgress status)
+    /// </summary>
+    public List<ChangeHistoryItemDto>? ChangeHistory { get; set; }
+
     #endregion
+}
+
+/// <summary>
+/// DTO cho một mục thay đổi từ frontend
+/// </summary>
+public class ChangeHistoryItemDto
+{
+    public string FieldName { get; set; } = string.Empty;
+    public string OldValue { get; set; } = string.Empty;
+    public string NewValue { get; set; } = string.Empty;
 }
 
 public class UpdateTestRequestSampleDto

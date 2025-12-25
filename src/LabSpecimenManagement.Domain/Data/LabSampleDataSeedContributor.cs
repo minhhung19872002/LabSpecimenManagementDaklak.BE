@@ -37,6 +37,9 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
     private readonly IRepository<TaskAssignment, Guid> _taskAssignmentRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly LabUsersDataSeedContributor _labUsersDataSeedContributor;
     private readonly IGuidGenerator _guidGenerator;
@@ -60,6 +63,9 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         IRepository<TaskAssignment, Guid> taskAssignmentRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IIdentityUserRepository userRepository,
         LabUsersDataSeedContributor labUsersDataSeedContributor,
         IGuidGenerator guidGenerator,
@@ -82,6 +88,9 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         _taskAssignmentRepository = taskAssignmentRepository;
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
         _userRepository = userRepository;
         _labUsersDataSeedContributor = labUsersDataSeedContributor;
         _guidGenerator = guidGenerator;
@@ -105,6 +114,9 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         await SeedOrganizationsAsync();
         await SeedLaboratoriesAsync();
         await SeedIndicatorGroupsAndIndicatorsAsync();
+        await SeedTestMethodIndicatorsAsync();
+        await SeedStandardsAsync();
+        await SeedStandardIndicatorsAsync();
         await SeedTestRequestsAndRelatedDataAsync();
     }
 
@@ -117,22 +129,18 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // Seed Indicator Groups
         var groupViSinh = new IndicatorGroup(_guidGenerator.Create(), "Vi sinh");
         groupViSinh.IsActive = true;
-        groupViSinh.SortOrder = 1;
         await _indicatorGroupRepository.InsertAsync(groupViSinh);
 
         var groupHoaLy = new IndicatorGroup(_guidGenerator.Create(), "Hóa lý");
         groupHoaLy.IsActive = true;
-        groupHoaLy.SortOrder = 2;
         await _indicatorGroupRepository.InsertAsync(groupHoaLy);
 
         var groupKimLoai = new IndicatorGroup(_guidGenerator.Create(), "Kim loại nặng");
         groupKimLoai.IsActive = true;
-        groupKimLoai.SortOrder = 3;
         await _indicatorGroupRepository.InsertAsync(groupKimLoai);
 
         var groupThuocBVTV = new IndicatorGroup(_guidGenerator.Create(), "Dư lượng thuốc BVTV");
         groupThuocBVTV.IsActive = true;
-        groupThuocBVTV.SortOrder = 4;
         await _indicatorGroupRepository.InsertAsync(groupThuocBVTV);
 
         // Seed Indicators
@@ -169,7 +177,6 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var ind in indicators)
         {
             var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
-            indicator.UnitPrice = ind.Price;
             indicator.SortOrder = ind.SortOrder;
             indicator.IsActive = true;
             await _indicatorRepository.InsertAsync(indicator);
@@ -251,6 +258,336 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         {
             var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name, method.Unit);
             await _testMethodRepository.InsertAsync(entity);
+        }
+    }
+
+    private async Task SeedTestMethodIndicatorsAsync()
+    {
+        // Skip if already seeded
+        if (await _testMethodIndicatorRepository.GetCountAsync() > 0) return;
+
+        // Get all indicators and test methods
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var allIndicators = indicatorQuery.ToList();
+
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var allTestMethods = testMethodQuery.ToList();
+
+        // Map method codes to their entities
+        var methodByCode = allTestMethods.ToDictionary(m => m.Code, m => m);
+
+        // Map indicator codes to their entities
+        var indicatorByCode = allIndicators.ToDictionary(i => i.Code, i => i);
+
+        // Define test method - indicator relationships with pricing
+        // Format: MethodCode -> list of (IndicatorCode, UnitPrice)
+        var methodIndicatorMappings = new[]
+        {
+            // PP241224001 - TCVN 6492:2011 - Xác định pH
+            new { MethodCode = "PP241224001", Indicators = new[] {
+                new { Code = "HL-001", Price = 80000m },  // pH
+            }},
+
+            // PP241224002 - TCVN 4559:1998 - Xác định EC
+            new { MethodCode = "PP241224002", Indicators = new[] {
+                new { Code = "HL-003", Price = 90000m },  // EC
+            }},
+
+            // PP241224003 - TCVN 6638:2000 - Xác định Nitơ tổng
+            new { MethodCode = "PP241224003", Indicators = new[] {
+                new { Code = "HL-007", Price = 180000m }, // Nitơ tổng
+            }},
+
+            // PP241224004 - TCVN 6187-1:2019 - Xác định Coliform
+            new { MethodCode = "PP241224004", Indicators = new[] {
+                new { Code = "VS-001", Price = 150000m }, // Tổng vi khuẩn hiếu khí
+                new { Code = "VS-002", Price = 120000m }, // Coliform tổng số
+                new { Code = "VS-003", Price = 180000m }, // E.coli
+            }},
+
+            // PP241224005 - AOAC 950.40 - Xác định Caffeine
+            new { MethodCode = "PP241224005", Indicators = new[] {
+                new { Code = "HL-006", Price = 250000m }, // Caffeine
+            }},
+
+            // PP241224006 - TCVN 6193:1996 - Xác định kim loại nặng
+            new { MethodCode = "PP241224006", Indicators = new[] {
+                new { Code = "KL-001", Price = 200000m }, // Chì (Pb)
+                new { Code = "KL-002", Price = 220000m }, // Cadmium (Cd)
+                new { Code = "KL-003", Price = 250000m }, // Thủy ngân (Hg)
+                new { Code = "KL-004", Price = 230000m }, // Asen (As)
+            }},
+
+            // PP241224007 - TCVN 5979:2007 - Xác định pH đất
+            new { MethodCode = "PP241224007", Indicators = new[] {
+                new { Code = "HL-001", Price = 100000m }, // pH (giá khác cho đất)
+            }},
+
+            // PP241224008 - TCVN 6498:1999 - Xác định Nitơ tổng đất
+            new { MethodCode = "PP241224008", Indicators = new[] {
+                new { Code = "HL-007", Price = 200000m }, // Nitơ tổng (giá khác cho đất)
+            }},
+
+            // PP241224009 - TCVN 6928:2007 - Xác định độ ẩm cà phê
+            new { MethodCode = "PP241224009", Indicators = new[] {
+                new { Code = "HL-002", Price = 80000m },  // Độ ẩm
+            }},
+
+            // PP241224010 - TCVN 4325:2007 - Xác định chất béo
+            new { MethodCode = "PP241224010", Indicators = new[] {
+                new { Code = "HL-005", Price = 180000m }, // Chất béo
+            }},
+
+            // PP241224011 - TCVN 5501:2010 - Xác định protein
+            new { MethodCode = "PP241224011", Indicators = new[] {
+                new { Code = "HL-004", Price = 170000m }, // Protein
+            }},
+
+            // PP241224012 - ISO 17025:2017 - Phương pháp chuẩn PTN (nhiều chỉ tiêu)
+            new { MethodCode = "PP241224012", Indicators = new[] {
+                new { Code = "HL-001", Price = 85000m },
+                new { Code = "HL-002", Price = 85000m },
+                new { Code = "HL-003", Price = 95000m },
+                new { Code = "VS-002", Price = 130000m },
+            }},
+
+            // PP241224013 - TCVN 7538-1:2006 - Xác định độ ẩm đất
+            new { MethodCode = "PP241224013", Indicators = new[] {
+                new { Code = "HL-002", Price = 100000m }, // Độ ẩm (giá khác cho đất)
+            }},
+
+            // PP241224014 - SMEWW 4500-NO3 - Xác định Nitrat
+            new { MethodCode = "PP241224014", Indicators = new[] {
+                new { Code = "HL-007", Price = 150000m }, // Nitơ tổng
+            }},
+
+            // PP241224015 - SMEWW 5210B - Xác định BOD5
+            new { MethodCode = "PP241224015", Indicators = new[] {
+                new { Code = "HL-001", Price = 180000m }, // pH (liên quan BOD)
+                new { Code = "HL-003", Price = 120000m }, // EC
+            }},
+
+            // PP241224016 - SMEWW 5220C - Xác định COD
+            new { MethodCode = "PP241224016", Indicators = new[] {
+                new { Code = "HL-001", Price = 200000m }, // pH
+            }},
+        };
+
+        // Seed test method indicators
+        foreach (var mapping in methodIndicatorMappings)
+        {
+            if (!methodByCode.ContainsKey(mapping.MethodCode)) continue;
+            var testMethod = methodByCode[mapping.MethodCode];
+
+            var sortOrder = 0;
+            foreach (var ind in mapping.Indicators)
+            {
+                if (!indicatorByCode.ContainsKey(ind.Code)) continue;
+                var indicator = indicatorByCode[ind.Code];
+
+                sortOrder++;
+                var testMethodIndicator = new TestMethodIndicator(
+                    _guidGenerator.Create(),
+                    testMethod.Id,
+                    indicator.Id,
+                    ind.Price
+                );
+                testMethodIndicator.SortOrder = sortOrder;
+                await _testMethodIndicatorRepository.InsertAsync(testMethodIndicator);
+            }
+        }
+    }
+
+    private async Task SeedStandardsAsync()
+    {
+        // Skip if already seeded
+        if (await _standardRepository.GetCountAsync() > 0) return;
+
+        var standards = new[]
+        {
+            // QCVN - Quy chuẩn Việt Nam
+            new { Code = "TC251225001", Name = "QCVN 01-1:2018/BYT - Nước ăn uống", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về chất lượng nước ăn uống", SortOrder = 1 },
+            new { Code = "TC251225002", Name = "QCVN 02:2009/BYT - Nước sinh hoạt", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về chất lượng nước sinh hoạt", SortOrder = 2 },
+            new { Code = "TC251225003", Name = "QCVN 08-MT:2015/BTNMT - Nước mặt", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về chất lượng nước mặt", SortOrder = 3 },
+            new { Code = "TC251225004", Name = "QCVN 09-MT:2015/BTNMT - Nước ngầm", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về chất lượng nước dưới đất", SortOrder = 4 },
+            new { Code = "TC251225005", Name = "QCVN 40:2011/BTNMT - Nước thải công nghiệp", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về nước thải công nghiệp", SortOrder = 5 },
+            new { Code = "TC251225006", Name = "QCVN 14:2008/BTNMT - Nước thải sinh hoạt", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về nước thải sinh hoạt", SortOrder = 6 },
+            new { Code = "TC251225007", Name = "QCVN 03-MT:2015/BTNMT - Đất", LimitDescription = "Quy chuẩn kỹ thuật quốc gia về giới hạn cho phép của kim loại nặng trong đất", SortOrder = 7 },
+
+            // TCVN - Tiêu chuẩn Việt Nam cho thực phẩm
+            new { Code = "TC251225008", Name = "TCVN 4193:2014 - Cà phê nhân", LimitDescription = "Tiêu chuẩn về cà phê nhân - yêu cầu kỹ thuật", SortOrder = 8 },
+            new { Code = "TC251225009", Name = "TCVN 5253:1990 - Cà phê bột", LimitDescription = "Tiêu chuẩn về cà phê bột - yêu cầu kỹ thuật", SortOrder = 9 },
+            new { Code = "TC251225010", Name = "QCVN 8-2:2011/BYT - Vi sinh thực phẩm", LimitDescription = "Quy chuẩn về giới hạn ô nhiễm vi sinh vật trong thực phẩm", SortOrder = 10 },
+            new { Code = "TC251225011", Name = "QCVN 8-1:2011/BYT - Kim loại nặng thực phẩm", LimitDescription = "Quy chuẩn về giới hạn ô nhiễm kim loại nặng trong thực phẩm", SortOrder = 11 },
+
+            // Tiêu chuẩn phân bón
+            new { Code = "TC251225012", Name = "QCVN 01-189:2019/BNNPTNT - Phân bón", LimitDescription = "Quy chuẩn về chất lượng phân bón", SortOrder = 12 },
+
+            // Tiêu chuẩn rau củ quả
+            new { Code = "TC251225013", Name = "QCVN 8-3:2012/BYT - Dư lượng BVTV", LimitDescription = "Quy chuẩn về giới hạn tối đa dư lượng thuốc BVTV trong thực phẩm", SortOrder = 13 },
+        };
+
+        foreach (var std in standards)
+        {
+            var entity = new Standard(_guidGenerator.Create(), std.Code, std.Name);
+            entity.LimitDescription = std.LimitDescription;
+            entity.SortOrder = std.SortOrder;
+            entity.IsActive = true;
+            await _standardRepository.InsertAsync(entity);
+        }
+    }
+
+    private async Task SeedStandardIndicatorsAsync()
+    {
+        // Skip if already seeded
+        if (await _standardIndicatorRepository.GetCountAsync() > 0) return;
+
+        // Get all standards, indicators, and test methods
+        var standardQuery = await _standardRepository.GetQueryableAsync();
+        var allStandards = standardQuery.ToList();
+
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var allIndicators = indicatorQuery.ToList();
+
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var allTestMethods = testMethodQuery.ToList();
+
+        // Map by code
+        var standardByName = allStandards.ToDictionary(s => s.Name, s => s);
+        var indicatorByCode = allIndicators.ToDictionary(i => i.Code, i => i);
+        var methodByCode = allTestMethods.ToDictionary(m => m.Code, m => m);
+
+        // Define standard-indicator relationships with limits
+        // Format: StandardName -> list of (IndicatorCode, TestMethodCode, Unit, ComparisonOperator, AllowedLimit)
+        // Note: Giới hạn dạng khoảng (vd: 6.5 - 8.5) được gộp thành 1 record với Operator = "range"
+        var standardIndicatorMappings = new[]
+        {
+            // QCVN 01-1:2018/BYT - Nước ăn uống
+            new { StandardName = "QCVN 01-1:2018/BYT - Nước ăn uống", Indicators = new[] {
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224001", Unit = "", Operator = "range", Limit = "6.5 - 8.5", SortOrder = 1 },
+                new { IndicatorCode = "VS-002", MethodCode = "PP241224004", Unit = "CFU/100mL", Operator = "<=", Limit = "0", SortOrder = 2 },
+                new { IndicatorCode = "VS-003", MethodCode = "PP241224004", Unit = "CFU/100mL", Operator = "<=", Limit = "0", SortOrder = 3 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.01", SortOrder = 4 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.003", SortOrder = 5 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.01", SortOrder = 6 },
+            }},
+
+            // QCVN 08-MT:2015/BTNMT - Nước mặt (Cột A2 - dùng cho mục đích cấp nước sinh hoạt)
+            new { StandardName = "QCVN 08-MT:2015/BTNMT - Nước mặt", Indicators = new[] {
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224001", Unit = "", Operator = "range", Limit = "6 - 8.5", SortOrder = 1 },
+                new { IndicatorCode = "VS-002", MethodCode = "PP241224004", Unit = "CFU/100mL", Operator = "<=", Limit = "5000", SortOrder = 2 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.02", SortOrder = 3 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.005", SortOrder = 4 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.02", SortOrder = 5 },
+                new { IndicatorCode = "HL-007", MethodCode = "PP241224003", Unit = "mg/L", Operator = "<=", Limit = "5", SortOrder = 6 },
+            }},
+
+            // QCVN 09-MT:2015/BTNMT - Nước ngầm
+            new { StandardName = "QCVN 09-MT:2015/BTNMT - Nước ngầm", Indicators = new[] {
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224001", Unit = "", Operator = "range", Limit = "5.5 - 8.5", SortOrder = 1 },
+                new { IndicatorCode = "VS-002", MethodCode = "PP241224004", Unit = "CFU/100mL", Operator = "<=", Limit = "3", SortOrder = 2 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.01", SortOrder = 3 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.005", SortOrder = 4 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.05", SortOrder = 5 },
+                new { IndicatorCode = "KL-003", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.001", SortOrder = 6 },
+            }},
+
+            // QCVN 40:2011/BTNMT - Nước thải công nghiệp (Cột B)
+            new { StandardName = "QCVN 40:2011/BTNMT - Nước thải công nghiệp", Indicators = new[] {
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224001", Unit = "", Operator = "range", Limit = "5.5 - 9", SortOrder = 1 },
+                new { IndicatorCode = "VS-002", MethodCode = "PP241224004", Unit = "CFU/100mL", Operator = "<=", Limit = "5000", SortOrder = 2 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.5", SortOrder = 3 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.1", SortOrder = 4 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.1", SortOrder = 5 },
+                new { IndicatorCode = "KL-003", MethodCode = "PP241224006", Unit = "mg/L", Operator = "<=", Limit = "0.01", SortOrder = 6 },
+                new { IndicatorCode = "HL-007", MethodCode = "PP241224003", Unit = "mg/L", Operator = "<=", Limit = "40", SortOrder = 7 },
+            }},
+
+            // QCVN 03-MT:2015/BTNMT - Đất (đất nông nghiệp)
+            new { StandardName = "QCVN 03-MT:2015/BTNMT - Đất", Indicators = new[] {
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224007", Unit = "", Operator = "range", Limit = "5.5 - 7.5", SortOrder = 1 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "70", SortOrder = 2 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "1.5", SortOrder = 3 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "15", SortOrder = 4 },
+                new { IndicatorCode = "KL-003", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "0.5", SortOrder = 5 },
+            }},
+
+            // TCVN 4193:2014 - Cà phê nhân
+            new { StandardName = "TCVN 4193:2014 - Cà phê nhân", Indicators = new[] {
+                new { IndicatorCode = "HL-002", MethodCode = "PP241224009", Unit = "%", Operator = "<=", Limit = "12.5", SortOrder = 1 },
+                new { IndicatorCode = "HL-006", MethodCode = "PP241224005", Unit = "%", Operator = "range", Limit = "0.8 - 2.5", SortOrder = 2 },
+            }},
+
+            // TCVN 5253:1990 - Cà phê bột
+            new { StandardName = "TCVN 5253:1990 - Cà phê bột", Indicators = new[] {
+                new { IndicatorCode = "HL-002", MethodCode = "PP241224009", Unit = "%", Operator = "<=", Limit = "5.0", SortOrder = 1 },
+                new { IndicatorCode = "HL-006", MethodCode = "PP241224005", Unit = "%", Operator = ">=", Limit = "1.0", SortOrder = 2 },
+                new { IndicatorCode = "HL-003", MethodCode = "PP241224012", Unit = "%", Operator = "<=", Limit = "6.0", SortOrder = 3 },
+            }},
+
+            // QCVN 8-2:2011/BYT - Vi sinh thực phẩm
+            new { StandardName = "QCVN 8-2:2011/BYT - Vi sinh thực phẩm", Indicators = new[] {
+                new { IndicatorCode = "VS-001", MethodCode = "PP241224004", Unit = "CFU/g", Operator = "<=", Limit = "10000", SortOrder = 1 },
+                new { IndicatorCode = "VS-002", MethodCode = "PP241224004", Unit = "CFU/g", Operator = "<=", Limit = "10", SortOrder = 2 },
+                new { IndicatorCode = "VS-003", MethodCode = "PP241224004", Unit = "CFU/g", Operator = "<=", Limit = "0", SortOrder = 3 },
+                new { IndicatorCode = "VS-004", MethodCode = "PP241224004", Unit = "/25g", Operator = "=", Limit = "Không phát hiện", SortOrder = 4 },
+                new { IndicatorCode = "VS-005", MethodCode = "PP241224004", Unit = "CFU/g", Operator = "<=", Limit = "100", SortOrder = 5 },
+            }},
+
+            // QCVN 8-1:2011/BYT - Kim loại nặng thực phẩm
+            new { StandardName = "QCVN 8-1:2011/BYT - Kim loại nặng thực phẩm", Indicators = new[] {
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "0.2", SortOrder = 1 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "0.05", SortOrder = 2 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "1.0", SortOrder = 3 },
+                new { IndicatorCode = "KL-003", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "0.05", SortOrder = 4 },
+            }},
+
+            // QCVN 01-189:2019/BNNPTNT - Phân bón
+            new { StandardName = "QCVN 01-189:2019/BNNPTNT - Phân bón", Indicators = new[] {
+                new { IndicatorCode = "HL-007", MethodCode = "PP241224008", Unit = "%", Operator = ">=", Limit = "16", SortOrder = 1 },
+                new { IndicatorCode = "HL-002", MethodCode = "PP241224013", Unit = "%", Operator = "<=", Limit = "5", SortOrder = 2 },
+                new { IndicatorCode = "HL-001", MethodCode = "PP241224007", Unit = "", Operator = "range", Limit = "4 - 8", SortOrder = 3 },
+                new { IndicatorCode = "KL-001", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "200", SortOrder = 4 },
+                new { IndicatorCode = "KL-002", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "5", SortOrder = 5 },
+                new { IndicatorCode = "KL-004", MethodCode = "PP241224006", Unit = "mg/kg", Operator = "<=", Limit = "40", SortOrder = 6 },
+            }},
+
+            // QCVN 8-3:2012/BYT - Dư lượng BVTV
+            new { StandardName = "QCVN 8-3:2012/BYT - Dư lượng BVTV", Indicators = new[] {
+                new { IndicatorCode = "BVTV-001", MethodCode = "PP241224012", Unit = "mg/kg", Operator = "<=", Limit = "0.01", SortOrder = 1 },
+                new { IndicatorCode = "BVTV-002", MethodCode = "PP241224012", Unit = "mg/kg", Operator = "<=", Limit = "0.05", SortOrder = 2 },
+                new { IndicatorCode = "BVTV-003", MethodCode = "PP241224012", Unit = "mg/kg", Operator = "<=", Limit = "0.1", SortOrder = 3 },
+            }},
+        };
+
+        // Seed standard indicators
+        foreach (var mapping in standardIndicatorMappings)
+        {
+            if (!standardByName.ContainsKey(mapping.StandardName)) continue;
+            var standard = standardByName[mapping.StandardName];
+
+            foreach (var ind in mapping.Indicators)
+            {
+                if (!indicatorByCode.ContainsKey(ind.IndicatorCode)) continue;
+                if (!methodByCode.ContainsKey(ind.MethodCode)) continue;
+
+                var indicator = indicatorByCode[ind.IndicatorCode];
+                var testMethod = methodByCode[ind.MethodCode];
+
+                var standardIndicator = new StandardIndicator(
+                    _guidGenerator.Create(),
+                    standard.Id,
+                    indicator.Id,
+                    testMethod.Id,
+                    ind.Unit
+                );
+                standardIndicator.ComparisonOperator = ind.Operator;
+                standardIndicator.AllowedLimit = ind.Limit;
+                standardIndicator.SortOrder = ind.SortOrder;
+                standardIndicator.IsActive = true;
+
+                await _standardIndicatorRepository.InsertAsync(standardIndicator);
+            }
         }
     }
 
@@ -429,7 +766,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         if (indDoAm != null)
         {
-            var si1 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indDoAm.Id, indDoAm.UnitPrice);
+            var si1 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indDoAm.Id);
             si1.TransferDate = now.AddDays(-11);
             si1.RequestDate = now.AddDays(-12);
             si1.SentToDepartment = true;
@@ -437,7 +774,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indCaffeine != null)
         {
-            var si2 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indCaffeine.Id, indCaffeine.UnitPrice);
+            var si2 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indCaffeine.Id);
             si2.TransferDate = now.AddDays(-11);
             si2.RequestDate = now.AddDays(-12);
             si2.SentToDepartment = true;
@@ -445,7 +782,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indPH != null)
         {
-            var si3 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indPH.Id, indPH.UnitPrice);
+            var si3 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample1Id, indPH.Id);
             si3.TransferDate = now.AddDays(-11);
             si3.RequestDate = now.AddDays(-12);
             si3.SentToDepartment = true;
@@ -468,7 +805,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // Add indicators to Sample 2
         if (indCaffeine != null)
         {
-            var si4 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indCaffeine.Id, indCaffeine.UnitPrice);
+            var si4 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indCaffeine.Id);
             si4.TransferDate = now.AddDays(-11);
             si4.RequestDate = now.AddDays(-12);
             si4.SentToDepartment = true;
@@ -476,7 +813,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indDoAm != null)
         {
-            var si5 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indDoAm.Id, indDoAm.UnitPrice);
+            var si5 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample2Id, indDoAm.Id);
             si5.TransferDate = now.AddDays(-11);
             si5.RequestDate = now.AddDays(-12);
             si5.SentToDepartment = true;
@@ -587,7 +924,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         if (indPH != null)
         {
-            var si6 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indPH.Id, indPH.UnitPrice);
+            var si6 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indPH.Id);
             si6.TransferDate = now.AddDays(-9);
             si6.RequestDate = now.AddDays(-10);
             si6.SentToDepartment = true;
@@ -595,7 +932,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indNito != null)
         {
-            var si7 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indNito.Id, indNito.UnitPrice);
+            var si7 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indNito.Id);
             si7.TransferDate = now.AddDays(-9);
             si7.RequestDate = now.AddDays(-10);
             si7.SentToDepartment = false; // Chưa gửi
@@ -603,7 +940,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indChi != null)
         {
-            var si8 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indChi.Id, indChi.UnitPrice);
+            var si8 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample3Id, indChi.Id);
             si8.RequestDate = now.AddDays(-10);
             si8.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si8);
@@ -624,7 +961,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         if (indPH != null)
         {
-            var si9 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indPH.Id, indPH.UnitPrice);
+            var si9 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indPH.Id);
             si9.TransferDate = now.AddDays(-8);
             si9.RequestDate = now.AddDays(-10);
             si9.SentToDepartment = true;
@@ -632,7 +969,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indCadmium != null)
         {
-            var si10 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indCadmium.Id, indCadmium.UnitPrice);
+            var si10 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample4Id, indCadmium.Id);
             si10.RequestDate = now.AddDays(-10);
             si10.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si10);
@@ -728,7 +1065,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         if (indPH != null)
         {
-            var si11 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indPH.Id, indPH.UnitPrice);
+            var si11 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indPH.Id);
             si11.TransferDate = now.AddDays(-7);
             si11.RequestDate = now.AddDays(-8);
             si11.SentToDepartment = true;
@@ -736,14 +1073,14 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         }
         if (indColiform != null)
         {
-            var si12 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indColiform.Id, indColiform.UnitPrice);
+            var si12 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indColiform.Id);
             si12.RequestDate = now.AddDays(-8);
             si12.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si12);
         }
         if (indAsen != null)
         {
-            var si13 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indAsen.Id, indAsen.UnitPrice);
+            var si13 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample5Id, indAsen.Id);
             si13.RequestDate = now.AddDays(-8);
             si13.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si13);
@@ -764,14 +1101,14 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         if (indPH != null)
         {
-            var si14 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indPH.Id, indPH.UnitPrice);
+            var si14 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indPH.Id);
             si14.RequestDate = now.AddDays(-8);
             si14.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si14);
         }
         if (indChi != null)
         {
-            var si15 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indChi.Id, indChi.UnitPrice);
+            var si15 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample6Id, indChi.Id);
             si15.RequestDate = now.AddDays(-8);
             si15.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si15);
@@ -868,14 +1205,14 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         var indProtein = allIndicators.FirstOrDefault(i => i.Code == "HL-004");
         if (indNito != null)
         {
-            var si16 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indNito.Id, indNito.UnitPrice);
+            var si16 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indNito.Id);
             si16.RequestDate = now.AddDays(-5);
             si16.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si16);
         }
         if (indPH != null)
         {
-            var si17 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indPH.Id, indPH.UnitPrice);
+            var si17 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample7Id, indPH.Id);
             si17.RequestDate = now.AddDays(-5);
             si17.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si17);
@@ -925,21 +1262,21 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // Add indicators to Sample 8
         if (indPH != null)
         {
-            var si18 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indPH.Id, indPH.UnitPrice);
+            var si18 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indPH.Id);
             si18.RequestDate = now.AddDays(-3);
             si18.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si18);
         }
         if (indColiform != null)
         {
-            var si19 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indColiform.Id, indColiform.UnitPrice);
+            var si19 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indColiform.Id);
             si19.RequestDate = now.AddDays(-3);
             si19.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si19);
         }
         if (indChi != null)
         {
-            var si20 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indChi.Id, indChi.UnitPrice);
+            var si20 = new TestRequestSampleIndicator(_guidGenerator.Create(), sample8Id, indChi.Id);
             si20.RequestDate = now.AddDays(-3);
             si20.SentToDepartment = false;
             await _testRequestSampleIndicatorRepository.InsertAsync(si20);

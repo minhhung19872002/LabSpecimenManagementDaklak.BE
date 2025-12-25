@@ -265,6 +265,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     public TestRequestStatus Status { get; set; }
 
     /// <summary>
+    /// Lý do từ chối kết quả (khi QLCL từ chối)
+    /// </summary>
+    public string? ResultRejectionReason { get; set; }
+
+    /// <summary>
     /// Thời gian hoàn thành dự kiến
     /// </summary>
     public DateTime? ExpectedCompletionDate { get; set; }
@@ -307,7 +312,7 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
         RequestNumber = requestNumber;
         RequestDate = requestDate;
         CustomerName = customerName;
-        Status = TestRequestStatus.Pending;
+        Status = TestRequestStatus.New;
         Samples = new List<TestRequestSample>();
         Specimens = new List<Specimen>();
         Attachments = new List<TestRequestAttachment>();

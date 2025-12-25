@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -29,14 +30,14 @@ public interface ITestRequestAppService :
     Task PrintTestRequestAsync(Guid id);
 
     /// <summary>
+    /// When user sends sample - update status from Pending to SampleSent
+    /// </summary>
+    Task SendSampleAsync(Guid id);
+
+    /// <summary>
     /// When QLKT assigns method + technician - update status to InProgress
     /// </summary>
     Task UpdateToInProgressAsync(Guid testRequestId);
-
-    /// <summary>
-    /// When QLKT sends results - update status to TestingCompleted
-    /// </summary>
-    Task UpdateToTestingCompletedAsync(Guid testRequestId);
 
     /// <summary>
     /// When printing test result form - update status to PendingApproval
@@ -57,4 +58,25 @@ public interface ITestRequestAppService :
     /// When completing the test request - update status to Completed
     /// </summary>
     Task CompleteAsync(Guid id);
+
+    /// <summary>
+    /// QLCL phê duyệt thay đổi: PendingChangeApproval → Previous status
+    /// </summary>
+    Task ApproveChangesAsync(Guid id);
+
+    /// <summary>
+    /// QLCL từ chối thay đổi: Rollback + PendingChangeApproval → Previous status
+    /// </summary>
+    Task RejectChangesAsync(Guid id, string reason);
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi của phiếu yêu cầu
+    /// </summary>
+    Task<List<TestRequestChangeHistoryDto>> GetChangeHistoryAsync(Guid id);
+
+    /// <summary>
+    /// QLCL từ chối kết quả: PendingApproval → InProgress
+    /// Trả lại cho QLKT xem xét
+    /// </summary>
+    Task RejectResultAsync(Guid id, string reason);
 }

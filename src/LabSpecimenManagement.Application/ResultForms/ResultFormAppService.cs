@@ -177,8 +177,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         ProcessDocument(outputPath, placeholders, tableData);
 
         // Update TestRequest status to PendingApproval after printing result form
-        // Only update if current status is TestingCompleted
-        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        // Only update if current status is InProgress (replaced TestingCompleted in new flow)
+        if (testRequest.Status == TestRequestStatus.InProgress)
         {
             testRequest.Status = TestRequestStatus.PendingApproval;
             await _testRequestRepository.UpdateAsync(testRequest);
@@ -628,8 +628,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         ProcessDocument(outputPath, placeholders, tableData);
 
         // Update TestRequest status to PendingApproval after printing result form
-        // Only update if current status is TestingCompleted
-        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        // Only update if current status is InProgress (replaced TestingCompleted in new flow)
+        if (testRequest.Status == TestRequestStatus.InProgress)
         {
             testRequest.Status = TestRequestStatus.PendingApproval;
             await _testRequestRepository.UpdateAsync(testRequest);

@@ -328,10 +328,16 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
                 approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
             }
+            string? unit = taskIndicator.Unit;
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+                if (string.IsNullOrEmpty(unit) && method != null)
+                {
+                    unit = method.Unit;
+                }
             }
 
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
@@ -352,7 +358,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
                 Result = taskIndicator.Result,
-                Unit = taskIndicator.Unit,
+                Unit = unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
                 EnteredByName = enteredByName,
@@ -542,16 +548,17 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         task.Status = LaboratoryTaskStatus.ResultSent;
         await _laboratoryTaskRepository.UpdateAsync(task);
 
-        // Update TestRequest status to TestingCompleted when all tasks for this TestRequest have sent results
-        await TryUpdateTestRequestToTestingCompletedAsync(task.TestRequestId);
+        // Update TestRequest status to PendingApproval when all tasks for this TestRequest have sent results
+        // In new flow: InProgress → PendingApproval directly (no TestingCompleted status)
+        await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
 
         return await MapToDetailDtoAsync(task);
     }
 
-    public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid indicatorId)
+    public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId)
     {
         // For now, return all active methods
-        // Later can add filtering logic based on indicator-method relationship
+        // indicatorId is optional - later can add filtering logic based on indicator-method relationship
         var methods = await _testMethodRepository.GetListAsync(x => x.IsActive);
         var dtos = methods
             .OrderBy(m => m.SortOrder)
@@ -719,9 +726,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     }
 
     /// <summary>
-    /// Kiểm tra và cập nhật TestRequest sang TestingCompleted khi tất cả tasks đã gửi kết quả
+    /// Kiểm tra và cập nhật TestRequest sang PendingApproval khi tất cả tasks đã gửi kết quả
+    /// In new flow: InProgress → PendingApproval directly (no TestingCompleted status)
     /// </summary>
-    private async Task TryUpdateTestRequestToTestingCompletedAsync(Guid testRequestId)
+    private async Task TryUpdateTestRequestToPendingApprovalAsync(Guid testRequestId)
     {
         // Get all tasks for this TestRequest
         var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
@@ -735,7 +743,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var allResultsSent = allTasks.All(t => t.Status == LaboratoryTaskStatus.ResultSent);
         if (allResultsSent)
         {
-            await _testRequestAppService.UpdateToTestingCompletedAsync(testRequestId);
+            // In new flow, go directly to PendingApproval
+            await _testRequestAppService.UpdateToPendingApprovalAsync(testRequestId);
         }
     }
 
@@ -778,10 +787,16 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
             approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
         }
+        string? unit = taskIndicator.Unit;
         if (taskIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
             methodName = method?.Name;
+            // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+            if (string.IsNullOrEmpty(unit) && method != null)
+            {
+                unit = method.Unit;
+            }
         }
 
         return new LaboratoryTaskIndicatorDto
@@ -802,7 +817,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
             Result = taskIndicator.Result,
-            Unit = taskIndicator.Unit,
+            Unit = unit,
             EntryDate = taskIndicator.EntryDate,
             EnteredById = taskIndicator.EnteredById,
             EnteredByName = enteredByName,

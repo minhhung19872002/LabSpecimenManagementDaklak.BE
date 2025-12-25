@@ -2,14 +2,17 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Notifications;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
+using Volo.Abp.Users;
 
 namespace LabSpecimenManagement.TestRequests;
 
@@ -33,6 +36,9 @@ public class TestRequestAppService :
     private readonly IIdentityUserRepository _userRepository;
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
+    private readonly INotificationAppService _notificationAppService;
+    private readonly ICurrentUser _currentUser;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -44,7 +50,10 @@ public class TestRequestAppService :
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
-        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository)
+        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
+        INotificationAppService notificationAppService,
+        ICurrentUser currentUser)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -56,6 +65,9 @@ public class TestRequestAppService :
         _userRepository = userRepository;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _changeHistoryRepository = changeHistoryRepository;
+        _notificationAppService = notificationAppService;
+        _currentUser = currentUser;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -343,9 +355,9 @@ public class TestRequestAppService :
                         var sampleIndicator = new TestRequestSampleIndicator(
                             GuidGenerator.Create(),
                             sample.Id,
-                            indicatorDto.IndicatorId,
-                            indicatorDto.UnitPrice
+                            indicatorDto.IndicatorId
                         );
+                        sampleIndicator.UnitPrice = indicatorDto.UnitPrice;
                         sampleIndicator.Notes = indicatorDto.Notes;
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.TestMethodId = indicatorDto.TestMethodId;
@@ -371,8 +383,8 @@ public class TestRequestAppService :
             }
         }
 
-        // Auto-create LaboratoryTasks grouped by Laboratory
-        await CreateLaboratoryTasksAsync(entity);
+        // LaboratoryTasks are now created when user clicks "Gửi mẫu" (SendSampleAsync)
+        // instead of when creating the test request
 
         return await GetAsync(entity.Id);
     }
@@ -380,6 +392,8 @@ public class TestRequestAppService :
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
+        var previousStatus = entity.Status;
+        var requiresApproval = CanEditLimitedInfo(entity.Status); // SampleSent or InProgress
 
         // Validate edit permission based on status
         if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
@@ -391,6 +405,12 @@ public class TestRequestAppService :
         if (!CanEditFullInfo(entity.Status))
         {
             ValidateLimitedUpdate(entity, input);
+        }
+
+        // If requires approval (SampleSent/InProgress), save change history
+        if (requiresApproval)
+        {
+            await SaveChangeHistoryAsync(entity, input, previousStatus);
         }
 
         // Auto-create Organization if customerName doesn't exist
@@ -447,9 +467,17 @@ public class TestRequestAppService :
         // Legacy fields
         entity.RequestDate = input.RequestDate;
         entity.Notes = input.Notes;
-        entity.Status = input.Status;
         entity.ExpectedCompletionDate = input.ExpectedCompletionDate;
         entity.Subcontractor = input.Subcontractor;
+
+        // Handle status: if requires approval, change to PendingChangeApproval
+        // otherwise, keep current status (don't allow status change via update)
+        if (requiresApproval)
+        {
+            entity.Status = TestRequestStatus.PendingChangeApproval;
+        }
+        // Note: When not requiring approval (New/Pending status), keep current status
+        // Status transitions are handled by dedicated methods like PrintTestRequestAsync, SendSampleAsync, etc.
 
         await Repository.UpdateAsync(entity, autoSave: true);
 
@@ -520,12 +548,38 @@ public class TestRequestAppService :
                 var existingIndicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
                 var inputIndicatorIds = sampleDto.Indicators?.Where(i => i.Id.HasValue).Select(i => i.Id!.Value).ToList() ?? new List<Guid>();
 
-                // Delete indicators not in input
+                // Handle indicators not in input - cancel or throw error based on testing status
                 foreach (var existingIndicator in existingIndicators)
                 {
                     if (!inputIndicatorIds.Contains(existingIndicator.Id))
                     {
-                        await _sampleIndicatorRepository.DeleteAsync(existingIndicator);
+                        // Check if indicator is being tested in laboratory
+                        var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                            lti => lti.TestRequestSampleIndicatorId == existingIndicator.Id
+                        );
+
+                        if (labTaskIndicator != null)
+                        {
+                            // Check if indicator is being tested or already has results
+                            // Cannot delete if: Entered (has result), Approved (already approved), Rejected (already reviewed)
+                            if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                                labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                                labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+                            {
+                                throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                            }
+
+                            // If status is Pending (not yet tested), mark as CustomerCancelled
+                            labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                            await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        }
+
+                        // Don't delete from TestRequestSampleIndicator, keep for history
+                        // Only delete if no lab task exists (sample not yet sent)
+                        if (labTaskIndicator == null)
+                        {
+                            await _sampleIndicatorRepository.DeleteAsync(existingIndicator);
+                        }
                     }
                 }
 
@@ -553,9 +607,9 @@ public class TestRequestAppService :
                             var indicator = new TestRequestSampleIndicator(
                                 GuidGenerator.Create(),
                                 sample.Id,
-                                indicatorDto.IndicatorId,
-                                indicatorDto.UnitPrice
+                                indicatorDto.IndicatorId
                             );
+                            indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.Notes = indicatorDto.Notes;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
@@ -630,7 +684,7 @@ public class TestRequestAppService :
         }
 
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid IndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId)>>();
 
         foreach (var sample in samples)
         {
@@ -642,10 +696,10 @@ public class TestRequestAppService :
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId));
             }
         }
 
@@ -677,8 +731,18 @@ public class TestRequestAppService :
                 var taskIndicator = new LaboratoryTaskIndicator(
                     GuidGenerator.Create(),
                     task.Id,
-                    indicator.IndicatorId
+                    indicator.SampleIndicatorId
                 );
+                // Copy TestMethodId and Unit from TestRequestSampleIndicator if available
+                if (indicator.TestMethodId.HasValue)
+                {
+                    taskIndicator.MethodId = indicator.TestMethodId;
+                    var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
+                    if (testMethod != null)
+                    {
+                        taskIndicator.Unit = testMethod.Unit;
+                    }
+                }
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
@@ -696,10 +760,11 @@ public class TestRequestAppService :
 
     /// <summary>
     /// Check if limited edit is allowed (some fields locked)
+    /// For SampleSent and InProgress: limited edit with QLCL approval required
     /// </summary>
     private bool CanEditLimitedInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.InProgress || status == TestRequestStatus.TestingCompleted;
+        return status == TestRequestStatus.SampleSent || status == TestRequestStatus.InProgress;
     }
 
     /// <summary>
@@ -719,12 +784,13 @@ public class TestRequestAppService :
         {
             TestRequestStatus.New => "Mới",
             TestRequestStatus.Pending => "Chờ xử lý",
-            TestRequestStatus.InProgress => "Đang thực hiện",
-            TestRequestStatus.TestingCompleted => "TN Hoàn Thành",
-            TestRequestStatus.PendingApproval => "Chờ Phê duyệt",
+            TestRequestStatus.SampleSent => "Đã gửi mẫu",
+            TestRequestStatus.InProgress => "Đang thử nghiệm",
+            TestRequestStatus.PendingChangeApproval => "Chờ phê duyệt thay đổi",
+            TestRequestStatus.PendingApproval => "Chờ phê duyệt",
             TestRequestStatus.Approved => "Đã phê duyệt",
             TestRequestStatus.ResultSent => "Đã gửi kết quả",
-            TestRequestStatus.Completed => "Hoàn Thành",
+            TestRequestStatus.Completed => "Hoàn thành",
             _ => status.ToString()
         };
     }
@@ -737,33 +803,52 @@ public class TestRequestAppService :
         var errors = new List<string>();
 
         // Check locked fields
-        if (entity.ContractNumber != input.ContractNumber)
+        if (!StringEquals(entity.ContractNumber, input.ContractNumber))
             errors.Add("Số hợp đồng");
-        if (entity.ContractDate != input.ContractDate)
+        if (!DateEquals(entity.ContractDate, input.ContractDate))
             errors.Add("Ngày hợp đồng");
-        if (entity.CustomerName != input.CustomerName)
+        if (!StringEquals(entity.CustomerName, input.CustomerName))
             errors.Add("Tên khách hàng");
-        if (entity.Address != input.Address)
+        if (!StringEquals(entity.Address, input.Address))
             errors.Add("Địa chỉ");
-        if (entity.TaxCode != input.TaxCode)
+        if (!StringEquals(entity.TaxCode, input.TaxCode))
             errors.Add("Mã số thuế");
-        if (entity.ContactPerson != input.ContactPerson)
+        if (!StringEquals(entity.ContactPerson, input.ContactPerson))
             errors.Add("Người liên hệ");
-        if (entity.Phone != input.Phone)
+        if (!StringEquals(entity.Phone, input.Phone))
             errors.Add("Số điện thoại");
-        if (entity.ProvinceCode != input.ProvinceCode)
+        if (!StringEquals(entity.ProvinceCode, input.ProvinceCode))
             errors.Add("Tỉnh/Thành phố");
-        if (entity.DistrictCode != input.DistrictCode)
+        if (!StringEquals(entity.DistrictCode, input.DistrictCode))
             errors.Add("Quận/Huyện");
-        if (entity.WardCode != input.WardCode)
+        if (!StringEquals(entity.WardCode, input.WardCode))
             errors.Add("Phường/Xã");
 
         if (errors.Any())
         {
             throw new UserFriendlyException(
-                $"Không thể thay đổi các trường sau khi đang thực hiện: {string.Join(", ", errors)}"
+                $"Không thể thay đổi các trường sau khi đang thử nghiệm: {string.Join(", ", errors)}"
             );
         }
+    }
+
+    /// <summary>
+    /// Compare two nullable strings safely (null == "" == null)
+    /// </summary>
+    private static bool StringEquals(string? a, string? b)
+    {
+        return string.Equals(a ?? "", b ?? "", StringComparison.Ordinal);
+    }
+
+    /// <summary>
+    /// Compare two nullable DateTimes by date only (ignoring time and timezone)
+    /// </summary>
+    private static bool DateEquals(DateTime? a, DateTime? b)
+    {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        // Compare dates only (year, month, day)
+        return a.Value.Date == b.Value.Date;
     }
 
     #endregion
@@ -786,15 +871,36 @@ public class TestRequestAppService :
     }
 
     /// <summary>
+    /// When user confirms sample sent - update status from Pending to SampleSent
+    /// Also creates LaboratoryTasks for all samples grouped by Laboratory
+    /// </summary>
+    public async Task SendSampleAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.Pending)
+        {
+            throw new UserFriendlyException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'");
+        }
+
+        entity.Status = TestRequestStatus.SampleSent;
+        await Repository.UpdateAsync(entity);
+
+        // Create LaboratoryTasks grouped by Laboratory when sample is sent
+        await CreateLaboratoryTasksAsync(entity);
+    }
+
+    /// <summary>
     /// When QLKT assigns method + technician - update status to InProgress
     /// Called from LaboratoryTaskAppService.AssignSampleIndicatorsAsync
+    /// Now transitions from SampleSent (instead of Pending) to InProgress
     /// </summary>
     public async Task UpdateToInProgressAsync(Guid testRequestId)
     {
         var entity = await Repository.GetAsync(testRequestId);
 
-        if (entity.Status == TestRequestStatus.New ||
-            entity.Status == TestRequestStatus.Pending)
+        // In new flow: SampleSent → InProgress when QLKT assigns PP + KTV
+        if (entity.Status == TestRequestStatus.SampleSent)
         {
             entity.Status = TestRequestStatus.InProgress;
             await Repository.UpdateAsync(entity);
@@ -802,28 +908,14 @@ public class TestRequestAppService :
     }
 
     /// <summary>
-    /// When QLKT sends results - update status to TestingCompleted
-    /// Called from LaboratoryTaskAppService.SendResultsAsync when all tasks are sent
-    /// </summary>
-    public async Task UpdateToTestingCompletedAsync(Guid testRequestId)
-    {
-        var entity = await Repository.GetAsync(testRequestId);
-
-        if (entity.Status == TestRequestStatus.InProgress)
-        {
-            entity.Status = TestRequestStatus.TestingCompleted;
-            await Repository.UpdateAsync(entity);
-        }
-    }
-
-    /// <summary>
     /// When printing test result form - update status to PendingApproval
+    /// In new flow, this is triggered directly from InProgress status
     /// </summary>
     public async Task UpdateToPendingApprovalAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        if (entity.Status == TestRequestStatus.TestingCompleted)
+        if (entity.Status == TestRequestStatus.InProgress)
         {
             entity.Status = TestRequestStatus.PendingApproval;
             await Repository.UpdateAsync(entity);
@@ -843,6 +935,30 @@ public class TestRequestAppService :
         }
 
         entity.Status = TestRequestStatus.Approved;
+        await Repository.UpdateAsync(entity);
+    }
+
+    /// <summary>
+    /// QLCL từ chối kết quả: PendingApproval → InProgress
+    /// Trả lại cho QLKT xem xét
+    /// </summary>
+    public async Task RejectResultAsync(Guid id, string reason)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.PendingApproval)
+        {
+            throw new UserFriendlyException("Chỉ có thể từ chối kết quả khi trạng thái là 'Chờ Phê duyệt'");
+        }
+
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+        }
+
+        // Update status back to InProgress for QLKT to review
+        entity.Status = TestRequestStatus.InProgress;
+        entity.ResultRejectionReason = reason;
         await Repository.UpdateAsync(entity);
     }
 
@@ -878,6 +994,306 @@ public class TestRequestAppService :
 
         entity.Status = TestRequestStatus.Completed;
         await Repository.UpdateAsync(entity);
+    }
+
+    #endregion
+
+    #region Change Approval Flow
+
+    /// <summary>
+    /// QLCL phê duyệt thay đổi: PendingChangeApproval → Previous status
+    /// </summary>
+    public async Task ApproveChangesAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.PendingChangeApproval)
+        {
+            throw new UserFriendlyException("Chỉ có thể phê duyệt thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+        }
+
+        // Get pending change history
+        var pendingChanges = await _changeHistoryRepository.GetListAsync(
+            c => c.TestRequestId == id && c.ApprovalStatus == ChangeApprovalStatus.Pending);
+
+        if (!pendingChanges.Any())
+        {
+            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+        }
+
+        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
+
+        // Update all pending changes to approved
+        foreach (var change in pendingChanges)
+        {
+            change.ApprovalStatus = ChangeApprovalStatus.Approved;
+            change.ApprovedById = currentUserId;
+            change.ApprovalDate = DateTime.UtcNow;
+        }
+        await _changeHistoryRepository.UpdateManyAsync(pendingChanges);
+
+        // Restore previous status
+        entity.Status = previousStatus;
+        await Repository.UpdateAsync(entity);
+
+        // Create notification for the person who made the change
+        var creatorId = pendingChanges.First().CreatorId;
+        if (creatorId.HasValue)
+        {
+            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
+            {
+                UserId = creatorId.Value,
+                Title = "Thay đổi đã được phê duyệt",
+                Message = $"Thay đổi trên phiếu yêu cầu {entity.RequestNumber} đã được phê duyệt",
+                Type = NotificationType.ChangeApproved,
+                ReferenceId = id.ToString(),
+                ReferenceType = "TestRequest"
+            });
+        }
+    }
+
+    /// <summary>
+    /// QLCL từ chối thay đổi: Rollback + PendingChangeApproval → Previous status
+    /// </summary>
+    public async Task RejectChangesAsync(Guid id, string reason)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.PendingChangeApproval)
+        {
+            throw new UserFriendlyException("Chỉ có thể từ chối thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+        }
+
+        // Get pending change history
+        var pendingChanges = await _changeHistoryRepository.GetListAsync(
+            c => c.TestRequestId == id && c.ApprovalStatus == ChangeApprovalStatus.Pending);
+
+        if (!pendingChanges.Any())
+        {
+            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+        }
+
+        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
+
+        // Rollback changes using snapshot
+        var snapshotChange = pendingChanges.FirstOrDefault(c => c.FieldName == "Snapshot");
+        if (snapshotChange?.OldValue != null)
+        {
+            // Rollback entity from snapshot
+            var snapshot = JsonSerializer.Deserialize<TestRequestSnapshot>(snapshotChange.OldValue);
+            if (snapshot != null)
+            {
+                RollbackFromSnapshot(entity, snapshot);
+            }
+        }
+
+        // Update all pending changes to rejected
+        foreach (var change in pendingChanges)
+        {
+            change.ApprovalStatus = ChangeApprovalStatus.Rejected;
+            change.ApprovedById = currentUserId;
+            change.ApprovalDate = DateTime.UtcNow;
+            change.RejectionReason = reason;
+        }
+        await _changeHistoryRepository.UpdateManyAsync(pendingChanges);
+
+        // Restore previous status
+        entity.Status = previousStatus;
+        await Repository.UpdateAsync(entity);
+
+        // Create notification for the person who made the change
+        var creatorId = pendingChanges.First().CreatorId;
+        if (creatorId.HasValue)
+        {
+            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
+            {
+                UserId = creatorId.Value,
+                Title = "Thay đổi bị từ chối",
+                Message = $"Thay đổi trên phiếu yêu cầu {entity.RequestNumber} bị từ chối. Lý do: {reason}",
+                Type = NotificationType.ChangeRejected,
+                ReferenceId = id.ToString(),
+                ReferenceType = "TestRequest"
+            });
+        }
+    }
+
+    /// <summary>
+    /// Save change history for approval flow
+    /// Called when editing TestRequest in SampleSent or InProgress status
+    ///
+    /// NEW: Sử dụng ChangeHistory từ frontend thay vì tự tính toán
+    /// Frontend so sánh originalData (từ API response khi load form) với newData (khi submit)
+    /// và gửi danh sách các thay đổi lên backend
+    /// </summary>
+    private async Task SaveChangeHistoryAsync(TestRequest entity, UpdateTestRequestDto input, TestRequestStatus previousStatus)
+    {
+        var changes = new List<TestRequestChangeHistory>();
+
+        // NEW: Sử dụng ChangeHistory từ frontend nếu có
+        if (input.ChangeHistory != null && input.ChangeHistory.Any())
+        {
+            foreach (var change in input.ChangeHistory)
+            {
+                changes.Add(new TestRequestChangeHistory(
+                    GuidGenerator.Create(),
+                    entity.Id,
+                    change.FieldName,
+                    change.OldValue,
+                    change.NewValue,
+                    previousStatus
+                ));
+            }
+        }
+
+        // If there are any changes, save them with a snapshot for rollback
+        if (changes.Any())
+        {
+            // Create snapshot for rollback using FromEntity helper
+            var snapshot = TestRequestSnapshot.FromEntity(entity);
+
+            // Add snapshot as a change history record
+            changes.Add(new TestRequestChangeHistory(
+                GuidGenerator.Create(),
+                entity.Id,
+                "Snapshot",
+                JsonSerializer.Serialize(snapshot),
+                null,
+                previousStatus
+            ));
+
+            await _changeHistoryRepository.InsertManyAsync(changes);
+
+            // Send notification to QLCL users
+            // Get all users with QLCL role
+            var qlclUsers = await _userRepository.GetListAsync();
+            var adminUsers = qlclUsers.Where(u => u.UserName == "admin").ToList();
+
+            foreach (var user in adminUsers)
+            {
+                await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
+                {
+                    UserId = user.Id,
+                    Title = "Yêu cầu phê duyệt thay đổi",
+                    Message = $"Phiếu yêu cầu {entity.RequestNumber} có thay đổi cần phê duyệt",
+                    Type = NotificationType.ChangeApprovalRequest,
+                    ReferenceId = entity.Id.ToString(),
+                    ReferenceType = "TestRequest"
+                });
+            }
+        }
+    }
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi của phiếu yêu cầu
+    /// </summary>
+    public async Task<List<TestRequestChangeHistoryDto>> GetChangeHistoryAsync(Guid id)
+    {
+        var allChanges = await _changeHistoryRepository.GetListAsync(c => c.TestRequestId == id);
+        var changes = allChanges.OrderByDescending(c => c.CreationTime).ToList();
+
+        var result = new List<TestRequestChangeHistoryDto>();
+        foreach (var change in changes)
+        {
+            var dto = new TestRequestChangeHistoryDto
+            {
+                Id = change.Id,
+                TestRequestId = change.TestRequestId,
+                FieldName = change.FieldName,
+                OldValue = change.OldValue,
+                NewValue = change.NewValue,
+                ApprovalStatus = change.ApprovalStatus,
+                PreviousStatus = change.PreviousStatus,
+                ApprovedById = change.ApprovedById,
+                ApprovalDate = change.ApprovalDate,
+                RejectionReason = change.RejectionReason,
+                CreationTime = change.CreationTime,
+                CreatorId = change.CreatorId
+            };
+
+            // Get creator name
+            if (change.CreatorId.HasValue)
+            {
+                var creator = await _userRepository.FindAsync(change.CreatorId.Value);
+                dto.CreatorName = creator?.Name ?? creator?.UserName;
+            }
+
+            // Get approver name
+            if (change.ApprovedById.HasValue)
+            {
+                var approver = await _userRepository.FindAsync(change.ApprovedById.Value);
+                dto.ApprovedByName = approver?.Name ?? approver?.UserName;
+            }
+
+            result.Add(dto);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Rollback entity từ snapshot
+    /// </summary>
+    private void RollbackFromSnapshot(TestRequest entity, TestRequestSnapshot snapshot)
+    {
+        // === Thông tin hợp đồng ===
+        entity.ContractNumber = snapshot.ContractNumber;
+        entity.ContractDate = snapshot.ContractDate;
+        entity.SentToAccounting = snapshot.SentToAccounting;
+        entity.PaymentReceived = snapshot.PaymentReceived;
+        entity.SentToDepartment = snapshot.SentToDepartment;
+        entity.ResultReturned = snapshot.ResultReturned;
+
+        // === Thông tin khách hàng ===
+        entity.CustomerName = snapshot.CustomerName;
+        entity.Province = snapshot.Province;
+        entity.District = snapshot.District;
+        entity.Ward = snapshot.Ward;
+        entity.Address = snapshot.Address;
+        entity.TaxCode = snapshot.TaxCode;
+        entity.ContactPerson = snapshot.ContactPerson;
+        entity.Phone = snapshot.Phone;
+
+        // === Loại hình mẫu ===
+        entity.SampleTypeService = snapshot.SampleTypeService;
+        entity.SampleTypeContract = snapshot.SampleTypeContract;
+        entity.SampleTypeTask = snapshot.SampleTypeTask;
+        entity.SampleTypeSubContract = snapshot.SampleTypeSubContract;
+
+        // === Yêu cầu về phương pháp ===
+        entity.MethodWestHighlandInstitute = snapshot.MethodWestHighlandInstitute;
+        entity.MethodCustomer = snapshot.MethodCustomer;
+        entity.MethodCustomerDetail = snapshot.MethodCustomerDetail;
+        entity.ResultLanguage = snapshot.ResultLanguage;
+        entity.ResultCopyCount = snapshot.ResultCopyCount;
+        entity.SeparatePassedResults = snapshot.SeparatePassedResults;
+        entity.ConformityDeclaration = snapshot.ConformityDeclaration;
+        entity.OtherRequirements = snapshot.OtherRequirements;
+        entity.SubContract = snapshot.SubContract;
+
+        // === Thông tin chi phí ===
+        entity.TotalCost = snapshot.TotalCost;
+        entity.TotalCostInWords = snapshot.TotalCostInWords;
+        entity.ReceiptNumber = snapshot.ReceiptNumber;
+
+        // === Người phụ trách ===
+        entity.SupervisorId = snapshot.SupervisorId;
+        entity.DirectorId = snapshot.DirectorId;
+
+        // === Yêu cầu về lấy mẫu & giao trả ===
+        entity.SamplingRequirement = snapshot.SamplingRequirement;
+        entity.DeliveryDirectPickup = snapshot.DeliveryDirectPickup;
+        entity.DeliveryPostal = snapshot.DeliveryPostal;
+        entity.ReturnStoredSample = snapshot.ReturnStoredSample;
+        entity.SampleStorage = snapshot.SampleStorage;
+        entity.ResultDeliveryDate = snapshot.ResultDeliveryDate;
+
+        // === Thông tin khác ===
+        entity.Notes = snapshot.Notes;
+        entity.ExpectedCompletionDate = snapshot.ExpectedCompletionDate;
+        entity.ChangeRequest = snapshot.ChangeRequest;
+        entity.AgreeTerms = snapshot.AgreeTerms;
     }
 
     #endregion

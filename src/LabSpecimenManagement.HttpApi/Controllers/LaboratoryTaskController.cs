@@ -150,10 +150,10 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Lấy danh sách phương pháp theo chỉ tiêu
+    /// Lấy danh sách phương pháp theo chỉ tiêu (indicatorId optional - nếu không truyền sẽ trả về tất cả)
     /// </summary>
     [HttpGet("methods-lookup")]
-    public virtual Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync([FromQuery] Guid indicatorId)
+    public virtual Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync([FromQuery] Guid? indicatorId)
     {
         return _laboratoryTaskAppService.GetMethodsByIndicatorAsync(indicatorId);
     }

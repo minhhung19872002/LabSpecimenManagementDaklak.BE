@@ -75,9 +75,9 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);
 
     /// <summary>
-    /// Lấy danh sách phương pháp theo chỉ tiêu
+    /// Lấy danh sách phương pháp theo chỉ tiêu (indicatorId optional - nếu không truyền sẽ trả về tất cả)
     /// </summary>
-    Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid indicatorId);
+    Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId);
 
     /// <summary>
     /// Lấy danh sách kỹ thuật viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)

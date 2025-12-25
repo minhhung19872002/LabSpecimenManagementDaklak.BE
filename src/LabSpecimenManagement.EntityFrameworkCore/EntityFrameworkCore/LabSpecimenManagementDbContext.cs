@@ -21,6 +21,7 @@ using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.Notifications;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -77,6 +78,10 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+
+    // Change History and Notifications
+    public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
 
     #region Entities from the modules
 
@@ -417,7 +422,6 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
-            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
 
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);
@@ -689,6 +693,45 @@ public class LabSpecimenManagementDbContext :
                 .WithMany(x => x.RejectionHistories)
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
+        });
+
+        // ============ TEST REQUEST CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<TestRequestChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FieldName).IsRequired().HasMaxLength(100);
+            b.Property(x => x.OldValue).HasColumnType("text");
+            b.Property(x => x.NewValue).HasColumnType("text");
+            b.Property(x => x.RejectionReason).HasMaxLength(1000);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.ApprovalStatus);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne<TestRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+        });
+
+        // ============ NOTIFICATION CONFIGURATION ============
+
+        builder.Entity<Notification>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Notifications", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Message).IsRequired().HasMaxLength(2000);
+            b.Property(x => x.ReferenceId).HasMaxLength(100);
+            b.Property(x => x.ReferenceType).HasMaxLength(100);
+
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => new { x.UserId, x.IsRead });
+            b.HasIndex(x => x.CreationTime);
         });
     }
 }

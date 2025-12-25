@@ -452,10 +452,6 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
-                    b.Property<decimal>("UnitPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
@@ -522,9 +518,6 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
-
-                    b.Property<int>("SortOrder")
-                        .HasColumnType("integer");
 
                     b.HasKey("Id");
 
@@ -1238,6 +1231,60 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Status");
 
                     b.ToTable("AppNCRs", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Notifications.Notification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Message")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("ReadAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ReferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ReferenceType")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("UserId", "IsRead");
+
+                    b.ToTable("AppNotifications", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Reports.Report", b =>
@@ -2096,6 +2143,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("ResultLanguage")
                         .HasColumnType("integer");
 
+                    b.Property<string>("ResultRejectionReason")
+                        .HasColumnType("text");
+
                     b.Property<bool>("ResultReturned")
                         .HasColumnType("boolean");
 
@@ -2221,6 +2271,60 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("TestRequestId");
 
                     b.ToTable("AppTestRequestAttachments", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ApprovalDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("ApprovalStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("ApprovedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("FieldName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("NewValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OldValue")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("PreviousStatus")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("RejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalStatus");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppTestRequestChangeHistories", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestIndicator", b =>
@@ -4362,6 +4466,15 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("TestRequest");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", null)
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestSample", b =>
