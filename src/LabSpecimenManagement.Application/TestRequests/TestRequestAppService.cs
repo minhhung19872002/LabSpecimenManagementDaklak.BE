@@ -112,6 +112,16 @@ public class TestRequestAppService :
                     testMethodName = testMethod?.Name;
                 }
 
+                // Get approval status from LaboratoryTaskIndicator if exists
+                IndicatorApprovalStatus? approvalStatus = null;
+                var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                    lti => lti.TestRequestSampleIndicatorId == indicator.Id
+                );
+                if (labTaskIndicator != null)
+                {
+                    approvalStatus = labTaskIndicator.ApprovalStatus;
+                }
+
                 sampleDto.Indicators.Add(new TestRequestSampleIndicatorDto
                 {
                     Id = indicator.Id,
@@ -128,7 +138,8 @@ public class TestRequestAppService :
                     LaboratoryName = laboratoryName,
                     TransferDate = indicator.TransferDate,
                     RequestDate = indicator.RequestDate,
-                    SentToDepartment = indicator.SentToDepartment
+                    SentToDepartment = indicator.SentToDepartment,
+                    ApprovalStatus = approvalStatus
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }
@@ -1071,7 +1082,7 @@ public class TestRequestAppService :
             // Handle Samples separately
             if (change.FieldName == "Samples")
             {
-                await ApplySampleChangesAsync(entity.Id, change.NewValue);
+                await ApplySampleChangesAsync(entity.Id, change.NewValue, previousStatus);
                 continue;
             }
 
@@ -1239,7 +1250,7 @@ public class TestRequestAppService :
     /// <summary>
     /// Apply sample changes from JSON newValue
     /// </summary>
-    private async Task ApplySampleChangesAsync(Guid testRequestId, string? newSamplesJson)
+    private async Task ApplySampleChangesAsync(Guid testRequestId, string? newSamplesJson, TestRequestStatus previousStatus = TestRequestStatus.New)
     {
         if (string.IsNullOrEmpty(newSamplesJson)) return;
 
@@ -1385,6 +1396,12 @@ public class TestRequestAppService :
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
+
+                        // If TestRequest is InProgress, auto-create LaboratoryTask for new indicator
+                        if (previousStatus == TestRequestStatus.InProgress && indicatorDto.LaboratoryId.HasValue)
+                        {
+                            await CreateLaboratoryTaskForNewIndicatorAsync(testRequestId, indicator, indicatorDto.LaboratoryId.Value);
+                        }
                     }
                     sampleIndicatorCost += indicatorDto.UnitPrice;
                 }
@@ -1400,6 +1417,57 @@ public class TestRequestAppService :
         testRequest.TotalCost = totalCost;
         testRequest.TotalSampleCount = newSamples.Count;
         await Repository.UpdateAsync(testRequest, autoSave: true);
+    }
+
+    /// <summary>
+    /// Create a new LaboratoryTask for a new indicator when TestRequest is InProgress
+    /// Following Option A: Each new indicator gets its own LaboratoryTask
+    /// </summary>
+    private async Task CreateLaboratoryTaskForNewIndicatorAsync(
+        Guid testRequestId,
+        TestRequestSampleIndicator indicator,
+        Guid laboratoryId)
+    {
+        var testRequest = await Repository.GetAsync(testRequestId);
+        var laboratory = await _laboratoryRepository.GetAsync(laboratoryId);
+
+        // Create new LaboratoryTask for this indicator
+        var task = new LaboratoryTask(
+            GuidGenerator.Create(),
+            testRequestId,
+            laboratoryId,
+            testRequest.ContractNumber,
+            1, // Single sample for this new indicator
+            laboratory.TechnicalManagerId,
+            indicator.TransferDate,
+            indicator.RequestDate
+        );
+
+        // Set status to AssignedMethod since TestRequest is already InProgress
+        // (method should have been assigned when adding new indicator)
+        task.Status = LaboratoryTaskStatus.AssignedMethod;
+
+        await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+
+        // Create LaboratoryTaskIndicator linking task to indicator
+        var taskIndicator = new LaboratoryTaskIndicator(
+            GuidGenerator.Create(),
+            task.Id,
+            indicator.Id
+        );
+
+        // Copy TestMethodId and Unit if available
+        if (indicator.TestMethodId.HasValue)
+        {
+            taskIndicator.MethodId = indicator.TestMethodId;
+            var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
+            if (testMethod != null)
+            {
+                taskIndicator.Unit = testMethod.Unit;
+            }
+        }
+
+        await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
     }
 
     /// <summary>
