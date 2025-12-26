@@ -337,55 +337,108 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         if (task.TaskType == QualityTaskType.ChangeApproval)
         {
-            // Get all change histories for this TestRequest
+            // Get ALL change histories for this TestRequest (not just the linked batch)
             var allChangeHistories = await _changeHistoryRepository.GetListAsync(
                 c => c.TestRequestId == task.TestRequestId);
 
-            // Filter: Get changes that were created at the same time as this task's linked ChangeHistory
-            // (all changes in one batch have the same CreationTime)
-            List<TestRequestChangeHistory> changeHistories;
-            if (task.ChangeHistoryId.HasValue)
+            // Group change histories by batch (using CreationTime - changes in same transaction have same time)
+            // Using a tolerance of 1 second to group changes in the same batch
+            var batches = new List<(DateTime BatchTime, List<TestRequestChangeHistory> Changes)>();
+
+            foreach (var ch in allChangeHistories.OrderBy(x => x.CreationTime))
             {
-                var linkedHistory = allChangeHistories.FirstOrDefault(c => c.Id == task.ChangeHistoryId.Value);
-                if (linkedHistory != null)
+                var existingBatch = batches.FirstOrDefault(b =>
+                    Math.Abs((b.BatchTime - ch.CreationTime).TotalSeconds) < 1);
+
+                if (existingBatch.Changes != null)
                 {
-                    // Get all changes created within 1 second of the linked history (same batch)
-                    var batchTime = linkedHistory.CreationTime;
-                    changeHistories = allChangeHistories
-                        .Where(c => Math.Abs((c.CreationTime - batchTime).TotalSeconds) < 1)
-                        .ToList();
+                    existingBatch.Changes.Add(ch);
                 }
                 else
                 {
-                    changeHistories = new List<TestRequestChangeHistory>();
+                    batches.Add((ch.CreationTime, new List<TestRequestChangeHistory> { ch }));
                 }
             }
-            else
-            {
-                // Fallback: get changes created around the same time as the task
-                var taskCreationTime = task.CreationTime;
-                changeHistories = allChangeHistories
-                    .Where(c => Math.Abs((c.CreationTime - taskCreationTime).TotalSeconds) < 2)
-                    .ToList();
-            }
 
-            foreach (var ch in changeHistories.OrderByDescending(x => x.CreationTime))
+            // Cache user names to avoid repeated queries
+            var userCache = new Dictionary<Guid, string>();
+
+            // Build ChangeHistoryBatches (new grouped format)
+            foreach (var batch in batches.OrderByDescending(b => b.BatchTime))
             {
+                var firstChange = batch.Changes.First();
+
+                // Get creator name
                 var creatorName = "";
-                if (ch.CreatorId.HasValue)
+                if (firstChange.CreatorId.HasValue)
                 {
-                    var user = await _userRepository.FindAsync(ch.CreatorId.Value);
-                    creatorName = user?.Name ?? user?.UserName ?? "";
+                    if (!userCache.TryGetValue(firstChange.CreatorId.Value, out creatorName!))
+                    {
+                        var user = await _userRepository.FindAsync(firstChange.CreatorId.Value);
+                        creatorName = user?.Name ?? user?.UserName ?? "";
+                        userCache[firstChange.CreatorId.Value] = creatorName;
+                    }
                 }
 
+                // Get approver name
                 var approvedByName = "";
-                if (ch.ApprovedById.HasValue)
+                if (firstChange.ApprovedById.HasValue)
                 {
-                    var approver = await _userRepository.FindAsync(ch.ApprovedById.Value);
-                    approvedByName = approver?.Name ?? approver?.UserName ?? "";
+                    if (!userCache.TryGetValue(firstChange.ApprovedById.Value, out approvedByName!))
+                    {
+                        var approver = await _userRepository.FindAsync(firstChange.ApprovedById.Value);
+                        approvedByName = approver?.Name ?? approver?.UserName ?? "";
+                        userCache[firstChange.ApprovedById.Value] = approvedByName;
+                    }
                 }
 
                 // Determine action based on status
+                var action = firstChange.ApprovalStatus switch
+                {
+                    ChangeApprovalStatus.Pending => "Yêu cầu thay đổi",
+                    ChangeApprovalStatus.Approved => "Đã phê duyệt",
+                    ChangeApprovalStatus.Rejected => "Đã từ chối",
+                    _ => "Không xác định"
+                };
+
+                var batchDto = new ChangeApprovalBatchDto
+                {
+                    CreationTime = batch.BatchTime,
+                    CreatorId = firstChange.CreatorId,
+                    CreatorName = creatorName,
+                    Status = firstChange.ApprovalStatus,
+                    Action = action,
+                    ApprovalDate = firstChange.ApprovalDate,
+                    ApprovedById = firstChange.ApprovedById,
+                    ApprovedByName = approvedByName,
+                    RejectionReason = firstChange.RejectionReason,
+                    Fields = batch.Changes.Select(ch => new ChangeApprovalFieldDto
+                    {
+                        Id = ch.Id,
+                        FieldName = ch.FieldName,
+                        OldValue = ch.OldValue,
+                        NewValue = ch.NewValue
+                    }).ToList()
+                };
+
+                response.ChangeHistoryBatches.Add(batchDto);
+            }
+
+            // Also populate legacy ChangeHistories for backward compatibility (ALL records from ALL batches)
+            foreach (var ch in allChangeHistories.OrderByDescending(x => x.CreationTime))
+            {
+                var creatorName = "";
+                if (ch.CreatorId.HasValue && userCache.TryGetValue(ch.CreatorId.Value, out var name))
+                {
+                    creatorName = name;
+                }
+
+                var approvedByName = "";
+                if (ch.ApprovedById.HasValue && userCache.TryGetValue(ch.ApprovedById.Value, out var approverName))
+                {
+                    approvedByName = approverName;
+                }
+
                 var action = ch.ApprovalStatus switch
                 {
                     ChangeApprovalStatus.Pending => "Yêu cầu thay đổi",

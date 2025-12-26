@@ -34,6 +34,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
+    private readonly IRepository<QualityIndicatorStatusHistory, Guid> _qualityIndicatorHistoryRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -49,7 +50,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IIdentityUserRepository userRepository,
         ITestRequestAppService testRequestAppService,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
-        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository)
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
+        IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -65,6 +67,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _testRequestAppService = testRequestAppService;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
+        _qualityIndicatorHistoryRepository = qualityIndicatorHistoryRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -578,49 +581,137 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     }
 
     /// <summary>
-    /// Tạo QualityManagementTask khi QLKT gửi kết quả
+    /// Tạo hoặc cập nhật QualityManagementTask khi QLKT gửi kết quả
+    /// - Nếu chỉ tiêu đã có record QLCL (bị từ chối trước đó): update record hiện tại + lưu lịch sử
+    /// - Nếu chưa có: thêm vào task hiện có hoặc tạo mới nếu chưa có task nào
+    /// Mỗi TestRequest chỉ có DUY NHẤT 1 QualityManagementTask loại ResultApproval
     /// </summary>
     private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators)
     {
         var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
 
-        // Get all tasks for this TestRequest to calculate totals
-        var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == labTask.TestRequestId);
+        // Find existing ResultApproval task for this TestRequest (should be unique)
+        var existingTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == labTask.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
 
-        // Get max RequestCompletionDate from all tasks
-        DateTime? maxCompletionDate = allTasks
-            .Where(t => t.RequestCompletionDate.HasValue)
-            .Select(t => t.RequestCompletionDate!.Value)
-            .DefaultIfEmpty()
-            .Max();
+        // Check existing QualityManagementIndicators for these lab indicators (for resubmission case)
+        var labIndicatorIds = indicators.Select(i => i.Id).ToList();
+        var existingQualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            qi => labIndicatorIds.Contains(qi.LaboratoryTaskIndicatorId));
 
-        // Get samples count
-        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == labTask.TestRequestId);
+        // Separate indicators: those that need resubmission vs new ones
+        var indicatorsToResubmit = new List<(LaboratoryTaskIndicator LabIndicator, QualityManagementIndicator QualityIndicator)>();
+        var indicatorsToCreate = new List<LaboratoryTaskIndicator>();
 
-        // Create QualityManagementTask
-        var qualityTask = new QualityManagementTask(
-            GuidGenerator.Create(),
-            labTask.TestRequestId,
-            testRequest.ContractNumber ?? "",
-            QualityTaskType.ResultApproval,
-            samples.Count,
-            indicators.Count,
-            labTask.TransferDate,
-            maxCompletionDate
-        );
-        qualityTask.Status = QualityManagementStatus.PendingApproval;
-        await _qualityTaskRepository.InsertAsync(qualityTask);
-
-        // Create QualityManagementIndicator for each indicator
         foreach (var labIndicator in indicators)
         {
-            var qualityIndicator = new QualityManagementIndicator(
-                GuidGenerator.Create(),
-                qualityTask.Id,
-                labIndicator.Id
-            );
-            qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
-            await _qualityIndicatorRepository.InsertAsync(qualityIndicator);
+            var existingQI = existingQualityIndicators.FirstOrDefault(qi => qi.LaboratoryTaskIndicatorId == labIndicator.Id);
+            if (existingQI != null && existingQI.ApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+            {
+                // This indicator was rejected before, need to resubmit (update existing record)
+                indicatorsToResubmit.Add((labIndicator, existingQI));
+            }
+            else if (existingQI == null)
+            {
+                // New indicator, need to create
+                indicatorsToCreate.Add(labIndicator);
+            }
+            // If existingQI exists with Approved/PendingApproval status, skip (already handled)
+        }
+
+        // Handle resubmission: update existing QualityManagementIndicator records
+        if (indicatorsToResubmit.Any())
+        {
+            foreach (var (labIndicator, qualityIndicator) in indicatorsToResubmit)
+            {
+                var oldStatus = qualityIndicator.ApprovalStatus;
+
+                // Update status back to PendingApproval
+                qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+                qualityIndicator.RejectionReason = null; // Clear rejection reason
+                qualityIndicator.ApprovalDate = null;
+                qualityIndicator.ApprovedById = null;
+                await _qualityIndicatorRepository.UpdateAsync(qualityIndicator);
+
+                // Create history record for resubmission
+                var history = new QualityIndicatorStatusHistory(
+                    GuidGenerator.Create(),
+                    qualityIndicator.Id,
+                    oldStatus,
+                    QualityIndicatorApprovalStatus.PendingApproval,
+                    "Gửi lại kết quả sau khi bị từ chối"
+                );
+                await _qualityIndicatorHistoryRepository.InsertAsync(history);
+            }
+
+            // Update QualityManagementTask status back to PendingApproval
+            if (existingTask != null && existingTask.Status == QualityManagementStatus.Rejected)
+            {
+                existingTask.Status = QualityManagementStatus.PendingApproval;
+                await _qualityTaskRepository.UpdateAsync(existingTask);
+            }
+        }
+
+        // Handle new indicators: add to existing task or create new task
+        if (indicatorsToCreate.Any())
+        {
+            QualityManagementTask qualityTask;
+
+            if (existingTask != null)
+            {
+                // Use existing task - update indicator count and status
+                qualityTask = existingTask;
+                qualityTask.TotalIndicatorCount += indicatorsToCreate.Count;
+
+                // If task was rejected/approved, reset to PendingApproval since new indicators added
+                if (qualityTask.Status != QualityManagementStatus.PendingApproval)
+                {
+                    qualityTask.Status = QualityManagementStatus.PendingApproval;
+                }
+                await _qualityTaskRepository.UpdateAsync(qualityTask);
+            }
+            else
+            {
+                // Create new task (first time for this TestRequest)
+                // Get all tasks for this TestRequest to calculate totals
+                var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == labTask.TestRequestId);
+
+                // Get max RequestCompletionDate from all tasks
+                DateTime? maxCompletionDate = allTasks
+                    .Where(t => t.RequestCompletionDate.HasValue)
+                    .Select(t => t.RequestCompletionDate!.Value)
+                    .DefaultIfEmpty()
+                    .Max();
+
+                // Get samples count
+                var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == labTask.TestRequestId);
+
+                qualityTask = new QualityManagementTask(
+                    GuidGenerator.Create(),
+                    labTask.TestRequestId,
+                    testRequest.ContractNumber ?? "",
+                    QualityTaskType.ResultApproval,
+                    samples.Count,
+                    indicatorsToCreate.Count,
+                    labTask.TransferDate,
+                    maxCompletionDate
+                );
+                qualityTask.Status = QualityManagementStatus.PendingApproval;
+                await _qualityTaskRepository.InsertAsync(qualityTask);
+            }
+
+            // Create QualityManagementIndicator for each new indicator
+            foreach (var labIndicator in indicatorsToCreate)
+            {
+                var qualityIndicator = new QualityManagementIndicator(
+                    GuidGenerator.Create(),
+                    qualityTask.Id,
+                    labIndicator.Id
+                );
+                qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+                await _qualityIndicatorRepository.InsertAsync(qualityIndicator);
+            }
         }
     }
 
@@ -755,12 +846,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Kiểm tra xem task có thể chỉnh sửa không dựa trên trạng thái
-    /// Chỉ cho phép edit khi: Chưa gắn PP hoặc Đã gán PP
+    /// Cho phép edit khi: Chưa gắn PP, Đã gán PP, hoặc Bị từ chối (để giao việc lại)
     /// </summary>
     private static bool CanEditTask(LaboratoryTaskStatus status)
     {
         return status == LaboratoryTaskStatus.NotAssignedMethod ||
-               status == LaboratoryTaskStatus.AssignedMethod;
+               status == LaboratoryTaskStatus.AssignedMethod ||
+               status == LaboratoryTaskStatus.ResultRejected;
     }
 
     /// <summary>
@@ -776,6 +868,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
             LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
+            LaboratoryTaskStatus.ResultRejected => "Bị từ chối kết quả",
             _ => status.ToString()
         };
     }

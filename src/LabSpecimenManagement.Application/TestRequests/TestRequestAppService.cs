@@ -1699,22 +1699,40 @@ public class TestRequestAppService :
             .OrderByDescending(d => d)
             .FirstOrDefault();
 
-        // Create QualityManagementTask
-        var task = new QualityManagementTask(
-            GuidGenerator.Create(),
-            testRequest.Id,
-            testRequest.ContractNumber ?? "",
-            QualityTaskType.ChangeApproval,
-            samples.Count,
-            indicators.Count,
-            transferDate,
-            requestCompletionDate
-        )
-        {
-            ChangeHistoryId = changeHistoryId
-        };
+        // Check if QualityManagementTask (ChangeApproval) already exists for this TestRequest
+        var existingTask = await _qualityTaskRepository.FirstOrDefaultAsync(
+            t => t.TestRequestId == testRequest.Id && t.TaskType == QualityTaskType.ChangeApproval);
 
-        await _qualityTaskRepository.InsertAsync(task);
+        if (existingTask != null)
+        {
+            // Update existing task
+            existingTask.TotalSampleCount = samples.Count;
+            existingTask.TotalIndicatorCount = indicators.Count;
+            existingTask.TransferDate = transferDate;
+            existingTask.RequestCompletionDate = requestCompletionDate;
+            existingTask.ChangeHistoryId = changeHistoryId;
+            existingTask.Status = QualityManagementStatus.PendingApproval; // Reset to pending
+            await _qualityTaskRepository.UpdateAsync(existingTask);
+        }
+        else
+        {
+            // Create new QualityManagementTask
+            var task = new QualityManagementTask(
+                GuidGenerator.Create(),
+                testRequest.Id,
+                testRequest.ContractNumber ?? "",
+                QualityTaskType.ChangeApproval,
+                samples.Count,
+                indicators.Count,
+                transferDate,
+                requestCompletionDate
+            )
+            {
+                ChangeHistoryId = changeHistoryId
+            };
+
+            await _qualityTaskRepository.InsertAsync(task);
+        }
     }
 
     /// <summary>

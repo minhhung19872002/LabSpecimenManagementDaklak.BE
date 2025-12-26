@@ -20,9 +20,14 @@ public class TaskHistoryResponseDto
     public List<QualityTaskHistoryDto> IndicatorHistories { get; set; } = new();
 
     /// <summary>
-    /// Lịch sử thay đổi phiếu yêu cầu (cho ChangeApproval)
+    /// Lịch sử thay đổi phiếu yêu cầu (cho ChangeApproval) - legacy flat list
     /// </summary>
     public List<ChangeApprovalHistoryDto> ChangeHistories { get; set; } = new();
+
+    /// <summary>
+    /// Lịch sử thay đổi phiếu yêu cầu theo batch (cho ChangeApproval) - grouped by CreationTime
+    /// </summary>
+    public List<ChangeApprovalBatchDto> ChangeHistoryBatches { get; set; } = new();
 }
 
 /// <summary>
@@ -39,7 +44,35 @@ public class QualityTaskHistoryDto
 }
 
 /// <summary>
-/// DTO for Change Approval history
+/// DTO for Change Approval history - grouped by batch (CreationTime)
+/// </summary>
+public class ChangeApprovalBatchDto
+{
+    public DateTime CreationTime { get; set; }
+    public Guid? CreatorId { get; set; }
+    public string? CreatorName { get; set; }
+    public ChangeApprovalStatus Status { get; set; }
+    public string Action { get; set; } = null!; // "Yêu cầu thay đổi", "Đã phê duyệt", "Đã từ chối"
+    public DateTime? ApprovalDate { get; set; }
+    public Guid? ApprovedById { get; set; }
+    public string? ApprovedByName { get; set; }
+    public string? RejectionReason { get; set; }
+    public List<ChangeApprovalFieldDto> Fields { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for a single field change within a batch
+/// </summary>
+public class ChangeApprovalFieldDto
+{
+    public Guid Id { get; set; }
+    public string? FieldName { get; set; }
+    public string? OldValue { get; set; }
+    public string? NewValue { get; set; }
+}
+
+/// <summary>
+/// DTO for Change Approval history (legacy - keep for compatibility)
 /// </summary>
 public class ChangeApprovalHistoryDto
 {
