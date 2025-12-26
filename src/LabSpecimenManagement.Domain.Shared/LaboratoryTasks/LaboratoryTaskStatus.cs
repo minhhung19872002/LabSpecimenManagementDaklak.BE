@@ -6,14 +6,14 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 public enum LaboratoryTaskStatus
 {
     /// <summary>
-    /// Chưa gán phương pháp
+    /// Chưa gán KTV (Phương pháp đã có từ phiếu yêu cầu)
     /// </summary>
-    NotAssignedMethod = 0,
+    NotAssignedTechnician = 0,
 
     /// <summary>
-    /// Đã gán phương pháp
+    /// Đã gán KTV
     /// </summary>
-    AssignedMethod = 1,
+    AssignedTechnician = 1,
 
     /// <summary>
     /// Đang thí nghiệm

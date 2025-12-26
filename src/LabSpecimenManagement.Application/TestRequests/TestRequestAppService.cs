@@ -1523,8 +1523,7 @@ public class TestRequestAppService :
                 firstIndicator.RequestDate
             );
 
-            // Set status to AssignedMethod since TestRequest is already InProgress
-            task.Status = LaboratoryTaskStatus.AssignedMethod;
+            // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
 
             await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
 

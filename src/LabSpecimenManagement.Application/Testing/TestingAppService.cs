@@ -363,8 +363,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedMethod;
+            // Có chỉ tiêu chưa gán KTV
+            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
         }
         else if (allApproved)
         {
@@ -383,8 +383,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
         }
         else
         {
-            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedMethod;
+            // Tất cả đã có KTV nhưng chưa gửi duyệt
+            newStatus = LaboratoryTaskStatus.AssignedTechnician;
         }
 
         if (task.Status != newStatus)

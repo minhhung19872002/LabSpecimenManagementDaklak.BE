@@ -479,8 +479,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         return maxStatus switch
         {
-            LaboratoryTaskStatus.NotAssignedMethod => "Chưa gán phương pháp",
-            LaboratoryTaskStatus.AssignedMethod => "Đã gán phương pháp",
+            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
+            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
             LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",

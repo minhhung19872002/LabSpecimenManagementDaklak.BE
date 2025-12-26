@@ -813,8 +813,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedMethod;
+            // Có chỉ tiêu chưa gán KTV
+            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
         }
         else if (allApproved)
         {
@@ -833,8 +833,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
         else
         {
-            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedMethod;
+            // Tất cả đã có KTV nhưng chưa gửi duyệt
+            newStatus = LaboratoryTaskStatus.AssignedTechnician;
         }
 
         if (task.Status != newStatus)
@@ -846,12 +846,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Kiểm tra xem task có thể chỉnh sửa không dựa trên trạng thái
-    /// Cho phép edit khi: Chưa gắn PP, Đã gán PP, hoặc Bị từ chối (để giao việc lại)
+    /// Cho phép edit khi: Chưa gán KTV, Đã gán KTV, hoặc Bị từ chối (để giao việc lại)
     /// </summary>
     private static bool CanEditTask(LaboratoryTaskStatus status)
     {
-        return status == LaboratoryTaskStatus.NotAssignedMethod ||
-               status == LaboratoryTaskStatus.AssignedMethod ||
+        return status == LaboratoryTaskStatus.NotAssignedTechnician ||
+               status == LaboratoryTaskStatus.AssignedTechnician ||
                status == LaboratoryTaskStatus.ResultRejected;
     }
 
@@ -862,8 +862,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         return status switch
         {
-            LaboratoryTaskStatus.NotAssignedMethod => "Chưa gắn phương pháp",
-            LaboratoryTaskStatus.AssignedMethod => "Đã gán phương pháp",
+            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
+            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
             LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
