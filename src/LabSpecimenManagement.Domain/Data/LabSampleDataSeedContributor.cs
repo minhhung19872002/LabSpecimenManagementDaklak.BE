@@ -117,7 +117,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         await SeedTestMethodIndicatorsAsync();
         await SeedStandardsAsync();
         await SeedStandardIndicatorsAsync();
-        await SeedTestRequestsAndRelatedDataAsync();
+        // await SeedTestRequestsAndRelatedDataAsync(); // Bỏ seeder phiếu yêu cầu
     }
 
     private async Task SeedIndicatorGroupsAndIndicatorsAsync()
