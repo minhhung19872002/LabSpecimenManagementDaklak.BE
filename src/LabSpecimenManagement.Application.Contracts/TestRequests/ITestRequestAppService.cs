@@ -79,4 +79,12 @@ public interface ITestRequestAppService :
     /// Trả lại cho QLKT xem xét
     /// </summary>
     Task RejectResultAsync(Guid id, string reason);
+
+    /// <summary>
+    /// Kiểm tra số hợp đồng có tồn tại không
+    /// </summary>
+    /// <param name="contractNumber">Số hợp đồng cần kiểm tra</param>
+    /// <param name="excludeId">ID của phiếu yêu cầu cần loại trừ (dùng khi update)</param>
+    /// <returns>True nếu số HĐ đã tồn tại</returns>
+    Task<bool> CheckContractNumberExistsAsync(string contractNumber, Guid? excludeId = null);
 }

@@ -154,4 +154,15 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.GetChangeHistoryAsync(id);
     }
+
+    /// <summary>
+    /// Kiểm tra số hợp đồng có tồn tại không
+    /// </summary>
+    /// <param name="contractNumber">Số hợp đồng cần kiểm tra</param>
+    /// <param name="excludeId">ID của phiếu yêu cầu cần loại trừ (dùng khi update)</param>
+    [HttpGet("check-contract-number")]
+    public virtual Task<bool> CheckContractNumberExistsAsync([FromQuery] string contractNumber, [FromQuery] Guid? excludeId = null)
+    {
+        return _testRequestAppService.CheckContractNumberExistsAsync(contractNumber, excludeId);
+    }
 }

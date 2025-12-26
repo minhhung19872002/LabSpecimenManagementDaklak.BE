@@ -1889,4 +1889,29 @@ public class TestRequestAppService :
     }
 
     #endregion
+
+    #region Validation
+
+    /// <summary>
+    /// Kiểm tra số hợp đồng có tồn tại không
+    /// </summary>
+    public async Task<bool> CheckContractNumberExistsAsync(string contractNumber, Guid? excludeId = null)
+    {
+        if (string.IsNullOrWhiteSpace(contractNumber))
+        {
+            return false;
+        }
+
+        var query = await Repository.GetQueryableAsync();
+
+        if (excludeId.HasValue)
+        {
+            // Exclude current record when updating
+            return query.Any(x => x.ContractNumber == contractNumber && x.Id != excludeId.Value);
+        }
+
+        return query.Any(x => x.ContractNumber == contractNumber);
+    }
+
+    #endregion
 }
