@@ -160,4 +160,10 @@ public class TestRequestSampleIndicatorDto
     /// null nếu chưa gửi mẫu, có giá trị nếu đã gửi mẫu
     /// </summary>
     public IndicatorApprovalStatus? ApprovalStatus { get; set; }
+
+    /// <summary>
+    /// Ngày thử nghiệm (ngày KTV bắt đầu thử nghiệm/check-in)
+    /// null nếu chưa bắt đầu thử nghiệm
+    /// </summary>
+    public DateTime? TestDate { get; set; }
 }

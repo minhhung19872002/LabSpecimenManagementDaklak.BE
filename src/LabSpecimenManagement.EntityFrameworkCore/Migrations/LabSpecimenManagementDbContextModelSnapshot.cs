@@ -199,6 +199,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("TechnicianId")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("TestDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid>("TestRequestSampleIndicatorId")
                         .HasColumnType("uuid");
 

@@ -37,6 +37,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public DateTime? AssignedDate { get; set; }
 
     /// <summary>
+    /// Ngày thử nghiệm - Test Date (ngày KTV bắt đầu thử nghiệm/check-in)
+    /// </summary>
+    public DateTime? TestDate { get; set; }
+
+    /// <summary>
     /// Kết quả thí nghiệm - Result
     /// </summary>
     public string? Result { get; set; }

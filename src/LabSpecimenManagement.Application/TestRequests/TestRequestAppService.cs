@@ -116,14 +116,16 @@ public class TestRequestAppService :
                     testMethodName = testMethod?.Name;
                 }
 
-                // Get approval status from LaboratoryTaskIndicator if exists
+                // Get approval status and test date from LaboratoryTaskIndicator if exists
                 IndicatorApprovalStatus? approvalStatus = null;
+                DateTime? testDate = null;
                 var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
                     lti => lti.TestRequestSampleIndicatorId == indicator.Id
                 );
                 if (labTaskIndicator != null)
                 {
                     approvalStatus = labTaskIndicator.ApprovalStatus;
+                    testDate = labTaskIndicator.TestDate;
                 }
 
                 sampleDto.Indicators.Add(new TestRequestSampleIndicatorDto
@@ -143,7 +145,8 @@ public class TestRequestAppService :
                     TransferDate = indicator.TransferDate,
                     RequestDate = indicator.RequestDate,
                     SentToDepartment = indicator.SentToDepartment,
-                    ApprovalStatus = approvalStatus
+                    ApprovalStatus = approvalStatus,
+                    TestDate = testDate
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }

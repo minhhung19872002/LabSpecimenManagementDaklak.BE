@@ -237,6 +237,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
             indicator.EntryDate = indicator.EntryDate ?? DateTime.Now;
             indicator.EnteredById = indicator.EnteredById ?? currentUserId;
 
+            // Set TestDate on first result entry (when technician starts testing)
+            if (!indicator.TestDate.HasValue)
+            {
+                indicator.TestDate = DateTime.Now;
+            }
+
             await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
         }
 

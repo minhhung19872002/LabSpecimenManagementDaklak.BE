@@ -368,6 +368,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 MethodName = methodName,
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
+                TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
                 Unit = unit,
                 EntryDate = taskIndicator.EntryDate,
@@ -487,6 +488,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         taskIndicator.EntryDate = DateTime.Now;
         taskIndicator.EnteredById = CurrentUser.Id;
         taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
+
+        // Set TestDate on first result entry (when technician starts testing)
+        if (!taskIndicator.TestDate.HasValue)
+        {
+            taskIndicator.TestDate = DateTime.Now;
+        }
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
@@ -989,6 +996,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             MethodName = methodName,
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
+            TestDate = taskIndicator.TestDate,
             Result = taskIndicator.Result,
             Unit = unit,
             EntryDate = taskIndicator.EntryDate,
