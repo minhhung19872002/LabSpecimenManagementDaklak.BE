@@ -503,18 +503,39 @@ public class TestRequestAppService :
             var existingSamples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
             var inputSampleIds = input.Samples.Where(s => s.Id.HasValue).Select(s => s.Id!.Value).ToList();
 
-            // Delete samples not in input
+            // Handle samples not in input - delete or mark as CustomerCancelled
             foreach (var existingSample in existingSamples)
             {
                 if (!inputSampleIds.Contains(existingSample.Id))
                 {
-                    // Delete indicators first
                     var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == existingSample.Id);
+                    bool hasLabTask = false;
+
                     foreach (var indicator in indicators)
                     {
-                        await _sampleIndicatorRepository.DeleteAsync(indicator);
+                        // Check if indicator has LaboratoryTaskIndicator (shouldn't happen for New/Pending status, but check for safety)
+                        var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                            lti => lti.TestRequestSampleIndicatorId == indicator.Id
+                        );
+
+                        if (labTaskIndicator != null)
+                        {
+                            hasLabTask = true;
+                            // Mark as CustomerCancelled
+                            labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                            await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        }
                     }
-                    await _sampleRepository.DeleteAsync(existingSample);
+
+                    // Only delete sample if no LaboratoryTask exists
+                    if (!hasLabTask)
+                    {
+                        foreach (var indicator in indicators)
+                        {
+                            await _sampleIndicatorRepository.DeleteAsync(indicator);
+                        }
+                        await _sampleRepository.DeleteAsync(existingSample);
+                    }
                 }
             }
 
@@ -804,7 +825,7 @@ public class TestRequestAppService :
             TestRequestStatus.PendingChangeApproval => "Chờ phê duyệt thay đổi",
             TestRequestStatus.PendingApproval => "Chờ phê duyệt",
             TestRequestStatus.Approved => "Đã phê duyệt",
-            TestRequestStatus.ResultSent => "Đã gửi kết quả",
+            TestRequestStatus.ResultSent => "Gửi khách hàng",
             TestRequestStatus.Completed => "Hoàn thành",
             _ => status.ToString()
         };
@@ -971,10 +992,23 @@ public class TestRequestAppService :
             throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
         }
 
-        // Update status back to InProgress for QLKT to review
+        // Update TestRequest status back to InProgress for QLKT to review
         entity.Status = TestRequestStatus.InProgress;
         entity.ResultRejectionReason = reason;
         await Repository.UpdateAsync(entity);
+
+        // Also update all LaboratoryTask status to ResultRejected
+        var laboratoryTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        foreach (var task in laboratoryTasks)
+        {
+            // Only update tasks that have sent results (ResultSent status)
+            if (task.Status == LaboratoryTaskStatus.ResultSent)
+            {
+                task.Status = LaboratoryTaskStatus.ResultRejected;
+                task.ResultRejectionReason = reason;
+                await _laboratoryTaskRepository.UpdateAsync(task);
+            }
+        }
     }
 
     /// <summary>
@@ -1265,42 +1299,57 @@ public class TestRequestAppService :
         var existingSamples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
         var newSampleIds = newSamples.Where(s => s.Id != null).Select(s => s.Id!.Value).ToList();
 
-        // Delete samples not in new list
+        // Handle samples not in new list - mark as CustomerCancelled instead of deleting
         foreach (var existingSample in existingSamples)
         {
             if (!newSampleIds.Contains(existingSample.Id))
             {
-                // Delete indicators first
+                // Get all indicators for this sample
                 var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == existingSample.Id);
+                bool hasLabTask = false;
+
                 foreach (var indicator in indicators)
                 {
-                    // Check if indicator is being tested
+                    // Check if indicator has LaboratoryTaskIndicator
                     var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
                         lti => lti.TestRequestSampleIndicatorId == indicator.Id
                     );
 
                     if (labTaskIndicator != null)
                     {
+                        hasLabTask = true;
+                        // Check if indicator is being tested or already has results
                         if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
                             throw new UserFriendlyException($"Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
                         }
+                        // Mark as CustomerCancelled
                         labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
                         await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
                     }
-                    else
+                }
+
+                // If sample has LaboratoryTask, keep sample for history (don't delete)
+                // Only delete sample if no LaboratoryTask exists (sample not yet sent)
+                if (!hasLabTask)
+                {
+                    foreach (var indicator in indicators)
                     {
                         await _sampleIndicatorRepository.DeleteAsync(indicator);
                     }
+                    await _sampleRepository.DeleteAsync(existingSample);
                 }
-                await _sampleRepository.DeleteAsync(existingSample);
+                // Note: If hasLabTask, sample is kept but all its indicators are marked as CustomerCancelled
             }
         }
 
         decimal totalCost = 0;
         int sortOrder = 0;
+
+        // Collect new indicators for batch LaboratoryTask creation (grouped by laboratory)
+        var newIndicatorsForTask = new List<TestRequestSampleIndicator>();
 
         // Update or create samples
         foreach (var sampleDto in newSamples)
@@ -1397,10 +1446,10 @@ public class TestRequestAppService :
                         indicator.TestMethodId = indicatorDto.TestMethodId;
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
 
-                        // If TestRequest is InProgress, auto-create LaboratoryTask for new indicator
+                        // Collect new indicators for batch task creation
                         if (previousStatus == TestRequestStatus.InProgress && indicatorDto.LaboratoryId.HasValue)
                         {
-                            await CreateLaboratoryTaskForNewIndicatorAsync(testRequestId, indicator, indicatorDto.LaboratoryId.Value);
+                            newIndicatorsForTask.Add(indicator);
                         }
                     }
                     sampleIndicatorCost += indicatorDto.UnitPrice;
@@ -1412,6 +1461,12 @@ public class TestRequestAppService :
             totalCost += sampleIndicatorCost;
         }
 
+        // Create LaboratoryTasks for new indicators - grouped by laboratory
+        if (newIndicatorsForTask.Any())
+        {
+            await CreateLaboratoryTasksForNewIndicatorsAsync(testRequestId, newIndicatorsForTask);
+        }
+
         // Update entity total cost
         var testRequest = await Repository.GetAsync(testRequestId);
         testRequest.TotalCost = totalCost;
@@ -1420,54 +1475,75 @@ public class TestRequestAppService :
     }
 
     /// <summary>
-    /// Create a new LaboratoryTask for a new indicator when TestRequest is InProgress
-    /// Following Option A: Each new indicator gets its own LaboratoryTask
+    /// Create LaboratoryTasks for new indicators when TestRequest is InProgress
+    /// Groups indicators by laboratory - one task per laboratory (like initial SendSample)
     /// </summary>
-    private async Task CreateLaboratoryTaskForNewIndicatorAsync(
+    private async Task CreateLaboratoryTasksForNewIndicatorsAsync(
         Guid testRequestId,
-        TestRequestSampleIndicator indicator,
-        Guid laboratoryId)
+        List<TestRequestSampleIndicator> newIndicators)
     {
+        if (!newIndicators.Any()) return;
+
         var testRequest = await Repository.GetAsync(testRequestId);
-        var laboratory = await _laboratoryRepository.GetAsync(laboratoryId);
 
-        // Create new LaboratoryTask for this indicator
-        var task = new LaboratoryTask(
-            GuidGenerator.Create(),
-            testRequestId,
-            laboratoryId,
-            testRequest.ContractNumber,
-            1, // Single sample for this new indicator
-            laboratory.TechnicalManagerId,
-            indicator.TransferDate,
-            indicator.RequestDate
-        );
+        // Group indicators by LaboratoryId
+        var indicatorsByLab = newIndicators
+            .Where(i => i.LaboratoryId.HasValue)
+            .GroupBy(i => i.LaboratoryId!.Value)
+            .ToList();
 
-        // Set status to AssignedMethod since TestRequest is already InProgress
-        // (method should have been assigned when adding new indicator)
-        task.Status = LaboratoryTaskStatus.AssignedMethod;
-
-        await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
-
-        // Create LaboratoryTaskIndicator linking task to indicator
-        var taskIndicator = new LaboratoryTaskIndicator(
-            GuidGenerator.Create(),
-            task.Id,
-            indicator.Id
-        );
-
-        // Copy TestMethodId and Unit if available
-        if (indicator.TestMethodId.HasValue)
+        foreach (var labGroup in indicatorsByLab)
         {
-            taskIndicator.MethodId = indicator.TestMethodId;
-            var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
-            if (testMethod != null)
+            var laboratoryId = labGroup.Key;
+            var indicators = labGroup.ToList();
+            var laboratory = await _laboratoryRepository.GetAsync(laboratoryId);
+
+            // Get sample count for this laboratory's indicators
+            var sampleIds = indicators.Select(i => i.TestRequestSampleId).Distinct().ToList();
+
+            // Use first indicator's dates for the task
+            var firstIndicator = indicators.First();
+
+            // Create one LaboratoryTask for all indicators in this laboratory
+            var task = new LaboratoryTask(
+                GuidGenerator.Create(),
+                testRequestId,
+                laboratoryId,
+                testRequest.ContractNumber,
+                sampleIds.Count,
+                laboratory.TechnicalManagerId,
+                firstIndicator.TransferDate,
+                firstIndicator.RequestDate
+            );
+
+            // Set status to AssignedMethod since TestRequest is already InProgress
+            task.Status = LaboratoryTaskStatus.AssignedMethod;
+
+            await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+
+            // Create LaboratoryTaskIndicator for each indicator in this group
+            foreach (var indicator in indicators)
             {
-                taskIndicator.Unit = testMethod.Unit;
+                var taskIndicator = new LaboratoryTaskIndicator(
+                    GuidGenerator.Create(),
+                    task.Id,
+                    indicator.Id
+                );
+
+                // Copy TestMethodId and Unit if available
+                if (indicator.TestMethodId.HasValue)
+                {
+                    taskIndicator.MethodId = indicator.TestMethodId;
+                    var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
+                    if (testMethod != null)
+                    {
+                        taskIndicator.Unit = testMethod.Unit;
+                    }
+                }
+
+                await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
-
-        await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
     }
 
     /// <summary>

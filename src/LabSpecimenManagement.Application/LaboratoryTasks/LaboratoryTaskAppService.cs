@@ -251,6 +251,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             TestDate = task.TestDate,
             Status = task.Status,
             Notes = task.Notes,
+            ResultRejectionReason = task.ResultRejectionReason,
             CreationTime = task.CreationTime,
             LastModificationTime = task.LastModificationTime
         };
@@ -538,8 +539,19 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
 
-        // Validate: All indicators must be approved
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // Filter out CustomerCancelled indicators - they should not block sending results
+        var activeIndicators = taskIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        // Validate: Must have at least one active indicator
+        if (!activeIndicators.Any())
+        {
+            throw new UserFriendlyException("Không có chỉ tiêu nào để gửi kết quả");
+        }
+
+        // Validate: All active indicators must be approved
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         if (!allApproved)
         {
             throw new UserFriendlyException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả");
@@ -630,13 +642,24 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Check conditions - LOGIC MỚI
-        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-        var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-        var allEnteredOrApproved = taskIndicators.All(ti =>
+        // Filter out CustomerCancelled indicators - they should not affect task status calculation
+        var activeIndicators = taskIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        // If all indicators are cancelled, keep current status or set to a default
+        if (!activeIndicators.Any())
+        {
+            return;
+        }
+
+        // Check conditions - LOGIC MỚI (only check active indicators)
+        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+        var allEnteredOrApproved = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
             ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         LaboratoryTaskStatus newStatus;
 

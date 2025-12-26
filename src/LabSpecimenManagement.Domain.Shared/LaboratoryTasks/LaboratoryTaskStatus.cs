@@ -33,5 +33,10 @@ public enum LaboratoryTaskStatus
     /// <summary>
     /// Đã gửi kết quả
     /// </summary>
-    ResultSent = 5
+    ResultSent = 5,
+
+    /// <summary>
+    /// QLCL từ chối kết quả - trả lại cho QLKT xem xét
+    /// </summary>
+    ResultRejected = 6
 }

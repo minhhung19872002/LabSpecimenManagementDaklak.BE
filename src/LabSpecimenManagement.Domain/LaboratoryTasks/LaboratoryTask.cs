@@ -64,6 +64,11 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
     public string? Notes { get; set; }
 
     /// <summary>
+    /// Lý do QLCL từ chối kết quả
+    /// </summary>
+    public string? ResultRejectionReason { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;

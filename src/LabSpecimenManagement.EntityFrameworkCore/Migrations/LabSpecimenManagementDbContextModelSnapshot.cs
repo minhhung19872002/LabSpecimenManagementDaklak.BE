@@ -121,6 +121,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("RequestCompletionDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("ResultRejectionReason")
+                        .HasColumnType("text");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 

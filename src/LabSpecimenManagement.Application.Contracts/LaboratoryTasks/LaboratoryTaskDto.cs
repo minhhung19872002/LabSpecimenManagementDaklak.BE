@@ -80,6 +80,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public string? Notes { get; set; }
 
     /// <summary>
+    /// Lý do QLCL từ chối kết quả
+    /// </summary>
+    public string? ResultRejectionReason { get; set; }
+
+    /// <summary>
     /// Tên khách hàng - Customer Name (from TestRequest)
     /// </summary>
     public string? CustomerName { get; set; }
