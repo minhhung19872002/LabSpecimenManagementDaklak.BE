@@ -1,0 +1,201 @@
+using LabSpecimenManagement.QualityManagement;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using Volo.Abp;
+using Volo.Abp.Application.Dtos;
+
+namespace LabSpecimenManagement.Controllers;
+
+[RemoteService(Name = "Default")]
+[Route("api/v1/quality-management")]
+[Authorize]
+public class QualityManagementController : LabSpecimenManagementController
+{
+    private readonly IQualityManagementAppService _qualityManagementAppService;
+
+    public QualityManagementController(IQualityManagementAppService qualityManagementAppService)
+    {
+        _qualityManagementAppService = qualityManagementAppService;
+    }
+
+    /// <summary>
+    /// Get filtered and paged list of Quality Management Tasks
+    /// </summary>
+    [HttpGet]
+    public virtual Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync([FromQuery] GetQualityManagementListInput input)
+    {
+        return _qualityManagementAppService.GetListAsync(input);
+    }
+
+    /// <summary>
+    /// Get Quality Management Task by ID
+    /// </summary>
+    [HttpGet("{id}")]
+    public virtual Task<QualityManagementTaskDto> GetAsync(Guid id)
+    {
+        return _qualityManagementAppService.GetAsync(id);
+    }
+
+    /// <summary>
+    /// Get statistics for dashboard
+    /// </summary>
+    [HttpGet("statistics")]
+    public virtual Task<QualityManagementStatisticsDto> GetStatisticsAsync()
+    {
+        return _qualityManagementAppService.GetStatisticsAsync();
+    }
+
+    /// <summary>
+    /// Approve indicator (QLCL duyệt kết quả)
+    /// </summary>
+    [HttpPost("indicators/{indicatorId}/approve")]
+    public virtual Task<QualityManagementIndicatorDto> ApproveIndicatorAsync(Guid indicatorId)
+    {
+        return _qualityManagementAppService.ApproveIndicatorAsync(indicatorId);
+    }
+
+    /// <summary>
+    /// Reject indicator (QLCL từ chối kết quả)
+    /// </summary>
+    [HttpPost("indicators/{indicatorId}/reject")]
+    public virtual Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, [FromBody] RejectIndicatorInput input)
+    {
+        return _qualityManagementAppService.RejectIndicatorAsync(indicatorId, input.Reason);
+    }
+
+    /// <summary>
+    /// Update indicator standard (chọn tiêu chuẩn so sánh)
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/standard")]
+    public virtual Task<QualityManagementIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, [FromBody] UpdateIndicatorStandardInput input)
+    {
+        return _qualityManagementAppService.UpdateIndicatorStandardAsync(indicatorId, input.StandardId);
+    }
+
+    /// <summary>
+    /// Get indicator status history
+    /// </summary>
+    [HttpGet("indicators/{indicatorId}/history")]
+    public virtual Task<List<QualityIndicatorStatusHistoryDto>> GetIndicatorHistoryAsync(Guid indicatorId)
+    {
+        return _qualityManagementAppService.GetIndicatorHistoryAsync(indicatorId);
+    }
+
+    /// <summary>
+    /// Get task history - supports both ResultApproval and ChangeApproval
+    /// </summary>
+    [HttpGet("{taskId}/history")]
+    public virtual Task<TaskHistoryResponseDto> GetTaskHistoryAsync(Guid taskId)
+    {
+        return _qualityManagementAppService.GetTaskHistoryAsync(taskId);
+    }
+
+    /// <summary>
+    /// Print single result (In KQ Đơn)
+    /// </summary>
+    [HttpPost("{taskId}/print-single")]
+    public virtual Task PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleInput input)
+    {
+        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId);
+    }
+
+    /// <summary>
+    /// Print mixed result (In KQ Hỗn hợp)
+    /// </summary>
+    [HttpPost("{taskId}/print-mixed")]
+    public virtual Task PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedInput input)
+    {
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds);
+    }
+
+    /// <summary>
+    /// Send result to customer (Gửi kết quả)
+    /// </summary>
+    [HttpPost("{taskId}/send-result")]
+    public virtual Task SendResultAsync(Guid taskId)
+    {
+        return _qualityManagementAppService.SendResultAsync(taskId);
+    }
+
+    /// <summary>
+    /// Get standards lookup for dropdown
+    /// </summary>
+    [HttpGet("standards-lookup")]
+    public virtual Task<List<StandardLookupDto>> GetStandardsLookupAsync()
+    {
+        return _qualityManagementAppService.GetStandardsLookupAsync();
+    }
+
+    /// <summary>
+    /// Get standard indicator info for auto-fill reference limit
+    /// </summary>
+    [HttpGet("standard-indicator")]
+    public virtual Task<StandardIndicatorInfoDto?> GetStandardIndicatorInfoAsync(
+        [FromQuery] Guid standardId,
+        [FromQuery] Guid indicatorId,
+        [FromQuery] Guid methodId)
+    {
+        return _qualityManagementAppService.GetStandardIndicatorInfoAsync(standardId, indicatorId, methodId);
+    }
+
+    /// <summary>
+    /// Approve changes (Phê duyệt thay đổi phiếu yêu cầu)
+    /// </summary>
+    [HttpPost("{taskId}/approve-changes")]
+    public virtual Task ApproveChangesAsync(Guid taskId)
+    {
+        return _qualityManagementAppService.ApproveChangesAsync(taskId);
+    }
+
+    /// <summary>
+    /// Reject changes (Từ chối thay đổi phiếu yêu cầu)
+    /// </summary>
+    [HttpPost("{taskId}/reject-changes")]
+    public virtual Task RejectChangesAsync(Guid taskId, [FromBody] RejectChangesInput input)
+    {
+        return _qualityManagementAppService.RejectChangesAsync(taskId, input.Reason);
+    }
+}
+
+/// <summary>
+/// Input DTO for rejecting indicator
+/// </summary>
+public class RejectIndicatorInput
+{
+    public string Reason { get; set; } = null!;
+}
+
+/// <summary>
+/// Input DTO for updating indicator standard
+/// </summary>
+public class UpdateIndicatorStandardInput
+{
+    public Guid? StandardId { get; set; }
+}
+
+/// <summary>
+/// Input DTO for print single
+/// </summary>
+public class PrintSingleInput
+{
+    public Guid IndicatorId { get; set; }
+}
+
+/// <summary>
+/// Input DTO for print mixed
+/// </summary>
+public class PrintMixedInput
+{
+    public List<Guid> IndicatorIds { get; set; } = new();
+}
+
+/// <summary>
+/// Input DTO for rejecting changes
+/// </summary>
+public class RejectChangesInput
+{
+    public string Reason { get; set; } = null!;
+}

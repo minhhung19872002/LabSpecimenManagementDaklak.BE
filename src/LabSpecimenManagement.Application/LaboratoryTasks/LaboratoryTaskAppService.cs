@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +32,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly ITestRequestAppService _testRequestAppService;
+    private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -44,7 +47,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
-        ITestRequestAppService testRequestAppService)
+        ITestRequestAppService testRequestAppService,
+        IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -58,6 +63,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _testRequestAppService = testRequestAppService;
+        _qualityTaskRepository = qualityTaskRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -560,11 +567,61 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         task.Status = LaboratoryTaskStatus.ResultSent;
         await _laboratoryTaskRepository.UpdateAsync(task);
 
+        // Create QualityManagementTask for QLCL to approve results
+        await CreateQualityManagementTaskAsync(task, activeIndicators);
+
         // Update TestRequest status to PendingApproval when all tasks for this TestRequest have sent results
         // In new flow: InProgress → PendingApproval directly (no TestingCompleted status)
         await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
 
         return await MapToDetailDtoAsync(task);
+    }
+
+    /// <summary>
+    /// Tạo QualityManagementTask khi QLKT gửi kết quả
+    /// </summary>
+    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+
+        // Get all tasks for this TestRequest to calculate totals
+        var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == labTask.TestRequestId);
+
+        // Get max RequestCompletionDate from all tasks
+        DateTime? maxCompletionDate = allTasks
+            .Where(t => t.RequestCompletionDate.HasValue)
+            .Select(t => t.RequestCompletionDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
+        // Get samples count
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == labTask.TestRequestId);
+
+        // Create QualityManagementTask
+        var qualityTask = new QualityManagementTask(
+            GuidGenerator.Create(),
+            labTask.TestRequestId,
+            testRequest.ContractNumber ?? "",
+            QualityTaskType.ResultApproval,
+            samples.Count,
+            indicators.Count,
+            labTask.TransferDate,
+            maxCompletionDate
+        );
+        qualityTask.Status = QualityManagementStatus.PendingApproval;
+        await _qualityTaskRepository.InsertAsync(qualityTask);
+
+        // Create QualityManagementIndicator for each indicator
+        foreach (var labIndicator in indicators)
+        {
+            var qualityIndicator = new QualityManagementIndicator(
+                GuidGenerator.Create(),
+                qualityTask.Id,
+                labIndicator.Id
+            );
+            qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+            await _qualityIndicatorRepository.InsertAsync(qualityIndicator);
+        }
     }
 
     public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId)

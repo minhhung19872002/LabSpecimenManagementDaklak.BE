@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.QualityManagement;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -37,6 +38,7 @@ public class TestRequestAppService :
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
+    private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly ICurrentUser _currentUser;
 
@@ -52,6 +54,7 @@ public class TestRequestAppService :
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
+        IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         INotificationAppService notificationAppService,
         ICurrentUser currentUser)
         : base(repository)
@@ -66,6 +69,7 @@ public class TestRequestAppService :
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
+        _qualityTaskRepository = qualityTaskRepository;
         _notificationAppService = notificationAppService;
         _currentUser = currentUser;
     }
@@ -422,12 +426,15 @@ public class TestRequestAppService :
         // DO NOT apply changes to entity - changes will be applied when approved
         if (requiresApproval)
         {
-            var hasChanges = await SaveChangeHistoryAsync(entity, input, previousStatus);
-            if (hasChanges)
+            var changeHistoryId = await SaveChangeHistoryAsync(entity, input, previousStatus);
+            if (changeHistoryId.HasValue)
             {
                 // Only change status to PendingChangeApproval, don't update entity data
                 entity.Status = TestRequestStatus.PendingChangeApproval;
                 await Repository.UpdateAsync(entity, autoSave: true);
+
+                // Create QualityManagementTask for ChangeApproval
+                await CreateQualityManagementTaskForChangeApprovalAsync(entity, changeHistoryId.Value);
             }
             return await GetAsync(id);
         }
@@ -1610,9 +1617,9 @@ public class TestRequestAppService :
     /// NEW: Sử dụng ChangeHistory từ frontend thay vì tự tính toán
     /// Frontend so sánh originalData (từ API response khi load form) với newData (khi submit)
     /// và gửi danh sách các thay đổi lên backend
-    /// Returns true if there are changes, false otherwise
+    /// Returns the first change history ID if there are changes, null otherwise
     /// </summary>
-    private async Task<bool> SaveChangeHistoryAsync(TestRequest entity, UpdateTestRequestDto input, TestRequestStatus previousStatus)
+    private async Task<Guid?> SaveChangeHistoryAsync(TestRequest entity, UpdateTestRequestDto input, TestRequestStatus previousStatus)
     {
         var changes = new List<TestRequestChangeHistory>();
 
@@ -1632,10 +1639,10 @@ public class TestRequestAppService :
             }
         }
 
-        // If there are no changes, return false
+        // If there are no changes, return null
         if (!changes.Any())
         {
-            return false;
+            return null;
         }
 
         // No need to save snapshot anymore since we don't apply changes immediately
@@ -1663,7 +1670,51 @@ public class TestRequestAppService :
             });
         }
 
-        return true;
+        // Return the first change history ID for linking to QualityManagementTask
+        return changes.First().Id;
+    }
+
+    /// <summary>
+    /// Tạo QualityManagementTask cho việc phê duyệt thay đổi phiếu yêu cầu
+    /// </summary>
+    private async Task CreateQualityManagementTaskForChangeApprovalAsync(TestRequest testRequest, Guid changeHistoryId)
+    {
+        // Get sample and indicator counts
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequest.Id);
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var indicators = await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId));
+
+        // Get transfer date and farthest RequestCompletionDate from LaboratoryTasks
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
+
+        DateTime? transferDate = labTasks
+            .Where(lt => lt.TransferDate.HasValue)
+            .Select(lt => lt.TransferDate)
+            .OrderBy(d => d)
+            .FirstOrDefault();
+
+        DateTime? requestCompletionDate = labTasks
+            .Where(lt => lt.RequestCompletionDate.HasValue)
+            .Select(lt => lt.RequestCompletionDate)
+            .OrderByDescending(d => d)
+            .FirstOrDefault();
+
+        // Create QualityManagementTask
+        var task = new QualityManagementTask(
+            GuidGenerator.Create(),
+            testRequest.Id,
+            testRequest.ContractNumber ?? "",
+            QualityTaskType.ChangeApproval,
+            samples.Count,
+            indicators.Count,
+            transferDate,
+            requestCompletionDate
+        )
+        {
+            ChangeHistoryId = changeHistoryId
+        };
+
+        await _qualityTaskRepository.InsertAsync(task);
     }
 
     /// <summary>
