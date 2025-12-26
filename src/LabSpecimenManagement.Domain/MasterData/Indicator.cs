@@ -19,11 +19,6 @@ public class Indicator : FullAuditedAggregateRoot<Guid>
     public string Name { get; set; }
 
     /// <summary>
-    /// Đơn giá (VND)
-    /// </summary>
-    public decimal UnitPrice { get; set; }
-
-    /// <summary>
     /// Trạng thái hoạt động
     /// </summary>
     public bool IsActive { get; set; }
@@ -47,7 +42,6 @@ public class Indicator : FullAuditedAggregateRoot<Guid>
         Code = code;
         Name = name;
         IndicatorGroupId = indicatorGroupId;
-        UnitPrice = 0;
         IsActive = true;
         SortOrder = 0;
     }

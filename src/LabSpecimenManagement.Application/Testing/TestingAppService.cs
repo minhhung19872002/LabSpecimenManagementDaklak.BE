@@ -278,18 +278,22 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
     private TestingStatus CalculateTestingStatus(List<LaboratoryTaskIndicator> indicators)
     {
-        if (!indicators.Any())
+        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        var activeIndicators = indicators.Where(i =>
+            i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+
+        if (!activeIndicators.Any())
         {
             return TestingStatus.Todo;
         }
 
         // "Đang thí nghiệm" = có ≥1 chỉ tiêu đã nhập/lưu nháp (có result) HOẶC đã gửi duyệt (Entered)
-        var anyInProgress = indicators.Any(i =>
+        var anyInProgress = activeIndicators.Any(i =>
             i.ApprovalStatus >= IndicatorApprovalStatus.Entered ||
             !string.IsNullOrWhiteSpace(i.Result));
 
-        // "Đã xong" = TẤT CẢ chỉ tiêu đã được QLKT phê duyệt (Approved)
-        var allApproved = indicators.All(i =>
+        // "Đã xong" = TẤT CẢ chỉ tiêu (trừ KH hủy) đã được QLKT phê duyệt (Approved)
+        var allApproved = activeIndicators.All(i =>
             i.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         if (allApproved)
@@ -330,7 +334,11 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
     private async Task UpdateTaskStatusAsync(LaboratoryTask task)
     {
-        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+
+        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        var taskIndicators = allTaskIndicators.Where(ti =>
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
         if (!taskIndicators.Any())
         {
@@ -355,8 +363,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedMethod;
+            // Có chỉ tiêu chưa gán KTV
+            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
         }
         else if (allApproved)
         {
@@ -375,8 +383,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
         }
         else
         {
-            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedMethod;
+            // Tất cả đã có KTV nhưng chưa gửi duyệt
+            newStatus = LaboratoryTaskStatus.AssignedTechnician;
         }
 
         if (task.Status != newStatus)
@@ -417,9 +425,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
         // Tab "MyAssignments": Show only current user's data
         if (tabType == TestingTabType.MyAssignments && currentUserId.HasValue)
         {
-            var userIndicators = indicators.Where(i => i.TechnicianId == currentUserId.Value).ToList();
+            // Loại trừ CustomerCancelled khỏi danh sách
+            var userIndicators = indicators.Where(i =>
+                i.TechnicianId == currentUserId.Value &&
+                i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
-            // TotalIndicatorCount = count of user's indicators only
+            // TotalIndicatorCount = count of user's active indicators only
             dto.TotalIndicatorCount = userIndicators.Count;
 
             // TotalSampleCount = count of samples that have at least 1 indicator assigned to user
@@ -440,9 +451,11 @@ public class TestingAppService : ApplicationService, ITestingAppService
         }
         else
         {
-            // Tab "All": Show full data
+            // Tab "All": Show full data (loại trừ CustomerCancelled)
+            var activeIndicators = indicators.Where(i =>
+                i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
             dto.TotalSampleCount = task.TotalSampleCount;
-            dto.TotalIndicatorCount = indicators.Count;
+            dto.TotalIndicatorCount = activeIndicators.Count;
 
             // Get all technician names (distinct)
             var technicianIds = indicators
@@ -537,9 +550,10 @@ public class TestingAppService : ApplicationService, ITestingAppService
             dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
         }
 
-        // Count completed indicators
-        dto.CompletedIndicatorCount = taskIndicators.Count(i => i.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        dto.TotalIndicatorCount = taskIndicators.Count;
+        // Count completed indicators (loại trừ CustomerCancelled khỏi tổng số)
+        var activeIndicators = taskIndicators.Where(i => i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+        dto.CompletedIndicatorCount = activeIndicators.Count(i => i.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        dto.TotalIndicatorCount = activeIndicators.Count;
 
         // Group indicators by sample
         var sampleGroups = new Dictionary<Guid, TestingSampleDto>();
@@ -567,11 +581,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
             string? methodName = null;
             string? technicianName = null;
+            string? unit = taskIndicator.Unit;
 
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+                if (string.IsNullOrEmpty(unit) && method != null)
+                {
+                    unit = method.Unit;
+                }
             }
 
             if (taskIndicator.TechnicianId.HasValue)
@@ -605,7 +625,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 IndicatorName = indicator?.Name,
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
-                Unit = taskIndicator.Unit,
+                Unit = unit,
                 Result = taskIndicator.Result,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,

@@ -18,11 +18,6 @@ public class IndicatorGroup : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public bool IsActive { get; set; }
 
-    /// <summary>
-    /// Thứ tự hiển thị
-    /// </summary>
-    public int SortOrder { get; set; }
-
     protected IndicatorGroup()
     {
     }
@@ -31,6 +26,5 @@ public class IndicatorGroup : FullAuditedAggregateRoot<Guid>
     {
         Name = name;
         IsActive = true;
-        SortOrder = 0;
     }
 }

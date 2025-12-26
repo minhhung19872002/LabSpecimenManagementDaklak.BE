@@ -103,7 +103,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var code = await GenerateCodeAsync();
         var entity = new Indicator(GuidGenerator.Create(), code, input.Name, input.IndicatorGroupId)
         {
-            UnitPrice = input.UnitPrice,
             IsActive = input.IsActive,
             SortOrder = input.SortOrder
         };
@@ -148,7 +147,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
             var entity = new Indicator(GuidGenerator.Create(), code, item.Name, input.IndicatorGroupId)
             {
-                UnitPrice = item.UnitPrice,
                 IsActive = true
             };
 
@@ -168,7 +166,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
 
         entity.Name = input.Name;
-        entity.UnitPrice = input.UnitPrice;
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
         entity.SortOrder = input.SortOrder;
@@ -282,24 +279,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 continue;
             }
 
-            // Validate and parse price
-            decimal unitPrice = 0;
-            if (!string.IsNullOrWhiteSpace(priceStr))
-            {
-                priceStr = priceStr.Replace(",", "").Replace(".", "").Replace("đ", "").Replace("VND", "").Trim();
-                if (!decimal.TryParse(priceStr, out unitPrice))
-                {
-                    result.ErrorCount++;
-                    result.Errors.Add(new ImportIndicatorErrorDto
-                    {
-                        RowNumber = rowNumber,
-                        IndicatorName = name,
-                        ErrorMessage = "Đơn giá không hợp lệ"
-                    });
-                    continue;
-                }
-            }
-
             // Validate group
             if (string.IsNullOrWhiteSpace(groupName))
             {
@@ -332,7 +311,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 var code = $"CT-{(nextSequence + sequenceOffset).ToString("D4")}";
                 var entity = new Indicator(GuidGenerator.Create(), code, name, groups[groupKey])
                 {
-                    UnitPrice = unitPrice,
                     IsActive = true
                 };
 

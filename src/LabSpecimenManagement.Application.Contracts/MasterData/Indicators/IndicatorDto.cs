@@ -12,7 +12,6 @@ public class IndicatorDto : FullAuditedEntityDto<Guid>
 {
     public string Code { get; set; }
     public string Name { get; set; }
-    public decimal UnitPrice { get; set; }
     public bool IsActive { get; set; }
     public Guid IndicatorGroupId { get; set; }
     public string IndicatorGroupName { get; set; }
@@ -28,9 +27,6 @@ public class CreateIndicatorDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
-
-    [Range(0, double.MaxValue, ErrorMessage = "Đơn giá phải lớn hơn hoặc bằng 0")]
-    public decimal UnitPrice { get; set; }
 
     public bool IsActive { get; set; } = true;
 
@@ -48,9 +44,6 @@ public class UpdateIndicatorDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
-
-    [Range(0, double.MaxValue, ErrorMessage = "Đơn giá phải lớn hơn hoặc bằng 0")]
-    public decimal UnitPrice { get; set; }
 
     public bool IsActive { get; set; }
 
@@ -81,9 +74,6 @@ public class BulkIndicatorItemDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
-
-    [Range(0, double.MaxValue, ErrorMessage = "Đơn giá phải lớn hơn hoặc bằng 0")]
-    public decimal UnitPrice { get; set; }
 }
 
 /// <summary>

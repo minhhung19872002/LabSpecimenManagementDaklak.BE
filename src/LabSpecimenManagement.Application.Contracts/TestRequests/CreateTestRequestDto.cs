@@ -220,3 +220,31 @@ public class CreateTestRequestSampleIndicatorDto
     /// </summary>
     public bool SentToDepartment { get; set; }
 }
+
+/// <summary>
+/// DTO for deserializing sample changes from JSON in change history
+/// </summary>
+public class SampleChangeDto
+{
+    public Guid? Id { get; set; }
+    public string? SampleCode { get; set; }
+    public string? SampleName { get; set; }
+    public string? SamplingAddress { get; set; }
+    public string? SampleQuantity { get; set; }
+    public string? Notes { get; set; }
+    public string? StorageLocation { get; set; }
+    public List<IndicatorChangeDto>? Indicators { get; set; }
+}
+
+/// <summary>
+/// DTO for deserializing indicator changes from JSON in change history
+/// </summary>
+public class IndicatorChangeDto
+{
+    public Guid? Id { get; set; }
+    public Guid IndicatorId { get; set; }
+    public Guid? TestMethodId { get; set; }
+    public Guid? LaboratoryId { get; set; }
+    public decimal UnitPrice { get; set; }
+    public string? Notes { get; set; }
+}

@@ -21,6 +21,8 @@ using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.QualityManagement;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -77,6 +79,15 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+
+    // Change History and Notifications
+    public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
+    public DbSet<Notification> Notifications { get; set; }
+
+    // Quality Management Entities
+    public DbSet<QualityManagementTask> QualityManagementTasks { get; set; }
+    public DbSet<QualityManagementIndicator> QualityManagementIndicators { get; set; }
+    public DbSet<QualityIndicatorStatusHistory> QualityIndicatorStatusHistories { get; set; }
 
     #region Entities from the modules
 
@@ -417,7 +428,6 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
-            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
 
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);
@@ -688,6 +698,107 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.Indicator)
                 .WithMany(x => x.RejectionHistories)
                 .HasForeignKey(x => x.IndicatorId)
+                .IsRequired();
+        });
+
+        // ============ TEST REQUEST CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<TestRequestChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FieldName).IsRequired().HasMaxLength(100);
+            b.Property(x => x.OldValue).HasColumnType("text");
+            b.Property(x => x.NewValue).HasColumnType("text");
+            b.Property(x => x.RejectionReason).HasMaxLength(1000);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.ApprovalStatus);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne<TestRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+        });
+
+        // ============ NOTIFICATION CONFIGURATION ============
+
+        builder.Entity<Notification>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Notifications", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Message).IsRequired().HasMaxLength(2000);
+            b.Property(x => x.ReferenceId).HasMaxLength(100);
+            b.Property(x => x.ReferenceType).HasMaxLength(100);
+
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => new { x.UserId, x.IsRead });
+            b.HasIndex(x => x.CreationTime);
+        });
+
+        // ============ QUALITY MANAGEMENT CONFIGURATION ============
+
+        builder.Entity<QualityManagementTask>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QualityManagementTasks", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ContractNumber).IsRequired().HasMaxLength(100);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.ContractNumber);
+            b.HasIndex(x => x.TaskType);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.TransferDate);
+            b.HasIndex(x => x.RequestCompletionDate);
+            b.HasIndex(x => x.ChangeHistoryId);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired();
+        });
+
+        builder.Entity<QualityManagementIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QualityManagementIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.ReferenceLimit).HasMaxLength(500);
+            b.Property(x => x.RejectionReason).HasMaxLength(1000);
+
+            b.HasIndex(x => x.QualityManagementTaskId);
+            b.HasIndex(x => x.LaboratoryTaskIndicatorId);
+            b.HasIndex(x => x.StandardId);
+            b.HasIndex(x => x.ApprovalStatus);
+
+            b.HasOne(x => x.QualityManagementTask)
+                .WithMany(x => x.Indicators)
+                .HasForeignKey(x => x.QualityManagementTaskId)
+                .IsRequired();
+
+            b.HasOne(x => x.LaboratoryTaskIndicator)
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryTaskIndicatorId)
+                .IsRequired();
+        });
+
+        builder.Entity<QualityIndicatorStatusHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QualityIndicatorStatusHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Comment).HasMaxLength(1000);
+
+            b.HasIndex(x => x.QualityManagementIndicatorId);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne(x => x.QualityManagementIndicator)
+                .WithMany()
+                .HasForeignKey(x => x.QualityManagementIndicatorId)
                 .IsRequired();
         });
     }

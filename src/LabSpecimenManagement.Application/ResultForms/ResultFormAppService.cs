@@ -177,8 +177,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         ProcessDocument(outputPath, placeholders, tableData);
 
         // Update TestRequest status to PendingApproval after printing result form
-        // Only update if current status is TestingCompleted
-        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        // Only update if current status is InProgress (replaced TestingCompleted in new flow)
+        if (testRequest.Status == TestRequestStatus.InProgress)
         {
             testRequest.Status = TestRequestStatus.PendingApproval;
             await _testRequestRepository.UpdateAsync(testRequest);
@@ -479,8 +479,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         return maxStatus switch
         {
-            LaboratoryTaskStatus.NotAssignedMethod => "Chưa gán phương pháp",
-            LaboratoryTaskStatus.AssignedMethod => "Đã gán phương pháp",
+            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
+            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
             LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
@@ -628,8 +628,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         ProcessDocument(outputPath, placeholders, tableData);
 
         // Update TestRequest status to PendingApproval after printing result form
-        // Only update if current status is TestingCompleted
-        if (testRequest.Status == TestRequestStatus.TestingCompleted)
+        // Only update if current status is InProgress (replaced TestingCompleted in new flow)
+        if (testRequest.Status == TestRequestStatus.InProgress)
         {
             testRequest.Status = TestRequestStatus.PendingApproval;
             await _testRequestRepository.UpdateAsync(testRequest);

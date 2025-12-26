@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
@@ -31,6 +32,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly ITestRequestAppService _testRequestAppService;
+    private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
+    private readonly IRepository<QualityIndicatorStatusHistory, Guid> _qualityIndicatorHistoryRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -44,7 +48,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
-        ITestRequestAppService testRequestAppService)
+        ITestRequestAppService testRequestAppService,
+        IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
+        IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -58,6 +65,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _testRequestAppService = testRequestAppService;
+        _qualityTaskRepository = qualityTaskRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
+        _qualityIndicatorHistoryRepository = qualityIndicatorHistoryRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -251,6 +261,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             TestDate = task.TestDate,
             Status = task.Status,
             Notes = task.Notes,
+            ResultRejectionReason = task.ResultRejectionReason,
             CreationTime = task.CreationTime,
             LastModificationTime = task.LastModificationTime
         };
@@ -328,10 +339,16 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
                 approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
             }
+            string? unit = taskIndicator.Unit;
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+                if (string.IsNullOrEmpty(unit) && method != null)
+                {
+                    unit = method.Unit;
+                }
             }
 
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
@@ -352,7 +369,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
                 Result = taskIndicator.Result,
-                Unit = taskIndicator.Unit,
+                Unit = unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
                 EnteredByName = enteredByName,
@@ -532,8 +549,19 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
 
-        // Validate: All indicators must be approved
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // Filter out CustomerCancelled indicators - they should not block sending results
+        var activeIndicators = taskIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        // Validate: Must have at least one active indicator
+        if (!activeIndicators.Any())
+        {
+            throw new UserFriendlyException("Không có chỉ tiêu nào để gửi kết quả");
+        }
+
+        // Validate: All active indicators must be approved
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         if (!allApproved)
         {
             throw new UserFriendlyException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả");
@@ -542,16 +570,155 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         task.Status = LaboratoryTaskStatus.ResultSent;
         await _laboratoryTaskRepository.UpdateAsync(task);
 
-        // Update TestRequest status to TestingCompleted when all tasks for this TestRequest have sent results
-        await TryUpdateTestRequestToTestingCompletedAsync(task.TestRequestId);
+        // Create QualityManagementTask for QLCL to approve results
+        await CreateQualityManagementTaskAsync(task, activeIndicators);
+
+        // Update TestRequest status to PendingApproval when all tasks for this TestRequest have sent results
+        // In new flow: InProgress → PendingApproval directly (no TestingCompleted status)
+        await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
 
         return await MapToDetailDtoAsync(task);
     }
 
-    public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid indicatorId)
+    /// <summary>
+    /// Tạo hoặc cập nhật QualityManagementTask khi QLKT gửi kết quả
+    /// - Nếu chỉ tiêu đã có record QLCL (bị từ chối trước đó): update record hiện tại + lưu lịch sử
+    /// - Nếu chưa có: thêm vào task hiện có hoặc tạo mới nếu chưa có task nào
+    /// Mỗi TestRequest chỉ có DUY NHẤT 1 QualityManagementTask loại ResultApproval
+    /// </summary>
+    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+
+        // Find existing ResultApproval task for this TestRequest (should be unique)
+        var existingTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == labTask.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+
+        // Check existing QualityManagementIndicators for these lab indicators (for resubmission case)
+        var labIndicatorIds = indicators.Select(i => i.Id).ToList();
+        var existingQualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            qi => labIndicatorIds.Contains(qi.LaboratoryTaskIndicatorId));
+
+        // Separate indicators: those that need resubmission vs new ones
+        var indicatorsToResubmit = new List<(LaboratoryTaskIndicator LabIndicator, QualityManagementIndicator QualityIndicator)>();
+        var indicatorsToCreate = new List<LaboratoryTaskIndicator>();
+
+        foreach (var labIndicator in indicators)
+        {
+            var existingQI = existingQualityIndicators.FirstOrDefault(qi => qi.LaboratoryTaskIndicatorId == labIndicator.Id);
+            if (existingQI != null && existingQI.ApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+            {
+                // This indicator was rejected before, need to resubmit (update existing record)
+                indicatorsToResubmit.Add((labIndicator, existingQI));
+            }
+            else if (existingQI == null)
+            {
+                // New indicator, need to create
+                indicatorsToCreate.Add(labIndicator);
+            }
+            // If existingQI exists with Approved/PendingApproval status, skip (already handled)
+        }
+
+        // Handle resubmission: update existing QualityManagementIndicator records
+        if (indicatorsToResubmit.Any())
+        {
+            foreach (var (labIndicator, qualityIndicator) in indicatorsToResubmit)
+            {
+                var oldStatus = qualityIndicator.ApprovalStatus;
+
+                // Update status back to PendingApproval
+                qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+                qualityIndicator.RejectionReason = null; // Clear rejection reason
+                qualityIndicator.ApprovalDate = null;
+                qualityIndicator.ApprovedById = null;
+                await _qualityIndicatorRepository.UpdateAsync(qualityIndicator);
+
+                // Create history record for resubmission
+                var history = new QualityIndicatorStatusHistory(
+                    GuidGenerator.Create(),
+                    qualityIndicator.Id,
+                    oldStatus,
+                    QualityIndicatorApprovalStatus.PendingApproval,
+                    "Gửi lại kết quả sau khi bị từ chối"
+                );
+                await _qualityIndicatorHistoryRepository.InsertAsync(history);
+            }
+
+            // Update QualityManagementTask status back to PendingApproval
+            if (existingTask != null && existingTask.Status == QualityManagementStatus.Rejected)
+            {
+                existingTask.Status = QualityManagementStatus.PendingApproval;
+                await _qualityTaskRepository.UpdateAsync(existingTask);
+            }
+        }
+
+        // Handle new indicators: add to existing task or create new task
+        if (indicatorsToCreate.Any())
+        {
+            QualityManagementTask qualityTask;
+
+            if (existingTask != null)
+            {
+                // Use existing task - update indicator count and status
+                qualityTask = existingTask;
+                qualityTask.TotalIndicatorCount += indicatorsToCreate.Count;
+
+                // If task was rejected/approved, reset to PendingApproval since new indicators added
+                if (qualityTask.Status != QualityManagementStatus.PendingApproval)
+                {
+                    qualityTask.Status = QualityManagementStatus.PendingApproval;
+                }
+                await _qualityTaskRepository.UpdateAsync(qualityTask);
+            }
+            else
+            {
+                // Create new task (first time for this TestRequest)
+                // Get all tasks for this TestRequest to calculate totals
+                var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == labTask.TestRequestId);
+
+                // Get max RequestCompletionDate from all tasks
+                DateTime? maxCompletionDate = allTasks
+                    .Where(t => t.RequestCompletionDate.HasValue)
+                    .Select(t => t.RequestCompletionDate!.Value)
+                    .DefaultIfEmpty()
+                    .Max();
+
+                // Get samples count
+                var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == labTask.TestRequestId);
+
+                qualityTask = new QualityManagementTask(
+                    GuidGenerator.Create(),
+                    labTask.TestRequestId,
+                    testRequest.ContractNumber ?? "",
+                    QualityTaskType.ResultApproval,
+                    samples.Count,
+                    indicatorsToCreate.Count,
+                    labTask.TransferDate,
+                    maxCompletionDate
+                );
+                qualityTask.Status = QualityManagementStatus.PendingApproval;
+                await _qualityTaskRepository.InsertAsync(qualityTask);
+            }
+
+            // Create QualityManagementIndicator for each new indicator
+            foreach (var labIndicator in indicatorsToCreate)
+            {
+                var qualityIndicator = new QualityManagementIndicator(
+                    GuidGenerator.Create(),
+                    qualityTask.Id,
+                    labIndicator.Id
+                );
+                qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+                await _qualityIndicatorRepository.InsertAsync(qualityIndicator);
+            }
+        }
+    }
+
+    public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId)
     {
         // For now, return all active methods
-        // Later can add filtering logic based on indicator-method relationship
+        // indicatorId is optional - later can add filtering logic based on indicator-method relationship
         var methods = await _testMethodRepository.GetListAsync(x => x.IsActive);
         var dtos = methods
             .OrderBy(m => m.SortOrder)
@@ -623,20 +790,31 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Check conditions - LOGIC MỚI
-        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-        var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-        var allEnteredOrApproved = taskIndicators.All(ti =>
+        // Filter out CustomerCancelled indicators - they should not affect task status calculation
+        var activeIndicators = taskIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        // If all indicators are cancelled, keep current status or set to a default
+        if (!activeIndicators.Any())
+        {
+            return;
+        }
+
+        // Check conditions - LOGIC MỚI (only check active indicators)
+        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+        var allEnteredOrApproved = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
             ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         LaboratoryTaskStatus newStatus;
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gắn phương pháp HOẶC chưa assign KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedMethod;
+            // Có chỉ tiêu chưa gán KTV
+            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
         }
         else if (allApproved)
         {
@@ -655,8 +833,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
         else
         {
-            // Tất cả đã có method + KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedMethod;
+            // Tất cả đã có KTV nhưng chưa gửi duyệt
+            newStatus = LaboratoryTaskStatus.AssignedTechnician;
         }
 
         if (task.Status != newStatus)
@@ -668,12 +846,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Kiểm tra xem task có thể chỉnh sửa không dựa trên trạng thái
-    /// Chỉ cho phép edit khi: Chưa gắn PP hoặc Đã gán PP
+    /// Cho phép edit khi: Chưa gán KTV, Đã gán KTV, hoặc Bị từ chối (để giao việc lại)
     /// </summary>
     private static bool CanEditTask(LaboratoryTaskStatus status)
     {
-        return status == LaboratoryTaskStatus.NotAssignedMethod ||
-               status == LaboratoryTaskStatus.AssignedMethod;
+        return status == LaboratoryTaskStatus.NotAssignedTechnician ||
+               status == LaboratoryTaskStatus.AssignedTechnician ||
+               status == LaboratoryTaskStatus.ResultRejected;
     }
 
     /// <summary>
@@ -683,12 +862,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         return status switch
         {
-            LaboratoryTaskStatus.NotAssignedMethod => "Chưa gắn phương pháp",
-            LaboratoryTaskStatus.AssignedMethod => "Đã gán phương pháp",
+            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
+            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
             LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
             LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
+            LaboratoryTaskStatus.ResultRejected => "Bị từ chối kết quả",
             _ => status.ToString()
         };
     }
@@ -719,9 +899,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     }
 
     /// <summary>
-    /// Kiểm tra và cập nhật TestRequest sang TestingCompleted khi tất cả tasks đã gửi kết quả
+    /// Kiểm tra và cập nhật TestRequest sang PendingApproval khi tất cả tasks đã gửi kết quả
+    /// In new flow: InProgress → PendingApproval directly (no TestingCompleted status)
     /// </summary>
-    private async Task TryUpdateTestRequestToTestingCompletedAsync(Guid testRequestId)
+    private async Task TryUpdateTestRequestToPendingApprovalAsync(Guid testRequestId)
     {
         // Get all tasks for this TestRequest
         var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
@@ -735,7 +916,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var allResultsSent = allTasks.All(t => t.Status == LaboratoryTaskStatus.ResultSent);
         if (allResultsSent)
         {
-            await _testRequestAppService.UpdateToTestingCompletedAsync(testRequestId);
+            // In new flow, go directly to PendingApproval
+            await _testRequestAppService.UpdateToPendingApprovalAsync(testRequestId);
         }
     }
 
@@ -778,10 +960,16 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
             approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
         }
+        string? unit = taskIndicator.Unit;
         if (taskIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
             methodName = method?.Name;
+            // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+            if (string.IsNullOrEmpty(unit) && method != null)
+            {
+                unit = method.Unit;
+            }
         }
 
         return new LaboratoryTaskIndicatorDto
@@ -802,7 +990,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
             Result = taskIndicator.Result,
-            Unit = taskIndicator.Unit,
+            Unit = unit,
             EntryDate = taskIndicator.EntryDate,
             EnteredById = taskIndicator.EnteredById,
             EnteredByName = enteredByName,

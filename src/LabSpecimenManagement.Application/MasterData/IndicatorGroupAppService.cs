@@ -45,8 +45,7 @@ public class IndicatorGroupAppService :
         var query = await Repository.GetQueryableAsync();
         var items = query
             .Where(x => x.IsActive)
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderBy(x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
@@ -65,8 +64,7 @@ public class IndicatorGroupAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderBy(x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
@@ -88,8 +86,7 @@ public class IndicatorGroupAppService :
         var totalCount = query.Count();
 
         var items = query
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderBy(x => x.Name)
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount)
             .ToList();
@@ -110,8 +107,7 @@ public class IndicatorGroupAppService :
     {
         return new IndicatorGroup(GuidGenerator.Create(), createInput.Name)
         {
-            IsActive = createInput.IsActive,
-            SortOrder = createInput.SortOrder
+            IsActive = createInput.IsActive
         };
     }
 
@@ -119,7 +115,6 @@ public class IndicatorGroupAppService :
     {
         entity.Name = updateInput.Name;
         entity.IsActive = updateInput.IsActive;
-        entity.SortOrder = updateInput.SortOrder;
     }
 
     [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Import)]
@@ -134,8 +129,6 @@ public class IndicatorGroupAppService :
         // Read Excel using MiniExcel
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
         result.TotalRows = rows.Count;
-
-        var sortOrder = existingQuery.Count();
 
         foreach (var row in rows.Select((value, index) => new { value, index }))
         {
@@ -186,11 +179,9 @@ public class IndicatorGroupAppService :
             // Create indicator group
             try
             {
-                sortOrder++;
                 var entity = new IndicatorGroup(GuidGenerator.Create(), name)
                 {
-                    IsActive = true,
-                    SortOrder = sortOrder
+                    IsActive = true
                 };
 
                 await Repository.InsertAsync(entity, autoSave: true);

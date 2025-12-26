@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.LaboratoryTasks;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.TestRequests;
@@ -153,4 +154,10 @@ public class TestRequestSampleIndicatorDto
     /// Đã gửi khoa phòng
     /// </summary>
     public bool SentToDepartment { get; set; }
+
+    /// <summary>
+    /// Trạng thái duyệt của chỉ tiêu trong LaboratoryTaskIndicator
+    /// null nếu chưa gửi mẫu, có giá trị nếu đã gửi mẫu
+    /// </summary>
+    public IndicatorApprovalStatus? ApprovalStatus { get; set; }
 }

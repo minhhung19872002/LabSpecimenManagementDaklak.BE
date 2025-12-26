@@ -86,6 +86,17 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Reject result - QLCL rejects result, update status back to InProgress
+    /// Trả lại cho QLKT xem xét
+    /// </summary>
+    [HttpPost("{id}/reject-result")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task RejectResultAsync(Guid id, [FromBody] RejectChangesDto input)
+    {
+        return _testRequestAppService.RejectResultAsync(id, input.Reason);
+    }
+
+    /// <summary>
     /// Send result to customer - update status to ResultSent
     /// </summary>
     [HttpPost("{id}/send-result")]
@@ -103,5 +114,55 @@ public class TestRequestController : LabSpecimenManagementController
     public virtual Task CompleteAsync(Guid id)
     {
         return _testRequestAppService.CompleteAsync(id);
+    }
+
+    /// <summary>
+    /// Send sample - update status from Pending to SampleSent
+    /// </summary>
+    [HttpPost("{id}/send-sample")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task SendSampleAsync(Guid id)
+    {
+        return _testRequestAppService.SendSampleAsync(id);
+    }
+
+    /// <summary>
+    /// Approve changes - QLCL approves changes, update status back to previous status
+    /// </summary>
+    [HttpPost("{id}/approve-changes")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task ApproveChangesAsync(Guid id)
+    {
+        return _testRequestAppService.ApproveChangesAsync(id);
+    }
+
+    /// <summary>
+    /// Reject changes - QLCL rejects changes, rollback data and update status back to previous status
+    /// </summary>
+    [HttpPost("{id}/reject-changes")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task RejectChangesAsync(Guid id, [FromBody] RejectChangesDto input)
+    {
+        return _testRequestAppService.RejectChangesAsync(id, input.Reason);
+    }
+
+    /// <summary>
+    /// Get change history for a test request
+    /// </summary>
+    [HttpGet("{id}/change-history")]
+    public virtual Task<System.Collections.Generic.List<TestRequestChangeHistoryDto>> GetChangeHistoryAsync(Guid id)
+    {
+        return _testRequestAppService.GetChangeHistoryAsync(id);
+    }
+
+    /// <summary>
+    /// Kiểm tra số hợp đồng có tồn tại không
+    /// </summary>
+    /// <param name="contractNumber">Số hợp đồng cần kiểm tra</param>
+    /// <param name="excludeId">ID của phiếu yêu cầu cần loại trừ (dùng khi update)</param>
+    [HttpGet("check-contract-number")]
+    public virtual Task<bool> CheckContractNumberExistsAsync([FromQuery] string contractNumber, [FromQuery] Guid? excludeId = null)
+    {
+        return _testRequestAppService.CheckContractNumberExistsAsync(contractNumber, excludeId);
     }
 }

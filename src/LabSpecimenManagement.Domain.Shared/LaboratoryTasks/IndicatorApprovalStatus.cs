@@ -23,5 +23,10 @@ public enum IndicatorApprovalStatus
     /// <summary>
     /// Không duyệt (Từ chối) - Rejected
     /// </summary>
-    Rejected = 3
+    Rejected = 3,
+
+    /// <summary>
+    /// Khách hàng hủy - CustomerCancelled
+    /// </summary>
+    CustomerCancelled = 4
 }

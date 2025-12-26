@@ -78,10 +78,9 @@ public class TestRequestSampleIndicator : Entity<Guid>
     {
     }
 
-    public TestRequestSampleIndicator(Guid id, Guid testRequestSampleId, Guid indicatorId, decimal unitPrice) : base(id)
+    public TestRequestSampleIndicator(Guid id, Guid testRequestSampleId, Guid indicatorId) : base(id)
     {
         TestRequestSampleId = testRequestSampleId;
         IndicatorId = indicatorId;
-        UnitPrice = unitPrice;
     }
 }
