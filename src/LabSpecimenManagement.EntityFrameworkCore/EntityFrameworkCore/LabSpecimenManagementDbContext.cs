@@ -40,6 +40,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TestRequest> TestRequests { get; set; }
     public DbSet<TestRequestAttachment> TestRequestAttachments { get; set; }
     public DbSet<TestRequestSample> TestRequestSamples { get; set; }
+    public DbSet<TestRequestSampleAttachment> TestRequestSampleAttachments { get; set; }
     public DbSet<TestRequestSampleIndicator> TestRequestSampleIndicators { get; set; }
     public DbSet<Specimen> Specimens { get; set; }
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
@@ -232,6 +233,25 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestMethodId)
                 .IsRequired(false);
+        });
+
+        // TestRequestSampleAttachment configuration
+        builder.Entity<TestRequestSampleAttachment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestSampleAttachments", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(100);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.TestRequestSampleId);
+            b.HasIndex(x => x.FileId).IsUnique();
+
+            b.HasOne(x => x.Sample)
+                .WithMany(x => x.Attachments)
+                .HasForeignKey(x => x.TestRequestSampleId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // TestRequestAttachment configuration

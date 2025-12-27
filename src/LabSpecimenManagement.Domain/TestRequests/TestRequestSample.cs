@@ -79,9 +79,15 @@ public class TestRequestSample : FullAuditedEntity<Guid>
     /// </summary>
     public virtual ICollection<TestRequestSampleIndicator> Indicators { get; set; }
 
+    /// <summary>
+    /// Collection of attachments (images) for this sample
+    /// </summary>
+    public virtual ICollection<TestRequestSampleAttachment> Attachments { get; set; }
+
     protected TestRequestSample()
     {
         Indicators = new List<TestRequestSampleIndicator>();
+        Attachments = new List<TestRequestSampleAttachment>();
     }
 
     public TestRequestSample(Guid id, Guid testRequestId, string sampleCode, string sampleName) : base(id)
@@ -90,5 +96,6 @@ public class TestRequestSample : FullAuditedEntity<Guid>
         SampleCode = sampleCode;
         SampleName = sampleName;
         Indicators = new List<TestRequestSampleIndicator>();
+        Attachments = new List<TestRequestSampleAttachment>();
     }
 }

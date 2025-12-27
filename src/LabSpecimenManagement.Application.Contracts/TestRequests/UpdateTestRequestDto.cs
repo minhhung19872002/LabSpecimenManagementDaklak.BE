@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using LabSpecimenManagement.Files;
 
 namespace LabSpecimenManagement.TestRequests;
 
@@ -203,6 +204,11 @@ public class UpdateTestRequestSampleDto
     public string? StorageLocation { get; set; }
 
     public List<UpdateTestRequestSampleIndicatorDto> Indicators { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách hình ảnh đính kèm (đã upload trước đó)
+    /// </summary>
+    public List<AttachmentInputDto>? Attachments { get; set; }
 }
 
 public class UpdateTestRequestSampleIndicatorDto

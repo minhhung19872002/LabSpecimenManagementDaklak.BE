@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.Files;
 using LabSpecimenManagement.LaboratoryTasks;
 using Volo.Abp.Application.Dtos;
 
@@ -102,6 +103,11 @@ public class TestRequestSampleDto
     public string? StorageLocation { get; set; }
     public decimal TotalIndicatorCost { get; set; }
     public List<TestRequestSampleIndicatorDto> Indicators { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách hình ảnh đính kèm của mẫu
+    /// </summary>
+    public List<SampleAttachmentDto> Attachments { get; set; } = new();
 }
 
 public class TestRequestSampleIndicatorDto

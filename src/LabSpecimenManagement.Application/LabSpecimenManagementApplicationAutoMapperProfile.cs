@@ -1,4 +1,5 @@
 using AutoMapper;
+using LabSpecimenManagement.Files;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.MasterData.Organizations;
@@ -6,6 +7,7 @@ using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
+using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.TestResults;
 
 namespace LabSpecimenManagement;
@@ -30,7 +32,12 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
 
         // TestRequestSample mappings
         CreateMap<TestRequests.TestRequestSample, TestRequests.TestRequestSampleDto>()
-            .ForMember(dest => dest.Indicators, opt => opt.Ignore()); // Loaded separately in AppService
+            .ForMember(dest => dest.Indicators, opt => opt.Ignore()) // Loaded separately in AppService
+            .ForMember(dest => dest.Attachments, opt => opt.Ignore()); // Mapped separately with URL
+
+        // TestRequestSampleAttachment mappings
+        CreateMap<TestRequestSampleAttachment, SampleAttachmentDto>()
+            .ForMember(dest => dest.Url, opt => opt.MapFrom(src => $"/api/v1/files/{src.FileId}"));
 
         // Specimen mappings
         CreateMap<TestRequests.Specimen, Specimens.SpecimenDto>();

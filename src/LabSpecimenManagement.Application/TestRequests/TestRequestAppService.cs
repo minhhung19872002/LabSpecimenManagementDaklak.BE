@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Files;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
@@ -39,6 +40,7 @@ public class TestRequestAppService :
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly ICurrentUser _currentUser;
 
@@ -55,6 +57,7 @@ public class TestRequestAppService :
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         INotificationAppService notificationAppService,
         ICurrentUser currentUser)
         : base(repository)
@@ -70,6 +73,7 @@ public class TestRequestAppService :
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
         _qualityTaskRepository = qualityTaskRepository;
+        _attachmentRepository = attachmentRepository;
         _notificationAppService = notificationAppService;
         _currentUser = currentUser;
     }
@@ -154,6 +158,17 @@ public class TestRequestAppService :
             // Calculate sample total cost from indicators
             sampleDto.TotalIndicatorCost = sampleIndicatorCost;
             calculatedTotalCost += sampleIndicatorCost;
+
+            // Load attachments for this sample
+            var attachments = await _attachmentRepository.GetListAsync(a => a.TestRequestSampleId == sample.Id);
+            sampleDto.Attachments = attachments.Select(a => new SampleAttachmentDto
+            {
+                Id = a.Id,
+                FileId = a.FileId,
+                FileName = a.FileName,
+                FileSize = a.FileSize,
+                Url = $"/api/v1/files/{a.FileId}"
+            }).ToList();
 
             dto.Samples.Add(sampleDto);
         }
@@ -391,6 +406,23 @@ public class TestRequestAppService :
                 sample.TotalIndicatorCost = sampleIndicatorCost;
                 await _sampleRepository.UpdateAsync(sample, autoSave: true);
                 totalCost += sampleIndicatorCost;
+
+                // Create sample attachments
+                if (sampleDto.Attachments != null && sampleDto.Attachments.Any())
+                {
+                    foreach (var attachmentInput in sampleDto.Attachments)
+                    {
+                        var attachment = new TestRequestSampleAttachment(
+                            GuidGenerator.Create(),
+                            sample.Id,
+                            attachmentInput.FileId,
+                            attachmentInput.FileName,
+                            $"uploads/samples/{attachmentInput.FileId}",
+                            attachmentInput.FileSize
+                        );
+                        await _attachmentRepository.InsertAsync(attachment, autoSave: true);
+                    }
+                }
             }
 
             // Update entity total cost if not set
@@ -671,6 +703,41 @@ public class TestRequestAppService :
                 sample.TotalIndicatorCost = sampleIndicatorCost;
                 await _sampleRepository.UpdateAsync(sample, autoSave: true);
                 totalCost += sampleIndicatorCost;
+
+                // Update sample attachments
+                if (sampleDto.Attachments != null)
+                {
+                    // Get existing attachments
+                    var existingAttachments = await _attachmentRepository.GetListAsync(a => a.TestRequestSampleId == sample.Id);
+                    var existingFileIds = existingAttachments.Select(a => a.FileId).ToList();
+                    var inputFileIds = sampleDto.Attachments.Select(a => a.FileId).ToList();
+
+                    // Delete attachments not in input
+                    foreach (var existingAttachment in existingAttachments)
+                    {
+                        if (!inputFileIds.Contains(existingAttachment.FileId))
+                        {
+                            await _attachmentRepository.DeleteAsync(existingAttachment);
+                        }
+                    }
+
+                    // Add new attachments
+                    foreach (var attachmentInput in sampleDto.Attachments)
+                    {
+                        if (!existingFileIds.Contains(attachmentInput.FileId))
+                        {
+                            var attachment = new TestRequestSampleAttachment(
+                                GuidGenerator.Create(),
+                                sample.Id,
+                                attachmentInput.FileId,
+                                attachmentInput.FileName,
+                                $"uploads/samples/{attachmentInput.FileId}",
+                                attachmentInput.FileSize
+                            );
+                            await _attachmentRepository.InsertAsync(attachment, autoSave: true);
+                        }
+                    }
+                }
             }
 
             // Update total cost if changed
