@@ -36,16 +36,32 @@ public class TestRequestController : LabSpecimenManagementController
 
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Create)]
-    public virtual Task<TestRequestDto> CreateAsync([FromBody] CreateTestRequestDto input)
+    public virtual async Task<IActionResult> CreateAsync([FromBody] CreateTestRequestDto input)
     {
-        return _testRequestAppService.CreateAsync(input);
+        try
+        {
+            var result = await _testRequestAppService.CreateAsync(input);
+            return Ok(result);
+        }
+        catch (TestRequestValidationException ex)
+        {
+            return BadRequest(ex.Errors);
+        }
     }
 
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task<TestRequestDto> UpdateAsync(Guid id, [FromBody] UpdateTestRequestDto input)
+    public virtual async Task<IActionResult> UpdateAsync(Guid id, [FromBody] UpdateTestRequestDto input)
     {
-        return _testRequestAppService.UpdateAsync(id, input);
+        try
+        {
+            var result = await _testRequestAppService.UpdateAsync(id, input);
+            return Ok(result);
+        }
+        catch (TestRequestValidationException ex)
+        {
+            return BadRequest(ex.Errors);
+        }
     }
 
     [HttpDelete("{id}")]

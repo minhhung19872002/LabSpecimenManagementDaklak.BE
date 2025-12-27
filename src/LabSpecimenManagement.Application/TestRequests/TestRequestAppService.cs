@@ -350,6 +350,16 @@ public class TestRequestAppService :
 
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
+        // Validate contract number is unique
+        if (!string.IsNullOrWhiteSpace(input.ContractNumber))
+        {
+            var contractExists = await CheckContractNumberExistsAsync(input.ContractNumber);
+            if (contractExists)
+            {
+                throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+            }
+        }
+
         // Auto-create Organization if customerName doesn't exist
         await EnsureOrganizationExistsAsync(input.CustomerName);
 
@@ -452,6 +462,16 @@ public class TestRequestAppService :
         var entity = await Repository.GetAsync(id);
         var previousStatus = entity.Status;
         var requiresApproval = CanEditLimitedInfo(entity.Status); // SampleSent or InProgress
+
+        // Validate contract number is unique (exclude current record)
+        if (!string.IsNullOrWhiteSpace(input.ContractNumber))
+        {
+            var contractExists = await CheckContractNumberExistsAsync(input.ContractNumber, id);
+            if (contractExists)
+            {
+                throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+            }
+        }
 
         // Validate edit permission based on status
         if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
