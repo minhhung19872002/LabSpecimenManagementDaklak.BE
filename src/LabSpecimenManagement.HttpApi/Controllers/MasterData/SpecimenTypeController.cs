@@ -42,16 +42,32 @@ public class SpecimenTypeController : LabSpecimenManagementController
 
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Create)]
-    public virtual Task<SpecimenTypeDto> CreateAsync([FromBody] CreateUpdateSpecimenTypeDto input)
+    public virtual async Task<IActionResult> CreateAsync([FromBody] CreateUpdateSpecimenTypeDto input)
     {
-        return _specimenTypeAppService.CreateAsync(input);
+        try
+        {
+            var result = await _specimenTypeAppService.CreateAsync(input);
+            return Ok(result);
+        }
+        catch (SpecimenTypeValidationException ex)
+        {
+            return BadRequest(ex.Errors);
+        }
     }
 
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
-    public virtual Task<SpecimenTypeDto> UpdateAsync(Guid id, [FromBody] CreateUpdateSpecimenTypeDto input)
+    public virtual async Task<IActionResult> UpdateAsync(Guid id, [FromBody] CreateUpdateSpecimenTypeDto input)
     {
-        return _specimenTypeAppService.UpdateAsync(id, input);
+        try
+        {
+            var result = await _specimenTypeAppService.UpdateAsync(id, input);
+            return Ok(result);
+        }
+        catch (SpecimenTypeValidationException ex)
+        {
+            return BadRequest(ex.Errors);
+        }
     }
 
     [HttpDelete("{id}")]
