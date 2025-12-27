@@ -57,6 +57,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public DateTime? EntryDate { get; set; }
 
     /// <summary>
+    /// Ngày gửi kết quả cho QLKT - Submit Date
+    /// </summary>
+    public DateTime? SubmitDate { get; set; }
+
+    /// <summary>
     /// Người nhập kết quả - Entered By User ID
     /// </summary>
     public Guid? EnteredById { get; set; }

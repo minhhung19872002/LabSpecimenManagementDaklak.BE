@@ -102,9 +102,52 @@ public class TestingSampleDto
     public string? StatusText { get; set; }
 
     /// <summary>
+    /// Hình ảnh mẫu từ TestRequest (readonly)
+    /// </summary>
+    public List<SampleAttachmentDto> SampleImages { get; set; } = new();
+
+    /// <summary>
+    /// Hình trước thử nghiệm (max 5)
+    /// </summary>
+    public List<SampleTestingImageDto> BeforeTestingImages { get; set; } = new();
+
+    /// <summary>
+    /// Hình sau thử nghiệm (max 5)
+    /// </summary>
+    public List<SampleTestingImageDto> AfterTestingImages { get; set; } = new();
+
+    /// <summary>
     /// Danh sách chỉ tiêu của mẫu
     /// </summary>
     public List<TestingIndicatorDto> Indicators { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for sample attachment (from TestRequest)
+/// </summary>
+public class SampleAttachmentDto
+{
+    public Guid Id { get; set; }
+    public string FileId { get; set; } = null!;
+    public string FileName { get; set; } = null!;
+    public string FilePath { get; set; } = null!;
+    public long FileSize { get; set; }
+}
+
+/// <summary>
+/// DTO for sample testing image (before/after testing)
+/// </summary>
+public class SampleTestingImageDto
+{
+    public Guid Id { get; set; }
+    public Guid SampleId { get; set; }
+    public string FileId { get; set; } = null!;
+    public string FileName { get; set; } = null!;
+    public string FilePath { get; set; } = null!;
+    public long FileSize { get; set; }
+    public SampleTestingImageType ImageType { get; set; }
+    public DateTime CreationTime { get; set; }
+    public Guid? CreatorId { get; set; }
 }
 
 /// <summary>
@@ -163,6 +206,16 @@ public class TestingIndicatorDto
     public DateTime? AssignedDate { get; set; }
 
     /// <summary>
+    /// Ngày bắt đầu thử nghiệm (khi ấn "Thực hiện") - Start Date/Test Date
+    /// </summary>
+    public DateTime? StartDate { get; set; }
+
+    /// <summary>
+    /// Ngày gửi kết quả cho QLKT - Submit Date
+    /// </summary>
+    public DateTime? SubmitDate { get; set; }
+
+    /// <summary>
     /// Ngày hoàn thành (ngày QL duyệt) - Approval Date
     /// </summary>
     public DateTime? CompletionDate { get; set; }
@@ -171,6 +224,11 @@ public class TestingIndicatorDto
     /// Trạng thái duyệt - Approval Status
     /// </summary>
     public IndicatorApprovalStatus ApprovalStatus { get; set; }
+
+    /// <summary>
+    /// Trạng thái thử nghiệm của chỉ tiêu (tính từ ApprovalStatus)
+    /// </summary>
+    public IndicatorTestingStatus TestingStatus { get; set; }
 
     /// <summary>
     /// Lý do từ chối mới nhất - Latest Rejection Reason
@@ -196,4 +254,14 @@ public class TestingIndicatorDto
     /// Có thể chỉnh sửa hay không (dựa vào ApprovalStatus và quyền)
     /// </summary>
     public bool CanEdit { get; set; }
+
+    /// <summary>
+    /// Có thể check-in (Thực hiện) hay không
+    /// </summary>
+    public bool CanCheckIn { get; set; }
+
+    /// <summary>
+    /// Có thể gửi kết quả hay không
+    /// </summary>
+    public bool CanSubmit { get; set; }
 }

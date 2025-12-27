@@ -12,6 +12,7 @@ using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Guids;
 using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
@@ -26,10 +27,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
+    private readonly IRepository<TestRequestSampleAttachment, Guid> _sampleAttachmentRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IGuidGenerator _guidGenerator;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -38,10 +42,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
+        IRepository<TestRequestSampleAttachment, Guid> sampleAttachmentRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
-        IIdentityUserRepository userRepository)
+        IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
+        IIdentityUserRepository userRepository,
+        IGuidGenerator guidGenerator)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -49,10 +56,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
+        _sampleAttachmentRepository = sampleAttachmentRepository;
         _laboratoryRepository = laboratoryRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _sampleTestingImageRepository = sampleTestingImageRepository;
         _userRepository = userRepository;
+        _guidGenerator = guidGenerator;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -282,6 +292,11 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
     #region Private Methods
 
+    /// <summary>
+    /// Tính trạng thái công việc xét nghiệm (Task level) dựa trên các chỉ tiêu
+    /// Ưu tiên: Rejected > PendingApproval > InProgress > NotStarted
+    /// Completed khi tất cả chỉ tiêu đã được duyệt
+    /// </summary>
     private TestingStatus CalculateTestingStatus(List<LaboratoryTaskIndicator> indicators)
     {
         // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
@@ -290,30 +305,47 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!activeIndicators.Any())
         {
-            return TestingStatus.Todo;
+            return TestingStatus.NotStarted;
         }
 
-        // "Đang thí nghiệm" = có ≥1 chỉ tiêu đã nhập/lưu nháp (có result) HOẶC đã gửi duyệt (Entered)
-        var anyInProgress = activeIndicators.Any(i =>
-            i.ApprovalStatus >= IndicatorApprovalStatus.Entered ||
-            !string.IsNullOrWhiteSpace(i.Result));
-
-        // "Đã xong" = TẤT CẢ chỉ tiêu (trừ KH hủy) đã được QLKT phê duyệt (Approved)
+        // "Hoàn thành" = TẤT CẢ chỉ tiêu (trừ KH hủy) đã được QLKT phê duyệt (Approved)
         var allApproved = activeIndicators.All(i =>
             i.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         if (allApproved)
         {
-            return TestingStatus.Done;
+            return TestingStatus.Completed;
         }
-        else if (anyInProgress)
+
+        // "Bị từ chối" = Có ≥1 chỉ tiêu bị từ chối
+        var anyRejected = activeIndicators.Any(i =>
+            i.ApprovalStatus == IndicatorApprovalStatus.Rejected);
+
+        if (anyRejected)
+        {
+            return TestingStatus.Rejected;
+        }
+
+        // "Chờ phê duyệt" = Có ≥1 chỉ tiêu đã gửi (SubmitDate != null và status = Entered)
+        var anyPendingApproval = activeIndicators.Any(i =>
+            i.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        if (anyPendingApproval)
+        {
+            return TestingStatus.PendingApproval;
+        }
+
+        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã check-in (TestDate != null)
+        var anyInProgress = activeIndicators.Any(i =>
+            i.TestDate.HasValue);
+
+        if (anyInProgress)
         {
             return TestingStatus.InProgress;
         }
-        else
-        {
-            return TestingStatus.Todo;
-        }
+
+        // Mặc định: "Chưa bắt đầu"
+        return TestingStatus.NotStarted;
     }
 
     private bool CanEditIndicator(LaboratoryTaskIndicator indicator, LaboratoryTask task, Guid? currentUserId)
@@ -574,13 +606,62 @@ public class TestingAppService : ApplicationService, ITestingAppService
             if (!sampleGroups.ContainsKey(sampleId))
             {
                 var sample = await _sampleRepository.FindAsync(sampleId);
-                sampleGroups[sampleId] = new TestingSampleDto
+                var sampleDto = new TestingSampleDto
                 {
                     SampleId = sampleId,
                     SampleCode = sample?.SampleCode,
                     SampleName = sample?.SampleName,
                     StatusText = sample?.StatusText
                 };
+
+                // Load sample images from TestRequest (readonly)
+                var sampleAttachments = await _sampleAttachmentRepository.GetListAsync(x => x.TestRequestSampleId == sampleId);
+                sampleDto.SampleImages = sampleAttachments.Select(a => new SampleAttachmentDto
+                {
+                    Id = a.Id,
+                    FileId = a.FileId,
+                    FileName = a.FileName,
+                    FilePath = a.FilePath,
+                    FileSize = a.FileSize
+                }).ToList();
+
+                // Load testing images (before/after testing)
+                var testingImages = await _sampleTestingImageRepository.GetListAsync(x =>
+                    x.LaboratoryTaskId == task.Id && x.SampleId == sampleId);
+
+                sampleDto.BeforeTestingImages = testingImages
+                    .Where(i => i.ImageType == SampleTestingImageType.BeforeTesting)
+                    .OrderBy(i => i.CreationTime)
+                    .Select(i => new SampleTestingImageDto
+                    {
+                        Id = i.Id,
+                        SampleId = i.SampleId,
+                        FileId = i.FileId,
+                        FileName = i.FileName,
+                        FilePath = i.FilePath,
+                        FileSize = i.FileSize,
+                        ImageType = i.ImageType,
+                        CreationTime = i.CreationTime,
+                        CreatorId = i.CreatorId
+                    }).ToList();
+
+                sampleDto.AfterTestingImages = testingImages
+                    .Where(i => i.ImageType == SampleTestingImageType.AfterTesting)
+                    .OrderBy(i => i.CreationTime)
+                    .Select(i => new SampleTestingImageDto
+                    {
+                        Id = i.Id,
+                        SampleId = i.SampleId,
+                        FileId = i.FileId,
+                        FileName = i.FileName,
+                        FilePath = i.FilePath,
+                        FileSize = i.FileSize,
+                        ImageType = i.ImageType,
+                        CreationTime = i.CreationTime,
+                        CreatorId = i.CreatorId
+                    }).ToList();
+
+                sampleGroups[sampleId] = sampleDto;
             }
 
             // Map indicator
@@ -620,8 +701,26 @@ public class TestingAppService : ApplicationService, ITestingAppService
             }
 
             // Determine if can edit
-            var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved &&
-                          CanEditIndicator(taskIndicator, task, CurrentUser.Id);
+            var hasPermission = CanEditIndicator(taskIndicator, task, CurrentUser.Id);
+            var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
+
+            // Determine if can check-in (Thực hiện)
+            // Có thể check-in nếu: có quyền, status = Pending hoặc Rejected, chưa có TestDate
+            var canCheckIn = hasPermission &&
+                             (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                              taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected) &&
+                             !taskIndicator.TestDate.HasValue;
+
+            // Determine if can submit (Gửi kết quả)
+            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending hoặc Rejected, có kết quả
+            var canSubmit = hasPermission &&
+                            taskIndicator.TestDate.HasValue &&
+                            (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected) &&
+                            !string.IsNullOrWhiteSpace(taskIndicator.Result);
+
+            // Calculate indicator testing status
+            var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
 
             sampleGroups[sampleId].Indicators.Add(new TestingIndicatorDto
             {
@@ -635,19 +734,298 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 Result = taskIndicator.Result,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,
+                StartDate = taskIndicator.TestDate,
+                SubmitDate = taskIndicator.SubmitDate,
                 CompletionDate = taskIndicator.ApprovalDate,
                 ApprovalStatus = taskIndicator.ApprovalStatus,
+                TestingStatus = indicatorTestingStatus,
                 LatestRejectionReason = latestRejection?.RejectionReason ?? taskIndicator.RejectionReason,
                 RejectionHistoryCount = rejectionHistories.Count,
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
-                CanEdit = canEdit
+                CanEdit = canEdit,
+                CanCheckIn = canCheckIn,
+                CanSubmit = canSubmit
             });
         }
 
         dto.Samples = sampleGroups.Values.ToList();
 
         return dto;
+    }
+
+    /// <summary>
+    /// Check-in các chỉ tiêu (bắt đầu thử nghiệm - ấn "Thực hiện")
+    /// Set TestDate = DateTime.Now cho các chỉ tiêu được chọn
+    /// </summary>
+    public async Task CheckInIndicatorsAsync(Guid laboratoryTaskId, CheckInIndicatorsInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        if (task == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy task");
+        }
+
+        if (input.IndicatorIds == null || !input.IndicatorIds.Any())
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+        }
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+            if (indicator == null) continue;
+
+            // Kiểm tra quyền
+            if (!CanEditIndicator(indicator, task, currentUserId))
+            {
+                continue;
+            }
+
+            // Chỉ check-in indicators có status = Pending (Todo) hoặc Rejected
+            if (indicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                indicator.ApprovalStatus != IndicatorApprovalStatus.Rejected)
+            {
+                continue;
+            }
+
+            // Nếu đang bị từ chối, reset ApprovalStatus về Pending để thử nghiệm lại
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+            {
+                indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
+                // Clear SubmitDate khi thử nghiệm lại
+                indicator.SubmitDate = null;
+            }
+
+            // Set TestDate = ngày hiện tại (bắt đầu thử nghiệm)
+            indicator.TestDate = DateTime.Now;
+
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+        }
+
+        // Update task status
+        await UpdateTaskStatusAsync(task);
+    }
+
+    /// <summary>
+    /// Gửi kết quả cho QLKT duyệt
+    /// Set SubmitDate = DateTime.Now và ApprovalStatus = Entered
+    /// </summary>
+    public async Task SubmitResultsAsync(Guid laboratoryTaskId, SubmitResultsInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        if (task == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy task");
+        }
+
+        if (input.IndicatorIds == null || !input.IndicatorIds.Any())
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+        }
+
+        var errors = new List<string>();
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+            if (indicator == null) continue;
+
+            // Kiểm tra quyền
+            if (!CanEditIndicator(indicator, task, currentUserId))
+            {
+                continue;
+            }
+
+            // Chỉ submit indicators đã check-in (có TestDate) và chưa submit
+            if (!indicator.TestDate.HasValue)
+            {
+                errors.Add($"Chỉ tiêu chưa được thực hiện (check-in)");
+                continue;
+            }
+
+            // Chỉ submit nếu status = Pending hoặc Rejected
+            if (indicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                indicator.ApprovalStatus != IndicatorApprovalStatus.Rejected)
+            {
+                continue;
+            }
+
+            // Kiểm tra đã nhập kết quả
+            if (string.IsNullOrWhiteSpace(indicator.Result))
+            {
+                errors.Add($"Chỉ tiêu chưa có kết quả");
+                continue;
+            }
+
+            // Set SubmitDate và ApprovalStatus = Entered
+            indicator.SubmitDate = DateTime.Now;
+            indicator.EntryDate ??= DateTime.Now;
+            indicator.EnteredById ??= currentUserId;
+            indicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
+
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+        }
+
+        if (errors.Any())
+        {
+            throw new UserFriendlyException(string.Join("; ", errors.Distinct()));
+        }
+
+        // Update task status
+        await UpdateTaskStatusAsync(task);
+    }
+
+    /// <summary>
+    /// Tính trạng thái thử nghiệm của chỉ tiêu (Indicator level)
+    /// </summary>
+    private IndicatorTestingStatus CalculateIndicatorTestingStatus(LaboratoryTaskIndicator indicator)
+    {
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            return IndicatorTestingStatus.Done; // Không cần làm
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            return IndicatorTestingStatus.Done;
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+        {
+            return IndicatorTestingStatus.Rejected;
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return IndicatorTestingStatus.PendingApproval;
+        }
+
+        // Pending status
+        if (indicator.TestDate.HasValue)
+        {
+            return IndicatorTestingStatus.Testing; // Đã check-in
+        }
+
+        return IndicatorTestingStatus.Todo; // Chưa check-in
+    }
+
+    #endregion
+
+    #region Sample Testing Image APIs
+
+    /// <summary>
+    /// Upload sample testing image (before/after testing)
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<SampleTestingImageDto> UploadSampleTestingImageAsync(
+        Guid laboratoryTaskId,
+        UploadSampleTestingImageInput input,
+        string fileId,
+        string fileName,
+        string filePath,
+        long fileSize)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        var currentUserId = CurrentUser.Id;
+
+        // Validate: Chỉ KTV được assign hoặc QLKT được upload
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
+        var hasPermission = task.TechnicalManagerId == currentUserId ||
+                           taskIndicators.Any(i => i.TechnicianId == currentUserId);
+
+        if (!hasPermission)
+        {
+            throw new UserFriendlyException("Bạn không có quyền upload hình ảnh cho mẫu này");
+        }
+
+        // Validate: Max 5 images per type
+        var existingImages = await _sampleTestingImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskId == laboratoryTaskId &&
+            x.SampleId == input.SampleId &&
+            x.ImageType == input.ImageType);
+
+        if (existingImages.Count >= 5)
+        {
+            var imageTypeName = input.ImageType == SampleTestingImageType.BeforeTesting ? "trước thử nghiệm" : "sau thử nghiệm";
+            throw new UserFriendlyException($"Đã đạt tối đa 5 hình ảnh {imageTypeName}");
+        }
+
+        var image = new SampleTestingImage(
+            _guidGenerator.Create(),
+            laboratoryTaskId,
+            input.SampleId,
+            fileId,
+            fileName,
+            filePath,
+            fileSize,
+            input.ImageType
+        );
+
+        await _sampleTestingImageRepository.InsertAsync(image);
+
+        return new SampleTestingImageDto
+        {
+            Id = image.Id,
+            SampleId = image.SampleId,
+            FileId = image.FileId,
+            FileName = image.FileName,
+            FilePath = image.FilePath,
+            FileSize = image.FileSize,
+            ImageType = image.ImageType,
+            CreationTime = image.CreationTime,
+            CreatorId = image.CreatorId
+        };
+    }
+
+    /// <summary>
+    /// Delete sample testing image
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task DeleteSampleTestingImageAsync(Guid imageId)
+    {
+        var image = await _sampleTestingImageRepository.GetAsync(imageId);
+        var task = await _laboratoryTaskRepository.GetAsync(image.LaboratoryTaskId);
+        var currentUserId = CurrentUser.Id;
+
+        // Validate: Chỉ người tạo hoặc QLKT được xóa
+        if (image.CreatorId != currentUserId && task.TechnicalManagerId != currentUserId)
+        {
+            throw new UserFriendlyException("Bạn không có quyền xóa hình ảnh này");
+        }
+
+        await _sampleTestingImageRepository.DeleteAsync(image);
+    }
+
+    /// <summary>
+    /// Get sample testing images
+    /// </summary>
+    public async Task<List<SampleTestingImageDto>> GetSampleTestingImagesAsync(
+        Guid laboratoryTaskId,
+        Guid sampleId,
+        SampleTestingImageType? imageType = null)
+    {
+        var images = await _sampleTestingImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskId == laboratoryTaskId &&
+            x.SampleId == sampleId &&
+            (!imageType.HasValue || x.ImageType == imageType.Value));
+
+        return images.OrderBy(x => x.CreationTime).Select(x => new SampleTestingImageDto
+        {
+            Id = x.Id,
+            SampleId = x.SampleId,
+            FileId = x.FileId,
+            FileName = x.FileName,
+            FilePath = x.FilePath,
+            FileSize = x.FileSize,
+            ImageType = x.ImageType,
+            CreationTime = x.CreationTime,
+            CreatorId = x.CreatorId
+        }).ToList();
     }
 
     #endregion

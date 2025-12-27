@@ -50,3 +50,51 @@ public class SubmitForApprovalInput
     /// </summary>
     public List<Guid> IndicatorIds { get; set; } = new();
 }
+
+/// <summary>
+/// Input for checking in indicators (bắt đầu thử nghiệm - ấn "Thực hiện")
+/// </summary>
+public class CheckInIndicatorsInput
+{
+    /// <summary>
+    /// Sample ID - Mẫu cần check-in
+    /// </summary>
+    public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Danh sách indicator IDs cần check-in
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+}
+
+/// <summary>
+/// Input for submitting results (gửi kết quả cho QLKT)
+/// </summary>
+public class SubmitResultsInput
+{
+    /// <summary>
+    /// Sample ID - Mẫu cần gửi kết quả
+    /// </summary>
+    public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Danh sách indicator IDs cần gửi kết quả
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+}
+
+/// <summary>
+/// Input for uploading sample testing image
+/// </summary>
+public class UploadSampleTestingImageInput
+{
+    /// <summary>
+    /// Sample ID
+    /// </summary>
+    public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Loại hình ảnh (Before/After)
+    /// </summary>
+    public SampleTestingImageType ImageType { get; set; }
+}

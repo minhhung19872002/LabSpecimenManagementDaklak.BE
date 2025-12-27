@@ -412,6 +412,14 @@ public class TestRequestAppService :
                 {
                     foreach (var attachmentInput in sampleDto.Attachments)
                     {
+                        // Check if FileId already exists (avoid duplicate key error)
+                        var existingAttachment = await _attachmentRepository.FirstOrDefaultAsync(a => a.FileId == attachmentInput.FileId);
+                        if (existingAttachment != null)
+                        {
+                            // Skip if already exists - file was already uploaded
+                            continue;
+                        }
+
                         var attachment = new TestRequestSampleAttachment(
                             GuidGenerator.Create(),
                             sample.Id,
@@ -726,6 +734,14 @@ public class TestRequestAppService :
                     {
                         if (!existingFileIds.Contains(attachmentInput.FileId))
                         {
+                            // Check if FileId already exists globally (avoid duplicate key error)
+                            var globalExisting = await _attachmentRepository.FirstOrDefaultAsync(a => a.FileId == attachmentInput.FileId);
+                            if (globalExisting != null)
+                            {
+                                // Skip if already exists globally
+                                continue;
+                            }
+
                             var attachment = new TestRequestSampleAttachment(
                                 GuidGenerator.Create(),
                                 sample.Id,

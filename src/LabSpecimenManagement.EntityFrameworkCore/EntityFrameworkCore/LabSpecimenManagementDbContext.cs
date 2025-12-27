@@ -80,6 +80,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+    public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
 
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
@@ -719,6 +720,28 @@ public class LabSpecimenManagementDbContext :
                 .WithMany(x => x.RejectionHistories)
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
+        });
+
+        // ============ SAMPLE TESTING IMAGE CONFIGURATION ============
+
+        builder.Entity<SampleTestingImage>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SampleTestingImages", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(100);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.LaboratoryTaskId);
+            b.HasIndex(x => x.SampleId);
+            b.HasIndex(x => new { x.LaboratoryTaskId, x.SampleId, x.ImageType });
+
+            b.HasOne(x => x.LaboratoryTask)
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ TEST REQUEST CHANGE HISTORY CONFIGURATION ============

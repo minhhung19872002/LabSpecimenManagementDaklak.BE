@@ -37,4 +37,29 @@ public interface ITestingAppService : IApplicationService
     /// Get rejection history for an indicator
     /// </summary>
     Task<List<RejectionHistoryDto>> GetRejectionHistoryAsync(Guid indicatorId);
+
+    /// <summary>
+    /// Check-in indicators (bắt đầu thử nghiệm - ấn "Thực hiện")
+    /// </summary>
+    Task CheckInIndicatorsAsync(Guid laboratoryTaskId, CheckInIndicatorsInput input);
+
+    /// <summary>
+    /// Submit results for approval (gửi kết quả cho QLKT)
+    /// </summary>
+    Task SubmitResultsAsync(Guid laboratoryTaskId, SubmitResultsInput input);
+
+    /// <summary>
+    /// Upload sample testing image (before/after testing)
+    /// </summary>
+    Task<SampleTestingImageDto> UploadSampleTestingImageAsync(Guid laboratoryTaskId, UploadSampleTestingImageInput input, string fileId, string fileName, string filePath, long fileSize);
+
+    /// <summary>
+    /// Delete sample testing image
+    /// </summary>
+    Task DeleteSampleTestingImageAsync(Guid imageId);
+
+    /// <summary>
+    /// Get sample testing images
+    /// </summary>
+    Task<List<SampleTestingImageDto>> GetSampleTestingImagesAsync(Guid laboratoryTaskId, Guid sampleId, SampleTestingImageType? imageType = null);
 }

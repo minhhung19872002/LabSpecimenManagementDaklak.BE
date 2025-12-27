@@ -1,22 +1,32 @@
 namespace LabSpecimenManagement.Testing;
 
 /// <summary>
-/// Trạng thái công việc xét nghiệm (góc nhìn kỹ thuật viên)
+/// Trạng thái công việc xét nghiệm ở Task level (góc nhìn kỹ thuật viên)
 /// </summary>
 public enum TestingStatus
 {
     /// <summary>
-    /// Cần làm - Chưa có chỉ tiêu nào được nhập kết quả
+    /// Chưa bắt đầu - Mới được QLKT assign, chưa check-in chỉ tiêu nào
     /// </summary>
-    Todo = 0,
+    NotStarted = 0,
 
     /// <summary>
-    /// Đang thí nghiệm - Có ít nhất 1 chỉ tiêu đã nhập kết quả
+    /// Đang thử nghiệm - Đã check-in ít nhất 1 chỉ tiêu (ấn "Thực hiện")
     /// </summary>
     InProgress = 1,
 
     /// <summary>
-    /// Đã xong - Tất cả chỉ tiêu đã gửi QL duyệt
+    /// Chờ phê duyệt - Đã gửi ít nhất 1 chỉ tiêu cho QLKT duyệt
     /// </summary>
-    Done = 2
+    PendingApproval = 2,
+
+    /// <summary>
+    /// Bị từ chối - Có ít nhất 1 chỉ tiêu bị QLKT từ chối
+    /// </summary>
+    Rejected = 3,
+
+    /// <summary>
+    /// Hoàn thành - Tất cả chỉ tiêu đã được QLKT duyệt
+    /// </summary>
+    Completed = 4
 }
