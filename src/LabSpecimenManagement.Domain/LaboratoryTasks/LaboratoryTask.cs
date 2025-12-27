@@ -83,9 +83,16 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public virtual ICollection<LaboratoryTaskIndicator> Indicators { get; set; }
 
+    /// <summary>
+    /// Collection of supporters for this task
+    /// Supporters have permissions like QLKT (approve, send results, assign)
+    /// </summary>
+    public virtual ICollection<LaboratoryTaskSupporter> Supporters { get; set; }
+
     protected LaboratoryTask()
     {
         Indicators = new List<LaboratoryTaskIndicator>();
+        Supporters = new List<LaboratoryTaskSupporter>();
     }
 
     public LaboratoryTask(
@@ -105,7 +112,7 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
         TechnicalManagerId = technicalManagerId;
         TransferDate = transferDate;
         RequestCompletionDate = requestCompletionDate;
-        Status = LaboratoryTaskStatus.NotAssignedTechnician;
+        Status = LaboratoryTaskStatus.NotAssigned;
         Indicators = new List<LaboratoryTaskIndicator>();
     }
 }

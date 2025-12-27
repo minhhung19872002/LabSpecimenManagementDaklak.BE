@@ -243,9 +243,9 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             CurrentUser.Id ?? Guid.Empty
         ));
 
-        // Update LaboratoryTask status to ResultRejected
+        // Update LaboratoryTask status back to Approved (for QLKT to review and resend)
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-        labTask.Status = LaboratoryTaskStatus.ResultRejected;
+        labTask.Status = LaboratoryTaskStatus.Approved;
         labTask.ResultRejectionReason = reason;
         await _laboratoryTaskRepository.UpdateAsync(labTask);
 

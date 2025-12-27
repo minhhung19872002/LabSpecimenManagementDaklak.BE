@@ -140,7 +140,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Gửi kết quả (chuyển status sang ResultSent)
+    /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -165,6 +165,91 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync([FromQuery] Guid? laboratoryId)
     {
         return _laboratoryTaskAppService.GetTechniciansByLaboratoryAsync(laboratoryId);
+    }
+
+    #endregion
+
+    #region Supporter Management
+
+    /// <summary>
+    /// Get supporters for a task
+    /// </summary>
+    [HttpGet("{taskId}/supporters")]
+    public virtual Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.GetSupportersAsync(taskId);
+    }
+
+    /// <summary>
+    /// Add supporters to a task
+    /// </summary>
+    [HttpPost("{taskId}/supporters")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(
+        Guid taskId,
+        [FromBody] ManageSupportersDto input)
+    {
+        return _laboratoryTaskAppService.AddSupportersAsync(taskId, input);
+    }
+
+    /// <summary>
+    /// Remove a supporter from a task
+    /// </summary>
+    [HttpDelete("{taskId}/supporters/{supporterId}")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task RemoveSupporterAsync(Guid taskId, Guid supporterId)
+    {
+        return _laboratoryTaskAppService.RemoveSupporterAsync(taskId, supporterId);
+    }
+
+    /// <summary>
+    /// Get available users to add as supporters
+    /// </summary>
+    [HttpGet("{taskId}/available-supporters")]
+    public virtual Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.GetAvailableSupportersAsync(taskId);
+    }
+
+    #endregion
+
+    #region Bulk Approval
+
+    /// <summary>
+    /// Bulk approve/reject indicators
+    /// </summary>
+    [HttpPost("{taskId}/bulk-approve")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(
+        Guid taskId,
+        [FromBody] BulkApproveIndicatorsDto input)
+    {
+        return _laboratoryTaskAppService.BulkApproveIndicatorsAsync(taskId, input);
+    }
+
+    #endregion
+
+    #region Send to Quality Management
+
+    /// <summary>
+    /// Send selected indicators to Quality Management
+    /// </summary>
+    [HttpPost("{taskId}/send-to-quality")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> SendToQualityAsync(
+        Guid taskId,
+        [FromBody] SendToQualityDto input)
+    {
+        return _laboratoryTaskAppService.SendToQualityAsync(taskId, input);
+    }
+
+    /// <summary>
+    /// Get list of Quality Managers
+    /// </summary>
+    [HttpGet("quality-managers")]
+    public virtual Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync()
+    {
+        return _laboratoryTaskAppService.GetQualityManagersAsync();
     }
 
     #endregion

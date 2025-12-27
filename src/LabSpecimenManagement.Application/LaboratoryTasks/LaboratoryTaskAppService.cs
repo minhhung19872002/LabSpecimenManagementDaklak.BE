@@ -22,6 +22,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<IndicatorRejectionHistory, Guid> _rejectionHistoryRepository;
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
@@ -31,6 +32,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IIdentityRoleRepository _roleRepository;
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
@@ -39,6 +41,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<IndicatorRejectionHistory, Guid> rejectionHistoryRepository,
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
@@ -48,6 +51,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
+        IIdentityRoleRepository roleRepository,
         ITestRequestAppService testRequestAppService,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
@@ -55,6 +59,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _supporterRepository = supporterRepository;
         _rejectionHistoryRepository = rejectionHistoryRepository;
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -64,6 +69,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _indicatorGroupRepository = indicatorGroupRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _roleRepository = roleRepository;
         _testRequestAppService = testRequestAppService;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
@@ -382,6 +388,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             });
         }
 
+        // Get supporters
+        dto.Supporters = await GetSupportersAsync(task.Id);
+
         return dto;
     }
 
@@ -574,7 +583,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             throw new UserFriendlyException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả");
         }
 
-        task.Status = LaboratoryTaskStatus.ResultSent;
+        task.Status = LaboratoryTaskStatus.SentToQuality;
         await _laboratoryTaskRepository.UpdateAsync(task);
 
         // Create QualityManagementTask for QLCL to approve results
@@ -791,8 +800,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Don't change status if already ResultSent (final state)
-        if (task.Status == LaboratoryTaskStatus.ResultSent)
+        // Don't change status if already SentToQuality (final state)
+        if (task.Status == LaboratoryTaskStatus.SentToQuality)
         {
             return;
         }
@@ -820,8 +829,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gán KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
+            // Có chỉ tiêu chưa gán KTV hoặc phương pháp
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
         else if (allApproved)
         {
@@ -841,7 +850,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         else
         {
             // Tất cả đã có KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedTechnician;
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
 
         if (task.Status != newStatus)
@@ -853,13 +862,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Kiểm tra xem task có thể chỉnh sửa không dựa trên trạng thái
-    /// Cho phép edit khi: Chưa gán KTV, Đã gán KTV, hoặc Bị từ chối (để giao việc lại)
+    /// Cho phép edit khi: Chưa giao việc, Đã giao việc
+    /// Không cho edit khi đang Testing trở đi
     /// </summary>
     private static bool CanEditTask(LaboratoryTaskStatus status)
     {
-        return status == LaboratoryTaskStatus.NotAssignedTechnician ||
-               status == LaboratoryTaskStatus.AssignedTechnician ||
-               status == LaboratoryTaskStatus.ResultRejected;
+        return status == LaboratoryTaskStatus.NotAssigned ||
+               status == LaboratoryTaskStatus.Assigned;
     }
 
     /// <summary>
@@ -869,13 +878,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         return status switch
         {
-            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
-            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
-            LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
+            LaboratoryTaskStatus.NotAssigned => "Chưa giao việc",
+            LaboratoryTaskStatus.Assigned => "Đã giao việc",
+            LaboratoryTaskStatus.Testing => "Đang thử nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
-            LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
-            LaboratoryTaskStatus.ResultRejected => "Bị từ chối kết quả",
+            LaboratoryTaskStatus.SentToQuality => "Đã gửi QL Chất lượng",
             _ => status.ToString()
         };
     }
@@ -920,7 +928,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
 
         // Check if all tasks have sent results
-        var allResultsSent = allTasks.All(t => t.Status == LaboratoryTaskStatus.ResultSent);
+        var allResultsSent = allTasks.All(t => t.Status == LaboratoryTaskStatus.SentToQuality);
         if (allResultsSent)
         {
             // In new flow, go directly to PendingApproval
@@ -1008,6 +1016,321 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             ApprovedByName = approvedByName,
             RejectionReason = taskIndicator.RejectionReason
         };
+    }
+
+    #endregion
+
+    #region Supporter Management
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId)
+    {
+        var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var dtos = new List<LaboratoryTaskSupporterDto>();
+
+        foreach (var supporter in supporters)
+        {
+            var user = await _userRepository.FindAsync(supporter.UserId);
+            dtos.Add(new LaboratoryTaskSupporterDto
+            {
+                Id = supporter.Id,
+                LaboratoryTaskId = supporter.LaboratoryTaskId,
+                UserId = supporter.UserId,
+                UserName = user?.UserName,
+                FullName = user != null ? $"{user.Surname} {user.Name}".Trim() : null,
+                Email = user?.Email,
+                CreationTime = supporter.CreationTime
+            });
+        }
+
+        return dtos.OrderBy(x => x.FullName).ToList();
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(Guid taskId, ManageSupportersDto input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validate: Only QLKT or existing supporter can add supporters
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền thêm người hỗ trợ");
+        }
+
+        // Get existing supporter user IDs
+        var existingSupporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var existingUserIds = existingSupporters.Select(x => x.UserId).ToHashSet();
+
+        foreach (var userId in input.UserIds)
+        {
+            // Skip if already a supporter
+            if (existingUserIds.Contains(userId))
+            {
+                continue;
+            }
+
+            // Skip if user is the technical manager
+            if (task.TechnicalManagerId == userId)
+            {
+                continue;
+            }
+
+            var supporter = new LaboratoryTaskSupporter(
+                GuidGenerator.Create(),
+                taskId,
+                userId
+            );
+            supporter.CreatorId = CurrentUser.Id;
+
+            await _supporterRepository.InsertAsync(supporter);
+        }
+
+        return await GetSupportersAsync(taskId);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task RemoveSupporterAsync(Guid taskId, Guid supporterId)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validate: Only QLKT or the supporter themselves can remove
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền xóa người hỗ trợ");
+        }
+
+        var supporter = await _supporterRepository.FindAsync(supporterId);
+        if (supporter == null || supporter.LaboratoryTaskId != taskId)
+        {
+            throw new UserFriendlyException("Không tìm thấy người hỗ trợ");
+        }
+
+        await _supporterRepository.DeleteAsync(supporter);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Get existing supporter user IDs
+        var existingSupporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var existingUserIds = existingSupporters.Select(x => x.UserId).ToHashSet();
+
+        // Add QLKT to excluded list
+        if (task.TechnicalManagerId.HasValue)
+        {
+            existingUserIds.Add(task.TechnicalManagerId.Value);
+        }
+
+        // Get all active users and exclude existing supporters and QLKT
+        var users = await _userRepository.GetListAsync();
+        var availableUsers = users
+            .Where(u => u.IsActive && !existingUserIds.Contains(u.Id))
+            .Select(u => new UserLookupDto
+            {
+                Id = u.Id,
+                UserName = u.UserName,
+                Name = u.Name,
+                Surname = u.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(u.Name)
+                    ? $"{u.Surname} {u.Name}".Trim()
+                    : u.UserName,
+                Email = u.Email,
+                PhoneNumber = u.PhoneNumber,
+                IsActive = u.IsActive
+            })
+            .OrderBy(u => u.DisplayName)
+            .ToList();
+
+        return new ListResultDto<UserLookupDto>(availableUsers);
+    }
+
+    /// <summary>
+    /// Check if current user can manage task (admin, QLKT or supporter)
+    /// </summary>
+    private async Task<bool> CanManageTaskAsync(LaboratoryTask task)
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return false;
+        }
+
+        // Admin can manage all tasks
+        if (CurrentUser.IsInRole("admin"))
+        {
+            return true;
+        }
+
+        // QLKT can manage
+        if (task.TechnicalManagerId == currentUserId.Value)
+        {
+            return true;
+        }
+
+        // Supporters can manage
+        var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        return supporters.Any(x => x.UserId == currentUserId.Value);
+    }
+
+    #endregion
+
+    #region Bulk Approval
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(Guid taskId, BulkApproveIndicatorsDto input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validate: Only QLKT or supporter can approve
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+        }
+
+        if (!input.Approve && string.IsNullOrWhiteSpace(input.RejectionReason))
+        {
+            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+        }
+
+        var results = new List<LaboratoryTaskIndicatorDto>();
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var taskIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(indicatorId);
+            if (taskIndicator == null || taskIndicator.LaboratoryTaskId != taskId)
+            {
+                continue;
+            }
+
+            if (input.Approve)
+            {
+                taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Approved;
+                taskIndicator.ApprovalDate = DateTime.Now;
+                taskIndicator.ApprovedById = CurrentUser.Id;
+                taskIndicator.RejectionReason = null;
+            }
+            else
+            {
+                taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
+                taskIndicator.RejectionReason = input.RejectionReason;
+                taskIndicator.ApprovalDate = DateTime.Now;
+                taskIndicator.ApprovedById = CurrentUser.Id;
+
+                // Save rejection history
+                var rejectionHistory = new IndicatorRejectionHistory(
+                    GuidGenerator.Create(),
+                    indicatorId,
+                    input.RejectionReason!,
+                    CurrentUser.Id!.Value
+                );
+                await _rejectionHistoryRepository.InsertAsync(rejectionHistory);
+            }
+
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            results.Add(await MapToIndicatorDtoAsync(taskIndicator));
+        }
+
+        // Update task status
+        await UpdateTaskStatusAsync(task);
+
+        return results;
+    }
+
+    #endregion
+
+    #region Send to Quality Management
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<LaboratoryTaskDto> SendToQualityAsync(Guid taskId, SendToQualityDto input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validate: Only QLKT or supporter can send
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền gửi kết quả");
+        }
+
+        // Get selected indicators
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var selectedIndicators = taskIndicators
+            .Where(ti => input.IndicatorIds.Contains(ti.Id))
+            .ToList();
+
+        if (!selectedIndicators.Any())
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu để gửi");
+        }
+
+        // Validate: All selected indicators must be approved
+        var notApproved = selectedIndicators.Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.Approved).ToList();
+        if (notApproved.Any())
+        {
+            throw new UserFriendlyException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi");
+        }
+
+        // Create or update QualityManagementTask
+        await CreateQualityManagementTaskAsync(task, selectedIndicators);
+
+        // Check if all indicators are now sent - if so, update task status
+        var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var activeIndicators = allIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        // Check existing quality indicators for this task
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync();
+        var sentIndicatorIds = new HashSet<Guid>();
+        foreach (var qi in qualityIndicators)
+        {
+            var labIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(qi.LaboratoryTaskIndicatorId);
+            if (labIndicator != null && labIndicator.LaboratoryTaskId == taskId)
+            {
+                sentIndicatorIds.Add(qi.LaboratoryTaskIndicatorId);
+            }
+        }
+
+        // If any indicator has been sent to QLCL, update status to SentToQuality
+        if (sentIndicatorIds.Any())
+        {
+            task.Status = LaboratoryTaskStatus.SentToQuality;
+            await _laboratoryTaskRepository.UpdateAsync(task);
+        }
+
+        // Update TestRequest status if all tasks sent
+        await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
+
+        return await MapToDetailDtoAsync(task);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync()
+    {
+        // Get users with QLCL role
+        var users = await _userRepository.GetListAsync();
+        var qualityManagers = new List<UserLookupDto>();
+
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // For now, return all active users - in real scenario, filter by role
+            qualityManagers.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return new ListResultDto<UserLookupDto>(qualityManagers.OrderBy(u => u.DisplayName).ToList());
     }
 
     #endregion

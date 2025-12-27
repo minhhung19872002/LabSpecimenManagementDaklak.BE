@@ -70,7 +70,7 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(Guid indicatorId, ApproveIndicatorDto input);
 
     /// <summary>
-    /// Gửi kết quả (chuyển status sang ResultSent)
+    /// Gửi kết quả (chuyển status sang SentToQuality)
     /// </summary>
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);
 
@@ -83,6 +83,53 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// Lấy danh sách kỹ thuật viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId);
+
+    #endregion
+
+    #region Supporter Management
+
+    /// <summary>
+    /// Lấy danh sách người hỗ trợ của task
+    /// </summary>
+    Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId);
+
+    /// <summary>
+    /// Thêm người hỗ trợ vào task
+    /// </summary>
+    Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(Guid taskId, ManageSupportersDto input);
+
+    /// <summary>
+    /// Xóa người hỗ trợ khỏi task
+    /// </summary>
+    Task RemoveSupporterAsync(Guid taskId, Guid supporterId);
+
+    /// <summary>
+    /// Lấy danh sách user trong Laboratory để chọn làm supporter
+    /// </summary>
+    Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId);
+
+    #endregion
+
+    #region Bulk Approval
+
+    /// <summary>
+    /// Bulk approve/reject indicators
+    /// </summary>
+    Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(Guid taskId, BulkApproveIndicatorsDto input);
+
+    #endregion
+
+    #region Send to Quality Management
+
+    /// <summary>
+    /// Gửi kết quả được chọn cho QLCL
+    /// </summary>
+    Task<LaboratoryTaskDto> SendToQualityAsync(Guid taskId, SendToQualityDto input);
+
+    /// <summary>
+    /// Lấy danh sách QLCL để chọn người nhận
+    /// </summary>
+    Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync();
 
     #endregion
 }

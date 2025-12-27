@@ -1090,14 +1090,15 @@ public class TestRequestAppService :
         entity.ResultRejectionReason = reason;
         await Repository.UpdateAsync(entity);
 
-        // Also update all LaboratoryTask status to ResultRejected
+        // Also update all LaboratoryTask status - recalculate based on indicator status
         var laboratoryTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == id);
         foreach (var task in laboratoryTasks)
         {
-            // Only update tasks that have sent results (ResultSent status)
-            if (task.Status == LaboratoryTaskStatus.ResultSent)
+            // Only update tasks that have sent results (SentToQuality status)
+            if (task.Status == LaboratoryTaskStatus.SentToQuality)
             {
-                task.Status = LaboratoryTaskStatus.ResultRejected;
+                // Set back to Approved since QLCL rejected - QLKT needs to review and resend
+                task.Status = LaboratoryTaskStatus.Approved;
                 task.ResultRejectionReason = reason;
                 await _laboratoryTaskRepository.UpdateAsync(task);
             }

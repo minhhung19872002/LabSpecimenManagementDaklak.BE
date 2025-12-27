@@ -453,7 +453,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
             // canGenerateResult should match testingStatus logic (use max status)
             var maxStatus = relatedTasks.Any() ? relatedTasks.Max(t => t.Status) : (LaboratoryTaskStatus?)null;
-            var canGenerateResult = maxStatus == LaboratoryTaskStatus.ResultSent;
+            var canGenerateResult = maxStatus == LaboratoryTaskStatus.SentToQuality;
 
             result.Add(new SampleForSelectionDto
             {
@@ -479,12 +479,12 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         return maxStatus switch
         {
-            LaboratoryTaskStatus.NotAssignedTechnician => "Chưa gán KTV",
-            LaboratoryTaskStatus.AssignedTechnician => "Đã gán KTV",
-            LaboratoryTaskStatus.Testing => "Đang thí nghiệm",
+            LaboratoryTaskStatus.NotAssigned => "Chưa giao việc",
+            LaboratoryTaskStatus.Assigned => "Đã giao việc",
+            LaboratoryTaskStatus.Testing => "Đang thử nghiệm",
             LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
-            LaboratoryTaskStatus.ResultSent => "Đã gửi kết quả",
+            LaboratoryTaskStatus.SentToQuality => "Đã gửi QLCL",
             _ => "Không xác định"
         };
     }
@@ -533,7 +533,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         var maxStatus = relatedTasks.Max(t => t.Status);
-        if (maxStatus != LaboratoryTaskStatus.ResultSent)
+        if (maxStatus != LaboratoryTaskStatus.SentToQuality)
         {
             throw new UserFriendlyException("Mẫu chưa xét nghiệm xong");
         }

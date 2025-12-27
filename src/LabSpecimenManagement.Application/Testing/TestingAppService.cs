@@ -383,8 +383,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
             return;
         }
 
-        // Don't change status if already ResultSent (final state)
-        if (task.Status == LaboratoryTaskStatus.ResultSent)
+        // Don't change status if already SentToQuality (final state)
+        if (task.Status == LaboratoryTaskStatus.SentToQuality)
         {
             return;
         }
@@ -401,8 +401,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!allAssigned)
         {
-            // Có chỉ tiêu chưa gán KTV
-            newStatus = LaboratoryTaskStatus.NotAssignedTechnician;
+            // Có chỉ tiêu chưa gán KTV hoặc phương pháp
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
         else if (allApproved)
         {
@@ -422,7 +422,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         else
         {
             // Tất cả đã có KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.AssignedTechnician;
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
 
         if (task.Status != newStatus)

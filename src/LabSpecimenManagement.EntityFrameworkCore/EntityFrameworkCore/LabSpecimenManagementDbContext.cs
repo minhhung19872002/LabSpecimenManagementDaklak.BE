@@ -79,6 +79,7 @@ public class LabSpecimenManagementDbContext :
     // Laboratory Task Entities
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
+    public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
 
@@ -702,6 +703,23 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestRequestSampleIndicatorId)
                 .IsRequired();
+        });
+
+        // ============ LABORATORY TASK SUPPORTER CONFIGURATION ============
+
+        builder.Entity<LaboratoryTaskSupporter>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryTaskSupporters", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.LaboratoryTaskId);
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => new { x.LaboratoryTaskId, x.UserId }).IsUnique();
+
+            b.HasOne(x => x.LaboratoryTask)
+                .WithMany(x => x.Supporters)
+                .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ INDICATOR REJECTION HISTORY CONFIGURATION ============

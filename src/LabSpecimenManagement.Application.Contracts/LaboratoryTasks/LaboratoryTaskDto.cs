@@ -93,6 +93,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Danh sách chỉ tiêu - Indicators
     /// </summary>
     public List<LaboratoryTaskIndicatorDto> Indicators { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách người hỗ trợ - Supporters
+    /// </summary>
+    public List<LaboratoryTaskSupporterDto> Supporters { get; set; } = new();
 }
 
 /// <summary>
@@ -226,4 +231,93 @@ public class LaboratoryTaskIndicatorDto
     /// Lý do từ chối - Rejection Reason
     /// </summary>
     public string? RejectionReason { get; set; }
+}
+
+/// <summary>
+/// DTO for Laboratory Task Supporter
+/// </summary>
+public class LaboratoryTaskSupporterDto
+{
+    /// <summary>
+    /// Supporter ID
+    /// </summary>
+    public Guid Id { get; set; }
+
+    /// <summary>
+    /// LaboratoryTask ID
+    /// </summary>
+    public Guid LaboratoryTaskId { get; set; }
+
+    /// <summary>
+    /// User ID của người hỗ trợ
+    /// </summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>
+    /// Tên người hỗ trợ
+    /// </summary>
+    public string? UserName { get; set; }
+
+    /// <summary>
+    /// Tên đầy đủ của người hỗ trợ
+    /// </summary>
+    public string? FullName { get; set; }
+
+    /// <summary>
+    /// Email
+    /// </summary>
+    public string? Email { get; set; }
+
+    /// <summary>
+    /// Thời gian thêm
+    /// </summary>
+    public DateTime CreationTime { get; set; }
+}
+
+/// <summary>
+/// DTO for adding/removing supporters
+/// </summary>
+public class ManageSupportersDto
+{
+    /// <summary>
+    /// List of User IDs to add as supporters
+    /// </summary>
+    public List<Guid> UserIds { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for bulk approve/reject indicators
+/// </summary>
+public class BulkApproveIndicatorsDto
+{
+    /// <summary>
+    /// List of indicator IDs to approve/reject
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// True = Approve, False = Reject
+    /// </summary>
+    public bool Approve { get; set; }
+
+    /// <summary>
+    /// Rejection reason (required when Approve = false)
+    /// </summary>
+    public string? RejectionReason { get; set; }
+}
+
+/// <summary>
+/// DTO for sending results to Quality Management
+/// </summary>
+public class SendToQualityDto
+{
+    /// <summary>
+    /// List of indicator IDs to send to QLCL
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// Quality Manager User ID (QLCL user to receive results)
+    /// </summary>
+    public Guid QualityManagerId { get; set; }
 }
