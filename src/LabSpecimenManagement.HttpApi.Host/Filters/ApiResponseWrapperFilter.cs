@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using Microsoft.AspNetCore.Http;
@@ -44,12 +46,54 @@ public class ApiResponseWrapperFilter : IAsyncResultFilter
             else
             {
                 var statusCode = objectResult.StatusCode ?? 200;
+                var isSuccess = statusCode >= 200 && statusCode < 300;
+
+                // For error responses (4xx, 5xx), put the value in errors instead of data
+                // This handles validation errors like { code: "Mã đã tồn tại", name: "Tên đã tồn tại" }
+                object? responseData = null;
+                Dictionary<string, List<string>>? responseErrors = null;
+
+                if (!isSuccess && value != null)
+                {
+                    // Check if value is Dictionary<string, string> (field validation errors)
+                    if (value is Dictionary<string, string> fieldErrors)
+                    {
+                        // Convert to Dictionary<string, List<string>> format
+                        responseErrors = fieldErrors.ToDictionary(
+                            kvp => kvp.Key,
+                            kvp => new List<string> { kvp.Value }
+                        );
+                    }
+                    // Check if value is already Dictionary<string, List<string>>
+                    else if (value is Dictionary<string, List<string>> listErrors)
+                    {
+                        responseErrors = listErrors;
+                    }
+                    // Check if value is Dictionary<string, string[]>
+                    else if (value is Dictionary<string, string[]> arrayErrors)
+                    {
+                        responseErrors = arrayErrors.ToDictionary(
+                            kvp => kvp.Key,
+                            kvp => kvp.Value.ToList()
+                        );
+                    }
+                    else
+                    {
+                        // For other error types, keep in data
+                        responseData = value;
+                    }
+                }
+                else
+                {
+                    responseData = value;
+                }
+
                 var wrappedResponse = new ApiResponse<object>
                 {
-                    Data = value,
-                    Success = statusCode >= 200 && statusCode < 300,
+                    Data = responseData,
+                    Success = isSuccess,
                     StatusCode = statusCode,
-                    Errors = null
+                    Errors = responseErrors
                 };
                 objectResult.Value = wrappedResponse;
                 objectResult.DeclaredType = typeof(ApiResponse<object>); // Fix for primitive types like bool
