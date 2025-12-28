@@ -286,6 +286,110 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
 
     #endregion
 
+    #region Status Timeline Tracking
+
+    /// <summary>
+    /// Ngày chuyển sang trạng thái Pending (Chờ xử lý)
+    /// </summary>
+    public DateTime? PendingDate { get; set; }
+
+    /// <summary>
+    /// User ID chuyển sang trạng thái Pending
+    /// </summary>
+    public Guid? PendingByUserId { get; set; }
+
+    /// <summary>
+    /// User name chuyển sang trạng thái Pending
+    /// </summary>
+    public string? PendingByUserName { get; set; }
+
+    /// <summary>
+    /// User ID gửi mẫu (SampleSent)
+    /// </summary>
+    public Guid? SampleSentByUserId { get; set; }
+
+    /// <summary>
+    /// User name gửi mẫu (SampleSent)
+    /// </summary>
+    public string? SampleSentByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày chuyển sang trạng thái InProgress (Đang thử nghiệm)
+    /// </summary>
+    public DateTime? InProgressDate { get; set; }
+
+    /// <summary>
+    /// User ID chuyển sang trạng thái InProgress
+    /// </summary>
+    public Guid? InProgressByUserId { get; set; }
+
+    /// <summary>
+    /// User name chuyển sang trạng thái InProgress
+    /// </summary>
+    public string? InProgressByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày chuyển sang trạng thái PendingApproval (Chờ phê duyệt KQ)
+    /// </summary>
+    public DateTime? PendingApprovalDate { get; set; }
+
+    /// <summary>
+    /// User ID chuyển sang trạng thái PendingApproval
+    /// </summary>
+    public Guid? PendingApprovalByUserId { get; set; }
+
+    /// <summary>
+    /// User name chuyển sang trạng thái PendingApproval
+    /// </summary>
+    public string? PendingApprovalByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày phê duyệt (Approved)
+    /// </summary>
+    public DateTime? ApprovedDate { get; set; }
+
+    /// <summary>
+    /// User ID phê duyệt
+    /// </summary>
+    public Guid? ApprovedByUserId { get; set; }
+
+    /// <summary>
+    /// User name phê duyệt
+    /// </summary>
+    public string? ApprovedByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày gửi kết quả (ResultSent)
+    /// </summary>
+    public DateTime? ResultSentDate { get; set; }
+
+    /// <summary>
+    /// User ID gửi kết quả
+    /// </summary>
+    public Guid? ResultSentByUserId { get; set; }
+
+    /// <summary>
+    /// User name gửi kết quả
+    /// </summary>
+    public string? ResultSentByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày hoàn thành (Completed)
+    /// </summary>
+    public DateTime? CompletedDate { get; set; }
+
+    /// <summary>
+    /// User ID hoàn thành
+    /// </summary>
+    public Guid? CompletedByUserId { get; set; }
+
+    /// <summary>
+    /// User name hoàn thành
+    /// </summary>
+    public string? CompletedByUserName { get; set; }
+
+    #endregion
+
     #region Collections
 
     /// <summary>

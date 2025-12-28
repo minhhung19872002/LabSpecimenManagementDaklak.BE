@@ -170,4 +170,13 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.GetChangeHistoryAsync(id);
     }
+
+    /// <summary>
+    /// Get timeline/progress for a test request
+    /// </summary>
+    [HttpGet("{id}/timeline")]
+    public virtual Task<TestRequestTimelineDto> GetTimelineAsync(Guid id)
+    {
+        return _testRequestAppService.GetTimelineAsync(id);
+    }
 }

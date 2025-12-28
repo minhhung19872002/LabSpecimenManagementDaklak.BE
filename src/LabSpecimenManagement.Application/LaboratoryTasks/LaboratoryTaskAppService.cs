@@ -1274,26 +1274,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Create or update QualityManagementTask
         await CreateQualityManagementTaskAsync(task, selectedIndicators);
 
-        // Check if all indicators are now sent - if so, update task status
-        var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var activeIndicators = allIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
-            .ToList();
-
-        // Check existing quality indicators for this task
-        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync();
-        var sentIndicatorIds = new HashSet<Guid>();
-        foreach (var qi in qualityIndicators)
-        {
-            var labIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(qi.LaboratoryTaskIndicatorId);
-            if (labIndicator != null && labIndicator.LaboratoryTaskId == taskId)
-            {
-                sentIndicatorIds.Add(qi.LaboratoryTaskIndicatorId);
-            }
-        }
-
-        // If any indicator has been sent to QLCL, update status to SentToQuality
-        if (sentIndicatorIds.Any())
+        // Update task status to SentToQuality when indicators are sent
+        if (task.Status != LaboratoryTaskStatus.SentToQuality)
         {
             task.Status = LaboratoryTaskStatus.SentToQuality;
             await _laboratoryTaskRepository.UpdateAsync(task);
@@ -1302,6 +1284,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Update TestRequest status if all tasks sent
         await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
 
+        // Reload task to ensure we return the latest data
+        task = await _laboratoryTaskRepository.GetAsync(taskId);
         return await MapToDetailDtoAsync(task);
     }
 

@@ -87,4 +87,9 @@ public interface ITestRequestAppService :
     /// <param name="excludeId">ID của phiếu yêu cầu cần loại trừ (dùng khi update)</param>
     /// <returns>True nếu số HĐ đã tồn tại</returns>
     Task<bool> CheckContractNumberExistsAsync(string contractNumber, Guid? excludeId = null);
+
+    /// <summary>
+    /// Lấy thông tin tiến trình (timeline) của phiếu yêu cầu
+    /// </summary>
+    Task<TestRequestTimelineDto> GetTimelineAsync(Guid id);
 }

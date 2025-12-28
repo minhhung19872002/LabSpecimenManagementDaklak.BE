@@ -1027,6 +1027,9 @@ public class TestRequestAppService :
         if (entity.Status == TestRequestStatus.New)
         {
             entity.Status = TestRequestStatus.Pending;
+            entity.PendingDate = Clock.Now;
+            entity.PendingByUserId = _currentUser.Id;
+            entity.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
         }
         // If already Pending, don't change status (allow re-print)
@@ -1047,6 +1050,8 @@ public class TestRequestAppService :
 
         entity.Status = TestRequestStatus.SampleSent;
         entity.SampleSentDate = Clock.Now; // Lưu ngày gửi mẫu (ngày lưu kho)
+        entity.SampleSentByUserId = _currentUser.Id;
+        entity.SampleSentByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
 
         // Create LaboratoryTasks grouped by Laboratory when sample is sent
@@ -1066,6 +1071,9 @@ public class TestRequestAppService :
         if (entity.Status == TestRequestStatus.SampleSent)
         {
             entity.Status = TestRequestStatus.InProgress;
+            entity.InProgressDate = Clock.Now;
+            entity.InProgressByUserId = _currentUser.Id;
+            entity.InProgressByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
         }
     }
@@ -1081,6 +1089,9 @@ public class TestRequestAppService :
         if (entity.Status == TestRequestStatus.InProgress)
         {
             entity.Status = TestRequestStatus.PendingApproval;
+            entity.PendingApprovalDate = Clock.Now;
+            entity.PendingApprovalByUserId = _currentUser.Id;
+            entity.PendingApprovalByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
         }
     }
@@ -1098,6 +1109,9 @@ public class TestRequestAppService :
         }
 
         entity.Status = TestRequestStatus.Approved;
+        entity.ApprovedDate = Clock.Now;
+        entity.ApprovedByUserId = _currentUser.Id;
+        entity.ApprovedByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
     }
 
@@ -1152,6 +1166,9 @@ public class TestRequestAppService :
         }
 
         entity.Status = TestRequestStatus.ResultSent;
+        entity.ResultSentDate = Clock.Now;
+        entity.ResultSentByUserId = _currentUser.Id;
+        entity.ResultSentByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
 
         // TODO: Send email to customer if requested
@@ -1170,6 +1187,9 @@ public class TestRequestAppService :
         }
 
         entity.Status = TestRequestStatus.Completed;
+        entity.CompletedDate = Clock.Now;
+        entity.CompletedByUserId = _currentUser.Id;
+        entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
     }
 
@@ -2075,6 +2095,162 @@ public class TestRequestAppService :
         }
 
         return query.Any(x => x.ContractNumber == contractNumber);
+    }
+
+    /// <summary>
+    /// Lấy thông tin tiến trình (timeline) của phiếu yêu cầu
+    /// </summary>
+    public async Task<TestRequestTimelineDto> GetTimelineAsync(Guid id)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        if (testRequest == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+        }
+
+        var result = new TestRequestTimelineDto
+        {
+            Id = testRequest.Id,
+            Status = testRequest.Status,
+            Steps = new List<TimelineStepDto>()
+        };
+
+        var currentStatus = testRequest.Status;
+
+        // Get laboratories from sample indicators for SampleSent step
+        var laboratories = new List<string>();
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
+        foreach (var sample in samples)
+        {
+            var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
+            foreach (var indicator in indicators)
+            {
+                if (indicator.LaboratoryId.HasValue)
+                {
+                    var lab = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
+                    if (lab != null && !laboratories.Contains(lab.Name))
+                    {
+                        laboratories.Add(lab.Name);
+                    }
+                }
+            }
+        }
+
+        // Build steps from newest to oldest (top to bottom in UI)
+
+        // Step 1: Hoàn thành (Completed)
+        var isCompleted = currentStatus == TestRequestStatus.Completed;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Hoàn thành",
+            Status = isCompleted ? "completed" : "pending",
+            Date = testRequest.CompletedDate,
+            UserId = testRequest.CompletedByUserId,
+            UserName = testRequest.CompletedByUserName
+        });
+
+        // Step 2: Đã gửi kết quả (ResultSent)
+        var isResultSent = currentStatus >= TestRequestStatus.ResultSent;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Đã gửi kết quả",
+            Status = isResultSent
+                ? (currentStatus == TestRequestStatus.ResultSent ? "current" : "completed")
+                : "pending",
+            Date = testRequest.ResultSentDate,
+            UserId = testRequest.ResultSentByUserId,
+            UserName = testRequest.ResultSentByUserName
+        });
+
+        // Step 3: Đã phê duyệt (Approved)
+        var isApproved = currentStatus >= TestRequestStatus.Approved;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Đã phê duyệt",
+            Status = isApproved
+                ? (currentStatus == TestRequestStatus.Approved ? "current" : "completed")
+                : "pending",
+            Date = testRequest.ApprovedDate,
+            UserId = testRequest.ApprovedByUserId,
+            UserName = testRequest.ApprovedByUserName
+        });
+
+        // Step 4: Chờ phê duyệt KQ (PendingApproval)
+        var isPendingApproval = currentStatus >= TestRequestStatus.PendingApproval
+            && currentStatus != TestRequestStatus.PendingChangeApproval;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Chờ phê duyệt KQ",
+            Status = isPendingApproval
+                ? (currentStatus == TestRequestStatus.PendingApproval ? "current" : "completed")
+                : "pending",
+            Date = testRequest.PendingApprovalDate,
+            UserId = testRequest.PendingApprovalByUserId,
+            UserName = testRequest.PendingApprovalByUserName
+        });
+
+        // Step 5: Đang thử nghiệm (InProgress)
+        var isInProgress = currentStatus >= TestRequestStatus.InProgress;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Đang thử nghiệm",
+            Status = isInProgress
+                ? (currentStatus == TestRequestStatus.InProgress ? "current" : "completed")
+                : "pending",
+            Date = testRequest.InProgressDate,
+            UserId = testRequest.InProgressByUserId,
+            UserName = testRequest.InProgressByUserName
+        });
+
+        // Step 6: Đã gửi mẫu (SampleSent)
+        var isSampleSent = currentStatus >= TestRequestStatus.SampleSent;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Đã gửi mẫu",
+            Status = isSampleSent
+                ? (currentStatus == TestRequestStatus.SampleSent ? "current" : "completed")
+                : "pending",
+            Date = testRequest.SampleSentDate,
+            UserId = testRequest.SampleSentByUserId,
+            UserName = testRequest.SampleSentByUserName,
+            ExtraInfo = isSampleSent && laboratories.Count > 0 ? laboratories : null
+        });
+
+        // Get creator name for fallback (used in New and Pending steps if no specific data)
+        string? creatorName = null;
+        if (testRequest.CreatorId.HasValue)
+        {
+            var creator = await _userRepository.FindAsync(testRequest.CreatorId.Value);
+            creatorName = creator?.Name ?? creator?.UserName;
+        }
+
+        // Step 7: Chờ xử lý (Pending)
+        var isPending = currentStatus >= TestRequestStatus.Pending;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Chờ xử lý",
+            Status = isPending
+                ? (currentStatus == TestRequestStatus.Pending ? "current" : "completed")
+                : "pending",
+            // Fallback to CreationTime if PendingDate is null (old data)
+            Date = testRequest.PendingDate ?? (isPending ? testRequest.CreationTime : null),
+            UserId = testRequest.PendingByUserId ?? (isPending ? testRequest.CreatorId : null),
+            // Fallback to creatorName if PendingByUserName is null (old data)
+            UserName = testRequest.PendingByUserName ?? (isPending ? creatorName : null)
+        });
+
+        // Step 8: Mới (New) - luôn completed vì đây là bước đầu
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Mới",
+            Status = "completed",
+            Date = testRequest.CreationTime,
+            UserId = testRequest.CreatorId,
+            UserName = creatorName
+        });
+
+        return result;
     }
 
     #endregion

@@ -2274,8 +2274,26 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("AgreeTerms")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("ApprovedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApprovedByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ApprovedDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ChangeRequest")
                         .HasColumnType("text");
+
+                    b.Property<Guid?>("CompletedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CompletedByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CompletedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
@@ -2344,6 +2362,15 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<Guid?>("InProgressByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InProgressByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("InProgressDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -2377,6 +2404,24 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<bool>("PaymentReceived")
                         .HasColumnType("boolean");
+
+                    b.Property<Guid?>("PendingApprovalByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PendingApprovalByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PendingApprovalDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("PendingByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("PendingByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("PendingDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Phone")
                         .HasMaxLength(50)
@@ -2417,8 +2462,23 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("ResultReturned")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("ResultSentByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ResultSentByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ResultSentDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<bool>("ReturnStoredSample")
                         .HasColumnType("boolean");
+
+                    b.Property<Guid?>("SampleSentByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SampleSentByUserName")
+                        .HasColumnType("text");
 
                     b.Property<DateTime?>("SampleSentDate")
                         .HasColumnType("timestamp without time zone");
