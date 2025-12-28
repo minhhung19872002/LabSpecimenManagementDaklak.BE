@@ -2282,11 +2282,11 @@ public class TestRequestAppService :
             UserName = testRequest.CompletedByUserName
         });
 
-        // Step 2: Đã gửi kết quả (ResultSent)
+        // Step 2: Đã gửi kết quả (Gửi khách hàng) (ResultSent)
         var isResultSent = currentStatus >= TestRequestStatus.ResultSent;
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Đã gửi kết quả",
+            Title = "Gửi khách hàng",
             Status = isResultSent
                 ? (currentStatus == TestRequestStatus.ResultSent ? "current" : "completed")
                 : "pending",

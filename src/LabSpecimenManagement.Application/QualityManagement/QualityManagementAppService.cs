@@ -573,9 +573,20 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         task.ResultSentDate = DateTime.Now;
         await _taskRepository.UpdateAsync(task);
 
-        // Also update TestRequest status
+        // Get current user name
+        string? currentUserName = null;
+        if (CurrentUser.Id.HasValue)
+        {
+            var user = await _userRepository.FindAsync(CurrentUser.Id.Value);
+            currentUserName = user?.Name ?? user?.UserName;
+        }
+
+        // Also update TestRequest status and ResultSent info
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
         testRequest.Status = TestRequestStatus.ResultSent;
+        testRequest.ResultSentDate = DateTime.Now;
+        testRequest.ResultSentByUserId = CurrentUser.Id;
+        testRequest.ResultSentByUserName = currentUserName;
         await _testRequestRepository.UpdateAsync(testRequest);
     }
 
@@ -822,6 +833,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         var anyRejected = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Rejected);
         var anyPending = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval);
 
+        var previousStatus = task.Status;
+
         if (allApproved)
         {
             task.Status = QualityManagementStatus.Approved;
@@ -836,6 +849,30 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         }
 
         await _taskRepository.UpdateAsync(task);
+
+        // Update TestRequest approval info when task becomes Approved
+        if (task.Status == QualityManagementStatus.Approved && previousStatus != QualityManagementStatus.Approved)
+        {
+            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+
+            // Only update if not already set (to preserve first approval info)
+            if (!testRequest.ApprovedDate.HasValue)
+            {
+                // Get current user name
+                string? currentUserName = null;
+                if (CurrentUser.Id.HasValue)
+                {
+                    var user = await _userRepository.FindAsync(CurrentUser.Id.Value);
+                    currentUserName = user?.Name ?? user?.UserName;
+                }
+
+                testRequest.ApprovedDate = DateTime.Now;
+                testRequest.ApprovedByUserId = CurrentUser.Id;
+                testRequest.ApprovedByUserName = currentUserName;
+                testRequest.Status = TestRequestStatus.Approved;
+                await _testRequestRepository.UpdateAsync(testRequest);
+            }
+        }
     }
 
     #endregion
