@@ -1,6 +1,7 @@
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Testing;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using System;
@@ -19,10 +20,14 @@ namespace LabSpecimenManagement.Controllers;
 public class TestingController : LabSpecimenManagementController
 {
     private readonly ITestingAppService _testingAppService;
+    private readonly IWebHostEnvironment _webHostEnvironment;
 
-    public TestingController(ITestingAppService testingAppService)
+    public TestingController(
+        ITestingAppService testingAppService,
+        IWebHostEnvironment webHostEnvironment)
     {
         _testingAppService = testingAppService;
+        _webHostEnvironment = webHostEnvironment;
     }
 
     /// <summary>
@@ -125,10 +130,11 @@ public class TestingController : LabSpecimenManagementController
             throw new UserFriendlyException("Chỉ chấp nhận file hình ảnh (jpg, jpeg, png, gif, bmp, webp)");
         }
 
-        // Generate unique file path
+        // Generate unique file path - save to wwwroot/uploads/testing-images/
         var fileId = Guid.NewGuid().ToString("N");
         var fileName = file.FileName;
-        var uploadsFolder = Path.Combine("uploads", "testing-images", id.ToString());
+        var webRootPath = _webHostEnvironment.WebRootPath ?? _webHostEnvironment.ContentRootPath;
+        var uploadsFolder = Path.Combine(webRootPath, "uploads", "testing-images", id.ToString());
         var filePath = Path.Combine(uploadsFolder, $"{fileId}{fileExtension}");
 
         // Ensure directory exists
@@ -139,6 +145,9 @@ public class TestingController : LabSpecimenManagementController
         {
             await file.CopyToAsync(stream);
         }
+
+        // Store relative path for database
+        var relativePath = Path.Combine("uploads", "testing-images", id.ToString(), $"{fileId}{fileExtension}");
 
         var input = new UploadSampleTestingImageInput
         {
@@ -151,7 +160,7 @@ public class TestingController : LabSpecimenManagementController
             input,
             fileId,
             fileName,
-            filePath,
+            relativePath,
             file.Length
         );
     }
@@ -174,7 +183,8 @@ public class TestingController : LabSpecimenManagementController
 
         var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
         var results = new List<SampleTestingImageDto>();
-        var uploadsFolder = Path.Combine("uploads", "testing-images", id.ToString());
+        var webRootPath = _webHostEnvironment.WebRootPath ?? _webHostEnvironment.ContentRootPath;
+        var uploadsFolder = Path.Combine(webRootPath, "uploads", "testing-images", id.ToString());
 
         // Ensure directory exists
         Directory.CreateDirectory(uploadsFolder);
@@ -204,6 +214,9 @@ public class TestingController : LabSpecimenManagementController
                 await file.CopyToAsync(stream);
             }
 
+            // Store relative path for database
+            var relativePath = Path.Combine("uploads", "testing-images", id.ToString(), $"{fileId}{fileExtension}");
+
             var input = new UploadSampleTestingImageInput
             {
                 SampleId = sampleId,
@@ -217,7 +230,7 @@ public class TestingController : LabSpecimenManagementController
                     input,
                     fileId,
                     fileName,
-                    filePath,
+                    relativePath,
                     file.Length
                 );
                 results.Add(result);

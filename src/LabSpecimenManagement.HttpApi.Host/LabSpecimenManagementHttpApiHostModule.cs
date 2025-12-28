@@ -254,8 +254,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         app.UseCorrelationId();
         app.MapAbpStaticAssets();
 
-        // Configure static files for uploads folder
-        var uploadsPath = Path.Combine(env.ContentRootPath, "uploads");
+        // Configure static files for uploads folder (use WebRootPath for consistency)
+        var webRootPath = env.WebRootPath ?? env.ContentRootPath;
+        var uploadsPath = Path.Combine(webRootPath, "uploads");
         if (!Directory.Exists(uploadsPath))
         {
             Directory.CreateDirectory(uploadsPath);

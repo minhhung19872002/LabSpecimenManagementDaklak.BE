@@ -90,6 +90,7 @@ public class FileAppService : ApplicationService, IFileAppService
 
     /// <summary>
     /// Lấy file theo FileId
+    /// Tìm trong wwwroot/uploads/ (cả samples và testing-images)
     /// </summary>
     public Task<(Stream? FileStream, string FileName, string ContentType)> GetFileAsync(string fileId)
     {
@@ -98,9 +99,10 @@ public class FileAppService : ApplicationService, IFileAppService
             return Task.FromResult<(Stream?, string, string)>((null, string.Empty, string.Empty));
         }
 
-        var uploadPath = GetUploadPath();
+        var webRootPath = _webHostEnvironment.WebRootPath ?? _webHostEnvironment.ContentRootPath;
 
-        // Find file with any extension
+        // Search in wwwroot/uploads/samples/ folder first (for sample attachments)
+        var uploadPath = Path.Combine(webRootPath, UploadFolder);
         foreach (var ext in AllowedImageExtensions)
         {
             var filePath = Path.Combine(uploadPath, $"{fileId}{ext}");
@@ -110,6 +112,25 @@ public class FileAppService : ApplicationService, IFileAppService
                 var contentType = GetContentType(ext);
                 var fileName = $"{fileId}{ext}";
                 return Task.FromResult<(Stream?, string, string)>((stream, fileName, contentType));
+            }
+        }
+
+        // Search in wwwroot/uploads/testing-images/ folder (for testing images)
+        var testingImagesPath = Path.Combine(webRootPath, "uploads", "testing-images");
+        if (Directory.Exists(testingImagesPath))
+        {
+            foreach (var ext in AllowedImageExtensions)
+            {
+                var searchPattern = $"{fileId}{ext}";
+                var files = Directory.GetFiles(testingImagesPath, searchPattern, SearchOption.AllDirectories);
+                if (files.Length > 0)
+                {
+                    var filePath = files[0];
+                    var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var contentType = GetContentType(ext);
+                    var fileName = Path.GetFileName(filePath);
+                    return Task.FromResult<(Stream?, string, string)>((stream, fileName, contentType));
+                }
             }
         }
 
