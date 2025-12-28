@@ -203,6 +203,11 @@ public class UpdateTestRequestSampleDto
     [StringLength(256)]
     public string? StorageLocation { get; set; }
 
+    /// <summary>
+    /// Loại mẫu ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
     public List<UpdateTestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>

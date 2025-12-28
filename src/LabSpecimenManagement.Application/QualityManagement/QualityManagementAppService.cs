@@ -34,6 +34,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<IdentityUser, Guid> _userRepository;
     private readonly ITestRequestAppService _testRequestAppService;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -52,7 +53,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<IdentityUser, Guid> userRepository,
-        ITestRequestAppService testRequestAppService)
+        ITestRequestAppService testRequestAppService,
+        IRepository<SpecimenType, Guid> specimenTypeRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -71,6 +73,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         _changeHistoryRepository = changeHistoryRepository;
         _userRepository = userRepository;
         _testRequestAppService = testRequestAppService;
+        _specimenTypeRepository = specimenTypeRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -769,6 +772,13 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             approvedByName = approver?.Name ?? approver?.UserName;
         }
 
+        string? specimenTypeName = null;
+        if (sample.SpecimenTypeId.HasValue)
+        {
+            var specimenType = await _specimenTypeRepository.FindAsync(sample.SpecimenTypeId.Value);
+            specimenTypeName = specimenType?.Name;
+        }
+
         return new QualityManagementIndicatorDto
         {
             Id = indicator.Id,
@@ -778,6 +788,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             SampleId = sample.Id,
             SampleCode = sample.SampleCode,
             SampleName = sample.SampleName,
+            SpecimenTypeName = specimenTypeName,
             IndicatorId = masterIndicator.Id,
             IndicatorCode = masterIndicator.Code,
             IndicatorName = masterIndicator.Name,

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -17,16 +18,19 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
 
     // Số ngày sau khi hoàn thành để chuyển sang trạng thái "Cần hủy mẫu"
     private const int DaysAfterCompletionForDisposal = 5;
 
     public SampleStorageAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
-        IRepository<TestRequestSample, Guid> sampleRepository)
+        IRepository<TestRequestSample, Guid> sampleRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
+        _specimenTypeRepository = specimenTypeRepository;
     }
 
     /// <summary>
@@ -84,7 +88,7 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
             throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
         }
 
-        return MapToDetailDto(testRequest);
+        return await MapToDetailDtoAsync(testRequest);
     }
 
     /// <summary>
@@ -201,9 +205,21 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
         };
     }
 
-    private SampleStorageDetailDto MapToDetailDto(TestRequest testRequest)
+    private async Task<SampleStorageDetailDto> MapToDetailDtoAsync(TestRequest testRequest)
     {
-        var sampleType = GetSampleTypeText(testRequest);
+        // Get all specimen type IDs from samples
+        var specimenTypeIds = testRequest.Samples
+            .Where(s => s.SpecimenTypeId.HasValue)
+            .Select(s => s.SpecimenTypeId!.Value)
+            .Distinct()
+            .ToList();
+
+        // Load all specimen types in one query
+        var specimenTypes = specimenTypeIds.Count > 0
+            ? await _specimenTypeRepository.GetListAsync(st => specimenTypeIds.Contains(st.Id))
+            : new List<SpecimenType>();
+
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id, st => st.Name);
 
         return new SampleStorageDetailDto
         {
@@ -220,7 +236,9 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
                     Id = s.Id,
                     SampleCode = s.SampleCode,
                     SampleName = s.SampleName,
-                    SampleType = sampleType,
+                    SpecimenTypeName = s.SpecimenTypeId.HasValue && specimenTypeDict.ContainsKey(s.SpecimenTypeId.Value)
+                        ? specimenTypeDict[s.SpecimenTypeId.Value]
+                        : null,
                     StorageDate = testRequest.SampleSentDate,
                     SampleQuantity = s.SampleQuantity,
                     StatusText = s.StatusText,
@@ -229,25 +247,6 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
                 })
                 .ToList()
         };
-    }
-
-    /// <summary>
-    /// Lấy text loại mẫu từ các flags SampleType
-    /// </summary>
-    private string? GetSampleTypeText(TestRequest testRequest)
-    {
-        var types = new List<string>();
-
-        if (testRequest.SampleTypeService)
-            types.Add("Dịch vụ");
-        if (testRequest.SampleTypeContract)
-            types.Add("Hợp đồng");
-        if (testRequest.SampleTypeTask)
-            types.Add("Mẫu nhiệm vụ");
-        if (testRequest.SampleTypeSubContract)
-            types.Add("Hợp đồng phụ");
-
-        return types.Count > 0 ? string.Join(", ", types) : null;
     }
 
     #endregion

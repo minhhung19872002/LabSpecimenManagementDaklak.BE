@@ -2420,6 +2420,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("ReturnStoredSample")
                         .HasColumnType("boolean");
 
+                    b.Property<DateTime?>("SampleSentDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<int>("SampleStorage")
                         .HasColumnType("integer");
 
@@ -2623,6 +2626,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<DateTime?>("CancelledDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("CreationTime");
@@ -2638,6 +2644,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("DeletionTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
+
+                    b.Property<bool>("IsCancelled")
+                        .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -2680,6 +2689,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");

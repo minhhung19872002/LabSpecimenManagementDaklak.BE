@@ -41,6 +41,7 @@ public class TestRequestAppService :
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly ICurrentUser _currentUser;
 
@@ -58,6 +59,7 @@ public class TestRequestAppService :
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
         INotificationAppService notificationAppService,
         ICurrentUser currentUser)
         : base(repository)
@@ -74,6 +76,7 @@ public class TestRequestAppService :
         _changeHistoryRepository = changeHistoryRepository;
         _qualityTaskRepository = qualityTaskRepository;
         _attachmentRepository = attachmentRepository;
+        _specimenTypeRepository = specimenTypeRepository;
         _notificationAppService = notificationAppService;
         _currentUser = currentUser;
     }
@@ -92,6 +95,13 @@ public class TestRequestAppService :
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
             var sampleDto = ObjectMapper.Map<TestRequestSample, TestRequestSampleDto>(sample);
+
+            // Load specimen type name if assigned
+            if (sample.SpecimenTypeId.HasValue)
+            {
+                var specimenType = await _specimenTypeRepository.FindAsync(sample.SpecimenTypeId.Value);
+                sampleDto.SpecimenTypeName = specimenType?.Name;
+            }
 
             // Load indicators for this sample
             var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
@@ -386,6 +396,7 @@ public class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
 
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
 
@@ -629,6 +640,7 @@ public class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
+                    sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
                 }
                 else
                 {
@@ -647,6 +659,7 @@ public class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
+                    sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
                     await _sampleRepository.InsertAsync(sample, autoSave: true);
                 }
 
@@ -1488,6 +1501,7 @@ public class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
             }
             else
             {
@@ -1505,6 +1519,7 @@ public class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
             }
 

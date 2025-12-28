@@ -80,6 +80,11 @@ public class TestRequestSample : FullAuditedEntity<Guid>
     public DateTime? CancelledDate { get; set; }
 
     /// <summary>
+    /// Loại mẫu ID (Foreign Key to SpecimenType)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;

@@ -108,6 +108,16 @@ public class TestRequestSampleDto
     /// </summary>
     public bool IsCancelled { get; set; }
 
+    /// <summary>
+    /// Loại mẫu ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên loại mẫu (để hiển thị)
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
     public List<TestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>

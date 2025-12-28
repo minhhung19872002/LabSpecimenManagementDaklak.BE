@@ -43,6 +43,11 @@ public class QualityManagementIndicatorDto
     public string? SampleName { get; set; }
 
     /// <summary>
+    /// Loại mẫu - Specimen Type Name
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
     /// Indicator ID
     /// </summary>
     public Guid IndicatorId { get; set; }

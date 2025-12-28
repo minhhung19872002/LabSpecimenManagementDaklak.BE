@@ -23,9 +23,9 @@ public class SampleStorageItemDto
     public string SampleName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Loại mẫu (từ TestRequest SampleType flags)
+    /// Loại mẫu (từ SpecimenType master data)
     /// </summary>
-    public string? SampleType { get; set; }
+    public string? SpecimenTypeName { get; set; }
 
     /// <summary>
     /// Ngày lưu mẫu (từ TestRequest.SampleSentDate)

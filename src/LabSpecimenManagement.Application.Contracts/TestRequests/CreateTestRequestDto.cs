@@ -183,6 +183,11 @@ public class CreateTestRequestSampleDto
     [StringLength(256)]
     public string? StorageLocation { get; set; }
 
+    /// <summary>
+    /// Loại mẫu ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
     public List<CreateTestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>
@@ -241,6 +246,7 @@ public class SampleChangeDto
     public string? ProcessingStatus { get; set; }
     public string? Notes { get; set; }
     public string? StorageLocation { get; set; }
+    public Guid? SpecimenTypeId { get; set; }
     public List<IndicatorChangeDto>? Indicators { get; set; }
 }
 
