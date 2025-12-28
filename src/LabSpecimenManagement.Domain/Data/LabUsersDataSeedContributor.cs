@@ -111,6 +111,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.TestRequests.Edit,
             // Quản lý công việc (LaboratoryTasks)
             LabSpecimenManagementPermissions.LaboratoryTasks.Default,
+            LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
             LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll,
             // Quản lý xét nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
@@ -132,9 +133,14 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         });
 
         // 4. LabTechnician - Kỹ thuật viên (kythuatvien1, kythuatvien2)
-        // Access: Quản lý xét nghiệm, Quản lý mẫu
+        // Access: Dashboard, Quản lý xét nghiệm, Quản lý mẫu, Quản lý công việc (để xem task được giao)
         await CreateRoleIfNotExistsAsync(RoleLabTechnician, new[]
         {
+            // Dashboard - để xem overview và task được giao
+            LabSpecimenManagementPermissions.Dashboard.Default,
+            // Quản lý công việc (LaboratoryTasks) - cần để truy cập trang Testing
+            LabSpecimenManagementPermissions.LaboratoryTasks.Default,
+            LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
             // Quản lý xét nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Execute,

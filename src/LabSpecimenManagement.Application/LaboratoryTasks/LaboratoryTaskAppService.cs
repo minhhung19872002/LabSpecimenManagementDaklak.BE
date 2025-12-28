@@ -517,6 +517,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public async Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(Guid indicatorId, ApproveIndicatorDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can approve
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+        }
 
         if (input.Approve)
         {
@@ -553,7 +560,6 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         // Update task status
-        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
         await UpdateTaskStatusAsync(task);
 
         return await MapToIndicatorDtoAsync(taskIndicator);

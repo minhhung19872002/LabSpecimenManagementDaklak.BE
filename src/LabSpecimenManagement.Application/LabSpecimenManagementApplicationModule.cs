@@ -1,4 +1,6 @@
-﻿using Volo.Abp.Account;
+﻿using Microsoft.Extensions.DependencyInjection;
+using Volo.Abp.Account;
+using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.AutoMapper;
 using Volo.Abp.FeatureManagement;
 using Volo.Abp.Identity;
@@ -27,5 +29,8 @@ public class LabSpecimenManagementApplicationModule : AbpModule
         {
             options.AddMaps<LabSpecimenManagementApplicationModule>();
         });
+
+        // TODO: Remove this in production - Bypass all permission checks for development
+        context.Services.AddSingleton<IPermissionChecker, AlwaysAllowPermissionChecker>();
     }
 }
