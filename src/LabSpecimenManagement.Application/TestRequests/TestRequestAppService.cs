@@ -1033,6 +1033,7 @@ public class TestRequestAppService :
         }
 
         entity.Status = TestRequestStatus.SampleSent;
+        entity.SampleSentDate = Clock.Now; // Lưu ngày gửi mẫu (ngày lưu kho)
         await Repository.UpdateAsync(entity);
 
         // Create LaboratoryTasks grouped by Laboratory when sample is sent

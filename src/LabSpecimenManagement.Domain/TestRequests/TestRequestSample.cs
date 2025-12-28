@@ -70,6 +70,16 @@ public class TestRequestSample : FullAuditedEntity<Guid>
     public decimal TotalIndicatorCost { get; set; }
 
     /// <summary>
+    /// Đánh dấu mẫu đã bị hủy (dùng cho quản lý mẫu lưu kho)
+    /// </summary>
+    public bool IsCancelled { get; set; }
+
+    /// <summary>
+    /// Ngày hủy mẫu
+    /// </summary>
+    public DateTime? CancelledDate { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;

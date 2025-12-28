@@ -279,6 +279,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? Subcontractor { get; set; }
 
+    /// <summary>
+    /// Ngày gửi mẫu (ngày lưu kho) - được set khi status chuyển sang SampleSent
+    /// </summary>
+    public DateTime? SampleSentDate { get; set; }
+
     #endregion
 
     #region Collections
