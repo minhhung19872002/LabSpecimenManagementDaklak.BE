@@ -1714,6 +1714,41 @@ public class TestRequestAppService :
             sample.TotalIndicatorCost = sampleIndicatorCost;
             await _sampleRepository.UpdateAsync(sample, autoSave: true);
             totalCost += sampleIndicatorCost;
+
+            // Update attachments for sample
+            if (sampleDto.Attachments != null)
+            {
+                // Get existing attachments
+                var existingAttachments = await _attachmentRepository.GetListAsync(a => a.TestRequestSampleId == sample.Id);
+                var existingFileIds = existingAttachments.Select(a => a.FileId).ToList();
+                var inputFileIds = sampleDto.Attachments.Select(a => a.FileId).ToList();
+
+                // Delete attachments not in input
+                foreach (var existingAttachment in existingAttachments)
+                {
+                    if (!inputFileIds.Contains(existingAttachment.FileId))
+                    {
+                        await _attachmentRepository.DeleteAsync(existingAttachment);
+                    }
+                }
+
+                // Add new attachments
+                foreach (var attachmentInput in sampleDto.Attachments)
+                {
+                    if (!existingFileIds.Contains(attachmentInput.FileId))
+                    {
+                        var attachment = new TestRequestSampleAttachment(
+                            GuidGenerator.Create(),
+                            sample.Id,
+                            attachmentInput.FileId,
+                            attachmentInput.FileName,
+                            $"/api/v1/files/{attachmentInput.FileId}",
+                            attachmentInput.FileSize
+                        );
+                        await _attachmentRepository.InsertAsync(attachment);
+                    }
+                }
+            }
         }
 
         // Create LaboratoryTasks for new indicators - grouped by laboratory

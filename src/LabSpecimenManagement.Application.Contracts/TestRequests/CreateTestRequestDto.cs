@@ -248,6 +248,17 @@ public class SampleChangeDto
     public string? StorageLocation { get; set; }
     public Guid? SpecimenTypeId { get; set; }
     public List<IndicatorChangeDto>? Indicators { get; set; }
+    public List<AttachmentChangeDto>? Attachments { get; set; }
+}
+
+/// <summary>
+/// DTO for deserializing attachment changes from JSON in change history
+/// </summary>
+public class AttachmentChangeDto
+{
+    public string FileId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long FileSize { get; set; }
 }
 
 /// <summary>
