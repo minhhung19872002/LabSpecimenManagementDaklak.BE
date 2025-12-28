@@ -60,6 +60,12 @@ public interface ITestRequestAppService :
     Task CompleteAsync(Guid id);
 
     /// <summary>
+    /// Complete test request with postal delivery image
+    /// Used when DeliveryPostal = true
+    /// </summary>
+    Task CompleteWithImageAsync(Guid id, CompleteWithImageDto input);
+
+    /// <summary>
     /// QLCL phê duyệt thay đổi: PendingChangeApproval → Previous status
     /// </summary>
     Task ApproveChangesAsync(Guid id);

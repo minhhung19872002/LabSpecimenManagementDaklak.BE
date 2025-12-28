@@ -86,6 +86,27 @@ public class TestRequestAppService :
         var entity = await Repository.GetAsync(id);
         var dto = ObjectMapper.Map<TestRequest, TestRequestDto>(entity);
 
+        // Map postal delivery images if exists
+        if (!string.IsNullOrEmpty(entity.PostalDeliveryImageFileIds))
+        {
+            try
+            {
+                var fileIds = JsonSerializer.Deserialize<List<string>>(entity.PostalDeliveryImageFileIds);
+                if (fileIds != null)
+                {
+                    dto.PostalDeliveryImages = fileIds.Select(id => new PostalDeliveryImageDto
+                    {
+                        FileId = id,
+                        Url = $"/api/v1/files/{id}"
+                    }).ToList();
+                }
+            }
+            catch
+            {
+                // Ignore JSON parse errors
+            }
+        }
+
         // Load samples with indicators
         var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
         dto.Samples = new List<TestRequestSampleDto>();
@@ -1190,6 +1211,46 @@ public class TestRequestAppService :
         entity.CompletedDate = Clock.Now;
         entity.CompletedByUserId = _currentUser.Id;
         entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+        await Repository.UpdateAsync(entity);
+    }
+
+    /// <summary>
+    /// Complete test request with postal delivery images
+    /// Used when DeliveryPostal = true
+    /// </summary>
+    public async Task CompleteWithImageAsync(Guid id, CompleteWithImageDto input)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.ResultSent)
+        {
+            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+        }
+
+        if (!entity.DeliveryPostal)
+        {
+            throw new UserFriendlyException("Phiếu yêu cầu này không yêu cầu gửi bưu điện");
+        }
+
+        if (input.ImageFileIds == null || input.ImageFileIds.Count == 0)
+        {
+            throw new UserFriendlyException("Phải có ít nhất 1 hình ảnh");
+        }
+
+        if (input.ImageFileIds.Count > 5)
+        {
+            throw new UserFriendlyException("Tối đa 5 hình ảnh");
+        }
+
+        // Save image file IDs as JSON array
+        entity.PostalDeliveryImageFileIds = JsonSerializer.Serialize(input.ImageFileIds);
+
+        // Update status
+        entity.Status = TestRequestStatus.Completed;
+        entity.CompletedDate = Clock.Now;
+        entity.CompletedByUserId = _currentUser.Id;
+        entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+
         await Repository.UpdateAsync(entity);
     }
 

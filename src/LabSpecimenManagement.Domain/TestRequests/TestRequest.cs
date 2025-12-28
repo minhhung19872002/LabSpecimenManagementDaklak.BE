@@ -388,6 +388,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? CompletedByUserName { get; set; }
 
+    /// <summary>
+    /// Hình ảnh minh chứng gửi bưu điện (JSON array của FileIds, tối đa 5 hình)
+    /// </summary>
+    public string? PostalDeliveryImageFileIds { get; set; }
+
     #endregion
 
     #region Collections

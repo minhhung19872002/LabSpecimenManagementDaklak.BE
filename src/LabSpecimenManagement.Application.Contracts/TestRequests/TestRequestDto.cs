@@ -80,6 +80,15 @@ public class TestRequestDto : FullAuditedEntityDto<Guid>
 
     #endregion
 
+    #region Postal Delivery Image
+
+    /// <summary>
+    /// Danh sách hình ảnh minh chứng gửi bưu điện (tối đa 5 hình)
+    /// </summary>
+    public List<PostalDeliveryImageDto> PostalDeliveryImages { get; set; } = new();
+
+    #endregion
+
     #region Collections
 
     public List<TestRequestSampleDto> Samples { get; set; } = new();

@@ -2427,6 +2427,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
+                    b.Property<string>("PostalDeliveryImageFileIds")
+                        .HasColumnType("text");
+
                     b.Property<string>("Province")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

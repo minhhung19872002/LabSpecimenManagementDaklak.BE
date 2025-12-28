@@ -133,6 +133,17 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Complete test request with postal delivery image
+    /// Used when DeliveryPostal = true
+    /// </summary>
+    [HttpPost("{id}/complete-with-image")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task CompleteWithImageAsync(Guid id, [FromBody] CompleteWithImageDto input)
+    {
+        return _testRequestAppService.CompleteWithImageAsync(id, input);
+    }
+
+    /// <summary>
     /// Send sample - update status from Pending to SampleSent
     /// </summary>
     [HttpPost("{id}/send-sample")]
