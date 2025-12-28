@@ -643,28 +643,26 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // (vì thứ tự seed của ABP không đảm bảo)
         await _labUsersDataSeedContributor.SeedAsync(new DataSeedContext());
 
-        // Lấy danh sách users có role Reviewer hoặc LabManager để làm TechnicalManager
-        var reviewer01 = await _userRepository.FindByNormalizedUserNameAsync("REVIEWER01");
-        var reviewer02 = await _userRepository.FindByNormalizedUserNameAsync("REVIEWER02");
-        var labManager = await _userRepository.FindByNormalizedUserNameAsync("LABMANAGER");
-        var approver = await _userRepository.FindByNormalizedUserNameAsync("APPROVER");
+        // Lấy danh sách users để làm TechnicalManager
+        var labVisinh = await _userRepository.FindByNormalizedUserNameAsync("LABVISINH");
+        var labHoa = await _userRepository.FindByNormalizedUserNameAsync("LABHOA");
+        var quanlychatluong = await _userRepository.FindByNormalizedUserNameAsync("QUANLYCHATLUONG");
 
         // Gán TechnicalManager cho từng phòng lab
-        // reviewer01 = Pham Thi D - Truong phong Vi sinh
-        // reviewer02 = Hoang Van E - Truong phong Hoa
-        // labManager = ThS. Tran Van G - Quan ly PTN
-        // approver = PGS.TS Nguyen Van F - Giam doc PTN
+        // labVisinh = Lab Vi Sinh - QLKT
+        // labHoa = Lab Hóa - QLKT
+        // quanlychatluong = Quản lý chất lượng
         var laboratories = new[]
         {
-            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1, TechnicalManagerId = labManager?.Id },
-            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2, TechnicalManagerId = reviewer02?.Id },
-            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3, TechnicalManagerId = reviewer01?.Id },
-            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4, TechnicalManagerId = labManager?.Id },
-            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5, TechnicalManagerId = reviewer01?.Id },
-            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6, TechnicalManagerId = labManager?.Id },
-            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7, TechnicalManagerId = labManager?.Id },
-            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8, TechnicalManagerId = reviewer02?.Id },
-            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9, TechnicalManagerId = reviewer02?.Id },
+            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2, TechnicalManagerId = labHoa?.Id },
+            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3, TechnicalManagerId = labVisinh?.Id },
+            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5, TechnicalManagerId = labVisinh?.Id },
+            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8, TechnicalManagerId = labHoa?.Id },
+            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9, TechnicalManagerId = labHoa?.Id },
         };
 
         foreach (var lab in laboratories)

@@ -12,7 +12,7 @@ using Volo.Abp.PermissionManagement;
 namespace LabSpecimenManagement.Data;
 
 /// <summary>
-/// Seed data cho Users và Roles phục vụ workflow duyệt kết quả
+/// Seed data cho Users và Roles phục vụ hệ thống quản lý phòng thí nghiệm
 /// </summary>
 public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDependency
 {
@@ -25,10 +25,10 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     private readonly IConfiguration _configuration;
 
     // Role names
-    public const string RoleTechnician = "Technician";      // Kỹ thuật viên
-    public const string RoleReviewer = "Reviewer";          // Trưởng phòng - Duyệt B1
-    public const string RoleApprover = "Approver";          // Giám đốc PTN - Duyệt B2
-    public const string RoleLabManager = "LabManager";      // Quản lý phòng thí nghiệm
+    public const string RoleLabTechnicalManager = "LabTechnicalManager";  // Quản lý kỹ thuật Lab (labvisinh, labhoa)
+    public const string RoleSampleReceiver = "SampleReceiver";            // Bộ phận Giao nhận mẫu
+    public const string RoleQualityManager = "QualityManager";            // Quản lý chất lượng (QLCL)
+    public const string RoleLabTechnician = "LabTechnician";              // Kỹ thuật viên (KTV)
 
     public LabUsersDataSeedContributor(
         IGuidGenerator guidGenerator,
@@ -63,96 +63,88 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
 
     private async Task CreateRolesAsync()
     {
-        // 1. Technician - Kỹ thuật viên
-        await CreateRoleIfNotExistsAsync(RoleTechnician, new[]
+        // 1. LabTechnicalManager - Quản lý kỹ thuật Lab (labvisinh, labhoa)
+        // Access: Dashboard, Quản lý công việc, Quản lý xét nghiệm, Quản lý mẫu
+        await CreateRoleIfNotExistsAsync(RoleLabTechnicalManager, new[]
         {
-            LabSpecimenManagementPermissions.TestRequests.Default,
-            LabSpecimenManagementPermissions.Specimens.Default,
+            // Dashboard
+            LabSpecimenManagementPermissions.Dashboard.Default,
+            // Quản lý công việc (LaboratoryTasks)
+            LabSpecimenManagementPermissions.LaboratoryTasks.Default,
+            LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
+            LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll,
+            LabSpecimenManagementPermissions.LaboratoryTasks.UpdateStatus,
+            // Quản lý xét nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Execute,
-            LabSpecimenManagementPermissions.TestResults.Default,
-            LabSpecimenManagementPermissions.TestResults.Create,
-            LabSpecimenManagementPermissions.TestResults.Edit,
-            LabSpecimenManagementPermissions.TestResults.Submit,
-        });
-
-        // 2. Reviewer - Trưởng phòng (Duyệt B1)
-        await CreateRoleIfNotExistsAsync(RoleReviewer, new[]
-        {
-            LabSpecimenManagementPermissions.TestRequests.Default,
-            LabSpecimenManagementPermissions.Specimens.Default,
-            LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Review,
+            // Quản lý mẫu (Specimens)
+            LabSpecimenManagementPermissions.Specimens.Default,
+            // TestResults - để xem kết quả
             LabSpecimenManagementPermissions.TestResults.Default,
             LabSpecimenManagementPermissions.TestResults.Review,
-            LabSpecimenManagementPermissions.TestResults.Reject,
-            LabSpecimenManagementPermissions.NCRs.Default,
-            LabSpecimenManagementPermissions.NCRs.Create,
         });
 
-        // 3. Approver - Giám đốc PTN (Duyệt B2)
-        await CreateRoleIfNotExistsAsync(RoleApprover, new[]
+        // 2. SampleReceiver - Bộ phận Giao nhận mẫu (bpgiaonhan)
+        // Access: Quản lý phiếu yêu cầu
+        await CreateRoleIfNotExistsAsync(RoleSampleReceiver, new[]
         {
-            LabSpecimenManagementPermissions.TestRequests.Default,
-            LabSpecimenManagementPermissions.Specimens.Default,
-            LabSpecimenManagementPermissions.Tests.Default,
-            LabSpecimenManagementPermissions.Tests.Approve,
-            LabSpecimenManagementPermissions.TestResults.Default,
-            LabSpecimenManagementPermissions.TestResults.Approve,
-            LabSpecimenManagementPermissions.TestResults.Reject,
-            LabSpecimenManagementPermissions.Reports.Default,
-            LabSpecimenManagementPermissions.Reports.Approve,
-            LabSpecimenManagementPermissions.Reports.Export,
-            LabSpecimenManagementPermissions.Reports.Send,
-            LabSpecimenManagementPermissions.NCRs.Default,
-            LabSpecimenManagementPermissions.NCRs.Close,
-        });
-
-        // 4. LabManager - Quản lý PTN (Full access)
-        await CreateRoleIfNotExistsAsync(RoleLabManager, new[]
-        {
-            // Full TestRequest
+            // Quản lý phiếu yêu cầu (TestRequests)
             LabSpecimenManagementPermissions.TestRequests.Default,
             LabSpecimenManagementPermissions.TestRequests.Create,
             LabSpecimenManagementPermissions.TestRequests.Edit,
-            LabSpecimenManagementPermissions.TestRequests.Delete,
-            // Full Specimen
+            // Specimens - cần để tạo mẫu trong phiếu yêu cầu
             LabSpecimenManagementPermissions.Specimens.Default,
             LabSpecimenManagementPermissions.Specimens.Create,
             LabSpecimenManagementPermissions.Specimens.Edit,
-            LabSpecimenManagementPermissions.Specimens.Delete,
-            // Full Test
+        });
+
+        // 3. QualityManager - Quản lý chất lượng (quanlychatluong)
+        // Access: Dashboard, Quản lý phiếu yêu cầu, Quản lý chất lượng, Quản lý mẫu, Quản lý xét nghiệm, Quản lý công việc
+        await CreateRoleIfNotExistsAsync(RoleQualityManager, new[]
+        {
+            // Dashboard
+            LabSpecimenManagementPermissions.Dashboard.Default,
+            // Quản lý phiếu yêu cầu (TestRequests)
+            LabSpecimenManagementPermissions.TestRequests.Default,
+            LabSpecimenManagementPermissions.TestRequests.Create,
+            LabSpecimenManagementPermissions.TestRequests.Edit,
+            // Quản lý công việc (LaboratoryTasks)
+            LabSpecimenManagementPermissions.LaboratoryTasks.Default,
+            LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll,
+            // Quản lý xét nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
-            LabSpecimenManagementPermissions.Tests.Create,
-            LabSpecimenManagementPermissions.Tests.Edit,
-            LabSpecimenManagementPermissions.Tests.Delete,
-            LabSpecimenManagementPermissions.Tests.Assign,
             LabSpecimenManagementPermissions.Tests.Execute,
             LabSpecimenManagementPermissions.Tests.Review,
             LabSpecimenManagementPermissions.Tests.Approve,
-            // Full TestResult
+            // Quản lý mẫu (Specimens)
+            LabSpecimenManagementPermissions.Specimens.Default,
+            // TestResults
             LabSpecimenManagementPermissions.TestResults.Default,
-            LabSpecimenManagementPermissions.TestResults.Create,
-            LabSpecimenManagementPermissions.TestResults.Edit,
-            LabSpecimenManagementPermissions.TestResults.Delete,
-            LabSpecimenManagementPermissions.TestResults.Submit,
             LabSpecimenManagementPermissions.TestResults.Review,
             LabSpecimenManagementPermissions.TestResults.Approve,
             LabSpecimenManagementPermissions.TestResults.Reject,
-            // Full Report
+            // Reports
             LabSpecimenManagementPermissions.Reports.Default,
-            LabSpecimenManagementPermissions.Reports.Create,
-            LabSpecimenManagementPermissions.Reports.Edit,
-            LabSpecimenManagementPermissions.Reports.Delete,
             LabSpecimenManagementPermissions.Reports.Approve,
             LabSpecimenManagementPermissions.Reports.Export,
             LabSpecimenManagementPermissions.Reports.Send,
-            // Full NCR
-            LabSpecimenManagementPermissions.NCRs.Default,
-            LabSpecimenManagementPermissions.NCRs.Create,
-            LabSpecimenManagementPermissions.NCRs.Edit,
-            LabSpecimenManagementPermissions.NCRs.Delete,
-            LabSpecimenManagementPermissions.NCRs.Close,
+        });
+
+        // 4. LabTechnician - Kỹ thuật viên (kythuatvien1, kythuatvien2)
+        // Access: Quản lý xét nghiệm, Quản lý mẫu
+        await CreateRoleIfNotExistsAsync(RoleLabTechnician, new[]
+        {
+            // Quản lý xét nghiệm (Tests)
+            LabSpecimenManagementPermissions.Tests.Default,
+            LabSpecimenManagementPermissions.Tests.Execute,
+            // Quản lý mẫu (Specimens)
+            LabSpecimenManagementPermissions.Specimens.Default,
+            // TestResults
+            LabSpecimenManagementPermissions.TestResults.Default,
+            LabSpecimenManagementPermissions.TestResults.Create,
+            LabSpecimenManagementPermissions.TestResults.Edit,
+            LabSpecimenManagementPermissions.TestResults.Submit,
         });
     }
 
@@ -174,64 +166,69 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
 
     private async Task CreateUsersAsync()
     {
-        // 1. Technician Users - Kỹ thuật viên
+        const string defaultPassword = "1q2w3E*";
+
+        // 1. Admin1 - Full access (role admin của ABP)
         await CreateUserIfNotExistsAsync(
-            "ktv01",
-            "ktv01@lab.vn",
-            "Nguyen Van A",
-            "1q2w3E*",
-            new[] { RoleTechnician }
+            "admin1",
+            "admin1@lab.vn",
+            "Admin 1",
+            defaultPassword,
+            new[] { "admin" }
         );
 
+        // 2. Lab Vi Sinh - Quản lý kỹ thuật
         await CreateUserIfNotExistsAsync(
-            "ktv02",
-            "ktv02@lab.vn",
-            "Tran Thi B",
-            "1q2w3E*",
-            new[] { RoleTechnician }
+            "labvisinh",
+            "labvisinh@lab.vn",
+            "Lab Vi Sinh - QLKT",
+            defaultPassword,
+            new[] { RoleLabTechnicalManager }
         );
 
+        // 3. Lab Hóa - Quản lý kỹ thuật
         await CreateUserIfNotExistsAsync(
-            "ktv03",
-            "ktv03@lab.vn",
-            "Le Van C",
-            "1q2w3E*",
-            new[] { RoleTechnician }
+            "labhoa",
+            "labhoa@lab.vn",
+            "Lab Hóa - QLKT",
+            defaultPassword,
+            new[] { RoleLabTechnicalManager }
         );
 
-        // 2. Reviewer - Trưởng phòng (Duyệt B1)
+        // 4. Bộ phận Giao nhận mẫu
         await CreateUserIfNotExistsAsync(
-            "reviewer01",
-            "reviewer01@lab.vn",
-            "Pham Thi D - Truong phong Vi sinh",
-            "1q2w3E*",
-            new[] { RoleReviewer }
+            "bpgiaonhan",
+            "bpgiaonhan@lab.vn",
+            "BP Giao nhận mẫu",
+            defaultPassword,
+            new[] { RoleSampleReceiver }
         );
 
+        // 5. Quản lý chất lượng
         await CreateUserIfNotExistsAsync(
-            "reviewer02",
-            "reviewer02@lab.vn",
-            "Hoang Van E - Truong phong Hoa",
-            "1q2w3E*",
-            new[] { RoleReviewer }
+            "quanlychatluong",
+            "quanlychatluong@lab.vn",
+            "Quản lý chất lượng",
+            defaultPassword,
+            new[] { RoleQualityManager }
         );
 
-        // 3. Approver - Giám đốc PTN (Duyệt B2)
+        // 6. Kỹ thuật viên 1
         await CreateUserIfNotExistsAsync(
-            "approver",
-            "approver@lab.vn",
-            "PGS.TS Nguyen Van F - Giam doc PTN",
-            "1q2w3E*",
-            new[] { RoleApprover }
+            "kythuatvien1",
+            "kythuatvien1@lab.vn",
+            "Kỹ thuật viên 1",
+            defaultPassword,
+            new[] { RoleLabTechnician }
         );
 
-        // 4. LabManager - Quản lý PTN (Full access)
+        // 7. Kỹ thuật viên 2
         await CreateUserIfNotExistsAsync(
-            "labmanager",
-            "labmanager@lab.vn",
-            "ThS. Tran Van G - Quan ly PTN",
-            "1q2w3E*",
-            new[] { RoleLabManager }
+            "kythuatvien2",
+            "kythuatvien2@lab.vn",
+            "Kỹ thuật viên 2",
+            defaultPassword,
+            new[] { RoleLabTechnician }
         );
     }
 
