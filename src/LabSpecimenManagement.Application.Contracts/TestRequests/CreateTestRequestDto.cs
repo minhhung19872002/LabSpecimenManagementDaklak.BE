@@ -237,6 +237,8 @@ public class SampleChangeDto
     public string? SampleName { get; set; }
     public string? SamplingAddress { get; set; }
     public string? SampleQuantity { get; set; }
+    public string? StatusText { get; set; }
+    public string? ProcessingStatus { get; set; }
     public string? Notes { get; set; }
     public string? StorageLocation { get; set; }
     public List<IndicatorChangeDto>? Indicators { get; set; }

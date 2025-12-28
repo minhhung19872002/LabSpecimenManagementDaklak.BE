@@ -102,6 +102,12 @@ public class TestRequestSampleDto
     public string? Notes { get; set; }
     public string? StorageLocation { get; set; }
     public decimal TotalIndicatorCost { get; set; }
+
+    /// <summary>
+    /// Đánh dấu mẫu đã bị hủy (dùng cho quản lý mẫu lưu kho)
+    /// </summary>
+    public bool IsCancelled { get; set; }
+
     public List<TestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>

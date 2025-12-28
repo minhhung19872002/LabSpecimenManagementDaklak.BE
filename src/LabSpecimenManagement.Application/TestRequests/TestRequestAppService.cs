@@ -1414,7 +1414,7 @@ public class TestRequestAppService :
         var existingSamples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
         var newSampleIds = newSamples.Where(s => s.Id != null).Select(s => s.Id!.Value).ToList();
 
-        // Handle samples not in new list - mark as CustomerCancelled instead of deleting
+        // Handle samples not in new list - delete indicators and mark sample as cancelled
         foreach (var existingSample in existingSamples)
         {
             if (!newSampleIds.Contains(existingSample.Id))
@@ -1440,23 +1440,26 @@ public class TestRequestAppService :
                         {
                             throw new UserFriendlyException($"Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
                         }
-                        // Mark as CustomerCancelled
-                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
-                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        // Delete the LaboratoryTaskIndicator
+                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
                     }
+                    // Delete the indicator
+                    await _sampleIndicatorRepository.DeleteAsync(indicator, autoSave: true);
                 }
 
-                // If sample has LaboratoryTask, keep sample for history (don't delete)
+                // If sample has LaboratoryTask, keep sample for history (mark as cancelled)
                 // Only delete sample if no LaboratoryTask exists (sample not yet sent)
                 if (!hasLabTask)
                 {
-                    foreach (var indicator in indicators)
-                    {
-                        await _sampleIndicatorRepository.DeleteAsync(indicator);
-                    }
                     await _sampleRepository.DeleteAsync(existingSample);
                 }
-                // Note: If hasLabTask, sample is kept but all its indicators are marked as CustomerCancelled
+                else
+                {
+                    // Mark sample as cancelled for sample storage management
+                    existingSample.IsCancelled = true;
+                    existingSample.CancelledDate = DateTime.UtcNow;
+                    await _sampleRepository.UpdateAsync(existingSample, autoSave: true);
+                }
             }
         }
 
@@ -1481,6 +1484,8 @@ public class TestRequestAppService :
                 sample.SampleName = sampleDto.SampleName ?? sample.SampleName;
                 sample.SamplingAddress = sampleDto.SamplingAddress;
                 sample.SampleQuantity = sampleDto.SampleQuantity;
+                sample.StatusText = sampleDto.StatusText;
+                sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
             }
@@ -1496,6 +1501,8 @@ public class TestRequestAppService :
                 sample.SortOrder = sortOrder;
                 sample.SamplingAddress = sampleDto.SamplingAddress;
                 sample.SampleQuantity = sampleDto.SampleQuantity;
+                sample.StatusText = sampleDto.StatusText;
+                sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
@@ -1522,13 +1529,11 @@ public class TestRequestAppService :
                         {
                             throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
                         }
-                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
-                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        // Delete the LaboratoryTaskIndicator
+                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
                     }
-                    else
-                    {
-                        await _sampleIndicatorRepository.DeleteAsync(existingIndicator);
-                    }
+                    // Always delete the indicator
+                    await _sampleIndicatorRepository.DeleteAsync(existingIndicator, autoSave: true);
                 }
             }
 
@@ -1562,7 +1567,10 @@ public class TestRequestAppService :
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
 
                         // Collect new indicators for batch task creation
-                        if (previousStatus == TestRequestStatus.InProgress && indicatorDto.LaboratoryId.HasValue)
+                        // Create LaboratoryTaskIndicator for new indicators when TestRequest is SampleSent or InProgress
+                        // (i.e., when the sample has already been sent to laboratory)
+                        if ((previousStatus == TestRequestStatus.SampleSent || previousStatus == TestRequestStatus.InProgress)
+                            && indicatorDto.LaboratoryId.HasValue)
                         {
                             newIndicatorsForTask.Add(indicator);
                         }
@@ -1590,8 +1598,8 @@ public class TestRequestAppService :
     }
 
     /// <summary>
-    /// Create LaboratoryTasks for new indicators when TestRequest is InProgress
-    /// Groups indicators by laboratory - one task per laboratory (like initial SendSample)
+    /// Create or update LaboratoryTasks for new indicators when TestRequest is SampleSent or InProgress
+    /// Groups indicators by laboratory - adds to existing task if one exists, otherwise creates new task
     /// </summary>
     private async Task CreateLaboratoryTasksForNewIndicatorsAsync(
         Guid testRequestId,
@@ -1613,29 +1621,63 @@ public class TestRequestAppService :
             var indicators = labGroup.ToList();
             var laboratory = await _laboratoryRepository.GetAsync(laboratoryId);
 
-            // Get sample count for this laboratory's indicators
-            var sampleIds = indicators.Select(i => i.TestRequestSampleId).Distinct().ToList();
-
-            // Use first indicator's dates for the task
-            var firstIndicator = indicators.First();
-
-            // Create one LaboratoryTask for all indicators in this laboratory
-            var task = new LaboratoryTask(
-                GuidGenerator.Create(),
-                testRequestId,
-                laboratoryId,
-                testRequest.ContractNumber,
-                sampleIds.Count,
-                laboratory.TechnicalManagerId,
-                firstIndicator.TransferDate,
-                firstIndicator.RequestDate
+            // Check if there's an existing LaboratoryTask for this TestRequest + Laboratory
+            var existingTask = await _laboratoryTaskRepository.FirstOrDefaultAsync(
+                t => t.TestRequestId == testRequestId && t.LaboratoryId == laboratoryId
             );
 
-            // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
+            LaboratoryTask task;
+            if (existingTask != null)
+            {
+                // Use existing task - update sample count
+                task = existingTask;
 
-            await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+                // Recalculate total sample count for this task (existing + new)
+                var existingIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                    lti => lti.LaboratoryTaskId == task.Id
+                );
+                var existingSampleIds = new HashSet<Guid>();
+                foreach (var lti in existingIndicators)
+                {
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(lti.TestRequestSampleIndicatorId);
+                    if (sampleIndicator != null)
+                    {
+                        existingSampleIds.Add(sampleIndicator.TestRequestSampleId);
+                    }
+                }
 
-            // Create LaboratoryTaskIndicator for each indicator in this group
+                // Add new sample IDs
+                var newSampleIds = indicators.Select(i => i.TestRequestSampleId).Distinct();
+                foreach (var sampleId in newSampleIds)
+                {
+                    existingSampleIds.Add(sampleId);
+                }
+
+                task.TotalSampleCount = existingSampleIds.Count;
+                await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+            }
+            else
+            {
+                // Create new LaboratoryTask
+                var sampleIds = indicators.Select(i => i.TestRequestSampleId).Distinct().ToList();
+                var firstIndicator = indicators.First();
+
+                task = new LaboratoryTask(
+                    GuidGenerator.Create(),
+                    testRequestId,
+                    laboratoryId,
+                    testRequest.ContractNumber,
+                    sampleIds.Count,
+                    laboratory.TechnicalManagerId,
+                    firstIndicator.TransferDate,
+                    firstIndicator.RequestDate
+                );
+
+                // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
+                await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+            }
+
+            // Create LaboratoryTaskIndicator for each new indicator
             foreach (var indicator in indicators)
             {
                 var taskIndicator = new LaboratoryTaskIndicator(
