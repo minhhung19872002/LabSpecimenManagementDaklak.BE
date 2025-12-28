@@ -9,6 +9,7 @@ using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Testing;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -42,6 +43,7 @@ public class TestRequestAppService :
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly ICurrentUser _currentUser;
 
@@ -60,6 +62,7 @@ public class TestRequestAppService :
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         INotificationAppService notificationAppService,
         ICurrentUser currentUser)
         : base(repository)
@@ -77,6 +80,7 @@ public class TestRequestAppService :
         _qualityTaskRepository = qualityTaskRepository;
         _attachmentRepository = attachmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _sampleTestingImageRepository = sampleTestingImageRepository;
         _notificationAppService = notificationAppService;
         _currentUser = currentUser;
     }
@@ -192,7 +196,7 @@ public class TestRequestAppService :
 
             // Load attachments for this sample
             var attachments = await _attachmentRepository.GetListAsync(a => a.TestRequestSampleId == sample.Id);
-            sampleDto.Attachments = attachments.Select(a => new SampleAttachmentDto
+            sampleDto.Attachments = attachments.Select(a => new Files.SampleAttachmentDto
             {
                 Id = a.Id,
                 FileId = a.FileId,
@@ -200,6 +204,38 @@ public class TestRequestAppService :
                 FileSize = a.FileSize,
                 Url = $"/api/v1/files/{a.FileId}"
             }).ToList();
+
+            // Load testing images (before/after) for this sample
+            var testingImages = await _sampleTestingImageRepository.GetListAsync(img => img.SampleId == sample.Id);
+            sampleDto.BeforeTestingImages = testingImages
+                .Where(img => img.ImageType == SampleTestingImageType.BeforeTesting)
+                .Select(img => new SampleTestingImageDto
+                {
+                    Id = img.Id,
+                    FileId = img.FileId,
+                    FileName = img.FileName,
+                    FileSize = img.FileSize,
+                    Url = $"/api/v1/files/{img.FileId}",
+                    ImageType = img.ImageType,
+                    CreationTime = img.CreationTime
+                })
+                .OrderBy(img => img.CreationTime)
+                .ToList();
+
+            sampleDto.AfterTestingImages = testingImages
+                .Where(img => img.ImageType == SampleTestingImageType.AfterTesting)
+                .Select(img => new SampleTestingImageDto
+                {
+                    Id = img.Id,
+                    FileId = img.FileId,
+                    FileName = img.FileName,
+                    FileSize = img.FileSize,
+                    Url = $"/api/v1/files/{img.FileId}",
+                    ImageType = img.ImageType,
+                    CreationTime = img.CreationTime
+                })
+                .OrderBy(img => img.CreationTime)
+                .ToList();
 
             dto.Samples.Add(sampleDto);
         }

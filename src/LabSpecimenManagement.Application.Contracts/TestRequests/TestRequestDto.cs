@@ -130,9 +130,19 @@ public class TestRequestSampleDto
     public List<TestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>
-    /// Danh sách hình ảnh đính kèm của mẫu
+    /// Danh sách hình ảnh đính kèm của mẫu (upload khi tạo/edit TestRequest)
     /// </summary>
     public List<SampleAttachmentDto> Attachments { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách hình ảnh trước thử nghiệm (upload bởi QLKT/KTV)
+    /// </summary>
+    public List<SampleTestingImageDto> BeforeTestingImages { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách hình ảnh sau thử nghiệm (upload bởi QLKT/KTV)
+    /// </summary>
+    public List<SampleTestingImageDto> AfterTestingImages { get; set; } = new();
 }
 
 public class TestRequestSampleIndicatorDto
