@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Services;
@@ -18,4 +19,36 @@ public interface IDashboardAppService : IApplicationService
     Task<List<RecentActivityDto>> GetRecentActivitiesAsync(int? count);
     Task<ChartDataDto> GetTestResultsApprovalStatusAsync();
     Task<ChartDataDto> GetNCRsBySeverityAsync();
+
+    #region Dashboard Overview APIs
+
+    /// <summary>
+    /// Get dashboard overview statistics with date filter
+    /// </summary>
+    Task<DashboardOverviewDto> GetOverviewAsync(DateTime fromDate, DateTime toDate);
+
+    /// <summary>
+    /// Get recent requests for dashboard with optional customer filter and paging
+    /// </summary>
+    Task<DashboardRecentRequestPagedResultDto> GetDashboardRecentRequestsAsync(
+        string? customerName,
+        int skipCount,
+        int maxResultCount);
+
+    /// <summary>
+    /// Get revenue grouped by customer
+    /// </summary>
+    Task<RevenueByCustomerPagedResultDto> GetRevenueByCustomerAsync(int skipCount, int maxResultCount);
+
+    /// <summary>
+    /// Get monthly revenue for a specific customer
+    /// </summary>
+    Task<List<MonthlyRevenueDto>> GetMonthlyRevenueAsync(string customerName, int year);
+
+    /// <summary>
+    /// Get all unique customer names for filter dropdown
+    /// </summary>
+    Task<List<string>> GetCustomerNamesAsync();
+
+    #endregion
 }

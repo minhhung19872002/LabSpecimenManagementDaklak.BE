@@ -9,6 +9,7 @@ using LabSpecimenManagement.TestRequests;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
+using System.Linq.Dynamic.Core;
 
 namespace LabSpecimenManagement.Dashboard;
 
@@ -22,6 +23,10 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
     private readonly IRepository<NCR, Guid> _ncrRepository;
     private readonly IRepository<Report, Guid> _reportRepository;
     private readonly IRepository<TaskAssignment, Guid> _taskRepository;
+    private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
+    private readonly IRepository<TestRequestSampleIndicator, Guid> _indicatorRepository;
+
+    private static readonly string[] MonthNames = { "Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12" };
 
     public DashboardAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -30,7 +35,9 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         IRepository<TestResult, Guid> testResultRepository,
         IRepository<NCR, Guid> ncrRepository,
         IRepository<Report, Guid> reportRepository,
-        IRepository<TaskAssignment, Guid> taskRepository)
+        IRepository<TaskAssignment, Guid> taskRepository,
+        IRepository<TestRequestSample, Guid> sampleRepository,
+        IRepository<TestRequestSampleIndicator, Guid> indicatorRepository)
     {
         _testRequestRepository = testRequestRepository;
         _specimenRepository = specimenRepository;
@@ -39,6 +46,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         _ncrRepository = ncrRepository;
         _reportRepository = reportRepository;
         _taskRepository = taskRepository;
+        _sampleRepository = sampleRepository;
+        _indicatorRepository = indicatorRepository;
     }
 
     public async Task<DashboardStatisticsDto> GetStatisticsAsync()
@@ -372,4 +381,278 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             }
         };
     }
+
+    #region Dashboard Overview APIs
+
+    public async Task<DashboardOverviewDto> GetOverviewAsync(DateTime fromDate, DateTime toDate)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var ncrQuery = await _ncrRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        // Filter TestRequests by ContractDate within date range (fallback to CreationTime if ContractDate is null)
+        var filteredRequests = testRequestQuery
+            .Where(x => (x.ContractDate.HasValue && x.ContractDate >= fromDate && x.ContractDate <= toDate) ||
+                        (!x.ContractDate.HasValue && x.CreationTime >= fromDate && x.CreationTime <= toDate))
+            .ToList();
+
+        var filteredRequestIds = filteredRequests.Select(x => x.Id).ToList();
+
+        // 1. Total Contracts
+        var totalContracts = filteredRequests.Count;
+
+        // 2. Total Samples - Count samples in contracts with status != New
+        var validRequestIds = filteredRequests
+            .Where(x => x.Status != TestRequestStatus.New)
+            .Select(x => x.Id)
+            .ToList();
+
+        var totalSamples = sampleQuery
+            .Where(s => validRequestIds.Contains(s.TestRequestId))
+            .Count();
+
+        // 3. Total Indicators - Similar to samples
+        var sampleIds = sampleQuery
+            .Where(s => validRequestIds.Contains(s.TestRequestId))
+            .Select(s => s.Id)
+            .ToList();
+
+        var totalIndicators = indicatorQuery
+            .Where(i => sampleIds.Contains(i.TestRequestSampleId))
+            .Count();
+
+        // 4. Total NCRs - Count NCRs within date range
+        var totalNCRs = ncrQuery
+            .Where(n => n.CreationTime >= fromDate && n.CreationTime <= toDate)
+            .Count();
+
+        // 5. Total Revenue - Sum TotalCost of Completed contracts
+        var totalRevenue = filteredRequests
+            .Where(x => x.Status == TestRequestStatus.Completed)
+            .Sum(x => x.TotalCost);
+
+        // 6 & 7. On-time vs Late Tests
+        // Contracts that have been approved (status >= Approved) - compare PendingApprovalDate with ExpectedCompletionDate
+        var approvedRequests = filteredRequests
+            .Where(x => x.Status >= TestRequestStatus.Approved)
+            .ToList();
+
+        var onTimeTests = approvedRequests
+            .Count(x => x.PendingApprovalDate.HasValue && x.ExpectedCompletionDate.HasValue &&
+                        x.PendingApprovalDate.Value <= x.ExpectedCompletionDate.Value);
+
+        var lateTests = approvedRequests
+            .Count(x => x.PendingApprovalDate.HasValue && x.ExpectedCompletionDate.HasValue &&
+                        x.PendingApprovalDate.Value > x.ExpectedCompletionDate.Value);
+
+        // 8. Pending Approval - Count contracts with status = PendingApproval (only those not yet approved)
+        var pendingApproval = filteredRequests
+            .Count(x => x.Status == TestRequestStatus.PendingApproval);
+
+        return new DashboardOverviewDto
+        {
+            TotalContracts = totalContracts,
+            TotalSamples = totalSamples,
+            TotalIndicators = totalIndicators,
+            TotalNCRs = totalNCRs,
+            TotalRevenue = totalRevenue,
+            OnTimeTests = onTimeTests,
+            LateTests = lateTests,
+            PendingApproval = pendingApproval
+        };
+    }
+
+    public async Task<DashboardRecentRequestPagedResultDto> GetDashboardRecentRequestsAsync(
+        string? customerName,
+        int skipCount,
+        int maxResultCount)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var query = testRequestQuery.AsQueryable();
+
+        // Filter by customer name if provided
+        if (!string.IsNullOrWhiteSpace(customerName))
+        {
+            query = query.Where(x => x.CustomerName.Contains(customerName));
+        }
+
+        // Order by PendingDate descending (most recent first)
+        var allItems = query
+            .OrderByDescending(x => x.PendingDate ?? x.CreationTime)
+            .ToList();
+
+        var totalCount = allItems.Count;
+
+        var pagedItems = allItems
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToList();
+
+        var items = pagedItems.Select(x => new DashboardRecentRequestDto
+        {
+            Id = x.Id,
+            ContractNumber = x.ContractNumber ?? x.RequestNumber,
+            CustomerName = x.CustomerName,
+            PendingDate = x.PendingDate,
+            TotalCost = x.TotalCost,
+            Status = (int)x.Status
+        }).ToList();
+
+        // Get sample and indicator counts for each request
+        var requestIds = items.Select(x => x.Id).ToList();
+
+        var sampleCounts = sampleQuery
+            .Where(s => requestIds.Contains(s.TestRequestId))
+            .GroupBy(s => s.TestRequestId)
+            .Select(g => new { TestRequestId = g.Key, Count = g.Count() })
+            .ToList();
+
+        var sampleIdsInRequests = sampleQuery
+            .Where(s => requestIds.Contains(s.TestRequestId))
+            .Select(s => new { s.Id, s.TestRequestId })
+            .ToList();
+
+        var indicatorCounts = indicatorQuery
+            .Where(i => sampleIdsInRequests.Select(s => s.Id).Contains(i.TestRequestSampleId))
+            .ToList()
+            .GroupBy(i => sampleIdsInRequests.First(s => s.Id == i.TestRequestSampleId).TestRequestId)
+            .Select(g => new { TestRequestId = g.Key, Count = g.Count() })
+            .ToList();
+
+        foreach (var item in items)
+        {
+            item.SampleCount = sampleCounts.FirstOrDefault(x => x.TestRequestId == item.Id)?.Count ?? 0;
+            item.IndicatorCount = indicatorCounts.FirstOrDefault(x => x.TestRequestId == item.Id)?.Count ?? 0;
+        }
+
+        return new DashboardRecentRequestPagedResultDto
+        {
+            Items = items,
+            TotalCount = totalCount
+        };
+    }
+
+    public async Task<RevenueByCustomerPagedResultDto> GetRevenueByCustomerAsync(int skipCount, int maxResultCount)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        // Get completed contracts grouped by customer
+        var completedRequests = testRequestQuery
+            .Where(x => x.Status == TestRequestStatus.Completed)
+            .ToList();
+
+        var customerGroups = completedRequests
+            .GroupBy(x => x.CustomerName)
+            .Select(g => new
+            {
+                CustomerName = g.Key,
+                Revenue = g.Sum(x => x.TotalCost),
+                RequestIds = g.Select(x => x.Id).ToList()
+            })
+            .OrderByDescending(x => x.Revenue)
+            .ToList();
+
+        var totalCount = customerGroups.Count;
+
+        var pagedGroups = customerGroups
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToList();
+
+        var items = new List<RevenueByCustomerDto>();
+
+        // Get all sample and indicator data once
+        var allRequestIds = pagedGroups.SelectMany(g => g.RequestIds).Distinct().ToList();
+        var samples = sampleQuery.Where(s => allRequestIds.Contains(s.TestRequestId)).ToList();
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var indicators = indicatorQuery.Where(i => sampleIds.Contains(i.TestRequestSampleId)).ToList();
+
+        foreach (var group in pagedGroups)
+        {
+            var sampleCount = samples.Count(s => group.RequestIds.Contains(s.TestRequestId));
+            var groupSampleIds = samples.Where(s => group.RequestIds.Contains(s.TestRequestId)).Select(s => s.Id).ToList();
+            var indicatorCount = indicators.Count(i => groupSampleIds.Contains(i.TestRequestSampleId));
+
+            items.Add(new RevenueByCustomerDto
+            {
+                CustomerName = group.CustomerName,
+                TotalSamples = sampleCount,
+                TotalIndicators = indicatorCount,
+                Revenue = group.Revenue
+            });
+        }
+
+        return new RevenueByCustomerPagedResultDto
+        {
+            Items = items,
+            TotalCount = totalCount
+        };
+    }
+
+    public async Task<List<MonthlyRevenueDto>> GetMonthlyRevenueAsync(string customerName, int year)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        // Filter by customer and year, only completed contracts
+        var allRequests = testRequestQuery
+            .Where(x => x.CustomerName == customerName &&
+                        x.Status == TestRequestStatus.Completed &&
+                        x.CompletedDate.HasValue &&
+                        x.CompletedDate.Value.Year == year)
+            .ToList();
+
+        // Get all samples and indicators for these requests once
+        var allRequestIds = allRequests.Select(x => x.Id).ToList();
+        var allSamples = sampleQuery.Where(s => allRequestIds.Contains(s.TestRequestId)).ToList();
+        var allSampleIds = allSamples.Select(s => s.Id).ToList();
+        var allIndicators = indicatorQuery.Where(i => allSampleIds.Contains(i.TestRequestSampleId)).ToList();
+
+        var result = new List<MonthlyRevenueDto>();
+
+        for (int month = 1; month <= 12; month++)
+        {
+            var monthRequests = allRequests
+                .Where(x => x.CompletedDate!.Value.Month == month)
+                .ToList();
+
+            var requestIds = monthRequests.Select(x => x.Id).ToList();
+
+            var sampleCount = allSamples.Count(s => requestIds.Contains(s.TestRequestId));
+            var monthSampleIds = allSamples.Where(s => requestIds.Contains(s.TestRequestId)).Select(s => s.Id).ToList();
+            var indicatorCount = allIndicators.Count(i => monthSampleIds.Contains(i.TestRequestSampleId));
+
+            result.Add(new MonthlyRevenueDto
+            {
+                Month = month,
+                MonthName = MonthNames[month - 1],
+                ContractCount = monthRequests.Count,
+                TotalSamples = sampleCount,
+                TotalIndicators = indicatorCount,
+                Revenue = monthRequests.Sum(x => x.TotalCost)
+            });
+        }
+
+        return result;
+    }
+
+    public async Task<List<string>> GetCustomerNamesAsync()
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+
+        return testRequestQuery
+            .Select(x => x.CustomerName)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+    }
+
+    #endregion
 }

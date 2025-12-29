@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.Dashboard;
 using LabSpecimenManagement.Permissions;
@@ -79,4 +80,47 @@ public class DashboardController : LabSpecimenManagementController
     {
         return _dashboardAppService.GetNCRsBySeverityAsync();
     }
+
+    #region Dashboard Overview APIs
+
+    [HttpGet("overview")]
+    public virtual Task<DashboardOverviewDto> GetOverviewAsync(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate)
+    {
+        return _dashboardAppService.GetOverviewAsync(fromDate, toDate);
+    }
+
+    [HttpGet("recent-requests")]
+    public virtual Task<DashboardRecentRequestPagedResultDto> GetDashboardRecentRequestsAsync(
+        [FromQuery] string? customerName,
+        [FromQuery] int skipCount = 0,
+        [FromQuery] int maxResultCount = 10)
+    {
+        return _dashboardAppService.GetDashboardRecentRequestsAsync(customerName, skipCount, maxResultCount);
+    }
+
+    [HttpGet("revenue-by-customer")]
+    public virtual Task<RevenueByCustomerPagedResultDto> GetRevenueByCustomerAsync(
+        [FromQuery] int skipCount = 0,
+        [FromQuery] int maxResultCount = 10)
+    {
+        return _dashboardAppService.GetRevenueByCustomerAsync(skipCount, maxResultCount);
+    }
+
+    [HttpGet("monthly-revenue")]
+    public virtual Task<List<MonthlyRevenueDto>> GetMonthlyRevenueAsync(
+        [FromQuery] string customerName,
+        [FromQuery] int year)
+    {
+        return _dashboardAppService.GetMonthlyRevenueAsync(customerName, year);
+    }
+
+    [HttpGet("customer-names")]
+    public virtual Task<List<string>> GetCustomerNamesAsync()
+    {
+        return _dashboardAppService.GetCustomerNamesAsync();
+    }
+
+    #endregion
 }
