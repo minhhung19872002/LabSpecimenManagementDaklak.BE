@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
@@ -13,6 +14,7 @@ using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Logging;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
@@ -33,6 +35,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private readonly IWebHostEnvironment _environment;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
+    private readonly IPdfConversionService _pdfConversionService;
+    private readonly ILogger<ResultFormAppService> _logger;
 
     private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
     private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
@@ -52,7 +56,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         IRepository<TestMethod, Guid> testMethodRepository,
         IWebHostEnvironment environment,
         INotificationCreator notificationCreator,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        IPdfConversionService pdfConversionService,
+        ILogger<ResultFormAppService> logger)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -64,6 +70,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         _environment = environment;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
+        _pdfConversionService = pdfConversionService;
+        _logger = logger;
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -720,11 +728,39 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             var sampleTableData = await BuildSampleTableDataAsync(samples);
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
-        // For .doc files, OnlyOffice will handle the editing
+
+        // 8. Convert DOCX to PDF using LibreOffice
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            // 9. Delete the DOCX file after successful PDF conversion
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                // Log but don't fail if cleanup fails
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
+            // If PDF conversion fails, return the DOCX file as fallback
+            pdfFileName = fileName;
+        }
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = fileName,
+            FileName = pdfFileName,
             RequestNumber = testRequest.RequestNumber ?? ""
         };
     }

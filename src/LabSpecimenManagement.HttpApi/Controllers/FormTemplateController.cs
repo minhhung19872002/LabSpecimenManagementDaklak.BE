@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -22,15 +24,18 @@ public class FormTemplateController : LabSpecimenManagementController
     private readonly IWebHostEnvironment _environment;
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
+    private readonly IPdfConversionService _pdfConversionService;
 
     public FormTemplateController(
         IWebHostEnvironment environment,
         IConfiguration configuration,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IPdfConversionService pdfConversionService)
     {
         _environment = environment;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
+        _pdfConversionService = pdfConversionService;
     }
 
     /// <summary>
@@ -102,6 +107,91 @@ public class FormTemplateController : LabSpecimenManagementController
 
         var fileBytes = System.IO.File.ReadAllBytes(filePath);
         return File(fileBytes, contentType, fileName);
+    }
+
+    /// <summary>
+    /// View a form template as PDF (converts DOCX to PDF on-the-fly)
+    /// </summary>
+    [HttpGet("view-pdf/{*fileName}")]
+    [AllowAnonymous]
+    public async Task<IActionResult> ViewAsPdf(string fileName)
+    {
+        var templatesPath = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        var filePath = Path.Combine(templatesPath, fileName);
+
+        // Security check: prevent directory traversal
+        var fullPath = Path.GetFullPath(filePath);
+        if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
+        {
+            return BadRequest("Invalid file name");
+        }
+
+        if (!System.IO.File.Exists(filePath))
+        {
+            return NotFound("Template not found");
+        }
+
+        var extension = Path.GetExtension(fileName).ToLowerInvariant();
+
+        // If already PDF, return directly
+        if (extension == ".pdf")
+        {
+            var pdfBytes = await System.IO.File.ReadAllBytesAsync(filePath);
+            return File(pdfBytes, "application/pdf");
+        }
+
+        // For DOCX files, convert to PDF
+        if (extension == ".docx" || extension == ".doc")
+        {
+            try
+            {
+                // Create temp directory for PDF output
+                var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+                if (!Directory.Exists(tempDir))
+                {
+                    Directory.CreateDirectory(tempDir);
+                }
+
+                // Copy to temp with unique name to avoid conflicts
+                var tempDocxPath = Path.Combine(tempDir, $"{Guid.NewGuid():N}{extension}");
+                System.IO.File.Copy(filePath, tempDocxPath, overwrite: true);
+
+                try
+                {
+                    // Convert to PDF
+                    var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(tempDocxPath);
+                    var pdfBytes = await System.IO.File.ReadAllBytesAsync(pdfPath);
+
+                    // Cleanup temp files
+                    if (System.IO.File.Exists(tempDocxPath))
+                        System.IO.File.Delete(tempDocxPath);
+                    if (System.IO.File.Exists(pdfPath))
+                        System.IO.File.Delete(pdfPath);
+
+                    return File(pdfBytes, "application/pdf");
+                }
+                finally
+                {
+                    // Ensure cleanup even on error
+                    if (System.IO.File.Exists(tempDocxPath))
+                        System.IO.File.Delete(tempDocxPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, $"Failed to convert to PDF: {ex.Message}");
+            }
+        }
+
+        // For other file types, return as-is
+        var provider = new FileExtensionContentTypeProvider();
+        if (!provider.TryGetContentType(fileName, out var contentType))
+        {
+            contentType = "application/octet-stream";
+        }
+
+        var fileBytes2 = await System.IO.File.ReadAllBytesAsync(filePath);
+        return File(fileBytes2, contentType, fileName);
     }
 
     /// <summary>

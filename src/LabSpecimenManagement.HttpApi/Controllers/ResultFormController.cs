@@ -105,6 +105,39 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// View/Preview generated result form (inline display, not download)
+    /// </summary>
+    [HttpGet("view/{fileName}")]
+    [AllowAnonymous]
+    public IActionResult View(string fileName)
+    {
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        var filePath = Path.Combine(tempDir, fileName);
+
+        // Security check: prevent directory traversal
+        var fullPath = Path.GetFullPath(filePath);
+        if (!fullPath.StartsWith(Path.GetFullPath(tempDir)))
+        {
+            return BadRequest("Invalid file name");
+        }
+
+        if (!System.IO.File.Exists(filePath))
+        {
+            return NotFound("File not found");
+        }
+
+        var provider = new FileExtensionContentTypeProvider();
+        if (!provider.TryGetContentType(fileName, out var contentType))
+        {
+            contentType = "application/octet-stream";
+        }
+
+        var fileBytes = System.IO.File.ReadAllBytes(filePath);
+        // Return without fileName parameter to display inline (preview) instead of download
+        return File(fileBytes, contentType);
+    }
+
+    /// <summary>
     /// Get OnlyOffice editor configuration for result form
     /// </summary>
     [HttpGet("editor-config/{fileName}")]
