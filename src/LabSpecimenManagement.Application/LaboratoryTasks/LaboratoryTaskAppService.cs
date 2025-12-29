@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
@@ -37,6 +38,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<QualityIndicatorStatusHistory, Guid> _qualityIndicatorHistoryRepository;
+    private readonly INotificationCreator _notificationCreator;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -55,7 +57,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         ITestRequestAppService testRequestAppService,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
-        IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository)
+        IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository,
+        INotificationCreator notificationCreator)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -74,6 +77,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _qualityIndicatorHistoryRepository = qualityIndicatorHistoryRepository;
+        _notificationCreator = notificationCreator;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -509,6 +513,30 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Update task status
         var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
         await UpdateTaskStatusAsync(task);
+
+        // Notify QLKT about new result submitted (Case 1 & 6)
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+            var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+            var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
+
+            var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+
+            await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
+                task.TechnicalManagerId.Value,
+                testRequest.ContractNumber ?? task.ContractNumber ?? "",
+                task.TestRequestId,
+                senderName,
+                1, // Single indicator
+                task.RequestCompletionDate,
+                sample?.SampleName,
+                indicator?.Name,
+                method?.Name
+            );
+        }
 
         return await MapToIndicatorDtoAsync(taskIndicator);
     }

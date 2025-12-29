@@ -27,7 +27,7 @@ public class NotificationController : LabSpecimenManagementController
     /// Lấy danh sách thông báo của user hiện tại
     /// </summary>
     [HttpGet]
-    public virtual Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync([FromQuery] PagedResultRequestDto input)
+    public virtual Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync([FromQuery] GetNotificationsInput input)
     {
         return _notificationAppService.GetMyNotificationsAsync(input);
     }

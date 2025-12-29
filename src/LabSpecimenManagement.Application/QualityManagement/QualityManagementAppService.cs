@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -35,6 +36,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     private readonly IRepository<IdentityUser, Guid> _userRepository;
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly INotificationCreator _notificationCreator;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -54,7 +56,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<IdentityUser, Guid> userRepository,
         ITestRequestAppService testRequestAppService,
-        IRepository<SpecimenType, Guid> specimenTypeRepository)
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        INotificationCreator notificationCreator)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -74,6 +77,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         _userRepository = userRepository;
         _testRequestAppService = testRequestAppService;
         _specimenTypeRepository = specimenTypeRepository;
+        _notificationCreator = notificationCreator;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -197,6 +201,30 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         // Update task status
         await UpdateTaskStatusAsync(indicator.QualityManagementTaskId);
 
+        // Notify QLKT about result approved (Case 7)
+        var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+        var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+        if (labTask.TechnicalManagerId.HasValue)
+        {
+            var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+            var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+            var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+
+            var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
+            await _notificationCreator.NotifyResultApprovedByQualityManagerAsync(
+                labTask.TechnicalManagerId.Value,
+                testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                labTask.TestRequestId,
+                qualityManagerName,
+                sample?.SampleName,
+                masterIndicator?.Name,
+                method?.Name
+            );
+        }
+
         return await MapIndicatorToDto(indicator);
     }
 
@@ -254,6 +282,29 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         // Update QualityManagementTask status
         await UpdateTaskStatusAsync(indicator.QualityManagementTaskId);
+
+        // Notify QLKT about result rejected (Case 4 & 5)
+        if (labTask.TechnicalManagerId.HasValue)
+        {
+            var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+            var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+            var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+
+            var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
+            await _notificationCreator.NotifyResultRejectedByQualityManagerAsync(
+                labTask.TechnicalManagerId.Value,
+                testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                labTask.TestRequestId,
+                qualityManagerName,
+                1, // Single rejection
+                sample?.SampleName,
+                masterIndicator?.Name,
+                method?.Name
+            );
+        }
 
         return await MapIndicatorToDto(indicator);
     }

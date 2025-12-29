@@ -5,6 +5,22 @@ using Volo.Abp.Application.Dtos;
 namespace LabSpecimenManagement.Notifications;
 
 /// <summary>
+/// Input DTO for getting notifications with filters
+/// </summary>
+public class GetNotificationsInput : PagedResultRequestDto
+{
+    /// <summary>
+    /// Filter by read status: null = all, true = read, false = unread
+    /// </summary>
+    public bool? IsRead { get; set; }
+
+    /// <summary>
+    /// Filter by notification type
+    /// </summary>
+    public NotificationType? Type { get; set; }
+}
+
+/// <summary>
 /// DTO cho thông báo
 /// </summary>
 public class NotificationDto : EntityDto<Guid>
@@ -53,6 +69,31 @@ public class NotificationDto : EntityDto<Guid>
     /// Thời gian tạo
     /// </summary>
     public DateTime CreationTime { get; set; }
+
+    /// <summary>
+    /// Ngày deadline
+    /// </summary>
+    public DateTime? DeadlineDate { get; set; }
+
+    /// <summary>
+    /// Tên người gửi/thực hiện action
+    /// </summary>
+    public string? SenderName { get; set; }
+
+    /// <summary>
+    /// Số lượng item liên quan (VD: số chỉ tiêu)
+    /// </summary>
+    public int? ItemCount { get; set; }
+
+    /// <summary>
+    /// Dữ liệu bổ sung dạng JSON
+    /// </summary>
+    public string? AdditionalData { get; set; }
+
+    /// <summary>
+    /// Số ngày còn lại đến deadline (computed)
+    /// </summary>
+    public int? DaysRemaining { get; set; }
 }
 
 /// <summary>
@@ -89,4 +130,24 @@ public class CreateNotificationDto
     /// Loại đối tượng liên quan
     /// </summary>
     public string? ReferenceType { get; set; }
+
+    /// <summary>
+    /// Ngày deadline
+    /// </summary>
+    public DateTime? DeadlineDate { get; set; }
+
+    /// <summary>
+    /// Tên người gửi/thực hiện action
+    /// </summary>
+    public string? SenderName { get; set; }
+
+    /// <summary>
+    /// Số lượng item liên quan (VD: số chỉ tiêu)
+    /// </summary>
+    public int? ItemCount { get; set; }
+
+    /// <summary>
+    /// Dữ liệu bổ sung dạng JSON
+    /// </summary>
+    public string? AdditionalData { get; set; }
 }

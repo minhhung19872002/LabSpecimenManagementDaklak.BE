@@ -45,6 +45,7 @@ public class TestRequestAppService :
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly INotificationAppService _notificationAppService;
+    private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
 
     public TestRequestAppService(
@@ -64,6 +65,7 @@ public class TestRequestAppService :
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         INotificationAppService notificationAppService,
+        INotificationCreator notificationCreator,
         ICurrentUser currentUser)
         : base(repository)
     {
@@ -82,6 +84,7 @@ public class TestRequestAppService :
         _specimenTypeRepository = specimenTypeRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _notificationAppService = notificationAppService;
+        _notificationCreator = notificationCreator;
         _currentUser = currentUser;
     }
 
@@ -1113,6 +1116,37 @@ public class TestRequestAppService :
 
         // Create LaboratoryTasks grouped by Laboratory when sample is sent
         await CreateLaboratoryTasksAsync(entity);
+
+        // Notify QLKT about sample sent (Case 2)
+        await NotifyTechnicalManagersOnSampleSentAsync(entity);
+    }
+
+    /// <summary>
+    /// Notify technical managers when sample is sent to their labs
+    /// </summary>
+    private async Task NotifyTechnicalManagersOnSampleSentAsync(TestRequest testRequest)
+    {
+        // Get all laboratory tasks for this test request
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
+
+        foreach (var labTask in labTasks)
+        {
+            if (labTask.TechnicalManagerId.HasValue)
+            {
+                // Count indicators for this lab task
+                var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                    ti => ti.LaboratoryTaskId == labTask.Id);
+                var indicatorCount = taskIndicators.Count;
+
+                await _notificationCreator.NotifySampleSentToLabAsync(
+                    labTask.TechnicalManagerId.Value,
+                    testRequest.ContractNumber ?? "",
+                    testRequest.Id,
+                    indicatorCount,
+                    labTask.RequestCompletionDate
+                );
+            }
+        }
     }
 
     /// <summary>
@@ -1330,20 +1364,7 @@ public class TestRequestAppService :
         }
         await _changeHistoryRepository.UpdateManyAsync(pendingChanges);
 
-        // Create notification for the person who made the change
-        var creatorId = pendingChanges.First().CreatorId;
-        if (creatorId.HasValue)
-        {
-            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
-            {
-                UserId = creatorId.Value,
-                Title = "Thay đổi đã được phê duyệt",
-                Message = $"Thay đổi trên phiếu yêu cầu {entity.RequestNumber} đã được phê duyệt",
-                Type = NotificationType.ChangeApproved,
-                ReferenceId = id.ToString(),
-                ReferenceType = "TestRequest"
-            });
-        }
+        // TODO: QLCL notification will be added later
     }
 
     /// <summary>
@@ -1544,6 +1565,10 @@ public class TestRequestAppService :
         var existingSamples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
         var newSampleIds = newSamples.Where(s => s.Id != null).Select(s => s.Id!.Value).ToList();
 
+        // Track cancelled samples/indicators for notification (Case 8.2)
+        var cancelledSampleCodes = new List<string>();
+        var cancelledIndicatorCountBySample = new Dictionary<string, int>();
+
         // Handle samples not in new list - delete indicators and mark sample as cancelled
         foreach (var existingSample in existingSamples)
         {
@@ -1589,12 +1614,20 @@ public class TestRequestAppService :
                     existingSample.IsCancelled = true;
                     existingSample.CancelledDate = DateTime.UtcNow;
                     await _sampleRepository.UpdateAsync(existingSample, autoSave: true);
+
+                    // Track for notification (Case 8.2)
+                    cancelledSampleCodes.Add(existingSample.SampleCode ?? existingSample.SampleName ?? "");
+                    cancelledIndicatorCountBySample[existingSample.SampleCode ?? existingSample.SampleName ?? ""] = indicators.Count;
                 }
             }
         }
 
         decimal totalCost = 0;
         int sortOrder = 0;
+
+        // Track new samples/indicators for notification (Case 8.1)
+        int newSampleCount = 0;
+        int newIndicatorCount = 0;
 
         // Collect new indicators for batch LaboratoryTask creation (grouped by laboratory)
         var newIndicatorsForTask = new List<TestRequestSampleIndicator>();
@@ -1638,6 +1671,9 @@ public class TestRequestAppService :
                 sample.StorageLocation = sampleDto.StorageLocation;
                 sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
+
+                // Track for notification (Case 8.1)
+                newSampleCount++;
             }
 
             // Update indicators
@@ -1706,6 +1742,9 @@ public class TestRequestAppService :
                         {
                             newIndicatorsForTask.Add(indicator);
                         }
+
+                        // Track for notification (Case 8.1)
+                        newIndicatorCount++;
                     }
                     sampleIndicatorCost += indicatorDto.UnitPrice;
                 }
@@ -1762,6 +1801,70 @@ public class TestRequestAppService :
         testRequest.TotalCost = totalCost;
         testRequest.TotalSampleCount = newSamples.Count;
         await Repository.UpdateAsync(testRequest, autoSave: true);
+
+        // Send notifications for sample/indicator changes (only when SampleSent or InProgress)
+        if (previousStatus == TestRequestStatus.SampleSent || previousStatus == TestRequestStatus.InProgress)
+        {
+            await NotifyTechnicalManagersOnSampleChangesAsync(
+                testRequest,
+                newSampleCount,
+                newIndicatorCount,
+                cancelledSampleCodes,
+                cancelledIndicatorCountBySample
+            );
+        }
+    }
+
+    /// <summary>
+    /// Notify technical managers about sample/indicator changes (Case 8.1 and 8.2)
+    /// </summary>
+    private async Task NotifyTechnicalManagersOnSampleChangesAsync(
+        TestRequest testRequest,
+        int newSampleCount,
+        int newIndicatorCount,
+        List<string> cancelledSampleCodes,
+        Dictionary<string, int> cancelledIndicatorCountBySample)
+    {
+        // Get all laboratory tasks for this test request
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
+
+        // Group by technical manager to avoid duplicate notifications
+        var technicalManagerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        foreach (var managerId in technicalManagerIds)
+        {
+            // Case 8.1: Notify about new samples/indicators
+            if (newSampleCount > 0 || newIndicatorCount > 0)
+            {
+                await _notificationCreator.NotifyNewSamplesAddedAsync(
+                    managerId,
+                    testRequest.ContractNumber ?? "",
+                    testRequest.Id,
+                    newSampleCount,
+                    newIndicatorCount
+                );
+            }
+
+            // Case 8.2: Notify about cancelled samples/indicators
+            foreach (var sampleCode in cancelledSampleCodes)
+            {
+                var indicatorCount = cancelledIndicatorCountBySample.GetValueOrDefault(sampleCode, 0);
+                if (indicatorCount > 0)
+                {
+                    await _notificationCreator.NotifySamplesCancelledAsync(
+                        managerId,
+                        testRequest.ContractNumber ?? "",
+                        testRequest.Id,
+                        sampleCode,
+                        indicatorCount
+                    );
+                }
+            }
+        }
     }
 
     /// <summary>
@@ -1910,20 +2013,7 @@ public class TestRequestAppService :
         entity.Status = previousStatus;
         await Repository.UpdateAsync(entity);
 
-        // Create notification for the person who made the change
-        var creatorId = pendingChanges.First().CreatorId;
-        if (creatorId.HasValue)
-        {
-            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
-            {
-                UserId = creatorId.Value,
-                Title = "Thay đổi bị từ chối",
-                Message = $"Thay đổi trên phiếu yêu cầu {entity.RequestNumber} bị từ chối. Lý do: {reason}",
-                Type = NotificationType.ChangeRejected,
-                ReferenceId = id.ToString(),
-                ReferenceType = "TestRequest"
-            });
-        }
+        // TODO: QLCL notification will be added later
     }
 
     /// <summary>
@@ -1968,23 +2058,7 @@ public class TestRequestAppService :
 
         await _changeHistoryRepository.InsertManyAsync(changes);
 
-        // Send notification to QLCL users
-        // Get all users with QLCL role
-        var qlclUsers = await _userRepository.GetListAsync();
-        var adminUsers = qlclUsers.Where(u => u.UserName == "admin").ToList();
-
-        foreach (var user in adminUsers)
-        {
-            await _notificationAppService.CreateNotificationAsync(new CreateNotificationDto
-            {
-                UserId = user.Id,
-                Title = "Yêu cầu phê duyệt thay đổi",
-                Message = $"Phiếu yêu cầu {entity.RequestNumber} có thay đổi cần phê duyệt",
-                Type = NotificationType.ChangeApprovalRequest,
-                ReferenceId = entity.Id.ToString(),
-                ReferenceType = "TestRequest"
-            });
-        }
+        // TODO: Implement QLCL notification for ChangeApprovalRequest later
 
         // Return the first change history ID for linking to QualityManagementTask
         return changes.First().Id;

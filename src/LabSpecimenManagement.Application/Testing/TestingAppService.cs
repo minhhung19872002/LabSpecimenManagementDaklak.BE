@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
@@ -34,6 +35,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IGuidGenerator _guidGenerator;
+    private readonly INotificationCreator _notificationCreator;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -48,7 +50,8 @@ public class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IIdentityUserRepository userRepository,
-        IGuidGenerator guidGenerator)
+        IGuidGenerator guidGenerator,
+        INotificationCreator notificationCreator)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -63,6 +66,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _userRepository = userRepository;
         _guidGenerator = guidGenerator;
+        _notificationCreator = notificationCreator;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -829,6 +833,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         }
 
         var errors = new List<string>();
+        var submittedIndicators = new List<LaboratoryTaskIndicator>();
 
         foreach (var indicatorId in input.IndicatorIds)
         {
@@ -869,6 +874,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
             indicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
 
             await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            submittedIndicators.Add(indicator);
         }
 
         if (errors.Any())
@@ -878,6 +884,57 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Notify QLKT about submitted results (Case 1 & 6)
+        if (task.TechnicalManagerId.HasValue && submittedIndicators.Any())
+        {
+            await NotifyTechnicalManagerOnSubmitAsync(task, submittedIndicators);
+        }
+    }
+
+    /// <summary>
+    /// Notify technical manager when KTV submits indicator results
+    /// </summary>
+    private async Task NotifyTechnicalManagerOnSubmitAsync(LaboratoryTask task, List<LaboratoryTaskIndicator> submittedIndicators)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+        var indicatorCount = submittedIndicators.Count;
+
+        // Get sample/indicator/method info for single indicator case
+        string? sampleName = null;
+        string? indicatorName = null;
+        string? methodName = null;
+
+        if (indicatorCount == 1)
+        {
+            var taskIndicator = submittedIndicators.First();
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+            if (sampleIndicator != null)
+            {
+                var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
+                var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+                sampleName = sample?.SampleName;
+                indicatorName = indicator?.Name;
+            }
+            if (taskIndicator.MethodId.HasValue)
+            {
+                var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
+                methodName = method?.Name;
+            }
+        }
+
+        await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
+            task.TechnicalManagerId!.Value,
+            testRequest.ContractNumber ?? task.ContractNumber ?? "",
+            task.TestRequestId,
+            senderName,
+            indicatorCount,
+            task.RequestCompletionDate,
+            sampleName,
+            indicatorName,
+            methodName
+        );
     }
 
     /// <summary>

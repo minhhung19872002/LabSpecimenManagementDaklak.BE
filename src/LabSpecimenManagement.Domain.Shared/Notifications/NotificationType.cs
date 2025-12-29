@@ -5,43 +5,52 @@ namespace LabSpecimenManagement.Notifications;
 /// </summary>
 public enum NotificationType
 {
-    /// <summary>
-    /// Yêu cầu phê duyệt thay đổi phiếu
-    /// </summary>
-    ChangeApprovalRequest = 0,
+    #region Notification Types for QLKT (LabTechnicalManager)
 
     /// <summary>
-    /// Thay đổi được duyệt
+    /// Mẫu đã gửi đến khoa phòng - QLKT cần phân công
     /// </summary>
-    ChangeApproved = 1,
+    SampleSentToLab = 0,
 
     /// <summary>
-    /// Thay đổi bị từ chối
+    /// Nhắc nhở chưa phân công công việc (>= 2 ngày)
     /// </summary>
-    ChangeRejected = 2,
+    PendingWorkAssignment = 1,
 
     /// <summary>
-    /// Yêu cầu phê duyệt kết quả
+    /// KTV gửi 1 chỉ tiêu cần QLKT phê duyệt
     /// </summary>
-    ResultApprovalRequest = 3,
+    SingleIndicatorSubmitted = 2,
 
     /// <summary>
-    /// Kết quả được duyệt
+    /// KTV gửi nhiều chỉ tiêu cần QLKT phê duyệt
     /// </summary>
-    ResultApproved = 4,
+    MultipleIndicatorsSubmitted = 3,
 
     /// <summary>
-    /// Kết quả bị từ chối
+    /// QLCL từ chối 1 kết quả chỉ tiêu
     /// </summary>
-    ResultRejected = 5,
+    SingleResultRejectedByQM = 4,
 
     /// <summary>
-    /// Có phiếu yêu cầu mới
+    /// QLCL từ chối nhiều kết quả chỉ tiêu
     /// </summary>
-    NewTestRequest = 6,
+    MultipleResultsRejectedByQM = 5,
 
     /// <summary>
-    /// Nhắc nhở deadline
+    /// QLCL duyệt kết quả chỉ tiêu
     /// </summary>
-    DeadlineReminder = 7
+    ResultApprovedByQM = 6,
+
+    /// <summary>
+    /// Có mẫu/chỉ tiêu mới thêm vào hợp đồng
+    /// </summary>
+    NewSamplesAdded = 7,
+
+    /// <summary>
+    /// Mẫu/chỉ tiêu bị hủy bỏ
+    /// </summary>
+    SamplesCancelled = 8
+
+    #endregion
 }
