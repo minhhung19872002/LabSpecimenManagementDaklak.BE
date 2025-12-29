@@ -636,7 +636,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     /// - Nếu chưa có: thêm vào task hiện có hoặc tạo mới nếu chưa có task nào
     /// Mỗi TestRequest chỉ có DUY NHẤT 1 QualityManagementTask loại ResultApproval
     /// </summary>
-    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators)
+    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators, Guid? qualityManagerId = null)
     {
         var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
 
@@ -714,6 +714,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 qualityTask = existingTask;
                 qualityTask.TotalIndicatorCount += indicatorsToCreate.Count;
 
+                // Update AssignedQualityManagerId if provided
+                if (qualityManagerId.HasValue)
+                {
+                    qualityTask.AssignedQualityManagerId = qualityManagerId;
+                }
+
                 // If task was rejected/approved, reset to PendingApproval since new indicators added
                 if (qualityTask.Status != QualityManagementStatus.PendingApproval)
                 {
@@ -748,6 +754,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                     maxCompletionDate
                 );
                 qualityTask.Status = QualityManagementStatus.PendingApproval;
+                qualityTask.AssignedQualityManagerId = qualityManagerId;
                 await _qualityTaskRepository.InsertAsync(qualityTask);
             }
 
@@ -1305,8 +1312,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             throw new UserFriendlyException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi");
         }
 
-        // Create or update QualityManagementTask
-        await CreateQualityManagementTaskAsync(task, selectedIndicators);
+        // Create or update QualityManagementTask with assigned quality manager
+        await CreateQualityManagementTaskAsync(task, selectedIndicators, input.QualityManagerId);
 
         // Update task status to SentToQuality when indicators are sent
         if (task.Status != LaboratoryTaskStatus.SentToQuality)
@@ -1318,9 +1325,59 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Update TestRequest status if all tasks sent
         await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
 
+        // Notify QLCL about submitted results (Case 1 & 2 QLCL)
+        await NotifyQualityManagerOnSendResultsAsync(task, selectedIndicators, input.QualityManagerId);
+
         // Reload task to ensure we return the latest data
         task = await _laboratoryTaskRepository.GetAsync(taskId);
         return await MapToDetailDtoAsync(task);
+    }
+
+    /// <summary>
+    /// Gửi thông báo cho QLCL khi QLKT gửi kết quả
+    /// </summary>
+    private async Task NotifyQualityManagerOnSendResultsAsync(
+        LaboratoryTask task,
+        List<LaboratoryTaskIndicator> sentIndicators,
+        Guid qualityManagerId)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+        var indicatorCount = sentIndicators.Count;
+
+        string? sampleName = null;
+        string? indicatorName = null;
+        string? methodName = null;
+
+        // For single indicator, get details
+        if (indicatorCount == 1)
+        {
+            var indicator = sentIndicators.First();
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(indicator.TestRequestSampleIndicatorId);
+            if (sampleIndicator != null)
+            {
+                var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
+                var masterIndicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+                sampleName = sample?.SampleName;
+                indicatorName = masterIndicator?.Name;
+            }
+            if (indicator.MethodId.HasValue)
+            {
+                var method = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
+                methodName = method?.Name;
+            }
+        }
+
+        await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
+            qualityManagerId,
+            testRequest.ContractNumber ?? task.ContractNumber ?? "",
+            task.TestRequestId,
+            senderName,
+            indicatorCount,
+            sampleName,
+            indicatorName,
+            methodName
+        );
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]

@@ -50,7 +50,31 @@ public enum NotificationType
     /// <summary>
     /// Mẫu/chỉ tiêu bị hủy bỏ
     /// </summary>
-    SamplesCancelled = 8
+    SamplesCancelled = 8,
+
+    #endregion
+
+    #region Notification Types for QLCL (QualityManager)
+
+    /// <summary>
+    /// QLKT gửi 1 kết quả chỉ tiêu cần QLCL phê duyệt
+    /// </summary>
+    SingleResultSubmittedToQM = 10,
+
+    /// <summary>
+    /// QLKT gửi nhiều kết quả chỉ tiêu cần QLCL phê duyệt
+    /// </summary>
+    MultipleResultsSubmittedToQM = 11,
+
+    /// <summary>
+    /// Nhắc nhở deadline trả kết quả <= 2 ngày
+    /// </summary>
+    DeadlineReminder = 12,
+
+    /// <summary>
+    /// Nhắc nhở bàn giao kết quả (sau khi duyệt >= 1 ngày)
+    /// </summary>
+    HandoverReminder = 13
 
     #endregion
 }

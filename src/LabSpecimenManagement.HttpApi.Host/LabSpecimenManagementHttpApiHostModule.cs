@@ -2,6 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Hangfire;
+using Hangfire.PostgreSql;
+using LabSpecimenManagement.BackgroundJobs;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
@@ -97,9 +100,29 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureHealthChecks(context);
         ConfigureApiFilters(context);
         ConfigureEmail(context, configuration);
+        ConfigureHangfire(context, configuration);
 
         // Register HttpClient for OnlyOffice integration
         context.Services.AddHttpClient();
+    }
+
+    private void ConfigureHangfire(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        var connectionString = configuration.GetConnectionString("Default");
+
+        context.Services.AddHangfire(config => config
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UsePostgreSqlStorage(options =>
+            {
+                options.UseNpgsqlConnection(connectionString);
+            }));
+
+        context.Services.AddHangfireServer(options =>
+        {
+            options.WorkerCount = 2;
+        });
     }
 
     private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
@@ -292,9 +315,56 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         app.UseAuditing();
         app.UseAbpSerilogEnrichers();
+
+        // Hangfire Dashboard (development only or with authentication)
+        app.UseHangfireDashboard("/hangfire", new DashboardOptions
+        {
+            Authorization = new[] { new HangfireAuthorizationFilter() }
+        });
+
+        // Register Hangfire recurring jobs
+        ConfigureHangfireRecurringJobs();
+
         app.UseConfiguredEndpoints(endpoints =>
         {
             endpoints.MapHealthChecks("/health");
         });
+    }
+
+    private void ConfigureHangfireRecurringJobs()
+    {
+        // Case 3 QLCL: Deadline reminder - chạy lúc 8h sáng hàng ngày (Vietnam timezone UTC+7)
+        // CRON: "0 8 * * *" = At 08:00 every day
+        RecurringJob.AddOrUpdate<QualityManagerReminderJob>(
+            "deadline-reminder-job",
+            job => job.SendDeadlineRemindersAsync(),
+            "0 8 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Case 4 QLCL: Handover reminder - chạy lúc 9h sáng hàng ngày (Vietnam timezone UTC+7)
+        // CRON: "0 9 * * *" = At 09:00 every day
+        RecurringJob.AddOrUpdate<QualityManagerReminderJob>(
+            "handover-reminder-job",
+            job => job.SendHandoverRemindersAsync(),
+            "0 9 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Case 3 QLKT: Pending work assignment reminder - chạy lúc 8h sáng hàng ngày
+        // Nhắc nhở QLKT khi có công việc chưa phân công >= 2 ngày
+        // CRON: "0 8 * * *" = At 08:00 every day
+        RecurringJob.AddOrUpdate<TechnicalManagerReminderJob>(
+            "pending-work-assignment-job",
+            job => job.SendPendingWorkAssignmentRemindersAsync(),
+            "0 8 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }

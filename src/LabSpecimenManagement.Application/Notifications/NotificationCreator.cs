@@ -288,4 +288,111 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     }
 
     #endregion
+
+    #region Notifications for QLCL (QualityManager)
+
+    /// <summary>
+    /// Case 1 & 2 QLCL: QLKT gửi kết quả chỉ tiêu cần QLCL phê duyệt
+    /// </summary>
+    public async Task NotifyResultSubmittedToQualityManagerAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        string senderName,
+        int indicatorCount,
+        string? sampleName = null,
+        string? indicatorName = null,
+        string? methodName = null)
+    {
+        string title = $"Hợp đồng {contractNumber}";
+        string message;
+        NotificationType type;
+
+        if (indicatorCount == 1 && !string.IsNullOrEmpty(sampleName))
+        {
+            // Case 2 QLCL: Single indicator
+            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"{sampleName} - {indicatorName} - {methodName}\n" +
+                      $"{senderName} đã gửi kết quả chỉ tiêu cần bạn phê duyệt";
+            type = NotificationType.SingleResultSubmittedToQM;
+        }
+        else
+        {
+            // Case 1 QLCL: Multiple indicators
+            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"{senderName} đã gửi <b>{indicatorCount} kết quả chỉ tiêu</b> cần bạn phê duyệt";
+            type = NotificationType.MultipleResultsSubmittedToQM;
+        }
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            qualityManagerId,
+            title,
+            message,
+            type,
+            testRequestId.ToString(),
+            "QualityManagement",
+            null,
+            senderName,
+            indicatorCount
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 3 QLCL: Nhắc nhở deadline trả kết quả <= 2 ngày
+    /// </summary>
+    public async Task NotifyDeadlineReminderAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        DateTime deadline)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Hợp đồng {contractNumber} gần tới hạn yêu cầu trả kết quả";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            qualityManagerId,
+            title,
+            message,
+            NotificationType.DeadlineReminder,
+            testRequestId.ToString(),
+            "QualityManagement",
+            deadline
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 4 QLCL: Nhắc nhở bàn giao kết quả (sau khi duyệt >= 1 ngày)
+    /// </summary>
+    public async Task NotifyHandoverReminderAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        DateTime approvedDate)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Hợp đồng {contractNumber} cần bàn giao cho bộ phận nhận/ trả mẫu";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            qualityManagerId,
+            title,
+            message,
+            NotificationType.HandoverReminder,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    #endregion
 }

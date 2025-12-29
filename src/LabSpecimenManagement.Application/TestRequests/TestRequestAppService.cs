@@ -431,7 +431,14 @@ public class TestRequestAppService :
         }
 
         // Auto-create Organization if customerName doesn't exist
-        await EnsureOrganizationExistsAsync(input.CustomerName);
+        await EnsureOrganizationExistsAsync(
+            input.CustomerName,
+            input.ProvinceCode,
+            input.WardCode,
+            input.Address,
+            input.TaxCode,
+            input.ContactPerson,
+            input.Phone);
 
         var entity = await MapToEntityAsync(input);
         await Repository.InsertAsync(entity, autoSave: true);
@@ -576,7 +583,14 @@ public class TestRequestAppService :
         // === Below code only runs when NOT requiring approval (New/Pending status) ===
 
         // Auto-create Organization if customerName doesn't exist
-        await EnsureOrganizationExistsAsync(input.CustomerName);
+        await EnsureOrganizationExistsAsync(
+            input.CustomerName,
+            input.ProvinceCode,
+            input.WardCode,
+            input.Address,
+            input.TaxCode,
+            input.ContactPerson,
+            input.Phone);
 
         // Update contract info
         entity.ContractNumber = input.ContractNumber;
@@ -875,7 +889,14 @@ public class TestRequestAppService :
     /// <summary>
     /// Check if Organization exists by name, create if not exists
     /// </summary>
-    private async Task EnsureOrganizationExistsAsync(string customerName)
+    private async Task EnsureOrganizationExistsAsync(
+        string customerName,
+        string? provinceCode = null,
+        string? wardCode = null,
+        string? address = null,
+        string? taxCode = null,
+        string? contactPerson = null,
+        string? phone = null)
     {
         if (string.IsNullOrWhiteSpace(customerName))
         {
@@ -888,6 +909,12 @@ public class TestRequestAppService :
         if (!exists)
         {
             var organization = new Organization(GuidGenerator.Create(), normalizedName);
+            organization.ProvinceCode = provinceCode ?? string.Empty;
+            organization.WardCode = wardCode ?? string.Empty;
+            organization.Address = address ?? string.Empty;
+            organization.TaxCode = taxCode;
+            organization.ContactPerson = contactPerson ?? string.Empty;
+            organization.Phone = phone ?? string.Empty;
             await _organizationRepository.InsertAsync(organization, autoSave: true);
         }
     }

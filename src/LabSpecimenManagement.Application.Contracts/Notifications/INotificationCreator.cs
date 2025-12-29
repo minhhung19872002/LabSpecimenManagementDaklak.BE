@@ -90,4 +90,39 @@ public interface INotificationCreator
         int cancelledIndicatorCount);
 
     #endregion
+
+    #region Notifications for QLCL (QualityManager)
+
+    /// <summary>
+    /// Case 1 & 2 QLCL: QLKT gửi kết quả chỉ tiêu cần QLCL phê duyệt
+    /// </summary>
+    Task NotifyResultSubmittedToQualityManagerAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        string senderName,
+        int indicatorCount,
+        string? sampleName = null,
+        string? indicatorName = null,
+        string? methodName = null);
+
+    /// <summary>
+    /// Case 3 QLCL: Nhắc nhở deadline trả kết quả <= 2 ngày
+    /// </summary>
+    Task NotifyDeadlineReminderAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        DateTime deadline);
+
+    /// <summary>
+    /// Case 4 QLCL: Nhắc nhở bàn giao kết quả (sau khi duyệt >= 1 ngày)
+    /// </summary>
+    Task NotifyHandoverReminderAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId,
+        DateTime approvedDate);
+
+    #endregion
 }

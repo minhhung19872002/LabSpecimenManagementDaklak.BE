@@ -16,17 +16,17 @@ public class Organization : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Ma tinh thanh
     /// </summary>
-    public string ProvinceCode { get; set; }
+    public string ProvinceCode { get; set; } = string.Empty;
 
     /// <summary>
     /// Ma phuong xa
     /// </summary>
-    public string WardCode { get; set; }
+    public string WardCode { get; set; } = string.Empty;
 
     /// <summary>
     /// Dia chi chi tiet
     /// </summary>
-    public string Address { get; set; }
+    public string Address { get; set; } = string.Empty;
 
     /// <summary>
     /// Ma so thue
@@ -36,12 +36,12 @@ public class Organization : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Nguoi lien he
     /// </summary>
-    public string ContactPerson { get; set; }
+    public string ContactPerson { get; set; } = string.Empty;
 
     /// <summary>
     /// So dien thoai
     /// </summary>
-    public string Phone { get; set; }
+    public string Phone { get; set; } = string.Empty;
 
     /// <summary>
     /// Trang thai hoat dong
