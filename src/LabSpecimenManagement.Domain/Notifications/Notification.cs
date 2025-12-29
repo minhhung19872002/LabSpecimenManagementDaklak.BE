@@ -49,6 +49,26 @@ public class Notification : CreationAuditedEntity<Guid>
     /// </summary>
     public DateTime? ReadAt { get; set; }
 
+    /// <summary>
+    /// Ngày deadline (để tính thời gian còn lại)
+    /// </summary>
+    public DateTime? DeadlineDate { get; set; }
+
+    /// <summary>
+    /// Tên người gửi/thực hiện action
+    /// </summary>
+    public string? SenderName { get; set; }
+
+    /// <summary>
+    /// Số lượng item liên quan (VD: số chỉ tiêu)
+    /// </summary>
+    public int? ItemCount { get; set; }
+
+    /// <summary>
+    /// Dữ liệu bổ sung dạng JSON (sample name, method, etc.)
+    /// </summary>
+    public string? AdditionalData { get; set; }
+
     public Notification()
     {
     }
@@ -60,7 +80,11 @@ public class Notification : CreationAuditedEntity<Guid>
         string message,
         NotificationType type,
         string? referenceId = null,
-        string? referenceType = null) : base(id)
+        string? referenceType = null,
+        DateTime? deadlineDate = null,
+        string? senderName = null,
+        int? itemCount = null,
+        string? additionalData = null) : base(id)
     {
         UserId = userId;
         Title = title;
@@ -68,6 +92,10 @@ public class Notification : CreationAuditedEntity<Guid>
         Type = type;
         ReferenceId = referenceId;
         ReferenceType = referenceType;
+        DeadlineDate = deadlineDate;
+        SenderName = senderName;
+        ItemCount = itemCount;
+        AdditionalData = additionalData;
         IsRead = false;
     }
 

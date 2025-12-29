@@ -28,12 +28,26 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
     /// <summary>
     /// Lấy danh sách thông báo của user hiện tại
     /// </summary>
-    public async Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync(PagedResultRequestDto input)
+    public async Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync(GetNotificationsInput input)
     {
         var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
 
         var allNotifications = await _notificationRepository.GetListAsync(n => n.UserId == currentUserId);
-        var orderedItems = allNotifications.OrderByDescending(n => n.CreationTime).ToList();
+
+        // Apply filters
+        var filteredItems = allNotifications.AsEnumerable();
+
+        if (input.IsRead.HasValue)
+        {
+            filteredItems = filteredItems.Where(n => n.IsRead == input.IsRead.Value);
+        }
+
+        if (input.Type.HasValue)
+        {
+            filteredItems = filteredItems.Where(n => n.Type == input.Type.Value);
+        }
+
+        var orderedItems = filteredItems.OrderByDescending(n => n.CreationTime).ToList();
 
         var totalCount = orderedItems.Count;
         var items = orderedItems
@@ -52,7 +66,14 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
             ReferenceType = n.ReferenceType,
             IsRead = n.IsRead,
             ReadAt = n.ReadAt,
-            CreationTime = n.CreationTime
+            CreationTime = n.CreationTime,
+            DeadlineDate = n.DeadlineDate,
+            SenderName = n.SenderName,
+            ItemCount = n.ItemCount,
+            AdditionalData = n.AdditionalData,
+            DaysRemaining = n.DeadlineDate.HasValue
+                ? (int?)(n.DeadlineDate.Value.Date - DateTime.UtcNow.Date).Days
+                : null
         }).ToList();
 
         return new PagedResultDto<NotificationDto>(totalCount, dtos);
@@ -118,7 +139,11 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
             input.Message,
             input.Type,
             input.ReferenceId,
-            input.ReferenceType
+            input.ReferenceType,
+            input.DeadlineDate,
+            input.SenderName,
+            input.ItemCount,
+            input.AdditionalData
         );
 
         await _notificationRepository.InsertAsync(notification);

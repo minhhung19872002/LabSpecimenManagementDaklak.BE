@@ -85,6 +85,15 @@ public interface IQualityManagementAppService : IApplicationService
     /// Reject changes (Từ chối thay đổi phiếu yêu cầu)
     /// </summary>
     Task RejectChangesAsync(Guid taskId, string reason);
+
+    #region Work Reminder
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Quality Manager (QLCL) (dùng cho popup reminder)
+    /// </summary>
+    Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync();
+
+    #endregion
 }
 
 /// <summary>

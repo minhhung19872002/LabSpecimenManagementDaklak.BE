@@ -9,12 +9,14 @@ using DocumentFormat.OpenXml.Wordprocessing;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Users;
 
 namespace LabSpecimenManagement.ResultForms;
 
@@ -29,6 +31,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IWebHostEnvironment _environment;
+    private readonly INotificationCreator _notificationCreator;
+    private readonly ICurrentUser _currentUser;
 
     private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
     private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
@@ -46,7 +50,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
-        IWebHostEnvironment environment)
+        IWebHostEnvironment environment,
+        INotificationCreator notificationCreator,
+        ICurrentUser currentUser)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -56,6 +62,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _environment = environment;
+        _notificationCreator = notificationCreator;
+        _currentUser = currentUser;
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -659,7 +667,21 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         if (testRequest.Status == TestRequestStatus.New)
         {
             testRequest.Status = TestRequestStatus.Pending;
+            testRequest.PendingDate = Clock.Now;
+            testRequest.PendingByUserId = _currentUser.Id;
+            testRequest.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
             await _testRequestRepository.UpdateAsync(testRequest);
+
+            // Send notification to the test request creator
+            if (testRequest.CreatorId.HasValue)
+            {
+                var sampleCount = samples.Count;
+                await _notificationCreator.NotifyNewTestRequestPendingAsync(
+                    testRequest.CreatorId.Value,
+                    testRequest.ContractNumber ?? "",
+                    testRequest.Id,
+                    sampleCount);
+            }
         }
 
         // 3. Check if template exists

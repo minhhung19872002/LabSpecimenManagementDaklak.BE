@@ -15,7 +15,7 @@ public interface INotificationAppService : IApplicationService
     /// <summary>
     /// Lấy danh sách thông báo của user hiện tại
     /// </summary>
-    Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync(PagedResultRequestDto input);
+    Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync(GetNotificationsInput input);
 
     /// <summary>
     /// Lấy số thông báo chưa đọc

@@ -51,4 +51,14 @@ public class SampleStorageItemDto
     /// Ngày hủy
     /// </summary>
     public DateTime? CancelledDate { get; set; }
+
+    /// <summary>
+    /// Cần hủy mẫu (được set bởi cronjob khi HĐ hoàn thành + 5 ngày)
+    /// </summary>
+    public bool NeedDisposal { get; set; }
+
+    /// <summary>
+    /// Ngày được đánh dấu cần hủy
+    /// </summary>
+    public DateTime? NeedDisposalDate { get; set; }
 }

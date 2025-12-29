@@ -75,6 +75,16 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public Guid? ChangeHistoryId { get; set; }
 
     /// <summary>
+    /// ID của QLCL được gán để xử lý task này
+    /// </summary>
+    public Guid? AssignedQualityManagerId { get; set; }
+
+    /// <summary>
+    /// Tên QLCL được gán - Assigned Quality Manager Name
+    /// </summary>
+    public string? AssignedQualityManagerName { get; set; }
+
+    /// <summary>
     /// Thông tin thay đổi (cho ChangeApproval tasks)
     /// </summary>
     public ChangeHistoryInfoDto? ChangeHistory { get; set; }

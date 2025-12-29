@@ -1329,6 +1329,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AdditionalData")
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("CreationTime");
@@ -1337,8 +1340,14 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("CreatorId");
 
+                    b.Property<DateTime?>("DeadlineDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<bool>("IsRead")
                         .HasColumnType("boolean");
+
+                    b.Property<int?>("ItemCount")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Message")
                         .IsRequired()
@@ -1355,6 +1364,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("ReferenceType")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("SenderName")
+                        .HasColumnType("text");
 
                     b.Property<string>("Title")
                         .IsRequired()
@@ -1460,6 +1472,9 @@ namespace LabSpecimenManagement.Migrations
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityManagementTask", b =>
                 {
                     b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AssignedQualityManagerId")
                         .HasColumnType("uuid");
 
                     b.Property<Guid?>("ChangeHistoryId")
@@ -2724,6 +2739,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("LastModifierId")
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
+
+                    b.Property<bool>("NeedDisposal")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("NeedDisposalDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)

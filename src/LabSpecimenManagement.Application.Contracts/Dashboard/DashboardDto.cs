@@ -122,3 +122,96 @@ public class RecentActivityDto
     public string? PerformedByName { get; set; }
     public DateTime PerformedAt { get; set; }
 }
+
+#region Dashboard Overview DTOs
+
+/// <summary>
+/// Filter DTO for dashboard overview
+/// </summary>
+public class DashboardFilterDto
+{
+    public DateTime FromDate { get; set; }
+    public DateTime ToDate { get; set; }
+}
+
+/// <summary>
+/// Overview statistics DTO
+/// </summary>
+public class DashboardOverviewDto
+{
+    public int TotalContracts { get; set; }
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+    public int TotalNCRs { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public int OnTimeTests { get; set; }
+    public int LateTests { get; set; }
+    public int PendingApproval { get; set; }
+}
+
+/// <summary>
+/// Recent request DTO for dashboard
+/// </summary>
+public class DashboardRecentRequestDto
+{
+    public Guid Id { get; set; }
+    public string ContractNumber { get; set; } = string.Empty;
+    public string CustomerName { get; set; } = string.Empty;
+    public DateTime? PendingDate { get; set; }
+    public int SampleCount { get; set; }
+    public int IndicatorCount { get; set; }
+    public decimal TotalCost { get; set; }
+    public int Status { get; set; }
+}
+
+/// <summary>
+/// Paged result for recent requests
+/// </summary>
+public class DashboardRecentRequestPagedResultDto
+{
+    public List<DashboardRecentRequestDto> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+}
+
+/// <summary>
+/// Revenue by customer DTO
+/// </summary>
+public class RevenueByCustomerDto
+{
+    public string CustomerName { get; set; } = string.Empty;
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+    public decimal Revenue { get; set; }
+}
+
+/// <summary>
+/// Paged result for revenue by customer
+/// </summary>
+public class RevenueByCustomerPagedResultDto
+{
+    public List<RevenueByCustomerDto> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+}
+
+/// <summary>
+/// Monthly revenue DTO for chart
+/// </summary>
+public class MonthlyRevenueDto
+{
+    public int Month { get; set; }
+    public string MonthName { get; set; } = string.Empty;
+    public int ContractCount { get; set; }
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+    public decimal Revenue { get; set; }
+}
+
+/// <summary>
+/// Customer name lookup DTO
+/// </summary>
+public class CustomerNameDto
+{
+    public string CustomerName { get; set; } = string.Empty;
+}
+
+#endregion

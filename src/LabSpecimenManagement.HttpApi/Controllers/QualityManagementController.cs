@@ -158,6 +158,19 @@ public class QualityManagementController : LabSpecimenManagementController
     {
         return _qualityManagementAppService.RejectChangesAsync(taskId, input.Reason);
     }
+
+    #region Work Reminder
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Quality Manager (QLCL) (dùng cho popup reminder)
+    /// </summary>
+    [HttpGet("quality-manager-pending-tasks")]
+    public virtual Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync()
+    {
+        return _qualityManagementAppService.GetQualityManagerPendingTasksAsync();
+    }
+
+    #endregion
 }
 
 /// <summary>

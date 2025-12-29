@@ -253,4 +253,26 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Work Reminder
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Lab Technical Manager (popup reminder)
+    /// </summary>
+    [HttpGet("lab-tech-manager-pending-tasks")]
+    public virtual Task<List<LabTechManagerPendingTaskDto>> GetLabTechManagerPendingTasksAsync()
+    {
+        return _laboratoryTaskAppService.GetLabTechManagerPendingTasksAsync();
+    }
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Lab Technician/KTV (popup reminder)
+    /// </summary>
+    [HttpGet("lab-technician-pending-tasks")]
+    public virtual Task<List<LabTechnicianPendingTaskDto>> GetLabTechnicianPendingTasksAsync()
+    {
+        return _laboratoryTaskAppService.GetLabTechnicianPendingTasksAsync();
+    }
+
+    #endregion
 }

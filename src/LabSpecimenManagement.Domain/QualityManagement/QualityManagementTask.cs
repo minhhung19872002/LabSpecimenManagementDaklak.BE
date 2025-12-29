@@ -62,6 +62,11 @@ public class QualityManagementTask : FullAuditedAggregateRoot<Guid>
     public Guid? ChangeHistoryId { get; set; }
 
     /// <summary>
+    /// ID của QLCL được gán để xử lý task này
+    /// </summary>
+    public Guid? AssignedQualityManagerId { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;
