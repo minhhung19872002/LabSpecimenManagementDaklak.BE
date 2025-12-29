@@ -395,4 +395,263 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     }
 
     #endregion
+
+    #region Notifications for SampleReceiver (Bộ phận Giao nhận mẫu)
+
+    /// <summary>
+    /// Case 1 SampleReceiver: QLCL phê duyệt thay đổi cho phiếu yêu cầu
+    /// </summary>
+    public async Task NotifyChangeApprovedAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Thay đổi cho hợp đồng {contractNumber} đã được phê duyệt";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.ChangeApproved,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 2 SampleReceiver: QLCL từ chối thay đổi cho phiếu yêu cầu
+    /// </summary>
+    public async Task NotifyChangeRejectedAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Thay đổi cho hợp đồng {contractNumber} đã bị từ chối";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.ChangeRejected,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 3 SampleReceiver: Phiếu yêu cầu mới cần gửi mẫu (Status chuyển sang Pending)
+    /// </summary>
+    public async Task NotifyNewTestRequestPendingAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId,
+        int sampleCount)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Bạn có <b>{sampleCount} mẫu</b> cần gửi tới khoa phòng thử nghiệm";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.NewTestRequestPending,
+            testRequestId.ToString(),
+            "TestRequest",
+            null,
+            null,
+            sampleCount
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 4 SampleReceiver: Nhắc nhở trả mẫu cho khách hàng (Status = ResultSent)
+    /// </summary>
+    public async Task NotifySampleReturnReminderAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Hợp đồng {contractNumber} cần trả mẫu cho khách hàng";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.SampleReturnReminder,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    #endregion
+
+    #region Notifications for KTV (Technician/Thử nghiệm viên)
+
+    /// <summary>
+    /// Case 1 KTV: QLKT gán nhiều chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    public async Task NotifyMultipleIndicatorsAssignedToTechnicianAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        int indicatorCount,
+        DateTime? deadline)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Bạn có <b>{indicatorCount} chỉ tiêu</b> cần thực hiện";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicianId,
+            title,
+            message,
+            NotificationType.MultipleIndicatorsAssignedToTechnician,
+            testRequestId.ToString(),
+            "TestRequest",
+            deadline
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 2 KTV: QLKT gán 1 chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    public async Task NotifySingleIndicatorAssignedToTechnicianAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName,
+        string sampleName,
+        string indicatorName,
+        string methodName,
+        DateTime? deadline)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Quản lý kỹ thuật {technicalManagerName} phân công cho bạn thử nghiệm {sampleName} - {indicatorName} - {methodName}";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicianId,
+            title,
+            message,
+            NotificationType.SingleIndicatorAssignedToTechnician,
+            testRequestId.ToString(),
+            "TestRequest",
+            deadline
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 3 KTV: Nhắc nhở có chỉ tiêu chưa thực hiện (>= 2 ngày)
+    /// </summary>
+    public async Task NotifyPendingIndicatorReminderAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        int pendingIndicatorCount)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Bạn có <b>{pendingIndicatorCount} chỉ tiêu</b> chưa thực hiện";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicianId,
+            title,
+            message,
+            NotificationType.PendingIndicatorReminder,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 4 KTV: QLKT từ chối nhiều kết quả thử nghiệm của KTV
+    /// </summary>
+    public async Task NotifyMultipleResultsRejectedByTechnicalManagerAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Quản lý kỹ thuật {technicalManagerName} đã từ chối kết quả của bạn";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicianId,
+            title,
+            message,
+            NotificationType.MultipleResultsRejectedByTechnicalManager,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 5 KTV: QLKT từ chối 1 kết quả thử nghiệm của KTV
+    /// </summary>
+    public async Task NotifySingleResultRejectedByTechnicalManagerAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName,
+        string sampleName,
+        string indicatorName,
+        string methodName)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"{sampleName} - {indicatorName} - {methodName}\n" +
+                      $"{technicalManagerName} đã từ chối kết quả của bạn";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicianId,
+            title,
+            message,
+            NotificationType.SingleResultRejectedByTechnicalManager,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await _notificationRepository.InsertAsync(notification);
+    }
+
+    #endregion
 }

@@ -125,4 +125,98 @@ public interface INotificationCreator
         DateTime approvedDate);
 
     #endregion
+
+    #region Notifications for SampleReceiver (Bộ phận Giao nhận mẫu)
+
+    /// <summary>
+    /// Case 1 SampleReceiver: QLCL phê duyệt thay đổi cho phiếu yêu cầu
+    /// </summary>
+    Task NotifyChangeApprovedAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId);
+
+    /// <summary>
+    /// Case 2 SampleReceiver: QLCL từ chối thay đổi cho phiếu yêu cầu
+    /// </summary>
+    Task NotifyChangeRejectedAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId);
+
+    /// <summary>
+    /// Case 3 SampleReceiver: Phiếu yêu cầu mới cần gửi mẫu (Status chuyển sang Pending)
+    /// </summary>
+    Task NotifyNewTestRequestPendingAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId,
+        int sampleCount);
+
+    /// <summary>
+    /// Case 4 SampleReceiver: Nhắc nhở trả mẫu cho khách hàng (Status = ResultSent)
+    /// </summary>
+    Task NotifySampleReturnReminderAsync(
+        Guid creatorId,
+        string contractNumber,
+        Guid testRequestId);
+
+    #endregion
+
+    #region Notifications for KTV (Technician/Thử nghiệm viên)
+
+    /// <summary>
+    /// Case 1 KTV: QLKT gán nhiều chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    Task NotifyMultipleIndicatorsAssignedToTechnicianAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        int indicatorCount,
+        DateTime? deadline);
+
+    /// <summary>
+    /// Case 2 KTV: QLKT gán 1 chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    Task NotifySingleIndicatorAssignedToTechnicianAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName,
+        string sampleName,
+        string indicatorName,
+        string methodName,
+        DateTime? deadline);
+
+    /// <summary>
+    /// Case 3 KTV: Nhắc nhở có chỉ tiêu chưa thực hiện (>= 2 ngày)
+    /// </summary>
+    Task NotifyPendingIndicatorReminderAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        int pendingIndicatorCount);
+
+    /// <summary>
+    /// Case 4 KTV: QLKT từ chối nhiều kết quả thử nghiệm của KTV
+    /// </summary>
+    Task NotifyMultipleResultsRejectedByTechnicalManagerAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName);
+
+    /// <summary>
+    /// Case 5 KTV: QLKT từ chối 1 kết quả thử nghiệm của KTV
+    /// </summary>
+    Task NotifySingleResultRejectedByTechnicalManagerAsync(
+        Guid technicianId,
+        string contractNumber,
+        Guid testRequestId,
+        string technicalManagerName,
+        string sampleName,
+        string indicatorName,
+        string methodName);
+
+    #endregion
 }

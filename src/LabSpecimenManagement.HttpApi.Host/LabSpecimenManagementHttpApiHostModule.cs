@@ -366,5 +366,30 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Case 4 SampleReceiver: Sample return reminder - chạy lúc 8h sáng hàng ngày
+        // Nhắc nhở Bộ phận Giao nhận mẫu khi có TestRequest cần trả mẫu (Status = ResultSent)
+        // CRON: "0 8 * * *" = At 08:00 every day
+        RecurringJob.AddOrUpdate<SampleReceiverReminderJob>(
+            "sample-return-reminder-job",
+            job => job.SendSampleReturnRemindersAsync(),
+            "0 8 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Case 3 KTV: Pending indicator reminder - chạy lúc 8h sáng hàng ngày
+        // Nhắc nhở KTV khi có chỉ tiêu chưa thực hiện >= 2 ngày
+        // Spam hàng ngày cho đến khi tất cả chỉ tiêu không còn trạng thái "Cần làm"
+        // CRON: "0 8 * * *" = At 08:00 every day
+        RecurringJob.AddOrUpdate<TechnicianReminderJob>(
+            "pending-indicator-reminder-job",
+            job => job.SendPendingIndicatorRemindersAsync(),
+            "0 8 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }

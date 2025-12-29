@@ -5,6 +5,7 @@ using System.Linq.Dynamic.Core;
 using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Files;
+using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
@@ -1111,6 +1112,9 @@ public class TestRequestAppService :
     {
         var entity = await Repository.GetAsync(id);
 
+        Logger.LogInformation("PrintTestRequestAsync: TestRequest {Id}, Status = {Status}, CreatorId = {CreatorId}",
+            id, entity.Status, entity.CreatorId);
+
         if (entity.Status == TestRequestStatus.New)
         {
             entity.Status = TestRequestStatus.Pending;
@@ -1118,6 +1122,27 @@ public class TestRequestAppService :
             entity.PendingByUserId = _currentUser.Id;
             entity.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
+
+            // Notify the test request creator - Case 3 SampleReceiver
+            if (entity.CreatorId.HasValue)
+            {
+                var sampleCount = await _sampleRepository.CountAsync(s => s.TestRequestId == entity.Id);
+                Logger.LogInformation("Sending NewTestRequestPending notification to CreatorId = {CreatorId}, SampleCount = {SampleCount}",
+                    entity.CreatorId.Value, sampleCount);
+                await _notificationCreator.NotifyNewTestRequestPendingAsync(
+                    entity.CreatorId.Value,
+                    entity.ContractNumber ?? "",
+                    entity.Id,
+                    sampleCount);
+            }
+            else
+            {
+                Logger.LogWarning("PrintTestRequestAsync: CreatorId is null, skipping notification");
+            }
+        }
+        else
+        {
+            Logger.LogInformation("PrintTestRequestAsync: Status is not New ({Status}), skipping status change", entity.Status);
         }
         // If already Pending, don't change status (allow re-print)
     }
@@ -1288,6 +1313,15 @@ public class TestRequestAppService :
         entity.ResultSentByUserId = _currentUser.Id;
         entity.ResultSentByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
+
+        // Notify the test request creator - Case 4 SampleReceiver (first notification)
+        if (entity.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifySampleReturnReminderAsync(
+                entity.CreatorId.Value,
+                entity.ContractNumber ?? "",
+                entity.Id);
+        }
 
         // TODO: Send email to customer if requested
     }

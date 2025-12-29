@@ -639,6 +639,15 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         testRequest.ResultSentByUserId = CurrentUser.Id;
         testRequest.ResultSentByUserName = currentUserName;
         await _testRequestRepository.UpdateAsync(testRequest);
+
+        // Notify the test request creator - Case 4 SampleReceiver (first notification)
+        if (testRequest.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifySampleReturnReminderAsync(
+                testRequest.CreatorId.Value,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
     }
 
     public async Task<List<StandardLookupDto>> GetStandardsLookupAsync()
@@ -696,6 +705,16 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         // Update task status
         task.Status = QualityManagementStatus.Approved;
         await _taskRepository.UpdateAsync(task);
+
+        // Notify the test request creator (SampleReceiver)
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifyChangeApprovedAsync(
+                testRequest.CreatorId.Value,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
     }
 
     public async Task RejectChangesAsync(Guid taskId, string reason)
@@ -718,6 +737,16 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         // Update task status
         task.Status = QualityManagementStatus.Rejected;
         await _taskRepository.UpdateAsync(task);
+
+        // Notify the test request creator (SampleReceiver)
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifyChangeRejectedAsync(
+                testRequest.CreatorId.Value,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
     }
 
     #region Private Methods

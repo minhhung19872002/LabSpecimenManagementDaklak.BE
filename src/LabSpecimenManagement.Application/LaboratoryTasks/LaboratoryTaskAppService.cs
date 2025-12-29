@@ -482,7 +482,73 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Only update if all tasks for this TestRequest have all indicators assigned
         await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
 
+        // Notify technicians about assigned indicators (Case 1 & 2 KTV)
+        await NotifyTechniciansOnAssignAsync(task, indicatorsForSample, assignments);
+
         return await MapToDetailDtoAsync(task);
+    }
+
+    /// <summary>
+    /// Notify technicians when indicators are assigned to them
+    /// Groups notifications by technician
+    /// </summary>
+    private async Task NotifyTechniciansOnAssignAsync(
+        LaboratoryTask task,
+        List<LaboratoryTaskIndicator> indicatorsForSample,
+        List<AssignIndicatorDto> assignments)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var contractNumber = testRequest.ContractNumber ?? task.ContractNumber ?? "";
+        var technicalManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+
+        // Group assignments by TechnicianId
+        var assignmentsByTechnician = assignments
+            .Where(a => a.TechnicianId.HasValue)
+            .GroupBy(a => a.TechnicianId!.Value)
+            .ToList();
+
+        foreach (var group in assignmentsByTechnician)
+        {
+            var technicianId = group.Key;
+            var technicianAssignments = group.ToList();
+            var indicatorCount = technicianAssignments.Count;
+
+            if (indicatorCount == 1)
+            {
+                // Case 2: Single indicator - include details
+                var assignment = technicianAssignments.First();
+                var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
+                if (taskIndicator != null)
+                {
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+                    var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                    var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                    var method = assignment.MethodId.HasValue ? await _testMethodRepository.FindAsync(assignment.MethodId.Value) : null;
+
+                    await _notificationCreator.NotifySingleIndicatorAssignedToTechnicianAsync(
+                        technicianId,
+                        contractNumber,
+                        task.TestRequestId,
+                        technicalManagerName,
+                        sample?.SampleName ?? "",
+                        indicator?.Name ?? "",
+                        method?.Name ?? "",
+                        task.RequestCompletionDate
+                    );
+                }
+            }
+            else
+            {
+                // Case 1: Multiple indicators
+                await _notificationCreator.NotifyMultipleIndicatorsAssignedToTechnicianAsync(
+                    technicianId,
+                    contractNumber,
+                    task.TestRequestId,
+                    indicatorCount,
+                    task.RequestCompletionDate
+                );
+            }
+        }
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -589,6 +655,29 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Notify technician when result is rejected (Case 5 KTV - single rejection)
+        if (!input.Approve && taskIndicator.EnteredById.HasValue)
+        {
+            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+            var contractNumber = testRequest.ContractNumber ?? task.ContractNumber ?? "";
+            var technicalManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+
+            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+            var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+            var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
+
+            await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
+                taskIndicator.EnteredById.Value,
+                contractNumber,
+                task.TestRequestId,
+                technicalManagerName,
+                sample?.SampleName ?? "",
+                indicator?.Name ?? "",
+                method?.Name ?? ""
+            );
+        }
 
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
@@ -1276,7 +1365,77 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Update task status
         await UpdateTaskStatusAsync(task);
 
+        // Notify technicians when results are rejected (Case 4 & 5 KTV)
+        if (!input.Approve)
+        {
+            await NotifyTechniciansOnRejectAsync(task, input.IndicatorIds);
+        }
+
         return results;
+    }
+
+    /// <summary>
+    /// Notify technicians when their results are rejected by QLKT
+    /// Groups notifications by technician
+    /// </summary>
+    private async Task NotifyTechniciansOnRejectAsync(LaboratoryTask task, List<Guid> rejectedIndicatorIds)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var contractNumber = testRequest.ContractNumber ?? task.ContractNumber ?? "";
+        var technicalManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+
+        // Get rejected indicators with their EnteredById (the technician who entered the result)
+        var rejectedIndicators = new List<(LaboratoryTaskIndicator Indicator, Guid TechnicianId)>();
+        foreach (var indicatorId in rejectedIndicatorIds)
+        {
+            var taskIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(indicatorId);
+            if (taskIndicator?.EnteredById != null)
+            {
+                rejectedIndicators.Add((taskIndicator, taskIndicator.EnteredById.Value));
+            }
+        }
+
+        // Group by technician
+        var indicatorsByTechnician = rejectedIndicators
+            .GroupBy(x => x.TechnicianId)
+            .ToList();
+
+        foreach (var group in indicatorsByTechnician)
+        {
+            var technicianId = group.Key;
+            var technicianIndicators = group.ToList();
+            var rejectedCount = technicianIndicators.Count;
+
+            if (rejectedCount == 1)
+            {
+                // Case 5: Single rejection - include details
+                var taskIndicator = technicianIndicators.First().Indicator;
+                var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+                var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
+
+                await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
+                    technicianId,
+                    contractNumber,
+                    task.TestRequestId,
+                    technicalManagerName,
+                    sample?.SampleName ?? "",
+                    indicator?.Name ?? "",
+                    method?.Name ?? ""
+                );
+            }
+            else
+            {
+                // Case 4: Multiple rejections
+                await _notificationCreator.NotifyMultipleResultsRejectedByTechnicalManagerAsync(
+                    technicianId,
+                    contractNumber,
+                    task.TestRequestId,
+                    technicalManagerName
+                );
+            }
+        }
     }
 
     #endregion

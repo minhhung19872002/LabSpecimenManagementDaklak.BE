@@ -74,7 +74,60 @@ public enum NotificationType
     /// <summary>
     /// Nhắc nhở bàn giao kết quả (sau khi duyệt >= 1 ngày)
     /// </summary>
-    HandoverReminder = 13
+    HandoverReminder = 13,
+
+    #endregion
+
+    #region Notification Types for SampleReceiver (Bộ phận Giao nhận mẫu)
+
+    /// <summary>
+    /// QLCL phê duyệt thay đổi cho phiếu yêu cầu
+    /// </summary>
+    ChangeApproved = 20,
+
+    /// <summary>
+    /// QLCL từ chối thay đổi cho phiếu yêu cầu
+    /// </summary>
+    ChangeRejected = 21,
+
+    /// <summary>
+    /// Phiếu yêu cầu mới cần gửi mẫu tới khoa phòng (Status = Pending)
+    /// </summary>
+    NewTestRequestPending = 22,
+
+    /// <summary>
+    /// Nhắc nhở trả mẫu cho khách hàng (Status = ResultSent)
+    /// </summary>
+    SampleReturnReminder = 23,
+
+    #endregion
+
+    #region Notification Types for KTV (Technician/Thử nghiệm viên)
+
+    /// <summary>
+    /// QLKT gán 1 chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    SingleIndicatorAssignedToTechnician = 30,
+
+    /// <summary>
+    /// QLKT gán nhiều chỉ tiêu cho KTV thực hiện
+    /// </summary>
+    MultipleIndicatorsAssignedToTechnician = 31,
+
+    /// <summary>
+    /// Nhắc nhở KTV có chỉ tiêu chưa thực hiện (>= 2 ngày)
+    /// </summary>
+    PendingIndicatorReminder = 32,
+
+    /// <summary>
+    /// QLKT từ chối 1 kết quả thử nghiệm của KTV
+    /// </summary>
+    SingleResultRejectedByTechnicalManager = 33,
+
+    /// <summary>
+    /// QLKT từ chối nhiều kết quả thử nghiệm của KTV
+    /// </summary>
+    MultipleResultsRejectedByTechnicalManager = 34
 
     #endregion
 }
