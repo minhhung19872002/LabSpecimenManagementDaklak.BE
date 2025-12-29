@@ -1568,4 +1568,98 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     }
 
     #endregion
+
+    #region Work Reminder
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Lab Technical Manager (popup reminder)
+    /// Task name priority: "Cần duyệt kết quả" > "Cần phân công công việc" > "Sắp tới ngày trả kết quả"
+    /// </summary>
+    public async Task<List<LabTechManagerPendingTaskDto>> GetLabTechManagerPendingTasksAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return new List<LabTechManagerPendingTaskDto>();
+        }
+
+        var today = DateTime.Today;
+        var queryable = await _laboratoryTaskRepository.GetQueryableAsync();
+
+        // Get tasks where current user is TechnicalManager
+        var tasks = queryable
+            .Where(x => x.TechnicalManagerId == currentUserId.Value)
+            .Where(x =>
+                // Condition 1: Cần phân công (NotAssigned)
+                x.Status == LaboratoryTaskStatus.NotAssigned ||
+                // Condition 2: Cần duyệt (PendingApproval)
+                x.Status == LaboratoryTaskStatus.PendingApproval ||
+                // Condition 3: Sắp tới ngày trả kết quả (trong 5 ngày) và chưa hoàn thành
+                (x.RequestCompletionDate != null &&
+                 x.Status != LaboratoryTaskStatus.Approved &&
+                 x.Status != LaboratoryTaskStatus.SentToQuality))
+            .ToList();
+
+        var result = new List<LabTechManagerPendingTaskDto>();
+
+        foreach (var task in tasks)
+        {
+            // Calculate days until deadline
+            int? daysUntilDeadline = null;
+            if (task.RequestCompletionDate.HasValue)
+            {
+                daysUntilDeadline = (int)(task.RequestCompletionDate.Value.Date - today).TotalDays;
+            }
+
+            // Determine task name based on priority
+            // Priority: "Cần duyệt kết quả" > "Cần phân công công việc" > "Sắp tới ngày trả kết quả"
+            string taskName;
+            bool shouldInclude = false;
+
+            if (task.Status == LaboratoryTaskStatus.PendingApproval)
+            {
+                taskName = "Cần duyệt kết quả";
+                shouldInclude = true;
+            }
+            else if (task.Status == LaboratoryTaskStatus.NotAssigned)
+            {
+                taskName = "Cần phân công công việc";
+                shouldInclude = true;
+            }
+            else if (daysUntilDeadline.HasValue && daysUntilDeadline.Value <= 5 &&
+                     task.Status != LaboratoryTaskStatus.Approved &&
+                     task.Status != LaboratoryTaskStatus.SentToQuality)
+            {
+                taskName = "Sắp tới ngày trả kết quả thử nghiệm";
+                shouldInclude = true;
+            }
+            else
+            {
+                continue; // Skip tasks that don't match any condition
+            }
+
+            if (shouldInclude)
+            {
+                result.Add(new LabTechManagerPendingTaskDto
+                {
+                    Id = task.Id,
+                    ContractNumber = task.ContractNumber ?? "",
+                    TaskName = taskName,
+                    TransferDate = task.TransferDate,
+                    RequestCompletionDate = task.RequestCompletionDate,
+                    Status = task.Status,
+                    DaysUntilDeadline = daysUntilDeadline
+                });
+            }
+        }
+
+        // Sort: PendingApproval first, then NotAssigned, then by deadline
+        return result
+            .OrderBy(x => x.Status == LaboratoryTaskStatus.PendingApproval ? 0 :
+                          x.Status == LaboratoryTaskStatus.NotAssigned ? 1 : 2)
+            .ThenBy(x => x.RequestCompletionDate ?? DateTime.MaxValue)
+            .ToList();
+    }
+
+    #endregion
 }

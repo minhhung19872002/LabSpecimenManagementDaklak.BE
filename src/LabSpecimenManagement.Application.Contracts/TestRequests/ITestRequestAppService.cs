@@ -98,4 +98,9 @@ public interface ITestRequestAppService :
     /// Lấy thông tin tiến trình (timeline) của phiếu yêu cầu
     /// </summary>
     Task<TestRequestTimelineDto> GetTimelineAsync(Guid id);
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho SampleReceiver (dùng cho popup reminder)
+    /// </summary>
+    Task<List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync();
 }

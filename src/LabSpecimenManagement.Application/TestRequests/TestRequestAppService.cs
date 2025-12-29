@@ -2520,5 +2520,39 @@ public class TestRequestAppService :
         return result;
     }
 
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho SampleReceiver (dùng cho popup reminder)
+    /// SampleReceiver là người tạo TestRequest (CreatorId)
+    /// </summary>
+    public async Task<List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
+    {
+        var currentUserId = _currentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return new List<SampleReceiverPendingTaskDto>();
+        }
+
+        // Query TestRequest do SampleReceiver hiện tại tạo (CreatorId = currentUserId)
+        // với status = Pending hoặc ResultSent
+        var query = await Repository.GetQueryableAsync();
+        var testRequests = await AsyncExecuter.ToListAsync(
+            query.Where(x =>
+                x.CreatorId == currentUserId.Value &&
+                (x.Status == TestRequestStatus.Pending || x.Status == TestRequestStatus.ResultSent))
+        );
+
+        return testRequests.Select(tr => new SampleReceiverPendingTaskDto
+        {
+            Id = tr.Id,
+            ContractNumber = tr.ContractNumber ?? tr.RequestNumber,
+            TaskName = tr.Status == TestRequestStatus.Pending
+                ? "Cần chuyển mẫu thử nghiệm"
+                : "Cần trả kết quả cho khách hàng",
+            PendingDate = tr.PendingDate,
+            ExpectedCompletionDate = tr.ExpectedCompletionDate,
+            Status = tr.Status
+        }).OrderBy(x => x.PendingDate).ToList();
+    }
+
     #endregion
 }

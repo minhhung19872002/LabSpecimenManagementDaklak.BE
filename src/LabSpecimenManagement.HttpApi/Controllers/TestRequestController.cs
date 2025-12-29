@@ -190,4 +190,13 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.GetTimelineAsync(id);
     }
+
+    /// <summary>
+    /// Get pending tasks for SampleReceiver (used for popup reminder)
+    /// </summary>
+    [HttpGet("sample-receiver-pending-tasks")]
+    public virtual Task<System.Collections.Generic.List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
+    {
+        return _testRequestAppService.GetSampleReceiverPendingTasksAsync();
+    }
 }

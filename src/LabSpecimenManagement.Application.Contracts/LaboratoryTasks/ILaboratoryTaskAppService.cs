@@ -132,4 +132,13 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync();
 
     #endregion
+
+    #region Work Reminder
+
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Lab Technical Manager (dùng cho popup reminder)
+    /// </summary>
+    Task<List<LabTechManagerPendingTaskDto>> GetLabTechManagerPendingTasksAsync();
+
+    #endregion
 }
