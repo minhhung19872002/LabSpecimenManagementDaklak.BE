@@ -13,8 +13,8 @@ using Volo.Abp.EntityFrameworkCore;
 namespace LabSpecimenManagement.Migrations
 {
     [DbContext(typeof(LabSpecimenManagementDbContext))]
-    [Migration("20251228105610_RenamePostalDeliveryImageField")]
-    partial class RenamePostalDeliveryImageField
+    [Migration("20251229033834_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)

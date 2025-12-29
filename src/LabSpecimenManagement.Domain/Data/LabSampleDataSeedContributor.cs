@@ -129,19 +129,19 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // Seed Indicator Groups
         var groupViSinh = new IndicatorGroup(_guidGenerator.Create(), "Vi sinh");
         groupViSinh.IsActive = true;
-        await _indicatorGroupRepository.InsertAsync(groupViSinh);
+        await _indicatorGroupRepository.InsertAsync(groupViSinh, autoSave: true);
 
         var groupHoaLy = new IndicatorGroup(_guidGenerator.Create(), "Hóa lý");
         groupHoaLy.IsActive = true;
-        await _indicatorGroupRepository.InsertAsync(groupHoaLy);
+        await _indicatorGroupRepository.InsertAsync(groupHoaLy, autoSave: true);
 
         var groupKimLoai = new IndicatorGroup(_guidGenerator.Create(), "Kim loại nặng");
         groupKimLoai.IsActive = true;
-        await _indicatorGroupRepository.InsertAsync(groupKimLoai);
+        await _indicatorGroupRepository.InsertAsync(groupKimLoai, autoSave: true);
 
         var groupThuocBVTV = new IndicatorGroup(_guidGenerator.Create(), "Dư lượng thuốc BVTV");
         groupThuocBVTV.IsActive = true;
-        await _indicatorGroupRepository.InsertAsync(groupThuocBVTV);
+        await _indicatorGroupRepository.InsertAsync(groupThuocBVTV, autoSave: true);
 
         // Seed Indicators
         var indicators = new[]
@@ -179,7 +179,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
             indicator.SortOrder = ind.SortOrder;
             indicator.IsActive = true;
-            await _indicatorRepository.InsertAsync(indicator);
+            await _indicatorRepository.InsertAsync(indicator, autoSave: true);
         }
     }
 
@@ -257,7 +257,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var method in methods)
         {
             var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name, method.Unit);
-            await _testMethodRepository.InsertAsync(entity);
+            await _testMethodRepository.InsertAsync(entity, autoSave: true);
         }
     }
 
@@ -433,7 +433,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             entity.LimitDescription = std.LimitDescription;
             entity.SortOrder = std.SortOrder;
             entity.IsActive = true;
-            await _standardRepository.InsertAsync(entity);
+            await _standardRepository.InsertAsync(entity, autoSave: true);
         }
     }
 
