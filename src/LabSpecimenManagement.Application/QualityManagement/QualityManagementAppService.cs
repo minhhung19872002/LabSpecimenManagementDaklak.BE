@@ -749,6 +749,77 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         }
     }
 
+    #region Work Reminder
+
+    public async Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return new List<QualityManagerPendingTaskDto>();
+        }
+
+        var tasks = await _taskRepository.GetListAsync(t =>
+            t.Status != QualityManagementStatus.ResultSent);
+
+        var result = new List<QualityManagerPendingTaskDto>();
+        var now = DateTime.Now;
+
+        foreach (var task in tasks)
+        {
+            // Determine task name based on priority:
+            // 1. "Có kết quả cần phê duyệt" (PendingApproval)
+            // 2. "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu" (Approved)
+            // 3. "Sắp tới ngày trả kết quả thử nghiệm" (deadline <= 5 days)
+            string taskName;
+            int? daysUntilDeadline = null;
+
+            if (task.RequestCompletionDate.HasValue)
+            {
+                daysUntilDeadline = (int)(task.RequestCompletionDate.Value - now).TotalDays;
+            }
+
+            if (task.Status == QualityManagementStatus.PendingApproval)
+            {
+                taskName = "Có kết quả cần phê duyệt";
+            }
+            else if (task.Status == QualityManagementStatus.Approved || task.Status == QualityManagementStatus.PendingSignature)
+            {
+                taskName = "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu";
+            }
+            else if (daysUntilDeadline.HasValue && daysUntilDeadline.Value <= 5)
+            {
+                taskName = "Sắp tới ngày trả kết quả thử nghiệm";
+            }
+            else
+            {
+                // Skip tasks that don't match any condition
+                continue;
+            }
+
+            result.Add(new QualityManagerPendingTaskDto
+            {
+                Id = task.Id,
+                TestRequestId = task.TestRequestId,
+                ContractNumber = task.ContractNumber,
+                TaskName = taskName,
+                TransferDate = task.TransferDate,
+                RequestCompletionDate = task.RequestCompletionDate,
+                Status = task.Status,
+                DaysUntilDeadline = daysUntilDeadline
+            });
+        }
+
+        // Sort by priority: PendingApproval > Approved/PendingSignature > Deadline approaching
+        return result
+            .OrderBy(t => t.TaskName == "Có kết quả cần phê duyệt" ? 0 :
+                         t.TaskName == "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu" ? 1 : 2)
+            .ThenBy(t => t.DaysUntilDeadline ?? int.MaxValue)
+            .ToList();
+    }
+
+    #endregion
+
     #region Private Methods
 
     private async Task<QualityManagementTaskDto> MapToListDtoAsync(QualityManagementTask task)

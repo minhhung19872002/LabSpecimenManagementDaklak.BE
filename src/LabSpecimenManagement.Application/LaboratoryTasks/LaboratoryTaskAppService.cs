@@ -1661,5 +1661,99 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             .ToList();
     }
 
+    /// <summary>
+    /// Lấy danh sách công việc cần làm cho Lab Technician (KTV) (popup reminder)
+    /// Task name priority: "Có kết quả cần thực hiện lại" > "Có kết quả chỉ tiêu cần gửi" > "Có chỉ tiêu cần thực hiện"
+    /// </summary>
+    public async Task<List<LabTechnicianPendingTaskDto>> GetLabTechnicianPendingTasksAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return new List<LabTechnicianPendingTaskDto>();
+        }
+
+        // Get all indicators assigned to current user with status Pending, Entered, or Rejected
+        var indicatorQueryable = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var taskQueryable = await _laboratoryTaskRepository.GetQueryableAsync();
+
+        var indicators = indicatorQueryable
+            .Where(x => x.TechnicianId == currentUserId.Value &&
+                        (x.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                         x.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                         x.ApprovalStatus == IndicatorApprovalStatus.Rejected))
+            .ToList();
+
+        if (!indicators.Any())
+        {
+            return new List<LabTechnicianPendingTaskDto>();
+        }
+
+        // Group by LaboratoryTaskId
+        var groupedByTask = indicators
+            .GroupBy(x => x.LaboratoryTaskId)
+            .ToList();
+
+        // Get task details
+        var taskIds = groupedByTask.Select(g => g.Key).ToList();
+        var tasks = taskQueryable
+            .Where(x => taskIds.Contains(x.Id))
+            .ToList()
+            .ToDictionary(x => x.Id);
+
+        var result = new List<LabTechnicianPendingTaskDto>();
+
+        foreach (var group in groupedByTask)
+        {
+            if (!tasks.TryGetValue(group.Key, out var task))
+            {
+                continue;
+            }
+
+            var pendingCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            var enteredCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Entered);
+            var rejectedCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Rejected);
+
+            // Determine task name based on priority
+            // Priority: "Có kết quả cần thực hiện lại" > "Có kết quả chỉ tiêu cần gửi" > "Có chỉ tiêu cần thực hiện"
+            string taskName;
+            int priority;
+
+            if (rejectedCount > 0)
+            {
+                taskName = "Có kết quả cần thực hiện lại";
+                priority = 0;
+            }
+            else if (enteredCount > 0)
+            {
+                taskName = "Có kết quả chỉ tiêu cần gửi";
+                priority = 1;
+            }
+            else
+            {
+                taskName = "Có chỉ tiêu cần thực hiện";
+                priority = 2;
+            }
+
+            result.Add(new LabTechnicianPendingTaskDto
+            {
+                Id = task.Id,
+                ContractNumber = task.ContractNumber ?? "",
+                TaskName = taskName,
+                TransferDate = task.TransferDate,
+                RequestCompletionDate = task.RequestCompletionDate,
+                PendingCount = pendingCount,
+                EnteredCount = enteredCount,
+                RejectedCount = rejectedCount
+            });
+        }
+
+        // Sort: Rejected first, then Entered, then Pending, then by RequestCompletionDate
+        return result
+            .OrderBy(x => x.RejectedCount > 0 ? 0 : (x.EnteredCount > 0 ? 1 : 2))
+            .ThenBy(x => x.RequestCompletionDate ?? DateTime.MaxValue)
+            .ToList();
+    }
+
     #endregion
 }
