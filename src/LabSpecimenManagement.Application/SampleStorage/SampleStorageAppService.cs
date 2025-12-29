@@ -167,22 +167,30 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
     #region Private Methods
 
     /// <summary>
-    /// Tính trạng thái quản lý mẫu (động, không lưu DB)
+    /// Tính trạng thái quản lý mẫu
+    /// - Ưu tiên check NeedDisposal flag từ DB (được set bởi cronjob)
+    /// - Fallback về logic động nếu chưa được cronjob update
     /// </summary>
     private SampleStorageStatus CalculateStatus(TestRequest testRequest)
     {
-        // Nếu tất cả mẫu đã hủy
+        // Nếu tất cả mẫu đã hủy (IsCancelled = true)
         if (testRequest.Samples.All(s => s.IsCancelled))
         {
             return SampleStorageStatus.Disposed;
         }
 
-        // Nếu HĐ hoàn thành + 5 ngày
-        if (testRequest.Status == TestRequestStatus.Completed)
+        // Ưu tiên check NeedDisposal flag từ DB (được set bởi cronjob)
+        // Nếu có ít nhất 1 mẫu chưa hủy và cần hủy -> PendingDisposal
+        if (testRequest.Samples.Any(s => !s.IsCancelled && s.NeedDisposal))
         {
-            // Lấy ngày hoàn thành từ LastModificationTime
-            var completedDate = testRequest.LastModificationTime ?? testRequest.CreationTime;
-            if (completedDate.AddDays(DaysAfterCompletionForDisposal) <= Clock.Now)
+            return SampleStorageStatus.PendingDisposal;
+        }
+
+        // Fallback: Tính động nếu cronjob chưa chạy
+        // Nếu HĐ hoàn thành + 5 ngày
+        if (testRequest.Status == TestRequestStatus.Completed && testRequest.CompletedDate.HasValue)
+        {
+            if (testRequest.CompletedDate.Value.AddDays(DaysAfterCompletionForDisposal) <= Clock.Now)
             {
                 return SampleStorageStatus.PendingDisposal;
             }
@@ -243,7 +251,9 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
                     SampleQuantity = s.SampleQuantity,
                     StatusText = s.StatusText,
                     IsCancelled = s.IsCancelled,
-                    CancelledDate = s.CancelledDate
+                    CancelledDate = s.CancelledDate,
+                    NeedDisposal = s.NeedDisposal,
+                    NeedDisposalDate = s.NeedDisposalDate
                 })
                 .ToList()
         };

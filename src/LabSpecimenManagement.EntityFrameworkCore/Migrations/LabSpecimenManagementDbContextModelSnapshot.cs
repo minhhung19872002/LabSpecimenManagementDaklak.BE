@@ -1474,6 +1474,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("AssignedQualityManagerId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("ChangeHistoryId")
                         .HasColumnType("uuid");
 
@@ -2736,6 +2739,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("LastModifierId")
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
+
+                    b.Property<bool>("NeedDisposal")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("NeedDisposalDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)

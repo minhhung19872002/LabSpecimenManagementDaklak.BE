@@ -391,5 +391,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Specimen Disposal Reminder: Đánh dấu mẫu cần hủy - chạy lúc 1h sáng hàng ngày
+        // Khi HĐ hoàn thành (Status = Completed) + 5 ngày -> update NeedDisposal = true cho các mẫu
+        // CRON: "0 1 * * *" = At 01:00 every day
+        RecurringJob.AddOrUpdate<SpecimenDisposalReminderJob>(
+            "specimen-disposal-reminder-job",
+            job => job.MarkSpecimensForDisposalAsync(),
+            "0 1 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }

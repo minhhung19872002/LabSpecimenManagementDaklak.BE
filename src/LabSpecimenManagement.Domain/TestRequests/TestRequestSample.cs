@@ -85,6 +85,16 @@ public class TestRequestSample : FullAuditedEntity<Guid>
     public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
+    /// Đánh dấu mẫu cần hủy (tự động set bởi cronjob khi HĐ hoàn thành + 5 ngày)
+    /// </summary>
+    public bool NeedDisposal { get; set; }
+
+    /// <summary>
+    /// Ngày được đánh dấu cần hủy
+    /// </summary>
+    public DateTime? NeedDisposalDate { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;
