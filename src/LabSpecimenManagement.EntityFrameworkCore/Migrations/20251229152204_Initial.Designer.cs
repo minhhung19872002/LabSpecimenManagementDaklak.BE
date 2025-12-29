@@ -13,8 +13,8 @@ using Volo.Abp.EntityFrameworkCore;
 namespace LabSpecimenManagement.Migrations
 {
     [DbContext(typeof(LabSpecimenManagementDbContext))]
-    [Migration("20251229114752_AddNeedDisposalToTestRequestSample")]
-    partial class AddNeedDisposalToTestRequestSample
+    [Migration("20251229152204_Initial")]
+    partial class Initial
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
