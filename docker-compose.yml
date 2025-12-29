@@ -56,31 +56,27 @@ services:
         networks:
             - lab-specimen-network
 
-    # OnlyOffice Document Server
-    onlyoffice:
-        image: onlyoffice/documentserver:latest
-        container_name: lab-specimen-onlyoffice
-        environment:
-            - JWT_ENABLED=false
-            - JWT_SECRET=${ONLYOFFICE_JWT_SECRET:-my_jwt_secret_key_here_for_onlyoffice_256bit}
-            - USE_UNAUTHORIZED_STORAGE=true
-            - ALLOW_PRIVATE_IP_ADDRESS=true
-            - ALLOW_META_IP_ADDRESS=true
-            - SECURE_LINK_SECRET=verysecretstring
+    # Gotenberg - PDF conversion service (LibreOffice based)
+    # Custom build with additional fonts for better Unicode checkbox support
+    gotenberg:
+        build:
+            context: .
+            dockerfile: Dockerfile.gotenberg
+        image: lab-specimen-gotenberg:custom
+        container_name: lab-specimen-gotenberg
         ports:
-            - "8089:80"
-        volumes:
-            - onlyoffice_data:/var/www/onlyoffice/Data
-            - onlyoffice_logs:/var/log/onlyoffice
-            - ./onlyoffice-config/local.json:/onlyoffice-config/local.json:ro
-            - ./onlyoffice-config/entrypoint-override.sh:/entrypoint-override.sh:ro
-        entrypoint: ["/bin/bash", "/entrypoint-override.sh"]
+            - "3100:3000"
+        command:
+            - "gotenberg"
+            - "--api-timeout=120s"
+            - "--libreoffice-restart-after=10"
+            - "--libreoffice-auto-start=true"
         healthcheck:
-            test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+            test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
             interval: 30s
             timeout: 10s
-            retries: 5
-            start_period: 120s
+            retries: 3
+            start_period: 30s
         networks:
             - lab-specimen-network
 
@@ -130,8 +126,6 @@ services:
             - AuthServer__RequireHttpsMetadata=false
             # String Encryption
             - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
-            # OnlyOffice
-            - OnlyOffice__DocumentServerUrl=http://34.59.178.231:8089
         ports:
             - "5002:5002"
         volumes:
@@ -198,10 +192,6 @@ volumes:
     backend_logs:
         driver: local
     uploaded_images:
-        driver: local
-    onlyoffice_data:
-        driver: local
-    onlyoffice_logs:
         driver: local
 
 networks:
