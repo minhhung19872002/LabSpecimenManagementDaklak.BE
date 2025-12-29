@@ -29,4 +29,20 @@ public interface IResultFormAppService : IApplicationService
     /// Generate test request form document (BM05 - phiếu yêu cầu XN)
     /// </summary>
     Task<GenerateTestRequestFormOutput> GenerateTestRequestFormAsync(GenerateTestRequestFormInput input);
+
+    /// <summary>
+    /// Generate single indicator result form (In KQ Đơn) for Quality Management
+    /// </summary>
+    Task<GenerateResultFormOutput> GenerateSingleIndicatorResultFormAsync(GenerateSingleIndicatorInput input);
+
+    /// <summary>
+    /// Generate mixed indicator result form (In KQ Hỗn hợp) for Quality Management
+    /// </summary>
+    Task<GenerateResultFormOutput> GenerateMixedIndicatorResultFormAsync(GenerateMixedIndicatorInput input);
+
+    /// <summary>
+    /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
+    /// Used from TestRequestDetail page - combines indicators from multiple samples
+    /// </summary>
+    Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input);
 }

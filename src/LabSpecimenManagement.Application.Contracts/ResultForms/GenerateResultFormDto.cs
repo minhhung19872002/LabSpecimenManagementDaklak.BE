@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.ResultForms;
@@ -53,6 +54,11 @@ public class GenerateBM01ResultFormInput
     /// </summary>
     [Required]
     public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Optional note to include in the result form (will be placed in {{Note}} placeholder)
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>
@@ -81,4 +87,74 @@ public class GenerateTestRequestFormOutput
     /// Request number for reference
     /// </summary>
     public string RequestNumber { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Input DTO for generating single indicator result form (In KQ Đơn)
+/// </summary>
+public class GenerateSingleIndicatorInput
+{
+    /// <summary>
+    /// QualityManagementTask ID
+    /// </summary>
+    [Required]
+    public Guid TaskId { get; set; }
+
+    /// <summary>
+    /// QualityManagementIndicator ID
+    /// </summary>
+    [Required]
+    public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// Optional note to include in the result form
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>
+/// Input DTO for generating mixed indicator result form (In KQ Hỗn hợp)
+/// </summary>
+public class GenerateMixedIndicatorInput
+{
+    /// <summary>
+    /// QualityManagementTask ID
+    /// </summary>
+    [Required]
+    public Guid TaskId { get; set; }
+
+    /// <summary>
+    /// List of QualityManagementIndicator IDs
+    /// </summary>
+    [Required]
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// Optional note to include in the result form
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>
+/// Input DTO for generating mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
+/// Used from TestRequestDetail page
+/// </summary>
+public class GenerateMixedSamplesResultFormInput
+{
+    /// <summary>
+    /// TestRequest ID
+    /// </summary>
+    [Required]
+    public Guid TestRequestId { get; set; }
+
+    /// <summary>
+    /// List of Sample IDs to include in the result form
+    /// </summary>
+    [Required]
+    public List<Guid> SampleIds { get; set; } = new();
+
+    /// <summary>
+    /// Optional note to include in the result form
+    /// </summary>
+    public string? Note { get; set; }
 }

@@ -131,3 +131,14 @@ public class QualityManagementStatisticsDto
     /// </summary>
     public int PendingSignatureCount { get; set; }
 }
+
+/// <summary>
+/// Output DTO for print result - returns generated PDF file name
+/// </summary>
+public class PrintResultOutputDto
+{
+    /// <summary>
+    /// Generated PDF file name
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+}

@@ -11,6 +11,7 @@ using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
@@ -32,6 +33,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IWebHostEnvironment _environment;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
@@ -43,8 +46,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx"; // Changed to .docx for OpenXML support
 
     // Checkbox symbols for document placeholders
-    private const string CheckedBox = "☑";
-    private const string UncheckedBox = "☐";
+    // Using Unicode ballot box characters
+    private const string CheckedBox = "☑";   // U+2611 - BALLOT BOX WITH CHECK
+    private const string UncheckedBox = "☐"; // U+2610 - BALLOT BOX
 
     public ResultFormAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -54,6 +58,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IWebHostEnvironment environment,
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
@@ -67,6 +73,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _qualityTaskRepository = qualityTaskRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
         _environment = environment;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
@@ -242,7 +250,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // Then replace placeholders
-        foreach (var text in body.Descendants<Text>())
+        foreach (var text in body.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
@@ -250,9 +258,151 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             {
                 if (text.Text.Contains(placeholder.Key))
                 {
-                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                    // Check if this is a checkbox placeholder
+                    if (placeholder.Key.StartsWith("{{CB_"))
+                    {
+                        ReplaceCheckboxPlaceholder(text, placeholder.Key, placeholder.Value);
+                    }
+                    else
+                    {
+                        // For Note placeholder, remove height constraint on containing cell/row and set font size to 11
+                        if (placeholder.Key == "{{Note}}" && !string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            RemoveContainingCellHeightConstraint(text);
+                            SetNoteFontSize(text, 11);
+                        }
+                        text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                    }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Remove fixed height constraint from the table cell and row containing the text element
+    /// This allows the cell to auto-expand when content is long
+    /// </summary>
+    private void RemoveContainingCellHeightConstraint(Text textElement)
+    {
+        // Find parent TableCell
+        var cell = textElement.Ancestors<TableCell>().FirstOrDefault();
+        if (cell == null) return;
+
+        // Remove cell height constraint (from TableCellProperties)
+        var cellProps = cell.GetFirstChild<TableCellProperties>();
+        // Note: TableCellProperties doesn't have height, it's on TableCellVerticalAlignment
+        // The height is usually set on TableRowHeight
+
+        // Find parent TableRow and remove its height constraint
+        var row = cell.Ancestors<TableRow>().FirstOrDefault();
+        if (row != null)
+        {
+            RemoveRowHeightConstraint(row);
+        }
+    }
+
+    /// <summary>
+    /// Set font size for the Note text element to ensure consistent formatting
+    /// Font size in OpenXML is in half-points (e.g., 11pt = 22 half-points)
+    /// </summary>
+    private void SetNoteFontSize(Text textElement, int fontSizeInPoints)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null) return;
+
+        // Font size in OpenXML is specified in half-points
+        var halfPoints = (fontSizeInPoints * 2).ToString();
+
+        var runProps = parentRun.GetFirstChild<RunProperties>();
+        if (runProps == null)
+        {
+            runProps = new RunProperties();
+            parentRun.InsertAt(runProps, 0);
+        }
+
+        // Remove existing font size if present
+        var existingFontSize = runProps.GetFirstChild<FontSize>();
+        if (existingFontSize != null)
+        {
+            existingFontSize.Remove();
+        }
+
+        var existingFontSizeCs = runProps.GetFirstChild<FontSizeComplexScript>();
+        if (existingFontSizeCs != null)
+        {
+            existingFontSizeCs.Remove();
+        }
+
+        // Set new font size (11pt = 22 half-points)
+        runProps.Append(new FontSize { Val = halfPoints });
+        runProps.Append(new FontSizeComplexScript { Val = halfPoints });
+    }
+
+    /// <summary>
+    /// Replace checkbox placeholder with proper Unicode checkbox character
+    /// Using Symbola font which renders ballot box characters correctly in PDF
+    /// </summary>
+    private void ReplaceCheckboxPlaceholder(Text textElement, string placeholder, string value)
+    {
+        // The value is already the checkbox character (☑ or ☐)
+        // We need to replace the placeholder with this character using a font that supports it
+
+        var parentRun = textElement.Parent as Run;
+        var originalText = textElement.Text;
+
+        if (parentRun == null || !originalText.Contains(placeholder))
+        {
+            // Simple fallback - just replace text directly
+            textElement.Text = originalText.Replace(placeholder, value);
+            return;
+        }
+
+        var placeholderIndex = originalText.IndexOf(placeholder);
+        var beforeText = originalText.Substring(0, placeholderIndex);
+        var afterText = originalText.Substring(placeholderIndex + placeholder.Length);
+
+        // Update original text to before part only
+        textElement.Text = beforeText;
+
+        // Create new run with checkbox using Symbola font
+        // Symbola has excellent Unicode symbol support including ballot boxes
+        var checkboxRun = new Run();
+        var runProps = new RunProperties();
+
+        // Use Symbola font - installed in custom Gotenberg Docker image
+        runProps.Append(new RunFonts
+        {
+            Ascii = "Symbola",
+            HighAnsi = "Symbola",
+            EastAsia = "Symbola",
+            ComplexScript = "Symbola"
+        });
+
+        // Copy font size from parent run if available
+        var parentRunProps = parentRun.GetFirstChild<RunProperties>();
+        var parentFontSize = parentRunProps?.GetFirstChild<FontSize>();
+        if (parentFontSize != null)
+        {
+            runProps.Append(parentFontSize.CloneNode(true));
+        }
+
+        checkboxRun.Append(runProps);
+        checkboxRun.Append(new Text(value) { Space = SpaceProcessingModeValues.Preserve });
+
+        // Insert checkbox run after parent run
+        parentRun.InsertAfterSelf(checkboxRun);
+
+        // Create and insert after text run if needed
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            var afterRun = (Run)parentRun.CloneNode(true);
+            // Clear all text elements and add new one
+            foreach (var t in afterRun.Elements<Text>().ToList())
+            {
+                t.Remove();
+            }
+            afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
+            checkboxRun.InsertAfterSelf(afterRun);
         }
     }
 
@@ -394,6 +544,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Clone the template row
         var newRow = (TableRow)template.CloneNode(true);
 
+        // Remove fixed row height to allow row to auto-expand with content
+        RemoveRowHeightConstraint(newRow);
+
         // Replace placeholders in all Text elements
         foreach (var text in newRow.Descendants<Text>())
         {
@@ -412,6 +565,23 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         return newRow;
+    }
+
+    /// <summary>
+    /// Remove fixed height constraint from a table row to allow auto-expansion
+    /// </summary>
+    private void RemoveRowHeightConstraint(TableRow row)
+    {
+        var rowProps = row.GetFirstChild<TableRowProperties>();
+        if (rowProps != null)
+        {
+            // Remove TableRowHeight element which constrains the row height
+            var rowHeight = rowProps.GetFirstChild<TableRowHeight>();
+            if (rowHeight != null)
+            {
+                rowHeight.Remove();
+            }
+        }
     }
 
     private class ResultFormTableRow
@@ -583,7 +753,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
-            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" }
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{Note}}", input.Note ?? "" }
         };
 
         // 3. Build table data (BM01 has fewer columns than BM03)
@@ -629,8 +800,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             Directory.CreateDirectory(tempDir);
         }
 
-        // Generate unique filename
-        var fileName = $"{Guid.NewGuid():N}_BM01_{sample.SampleCode}.docx";
+        // Generate unique filename - sanitize sample code to remove invalid path characters
+        var safeSampleCode = (sample.SampleCode ?? "unknown").Replace("/", "-").Replace("\\", "-");
+        var fileName = $"{Guid.NewGuid():N}_BM01_{safeSampleCode}.docx";
         var outputPath = Path.Combine(tempDir, fileName);
 
         // Copy template to temp
@@ -643,6 +815,32 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
+        // Convert to PDF
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            // Delete temporary DOCX file
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
+            pdfFileName = fileName;
+        }
+
         // Update TestRequest status to PendingApproval after printing result form
         // Only update if current status is InProgress (replaced TestingCompleted in new flow)
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -653,7 +851,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         return new GenerateResultFormOutput
         {
-            FileName = fileName,
+            FileName = pdfFileName,
             SampleCode = sample.SampleCode ?? ""
         };
     }
@@ -1314,5 +1512,494 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         return result.Trim();
+    }
+
+    /// <summary>
+    /// Generate single indicator result form (In KQ Đơn) for Quality Management
+    /// Uses BM01 template for single indicator results
+    /// </summary>
+    public async Task<GenerateResultFormOutput> GenerateSingleIndicatorResultFormAsync(GenerateSingleIndicatorInput input)
+    {
+        // 1. Load quality task and indicator
+        var qualityTask = await _qualityTaskRepository.GetAsync(input.TaskId);
+        var qualityIndicator = await _qualityIndicatorRepository.GetAsync(input.IndicatorId);
+
+        if (qualityIndicator.QualityManagementTaskId != input.TaskId)
+        {
+            throw new UserFriendlyException("Chỉ tiêu không thuộc công việc này");
+        }
+
+        if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+        {
+            throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+        }
+
+        // 2. Get laboratory task indicator and related data
+        var labTaskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(qualityIndicator.LaboratoryTaskIndicatorId);
+        var labTask = await _laboratoryTaskRepository.GetAsync(labTaskIndicator.LaboratoryTaskId);
+        var testRequest = await _testRequestRepository.GetAsync(qualityTask.TestRequestId);
+
+        // Get sample info from sample indicator
+        var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labTaskIndicator.TestRequestSampleIndicatorId);
+        var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
+
+        // Get indicator and method details
+        var indicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+        TestMethod? method = null;
+        if (labTaskIndicator.MethodId.HasValue)
+        {
+            method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
+        }
+
+        // 3. Prepare placeholder values
+        var address = BuildAddress(testRequest);
+        var placeholders = new Dictionary<string, string>
+        {
+            { "{{SampleCode}}", sample.SampleCode ?? "" },
+            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
+            { "{{Customer}}", testRequest.CustomerName ?? "" },
+            { "{{Adrress}}", address },
+            { "{{Address}}", address },
+            { "{{NameOfSample}}", sample.SampleName ?? "" },
+            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{TimeOfTesting}}", labTask.TestDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{SampleDescription}}", sample.StatusText ?? "" },
+            { "{{Quantity}}", sample.SampleQuantity ?? "" },
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{Note}}", input.Note ?? "" }
+        };
+
+        // 4. Build table data - single indicator
+        var tableData = new List<ResultFormTableRow>
+        {
+            new ResultFormTableRow
+            {
+                No = 1,
+                Parameters = indicator.Name ?? "",
+                Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
+                TestMethod = method?.Code ?? method?.Name ?? "",
+                Result = labTaskIndicator.Result ?? "",
+                Standards = qualityIndicator.ReferenceLimit ?? "",
+                Uncertainty = "",
+                Proclaim = ""
+            }
+        };
+
+        // 5. Generate document using BM01 template
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+        }
+
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        var safeSampleCode = sample.SampleCode?.Replace("/", "-") ?? "unknown";
+        var fileName = $"{Guid.NewGuid():N}_KQ_DON_{safeSampleCode}.docx";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            sourceStream.CopyTo(destStream);
+        }
+
+        ProcessDocument(outputPath, placeholders, tableData);
+
+        // 6. Convert to PDF
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF");
+            pdfFileName = fileName;
+        }
+
+        return new GenerateResultFormOutput
+        {
+            FileName = pdfFileName,
+            SampleCode = sample.SampleCode ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Generate mixed indicator result form (In KQ Hỗn hợp) for Quality Management
+    /// Uses BM01 template for multiple indicator results
+    /// </summary>
+    public async Task<GenerateResultFormOutput> GenerateMixedIndicatorResultFormAsync(GenerateMixedIndicatorInput input)
+    {
+        if (input.IndicatorIds == null || input.IndicatorIds.Count == 0)
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu");
+        }
+
+        // 1. Load quality task and indicators
+        var qualityTask = await _qualityTaskRepository.GetAsync(input.TaskId);
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => input.IndicatorIds.Contains(x.Id));
+
+        // Validate all indicators belong to this task and are approved
+        foreach (var qi in qualityIndicators)
+        {
+            if (qi.QualityManagementTaskId != input.TaskId)
+            {
+                throw new UserFriendlyException("Có chỉ tiêu không thuộc công việc này");
+            }
+            if (qi.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+            }
+        }
+
+        // 2. Get test request
+        var testRequest = await _testRequestRepository.GetAsync(qualityTask.TestRequestId);
+
+        // 3. Get all related data
+        var labTaskIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).ToList();
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => labTaskIndicatorIds.Contains(x.Id));
+
+        var labTaskIds = labTaskIndicators.Select(lti => lti.LaboratoryTaskId).Distinct().ToList();
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
+
+        var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
+
+        var sampleIds = sampleIndicators.Select(si => si.TestRequestSampleId).Distinct().ToList();
+        var samples = await _sampleRepository.GetListAsync(x => sampleIds.Contains(x.Id));
+        var firstSample = samples.FirstOrDefault();
+
+        var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicatorDict = indicators.ToDictionary(i => i.Id);
+
+        var methodIds = labTaskIndicators.Where(lti => lti.MethodId.HasValue).Select(lti => lti.MethodId!.Value).Distinct().ToList();
+        var methods = methodIds.Any()
+            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            : new List<TestMethod>();
+        var methodDict = methods.ToDictionary(m => m.Id);
+
+        // Get test date from first lab task
+        var testDate = labTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+
+        // 4. Prepare placeholder values
+        var address = BuildAddress(testRequest);
+        var placeholders = new Dictionary<string, string>
+        {
+            { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
+            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
+            { "{{Customer}}", testRequest.CustomerName ?? "" },
+            { "{{Adrress}}", address },
+            { "{{Address}}", address },
+            { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
+            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
+            { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{Note}}", input.Note ?? "" }
+        };
+
+        // 5. Build table data - multiple indicators
+        var tableData = new List<ResultFormTableRow>();
+        int rowIndex = 1;
+
+        foreach (var qualityIndicator in qualityIndicators)
+        {
+            var labTaskIndicator = labTaskIndicators.FirstOrDefault(lti => lti.Id == qualityIndicator.LaboratoryTaskIndicatorId);
+            if (labTaskIndicator == null) continue;
+
+            var sampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == labTaskIndicator.TestRequestSampleIndicatorId);
+            if (sampleIndicator == null) continue;
+
+            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
+            TestMethod? method = null;
+            if (labTaskIndicator.MethodId.HasValue)
+            {
+                method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
+            }
+
+            tableData.Add(new ResultFormTableRow
+            {
+                No = rowIndex++,
+                Parameters = indicator?.Name ?? "",
+                Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
+                TestMethod = method?.Code ?? method?.Name ?? "",
+                Result = labTaskIndicator.Result ?? "",
+                Standards = qualityIndicator.ReferenceLimit ?? "",
+                Uncertainty = "",
+                Proclaim = ""
+            });
+        }
+
+        // 6. Generate document using BM01 template
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+        }
+
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        var safeSampleCode = (firstSample?.SampleCode ?? "unknown").Replace("/", "-").Replace("\\", "-");
+        var fileName = $"{Guid.NewGuid():N}_KQ_HONHOP_{safeSampleCode}.docx";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            sourceStream.CopyTo(destStream);
+        }
+
+        ProcessDocument(outputPath, placeholders, tableData);
+
+        // 7. Convert to PDF
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF");
+            pdfFileName = fileName;
+        }
+
+        return new GenerateResultFormOutput
+        {
+            FileName = pdfFileName,
+            SampleCode = firstSample?.SampleCode ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
+    /// Used from TestRequestDetail page - combines indicators from multiple samples into one PDF
+    /// </summary>
+    public async Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input)
+    {
+        if (input.SampleIds == null || input.SampleIds.Count == 0)
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất một mẫu");
+        }
+
+        // 1. Load and validate data
+        var testRequest = await _testRequestRepository.GetAsync(input.TestRequestId);
+        var samples = await _sampleRepository.GetListAsync(x => input.SampleIds.Contains(x.Id));
+
+        // Validate all samples belong to this test request
+        foreach (var sample in samples)
+        {
+            if (sample.TestRequestId != input.TestRequestId)
+            {
+                throw new UserFriendlyException($"Mẫu {sample.SampleCode} không thuộc phiếu yêu cầu này");
+            }
+        }
+
+        // Get all sample indicators for selected samples
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            x => input.SampleIds.Contains(x.TestRequestSampleId));
+
+        // Get laboratory tasks for this test request
+        var laboratoryTasks = await _laboratoryTaskRepository.GetListAsync(
+            x => x.TestRequestId == input.TestRequestId);
+
+        // Get all laboratory task indicators
+        var taskIds = laboratoryTasks.Select(t => t.Id).ToList();
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => taskIds.Contains(x.LaboratoryTaskId));
+
+        // Filter task indicators that belong to selected samples' indicators
+        var sampleIndicatorIds = sampleIndicators.Select(si => si.Id).ToHashSet();
+        var taskIndicators = allTaskIndicators
+            .Where(ti => sampleIndicatorIds.Contains(ti.TestRequestSampleIndicatorId))
+            .ToList();
+
+        // Find related lab tasks for selected samples
+        var relatedTaskIds = taskIndicators.Select(ti => ti.LaboratoryTaskId).Distinct().ToList();
+        var relatedTasks = laboratoryTasks.Where(t => relatedTaskIds.Contains(t.Id)).ToList();
+
+        // Validate: All related tasks must have status SentToQuality
+        if (!relatedTasks.Any())
+        {
+            throw new UserFriendlyException("Các mẫu chưa được gán phòng xét nghiệm");
+        }
+
+        var notCompletedTasks = relatedTasks.Where(t => t.Status != LaboratoryTaskStatus.SentToQuality).ToList();
+        if (notCompletedTasks.Any())
+        {
+            throw new UserFriendlyException("Có mẫu chưa xét nghiệm xong");
+        }
+
+        // Get indicator and method details
+        var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicatorDict = indicators.ToDictionary(i => i.Id);
+
+        var methodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
+        var methods = methodIds.Any()
+            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            : new List<TestMethod>();
+        var methodDict = methods.ToDictionary(m => m.Id);
+
+        // Get test date from laboratory tasks
+        var testDate = relatedTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+
+        // Use first sample for header info (or combine if needed)
+        var firstSample = samples.FirstOrDefault();
+        var sampleCodes = string.Join(", ", samples.Select(s => s.SampleCode));
+        var sampleNames = string.Join(", ", samples.Select(s => s.SampleName).Distinct());
+
+        // 2. Prepare placeholder values
+        var address = BuildAddress(testRequest);
+        var placeholders = new Dictionary<string, string>
+        {
+            { "{{SampleCode}}", sampleCodes },
+            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
+            { "{{Customer}}", testRequest.CustomerName ?? "" },
+            { "{{Adrress}}", address },
+            { "{{Address}}", address },
+            { "{{NameOfSample}}", sampleNames },
+            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
+            { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{Note}}", input.Note ?? "" }
+        };
+
+        // 3. Build table data - combine all indicators from all samples
+        var tableData = new List<ResultFormTableRow>();
+        int rowIndex = 1;
+
+        // Group by sample to show sample info
+        var sampleDict = samples.ToDictionary(s => s.Id);
+        foreach (var sampleIndicator in sampleIndicators.OrderBy(si => sampleDict.GetValueOrDefault(si.TestRequestSampleId)?.SampleCode))
+        {
+            var sample = sampleDict.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
+            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
+            var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
+
+            TestMethod? method = null;
+            if (taskIndicator?.MethodId != null)
+            {
+                method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
+            }
+
+            tableData.Add(new ResultFormTableRow
+            {
+                No = rowIndex++,
+                Parameters = indicator?.Name ?? "",
+                Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
+                TestMethod = method?.Code ?? method?.Name ?? "",
+                Result = taskIndicator?.Result ?? "",
+                Standards = "",
+                Uncertainty = "",
+                Proclaim = ""
+            });
+        }
+
+        // 4. Generate document
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+        }
+
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        var safeSampleCode = (firstSample?.SampleCode ?? "mixed").Replace("/", "-").Replace("\\", "-");
+        var fileName = $"{Guid.NewGuid():N}_KQ_HONHOP_{safeSampleCode}.docx";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            sourceStream.CopyTo(destStream);
+        }
+
+        ProcessDocument(outputPath, placeholders, tableData);
+
+        // 5. Convert to PDF
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
+            pdfFileName = fileName;
+        }
+
+        // 6. Update TestRequest status to PendingApproval after printing
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
+
+        return new GenerateResultFormOutput
+        {
+            FileName = pdfFileName,
+            SampleCode = sampleCodes
+        };
     }
 }

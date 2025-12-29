@@ -73,6 +73,17 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
+    /// Combines indicators from multiple samples into one PDF
+    /// </summary>
+    [HttpPost("generate-mixed-samples")]
+    public async Task<ActionResult<GenerateResultFormOutput>> GenerateMixedSamplesResultForm([FromBody] GenerateMixedSamplesResultFormInput input)
+    {
+        var result = await _resultFormAppService.GenerateMixedSamplesResultFormAsync(input);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Download generated result form
     /// </summary>
     [HttpGet("download/{fileName}")]

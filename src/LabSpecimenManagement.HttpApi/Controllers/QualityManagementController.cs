@@ -94,21 +94,21 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Print single result (In KQ Đơn)
+    /// Print single result (In KQ Đơn) - generates PDF and returns file name
     /// </summary>
     [HttpPost("{taskId}/print-single")]
-    public virtual Task PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleInput input)
+    public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleInput input)
     {
-        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId);
+        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note);
     }
 
     /// <summary>
-    /// Print mixed result (In KQ Hỗn hợp)
+    /// Print mixed result (In KQ Hỗn hợp) - generates PDF and returns file name
     /// </summary>
     [HttpPost("{taskId}/print-mixed")]
-    public virtual Task PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedInput input)
+    public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedInput input)
     {
-        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds);
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note);
     }
 
     /// <summary>
@@ -195,6 +195,11 @@ public class UpdateIndicatorStandardInput
 public class PrintSingleInput
 {
     public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// Optional note to include in the result form
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>
@@ -203,6 +208,11 @@ public class PrintSingleInput
 public class PrintMixedInput
 {
     public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// Optional note to include in the result form
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>

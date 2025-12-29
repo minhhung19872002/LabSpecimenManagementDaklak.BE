@@ -52,14 +52,14 @@ public interface IQualityManagementAppService : IApplicationService
     Task<TaskHistoryResponseDto> GetTaskHistoryAsync(Guid taskId);
 
     /// <summary>
-    /// Print single result (In KQ Đơn) - Updates status to PendingSignature
+    /// Print single result (In KQ Đơn) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task PrintSingleResultAsync(Guid taskId, Guid indicatorId);
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null);
 
     /// <summary>
-    /// Print mixed result (In KQ Hỗn hợp) - Updates status to PendingSignature
+    /// Print mixed result (In KQ Hỗn hợp) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds);
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null);
 
     /// <summary>
     /// Send result to customer (Gửi kết quả) - Updates status to ResultSent

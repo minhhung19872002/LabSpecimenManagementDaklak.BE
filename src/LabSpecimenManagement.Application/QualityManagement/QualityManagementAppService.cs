@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -37,6 +38,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly INotificationCreator _notificationCreator;
+    private readonly IResultFormAppService _resultFormAppService;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -57,7 +59,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         IRepository<IdentityUser, Guid> userRepository,
         ITestRequestAppService testRequestAppService,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
-        INotificationCreator notificationCreator)
+        INotificationCreator notificationCreator,
+        IResultFormAppService resultFormAppService)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -78,6 +81,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         _testRequestAppService = testRequestAppService;
         _specimenTypeRepository = specimenTypeRepository;
         _notificationCreator = notificationCreator;
+        _resultFormAppService = resultFormAppService;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -578,7 +582,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         return response;
     }
 
-    public async Task PrintSingleResultAsync(Guid taskId, Guid indicatorId)
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
@@ -588,12 +592,25 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt.");
         }
 
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
+        {
+            TaskId = taskId,
+            IndicatorId = indicatorId,
+            Note = note
+        });
+
         // Update status to PendingSignature
         task.Status = QualityManagementStatus.PendingSignature;
         await _taskRepository.UpdateAsync(task);
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
     }
 
-    public async Task PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
 
@@ -606,9 +623,22 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             }
         }
 
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+        {
+            TaskId = taskId,
+            IndicatorIds = indicatorIds,
+            Note = note
+        });
+
         // Update status to PendingSignature
         task.Status = QualityManagementStatus.PendingSignature;
         await _taskRepository.UpdateAsync(task);
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
     }
 
     public async Task SendResultAsync(Guid taskId)
