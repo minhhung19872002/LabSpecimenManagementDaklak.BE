@@ -268,6 +268,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
         labIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
         labIndicator.RejectionReason = reason;
+        labIndicator.IsSentToQuality = false; // Reset để QLKT có thể gửi lại sau khi KTV sửa
         await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
 
         // Add to rejection history
@@ -325,17 +326,34 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
             var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
 
+            // Try to find matching StandardIndicator
+            StandardIndicator? standardIndicator = null;
+
             if (labIndicator.MethodId.HasValue)
             {
-                var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                // First try with exact method match
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
                     si.StandardId == standardId.Value &&
                     si.IndicatorId == sampleIndicator.IndicatorId &&
                     si.TestMethodId == labIndicator.MethodId.Value);
+            }
 
-                if (standardIndicator != null)
-                {
-                    indicator.ReferenceLimit = $"{standardIndicator.ComparisonOperator} {standardIndicator.AllowedLimit}";
-                }
+            // If not found with method, try matching by indicator only
+            if (standardIndicator == null)
+            {
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                    si.StandardId == standardId.Value &&
+                    si.IndicatorId == sampleIndicator.IndicatorId);
+            }
+
+            if (standardIndicator != null)
+            {
+                indicator.ReferenceLimit = $"{standardIndicator.ComparisonOperator} {standardIndicator.AllowedLimit}";
+            }
+            else
+            {
+                // No matching indicator found in this standard
+                indicator.ReferenceLimit = null;
             }
         }
         else
