@@ -618,9 +618,12 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             Note = note
         });
 
-        // Update status to PendingSignature
-        task.Status = QualityManagementStatus.PendingSignature;
-        await _taskRepository.UpdateAsync(task);
+        // Update status to PendingSignature (only if not already ResultSent - allow reprinting)
+        if (task.Status != QualityManagementStatus.ResultSent)
+        {
+            task.Status = QualityManagementStatus.PendingSignature;
+            await _taskRepository.UpdateAsync(task);
+        }
 
         return new PrintResultOutputDto
         {
@@ -649,9 +652,12 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             Note = note
         });
 
-        // Update status to PendingSignature
-        task.Status = QualityManagementStatus.PendingSignature;
-        await _taskRepository.UpdateAsync(task);
+        // Update status to PendingSignature (only if not already ResultSent - allow reprinting)
+        if (task.Status != QualityManagementStatus.ResultSent)
+        {
+            task.Status = QualityManagementStatus.PendingSignature;
+            await _taskRepository.UpdateAsync(task);
+        }
 
         return new PrintResultOutputDto
         {
@@ -663,11 +669,16 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     {
         var task = await _taskRepository.GetAsync(taskId);
 
-        if (task.Status != QualityManagementStatus.Approved && task.Status != QualityManagementStatus.PendingSignature)
+        // Allow resending - check if there are approved indicators
+        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == taskId);
+        var hasApprovedIndicators = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved);
+
+        if (!hasApprovedIndicators)
         {
-            throw new UserFriendlyException("Chỉ có thể gửi kết quả khi trạng thái là 'Đã duyệt' hoặc 'Chờ ký'.");
+            throw new UserFriendlyException("Không có chỉ tiêu nào đã được duyệt để gửi.");
         }
 
+        // Update task status (even if already ResultSent - for resending)
         task.Status = QualityManagementStatus.ResultSent;
         task.ResultSentDate = DateTime.Now;
         await _taskRepository.UpdateAsync(task);
