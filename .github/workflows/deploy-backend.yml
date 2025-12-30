@@ -133,10 +133,6 @@ jobs:
             echo "Waiting for Gotenberg to be ready..."
             sleep 15
 
-            echo "Dropping and recreating database..."
-            docker exec lab-specimen-postgres psql -U postgres -c "DROP DATABASE IF EXISTS \"LabSpecimenManagement\";" || true
-            docker exec lab-specimen-postgres psql -U postgres -c "CREATE DATABASE \"LabSpecimenManagement\";" || true
-
             echo "Running database migrations..."
             docker-compose up --build db-migrator
 

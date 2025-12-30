@@ -391,10 +391,12 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         var sampleQuery = await _sampleRepository.GetQueryableAsync();
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
 
-        // Filter TestRequests by ContractDate within date range (fallback to CreationTime if ContractDate is null)
+        // Adjust toDate to include the entire day (end of day)
+        var adjustedToDate = toDate.Date.AddDays(1);
+
+        // Filter TestRequests by CreationTime within date range
         var filteredRequests = testRequestQuery
-            .Where(x => (x.ContractDate.HasValue && x.ContractDate >= fromDate && x.ContractDate <= toDate) ||
-                        (!x.ContractDate.HasValue && x.CreationTime >= fromDate && x.CreationTime <= toDate))
+            .Where(x => x.CreationTime >= fromDate.Date && x.CreationTime < adjustedToDate)
             .ToList();
 
         var filteredRequestIds = filteredRequests.Select(x => x.Id).ToList();
@@ -424,7 +426,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
 
         // 4. Total NCRs - Count NCRs within date range
         var totalNCRs = ncrQuery
-            .Where(n => n.CreationTime >= fromDate && n.CreationTime <= toDate)
+            .Where(n => n.CreationTime >= fromDate.Date && n.CreationTime < adjustedToDate)
             .Count();
 
         // 5. Total Revenue - Sum TotalCost of Completed contracts
@@ -433,16 +435,18 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             .Sum(x => x.TotalCost);
 
         // 6 & 7. On-time vs Late Tests
-        // Contracts that have been approved (status >= Approved) - compare PendingApprovalDate with ExpectedCompletionDate
-        var approvedRequests = filteredRequests
-            .Where(x => x.Status >= TestRequestStatus.Approved)
+        // Đếm HĐ có status = PendingApproval (Chờ phê duyệt KQ - QLKT đã gửi kết quả)
+        // So sánh PendingApprovalDate (ngày QLKT gửi KQ) với ExpectedCompletionDate (ngày YC xong)
+        // Nếu QLCL từ chối và QLKT gửi lại, PendingApprovalDate sẽ được cập nhật
+        var pendingApprovalRequests = filteredRequests
+            .Where(x => x.Status == TestRequestStatus.PendingApproval)
             .ToList();
 
-        var onTimeTests = approvedRequests
+        var onTimeTests = pendingApprovalRequests
             .Count(x => x.PendingApprovalDate.HasValue && x.ExpectedCompletionDate.HasValue &&
                         x.PendingApprovalDate.Value <= x.ExpectedCompletionDate.Value);
 
-        var lateTests = approvedRequests
+        var lateTests = pendingApprovalRequests
             .Count(x => x.PendingApprovalDate.HasValue && x.ExpectedCompletionDate.HasValue &&
                         x.PendingApprovalDate.Value > x.ExpectedCompletionDate.Value);
 
