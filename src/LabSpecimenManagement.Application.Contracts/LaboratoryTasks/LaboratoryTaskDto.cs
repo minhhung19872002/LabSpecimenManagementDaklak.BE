@@ -178,6 +178,11 @@ public class LaboratoryTaskIndicatorDto
     public string? TechnicianName { get; set; }
 
     /// <summary>
+    /// Ngày giao việc - Assigned Date
+    /// </summary>
+    public DateTime? AssignedDate { get; set; }
+
+    /// <summary>
     /// Ngày thử nghiệm - Test Date (ngày KTV bắt đầu thử nghiệm/check-in)
     /// </summary>
     public DateTime? TestDate { get; set; }

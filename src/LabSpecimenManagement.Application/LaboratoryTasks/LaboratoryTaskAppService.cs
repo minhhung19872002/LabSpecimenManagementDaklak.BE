@@ -378,6 +378,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 MethodName = methodName,
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
+                AssignedDate = taskIndicator.AssignedDate,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
                 Unit = unit,
@@ -448,13 +449,20 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             }
         }
 
-        // Validate all indicators have assignments
-        foreach (var ti in indicatorsForSample)
+        // Validate only assignments that are sent (partial assignment is allowed now)
+        // Each assignment must have both MethodId and TechnicianId
+        foreach (var assignment in assignments)
         {
-            var assignment = assignments.FirstOrDefault(a => a.IndicatorId == ti.Id);
-            if (assignment == null || !assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
+            // Validate that indicator exists in this sample
+            var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
+            if (taskIndicator == null)
             {
-                throw new UserFriendlyException("Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu");
+                throw new UserFriendlyException("Chỉ tiêu không thuộc mẫu này");
+            }
+
+            if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
+            {
+                throw new UserFriendlyException("Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
             }
         }
 
@@ -1134,6 +1142,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             MethodName = methodName,
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
+            AssignedDate = taskIndicator.AssignedDate,
             TestDate = taskIndicator.TestDate,
             Result = taskIndicator.Result,
             Unit = unit,
