@@ -258,6 +258,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     private async Task<LaboratoryTaskDto> MapToListDtoAsync(LaboratoryTask task)
     {
+        // Lấy ngày thí nghiệm sớm nhất từ các indicators (ngày KTV bắt đầu thực hiện chỉ tiêu đầu tiên)
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        var earliestTestDate = taskIndicators
+            .Where(ti => ti.TestDate.HasValue)
+            .OrderBy(ti => ti.TestDate)
+            .FirstOrDefault()?.TestDate;
+
         var dto = new LaboratoryTaskDto
         {
             Id = task.Id,
@@ -268,7 +275,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             TechnicalManagerId = task.TechnicalManagerId,
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
-            TestDate = task.TestDate,
+            TestDate = earliestTestDate ?? task.TestDate, // Ưu tiên ngày sớm nhất từ indicators, fallback về task.TestDate
             Status = task.Status,
             Notes = task.Notes,
             ResultRejectionReason = task.ResultRejectionReason,
