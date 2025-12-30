@@ -87,6 +87,11 @@ public class GenerateTestRequestFormOutput
     /// Request number for reference
     /// </summary>
     public string RequestNumber { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Contract number for reference
+    /// </summary>
+    public string ContractNumber { get; set; } = string.Empty;
 }
 
 /// <summary>

@@ -1050,7 +1050,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         return new GenerateTestRequestFormOutput
         {
             FileName = pdfFileName,
-            RequestNumber = testRequest.RequestNumber ?? ""
+            RequestNumber = testRequest.RequestNumber ?? "",
+            ContractNumber = testRequest.ContractNumber ?? ""
         };
     }
 

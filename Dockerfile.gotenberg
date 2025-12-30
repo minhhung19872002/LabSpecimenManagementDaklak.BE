@@ -1,0 +1,14 @@
+# Custom Gotenberg image with additional fonts for Vietnamese/Unicode support
+FROM gotenberg/gotenberg:8
+
+USER root
+
+# Install additional fonts for better Unicode and Vietnamese support
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    fonts-noto \
+    fonts-noto-cjk \
+    fonts-dejavu \
+    fonts-liberation \
+    && rm -rf /var/lib/apt/lists/*
+
+USER gotenberg
