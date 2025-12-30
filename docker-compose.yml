@@ -57,12 +57,8 @@ services:
             - lab-specimen-network
 
     # Gotenberg - PDF conversion service (LibreOffice based)
-    # Custom build with additional fonts for better Unicode checkbox support
     gotenberg:
-        build:
-            context: .
-            dockerfile: Dockerfile.gotenberg
-        image: lab-specimen-gotenberg:custom
+        image: gotenberg/gotenberg:8
         container_name: lab-specimen-gotenberg
         ports:
             - "3100:3000"
@@ -126,6 +122,8 @@ services:
             - AuthServer__RequireHttpsMetadata=false
             # String Encryption
             - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+            # Gotenberg PDF Service
+            - Gotenberg__Url=http://lab-specimen-gotenberg:3000
         ports:
             - "5002:5002"
         volumes:
@@ -138,6 +136,8 @@ services:
             redis:
                 condition: service_healthy
             mongodb:
+                condition: service_healthy
+            gotenberg:
                 condition: service_healthy
             db-migrator:
                 condition: service_completed_successfully
