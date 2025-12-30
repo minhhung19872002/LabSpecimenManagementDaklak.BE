@@ -37,6 +37,16 @@ public interface IQualityManagementAppService : IApplicationService
     Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, string reason);
 
     /// <summary>
+    /// Bulk approve indicators (QLCL duyệt nhiều chỉ tiêu cùng lúc)
+    /// </summary>
+    Task<BulkApproveIndicatorsResultDto> BulkApproveIndicatorsAsync(List<Guid> indicatorIds);
+
+    /// <summary>
+    /// Bulk reject indicators (QLCL từ chối nhiều chỉ tiêu cùng lúc)
+    /// </summary>
+    Task<BulkRejectIndicatorsResultDto> BulkRejectIndicatorsAsync(List<Guid> indicatorIds, string reason);
+
+    /// <summary>
     /// Update indicator standard (chọn tiêu chuẩn so sánh)
     /// </summary>
     Task<QualityManagementIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId);
@@ -118,4 +128,26 @@ public class StandardIndicatorInfoDto
     public string? ComparisonOperator { get; set; }
     public string? AllowedLimit { get; set; }
     public string? ReferenceLimit { get; set; }
+}
+
+/// <summary>
+/// Result DTO for bulk approve indicators
+/// </summary>
+public class BulkApproveIndicatorsResultDto
+{
+    public int SuccessCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<string> FailedIndicators { get; set; } = new();
+    public List<QualityManagementIndicatorDto> ApprovedIndicators { get; set; } = new();
+}
+
+/// <summary>
+/// Result DTO for bulk reject indicators
+/// </summary>
+public class BulkRejectIndicatorsResultDto
+{
+    public int SuccessCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<string> FailedIndicators { get; set; } = new();
+    public List<QualityManagementIndicatorDto> RejectedIndicators { get; set; } = new();
 }

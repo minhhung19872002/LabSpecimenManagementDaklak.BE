@@ -67,6 +67,24 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Bulk approve indicators (QLCL duyệt nhiều chỉ tiêu cùng lúc)
+    /// </summary>
+    [HttpPost("indicators/bulk-approve")]
+    public virtual Task<BulkApproveIndicatorsResultDto> BulkApproveIndicatorsAsync([FromBody] BulkApproveIndicatorsInput input)
+    {
+        return _qualityManagementAppService.BulkApproveIndicatorsAsync(input.IndicatorIds);
+    }
+
+    /// <summary>
+    /// Bulk reject indicators (QLCL từ chối nhiều chỉ tiêu cùng lúc)
+    /// </summary>
+    [HttpPost("indicators/bulk-reject")]
+    public virtual Task<BulkRejectIndicatorsResultDto> BulkRejectIndicatorsAsync([FromBody] BulkRejectIndicatorsInput input)
+    {
+        return _qualityManagementAppService.BulkRejectIndicatorsAsync(input.IndicatorIds, input.Reason);
+    }
+
+    /// <summary>
     /// Update indicator standard (chọn tiêu chuẩn so sánh)
     /// </summary>
     [HttpPut("indicators/{indicatorId}/standard")]
@@ -220,5 +238,22 @@ public class PrintMixedInput
 /// </summary>
 public class RejectChangesInput
 {
+    public string Reason { get; set; } = null!;
+}
+
+/// <summary>
+/// Input DTO for bulk approve indicators
+/// </summary>
+public class BulkApproveIndicatorsInput
+{
+    public List<Guid> IndicatorIds { get; set; } = new();
+}
+
+/// <summary>
+/// Input DTO for bulk reject indicators
+/// </summary>
+public class BulkRejectIndicatorsInput
+{
+    public List<Guid> IndicatorIds { get; set; } = new();
     public string Reason { get; set; } = null!;
 }

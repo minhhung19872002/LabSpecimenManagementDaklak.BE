@@ -314,6 +314,192 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         return await MapIndicatorToDto(indicator);
     }
 
+    public async Task<BulkApproveIndicatorsResultDto> BulkApproveIndicatorsAsync(List<Guid> indicatorIds)
+    {
+        var result = new BulkApproveIndicatorsResultDto();
+
+        foreach (var indicatorId in indicatorIds)
+        {
+            try
+            {
+                var indicator = await _indicatorRepository.FindAsync(indicatorId);
+                if (indicator == null)
+                {
+                    result.FailedCount++;
+                    result.FailedIndicators.Add($"Không tìm thấy chỉ tiêu {indicatorId}");
+                    continue;
+                }
+
+                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
+                {
+                    result.FailedCount++;
+                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái chờ phê duyệt");
+                    continue;
+                }
+
+                var oldStatus = indicator.ApprovalStatus;
+
+                // Update QualityManagementIndicator
+                indicator.ApprovalStatus = QualityIndicatorApprovalStatus.Approved;
+                indicator.ApprovalDate = DateTime.Now;
+                indicator.ApprovedById = CurrentUser.Id;
+                await _indicatorRepository.UpdateAsync(indicator);
+
+                // Create history
+                await _historyRepository.InsertAsync(new QualityIndicatorStatusHistory(
+                    GuidGenerator.Create(),
+                    indicator.Id,
+                    oldStatus,
+                    QualityIndicatorApprovalStatus.Approved,
+                    null
+                ));
+
+                // Update task status
+                await UpdateTaskStatusAsync(indicator.QualityManagementTaskId);
+
+                // Notify QLKT about result approved (Case 7)
+                var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+                var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+                if (labTask.TechnicalManagerId.HasValue)
+                {
+                    var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+                    var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                    var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                    var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+
+                    var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
+                    await _notificationCreator.NotifyResultApprovedByQualityManagerAsync(
+                        labTask.TechnicalManagerId.Value,
+                        testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                        labTask.TestRequestId,
+                        qualityManagerName,
+                        sample?.SampleName,
+                        masterIndicator?.Name,
+                        method?.Name
+                    );
+                }
+
+                result.SuccessCount++;
+                result.ApprovedIndicators.Add(await MapIndicatorToDto(indicator));
+            }
+            catch (Exception ex)
+            {
+                result.FailedCount++;
+                result.FailedIndicators.Add($"Lỗi khi duyệt chỉ tiêu: {ex.Message}");
+            }
+        }
+
+        return result;
+    }
+
+    public async Task<BulkRejectIndicatorsResultDto> BulkRejectIndicatorsAsync(List<Guid> indicatorIds, string reason)
+    {
+        if (string.IsNullOrWhiteSpace(reason))
+        {
+            throw new UserFriendlyException("Vui lòng nhập lý do từ chối.");
+        }
+
+        var result = new BulkRejectIndicatorsResultDto();
+
+        foreach (var indicatorId in indicatorIds)
+        {
+            try
+            {
+                var indicator = await _indicatorRepository.FindAsync(indicatorId);
+                if (indicator == null)
+                {
+                    result.FailedCount++;
+                    result.FailedIndicators.Add($"Không tìm thấy chỉ tiêu {indicatorId}");
+                    continue;
+                }
+
+                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
+                {
+                    result.FailedCount++;
+                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái chờ phê duyệt");
+                    continue;
+                }
+
+                var oldStatus = indicator.ApprovalStatus;
+
+                // Update QualityManagementIndicator
+                indicator.ApprovalStatus = QualityIndicatorApprovalStatus.Rejected;
+                indicator.ApprovalDate = DateTime.Now;
+                indicator.ApprovedById = CurrentUser.Id;
+                indicator.RejectionReason = reason;
+                await _indicatorRepository.UpdateAsync(indicator);
+
+                // Create history
+                await _historyRepository.InsertAsync(new QualityIndicatorStatusHistory(
+                    GuidGenerator.Create(),
+                    indicator.Id,
+                    oldStatus,
+                    QualityIndicatorApprovalStatus.Rejected,
+                    reason
+                ));
+
+                // Sync to LaboratoryTaskIndicator
+                var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+                labIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
+                labIndicator.RejectionReason = reason;
+                labIndicator.IsSentToQuality = false;
+                await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
+
+                // Add to rejection history
+                await _rejectionHistoryRepository.InsertAsync(new IndicatorRejectionHistory(
+                    GuidGenerator.Create(),
+                    labIndicator.Id,
+                    reason,
+                    CurrentUser.Id ?? Guid.Empty
+                ));
+
+                // Update LaboratoryTask status back to Approved
+                var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+                labTask.Status = LaboratoryTaskStatus.Approved;
+                labTask.ResultRejectionReason = reason;
+                await _laboratoryTaskRepository.UpdateAsync(labTask);
+
+                // Update QualityManagementTask status
+                await UpdateTaskStatusAsync(indicator.QualityManagementTaskId);
+
+                // Notify QLKT about result rejected
+                if (labTask.TechnicalManagerId.HasValue)
+                {
+                    var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+                    var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                    var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                    var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+
+                    var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
+                    await _notificationCreator.NotifyResultRejectedByQualityManagerAsync(
+                        labTask.TechnicalManagerId.Value,
+                        testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                        labTask.TestRequestId,
+                        qualityManagerName,
+                        1,
+                        sample?.SampleName,
+                        masterIndicator?.Name,
+                        method?.Name
+                    );
+                }
+
+                result.SuccessCount++;
+                result.RejectedIndicators.Add(await MapIndicatorToDto(indicator));
+            }
+            catch (Exception ex)
+            {
+                result.FailedCount++;
+                result.FailedIndicators.Add($"Lỗi khi từ chối chỉ tiêu: {ex.Message}");
+            }
+        }
+
+        return result;
+    }
+
     public async Task<QualityManagementIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId)
     {
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
