@@ -141,15 +141,15 @@ jobs:
             if [ "$MIGRATION_EXISTS" = "1" ]; then
               echo "✅ Migration already applied. Skipping migrator..."
 
-              # Remove db-migrator dependency from docker-compose temporarily
+              # Remove ONLY the db-migrator dependency from backend service
               echo "Removing db-migrator dependency to allow backend to start..."
-              sed -i.bak '/db-migrator:/d; /condition: service_completed_successfully/d' docker-compose.yml
+              sed -i.bak '/^            db-migrator:/,/^            .*condition: service_completed_successfully/d' docker-compose.yml
             else
               echo "📝 Marking migration as applied in database (tables already exist from previous version)..."
               docker exec lab-specimen-postgres psql -U postgres -d LabSpecimenManagement -c "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20251229152204_Initial', '9.0.0') ON CONFLICT DO NOTHING;"
 
               echo "✅ Migration marked as applied. Removing db-migrator dependency..."
-              sed -i.bak '/db-migrator:/d; /condition: service_completed_successfully/d' docker-compose.yml
+              sed -i.bak '/^            db-migrator:/,/^            .*condition: service_completed_successfully/d' docker-compose.yml
             fi
 
             echo "Rebuilding and starting backend..."
