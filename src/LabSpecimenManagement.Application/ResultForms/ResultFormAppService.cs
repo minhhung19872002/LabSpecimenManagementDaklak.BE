@@ -164,7 +164,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 Unit = taskIndicator?.Unit ?? "",
-                TestMethod = method?.Code ?? method?.Name ?? "",
+                TestMethod = method?.Name ?? "",
                 Result = taskIndicator?.Result ?? "",
                 Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
@@ -322,6 +322,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var body = document.MainDocumentPart?.Document?.Body;
         if (body == null) return;
 
+        // Convert floating tables to inline so they flow with content
+        // This fixes the issue where "Ghi chú" and footnotes overlay the data table
+        ConvertFloatingTablesToInline(document);
+
         // IMPORTANT: Process table FIRST before replacing other placeholders
         // This ensures the table structure is intact when we find and clone template rows
         ProcessTable(body, tableData);
@@ -361,6 +365,11 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                         {
                             RemoveContainingCellHeightConstraint(text);
                             SetNoteFontSize(text, 11);
+                        }
+                        // For Address placeholder, remove height constraint to allow long addresses
+                        if ((placeholder.Key == "{{Address}}" || placeholder.Key == "{{Adrress}}") && !string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            RemoveContainingCellHeightConstraint(text);
                         }
                         text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
                     }
@@ -581,6 +590,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (targetTable == null || templateRow == null) return;
 
+        // IMPORTANT: Remove fixed height from parent rows that contain the data table
+        // This allows the parent cell/row to expand when data table has many rows
+        RemoveParentRowHeightConstraints(targetTable);
+
         // Get all direct rows of target table
         var allRows = targetTable.Elements<TableRow>().ToList();
         var templateRowIndex = allRows.IndexOf(templateRow);
@@ -638,6 +651,19 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Remove fixed row height to allow row to auto-expand with content
         RemoveRowHeightConstraint(newRow);
 
+        // Allow page break inside row for long content
+        AllowPageBreakInRow(newRow);
+
+        // Enable text wrapping in all cells to prevent content overflow
+        EnableTextWrappingInRow(newRow);
+
+        // IMPORTANT: Merge split placeholders before replacing
+        // Word often splits placeholders like {{TestMethod}} into multiple Text elements
+        foreach (var para in newRow.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
         // Replace placeholders in all Text elements
         foreach (var text in newRow.Descendants<Text>())
         {
@@ -671,6 +697,118 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             if (rowHeight != null)
             {
                 rowHeight.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Allow page break inside a table row for proper pagination when content is long
+    /// This prevents content from being cut off or overlapping with elements below
+    /// </summary>
+    private void AllowPageBreakInRow(TableRow row)
+    {
+        var rowProps = row.GetFirstChild<TableRowProperties>();
+        if (rowProps == null)
+        {
+            rowProps = new TableRowProperties();
+            row.InsertAt(rowProps, 0);
+        }
+
+        // Remove CantSplit if exists (which prevents row from splitting across pages)
+        var cantSplit = rowProps.GetFirstChild<CantSplit>();
+        if (cantSplit != null)
+        {
+            cantSplit.Remove();
+        }
+    }
+
+    /// <summary>
+    /// Enable text wrapping in all cells of a table row to prevent content overflow
+    /// </summary>
+    private void EnableTextWrappingInRow(TableRow row)
+    {
+        foreach (var cell in row.Elements<TableCell>())
+        {
+            var cellProps = cell.GetFirstChild<TableCellProperties>();
+            if (cellProps == null)
+            {
+                cellProps = new TableCellProperties();
+                cell.InsertAt(cellProps, 0);
+            }
+
+            // Remove NoWrap if exists - this enables text wrapping
+            var noWrap = cellProps.GetFirstChild<NoWrap>();
+            if (noWrap != null)
+            {
+                noWrap.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Remove fixed height constraints from parent rows that contain the data table.
+    /// This is critical because nested tables in Word don't auto-expand their parent cells
+    /// when w:trHeight has w:hRule="exact". We need to remove this constraint so the
+    /// parent row can grow with the nested data table content.
+    /// </summary>
+    private void RemoveParentRowHeightConstraints(Table dataTable)
+    {
+        // Walk up the parent chain to find containing TableCell, then TableRow
+        var parent = dataTable.Parent;
+        while (parent != null)
+        {
+            if (parent is TableCell parentCell)
+            {
+                // Found the cell containing our data table, now find its parent row
+                var parentRow = parentCell.Parent as TableRow;
+                if (parentRow != null)
+                {
+                    var rowProps = parentRow.GetFirstChild<TableRowProperties>();
+                    if (rowProps != null)
+                    {
+                        // Remove TableRowHeight with exact rule - this is what causes the fixed height
+                        var rowHeight = rowProps.GetFirstChild<TableRowHeight>();
+                        if (rowHeight != null)
+                        {
+                            // Check if it's exact height (hRule="exact")
+                            var hRule = rowHeight.HeightType?.Value;
+                            if (hRule == HeightRuleValues.Exact)
+                            {
+                                // Change to auto (atLeast) so it can grow, or remove entirely
+                                rowHeight.Remove();
+                            }
+                        }
+                    }
+                }
+            }
+            parent = parent.Parent;
+        }
+    }
+
+    /// <summary>
+    /// Convert floating tables to inline tables so they move with content.
+    /// This fixes the issue where tables with "Ghi chú" (notes) are positioned with fixed coordinates
+    /// and overlay the main data table when it has many rows.
+    /// Floating tables have TablePositionProperties (tblpPr) which we need to remove.
+    /// </summary>
+    private void ConvertFloatingTablesToInline(WordprocessingDocument doc)
+    {
+        var body = doc.MainDocumentPart?.Document?.Body;
+        if (body == null) return;
+
+        // Find all tables with TablePositionProperties (floating tables)
+        var tables = body.Descendants<Table>().ToList();
+
+        foreach (var table in tables)
+        {
+            var tableProps = table.GetFirstChild<TableProperties>();
+            if (tableProps == null) continue;
+
+            // Remove TablePositionProperties which makes the table floating
+            var positionProps = tableProps.GetFirstChild<TablePositionProperties>();
+            if (positionProps != null)
+            {
+                positionProps.Remove();
             }
         }
     }
@@ -868,7 +1006,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
-                TestMethod = method?.Code ?? method?.Name ?? "",
+                TestMethod = method?.Name ?? "",
                 Result = taskIndicator?.Result ?? "",
                 // BM01 doesn't use these fields but we keep them empty
                 Standards = "",
@@ -1157,6 +1295,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
     /// <summary>
     /// Replace placeholders in any OpenXmlElement (handles textboxes, nested elements)
+    /// When placeholder has a value, also remove surrounding dots (......) to save space
     /// </summary>
     private void ReplacePlaceholdersInElement(OpenXmlElement element, Dictionary<string, string> placeholders)
     {
@@ -1166,19 +1305,112 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             MergeSplitPlaceholders(para);
         }
 
-        // Then replace placeholders in all text elements
-        foreach (var text in element.Descendants<Text>())
+        // Process each paragraph to handle dots across multiple text runs
+        foreach (var para in element.Descendants<Paragraph>())
         {
-            if (string.IsNullOrEmpty(text.Text)) continue;
+            ReplacePlaceholdersInParagraphWithDotRemoval(para, placeholders);
+        }
+    }
 
-            foreach (var placeholder in placeholders)
+    // Characters to trim: regular dot (.), Unicode ellipsis (…), and full-width dot (．)
+    private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•' };
+
+    /// <summary>
+    /// Replace placeholders in a paragraph, removing surrounding dots when placeholder has value
+    /// This handles cases where dots and placeholders are in separate text runs
+    /// </summary>
+    private void ReplacePlaceholdersInParagraphWithDotRemoval(Paragraph para, Dictionary<string, string> placeholders)
+    {
+        var textElements = para.Descendants<Text>().ToList();
+        if (!textElements.Any()) return;
+
+        foreach (var placeholder in placeholders)
+        {
+            // Find the text element containing this placeholder
+            var targetText = textElements.FirstOrDefault(t => t.Text?.Contains(placeholder.Key) == true);
+            if (targetText == null) continue;
+
+            // Replace the placeholder
+            targetText.Text = targetText.Text.Replace(placeholder.Key, placeholder.Value);
+
+            // If placeholder has value, remove surrounding dots from adjacent text elements
+            if (!string.IsNullOrWhiteSpace(placeholder.Value))
             {
-                if (text.Text.Contains(placeholder.Key))
+                var targetIndex = textElements.IndexOf(targetText);
+
+                // Remove trailing dots from previous text element(s)
+                for (int i = targetIndex - 1; i >= 0; i--)
                 {
-                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                    var prevText = textElements[i];
+                    if (string.IsNullOrEmpty(prevText.Text)) continue;
+
+                    var trimmed = TrimEndDots(prevText.Text);
+                    if (trimmed.Length < prevText.Text.Length)
+                    {
+                        prevText.Text = trimmed;
+                        // If we removed dots and there's still content, stop
+                        if (!string.IsNullOrEmpty(trimmed)) break;
+                    }
+                    else
+                    {
+                        // No dots found, stop looking
+                        break;
+                    }
+                }
+
+                // Remove leading dots from next text element(s)
+                for (int i = targetIndex + 1; i < textElements.Count; i++)
+                {
+                    var nextText = textElements[i];
+                    if (string.IsNullOrEmpty(nextText.Text)) continue;
+
+                    var trimmed = TrimStartDots(nextText.Text);
+                    if (trimmed.Length < nextText.Text.Length)
+                    {
+                        nextText.Text = trimmed;
+                        // If we removed dots and there's still content, stop
+                        if (!string.IsNullOrEmpty(trimmed)) break;
+                    }
+                    else
+                    {
+                        // No dots found, stop looking
+                        break;
+                    }
+                }
+
+                // Also check for dots within the same text element (before and after the replaced value)
+                var currentText = targetText.Text;
+                if (!string.IsNullOrEmpty(currentText))
+                {
+                    // Find position of the replacement value
+                    var valueIndex = currentText.IndexOf(placeholder.Value);
+                    if (valueIndex >= 0)
+                    {
+                        var before = TrimEndDots(currentText.Substring(0, valueIndex));
+                        var after = TrimStartDots(currentText.Substring(valueIndex + placeholder.Value.Length));
+                        targetText.Text = before + placeholder.Value + after;
+                    }
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Trim dots from end of string (handles regular dots and Unicode dots)
+    /// </summary>
+    private static string TrimEndDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return text.TrimEnd(DotCharacters);
+    }
+
+    /// <summary>
+    /// Trim dots from start of string (handles regular dots and Unicode dots)
+    /// </summary>
+    private static string TrimStartDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        return text.TrimStart(DotCharacters);
     }
 
     /// <summary>
@@ -1507,9 +1739,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? CheckedBox : UncheckedBox },
             { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? CheckedBox : UncheckedBox },
 
-            // Checkbox - Payment Method (based on PaymentReceived)
-            { "{{CB_Cash}}", testRequest.PaymentReceived ? CheckedBox : UncheckedBox },
-            { "{{CB_Credit}}", !testRequest.PaymentReceived ? CheckedBox : UncheckedBox }
+            // Checkbox - Payment Method (disabled - paymentReceived field is not used in form)
+            { "{{CB_Cash}}", UncheckedBox },
+            { "{{CB_Credit}}", UncheckedBox }
         };
 
         return placeholders;
@@ -1673,7 +1905,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 No = 1,
                 Parameters = indicator.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Code ?? method?.Name ?? "",
+                TestMethod = method?.Name ?? "",
                 Result = labTaskIndicator.Result ?? "",
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 Uncertainty = "",
@@ -1841,7 +2073,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Code ?? method?.Name ?? "",
+                TestMethod = method?.Name ?? "",
                 Result = labTaskIndicator.Result ?? "",
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 Uncertainty = "",
@@ -2026,7 +2258,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
-                TestMethod = method?.Code ?? method?.Name ?? "",
+                TestMethod = method?.Name ?? "",
                 Result = taskIndicator?.Result ?? "",
                 Standards = "",
                 Uncertainty = "",
