@@ -140,6 +140,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/standard")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(
+        Guid indicatorId,
+        [FromBody] Guid? standardId)
+    {
+        return _laboratoryTaskAppService.UpdateIndicatorStandardAsync(indicatorId, standardId);
+    }
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]

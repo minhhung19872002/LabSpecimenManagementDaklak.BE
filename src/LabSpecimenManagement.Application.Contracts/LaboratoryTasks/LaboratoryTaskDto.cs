@@ -241,6 +241,28 @@ public class LaboratoryTaskIndicatorDto
     /// Đã gửi cho QLCL chưa - Is Sent To Quality
     /// </summary>
     public bool IsSentToQuality { get; set; }
+
+    // ====== Standard Comparison Fields (Phase 7) ======
+
+    /// <summary>
+    /// ID tiêu chuẩn so sánh - Standard ID
+    /// </summary>
+    public Guid? StandardId { get; set; }
+
+    /// <summary>
+    /// Tên tiêu chuẩn - Standard Name
+    /// </summary>
+    public string? StandardName { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh - Comparison Operator (<=, >=, <, >, =)
+    /// </summary>
+    public string? ComparisonOperator { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép - Allowed Limit
+    /// </summary>
+    public string? AllowedLimit { get; set; }
 }
 
 /// <summary>
@@ -314,6 +336,12 @@ public class BulkApproveIndicatorsDto
     /// Rejection reason (required when Approve = false)
     /// </summary>
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// Mapping giữa IndicatorId và StandardId (optional)
+    /// Key = IndicatorId, Value = StandardId
+    /// </summary>
+    public Dictionary<Guid, Guid?>? StandardIds { get; set; }
 }
 
 /// <summary>

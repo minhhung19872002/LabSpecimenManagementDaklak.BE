@@ -191,6 +191,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("MethodId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -198,6 +202,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Result")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("StandardId")
+                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");

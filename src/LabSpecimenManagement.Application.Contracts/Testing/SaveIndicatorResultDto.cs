@@ -27,6 +27,11 @@ public class SaveIndicatorResultDto
     /// Kết quả - Result
     /// </summary>
     public string? Result { get; set; }
+
+    /// <summary>
+    /// Ghi chú - Note
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>

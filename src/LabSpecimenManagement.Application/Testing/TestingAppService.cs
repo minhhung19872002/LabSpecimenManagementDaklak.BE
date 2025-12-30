@@ -199,10 +199,30 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 throw new UserFriendlyException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt");
             }
 
+            // Validate result: must be a valid number >= 0 with max 1 decimal place
+            if (!string.IsNullOrWhiteSpace(result.Result))
+            {
+                if (!decimal.TryParse(result.Result, out var numResult))
+                {
+                    throw new UserFriendlyException($"Kết quả '{result.Result}' không phải là số hợp lệ");
+                }
+                if (numResult < 0)
+                {
+                    throw new UserFriendlyException("Kết quả phải >= 0");
+                }
+                // Check max 1 decimal place
+                var decimalPart = result.Result.Contains('.') ? result.Result.Split('.')[1] : "";
+                if (decimalPart.Length > 1)
+                {
+                    throw new UserFriendlyException("Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
+                }
+            }
+
             // Update indicator
             indicator.MethodId = result.MethodId;
             indicator.Unit = result.Unit;
             indicator.Result = result.Result;
+            indicator.Note = result.Note;
 
             // Auto-set entry date when result is entered
             if (!string.IsNullOrWhiteSpace(result.Result) && !indicator.EntryDate.HasValue)
@@ -736,6 +756,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 MethodName = methodName,
                 Unit = unit,
                 Result = taskIndicator.Result,
+                Note = taskIndicator.Note,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,
                 StartDate = taskIndicator.TestDate,

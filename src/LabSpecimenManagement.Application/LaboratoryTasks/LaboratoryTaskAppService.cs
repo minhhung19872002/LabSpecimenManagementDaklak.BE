@@ -39,6 +39,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<QualityIndicatorStatusHistory, Guid> _qualityIndicatorHistoryRepository;
     private readonly INotificationCreator _notificationCreator;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -58,7 +60,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository,
-        INotificationCreator notificationCreator)
+        INotificationCreator notificationCreator,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -78,6 +82,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _qualityIndicatorHistoryRepository = qualityIndicatorHistoryRepository;
         _notificationCreator = notificationCreator;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -372,6 +378,27 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 }
             }
 
+            // Get standard info if StandardId is set
+            string? standardName = null;
+            string? comparisonOperator = null;
+            string? allowedLimit = null;
+            if (taskIndicator.StandardId.HasValue)
+            {
+                var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
+                standardName = standard?.Name;
+
+                // Get StandardIndicator to get comparison operator and allowed limit
+                var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                    si => si.StandardId == taskIndicator.StandardId.Value &&
+                          si.IndicatorId == sampleIndicator.IndicatorId &&
+                          si.TestMethodId == taskIndicator.MethodId);
+                if (standardIndicator != null)
+                {
+                    comparisonOperator = standardIndicator.ComparisonOperator;
+                    allowedLimit = standardIndicator.AllowedLimit;
+                }
+            }
+
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
             {
                 Id = taskIndicator.Id,
@@ -401,7 +428,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 ApprovedById = taskIndicator.ApprovedById,
                 ApprovedByName = approvedByName,
                 RejectionReason = taskIndicator.RejectionReason,
-                IsSentToQuality = taskIndicator.IsSentToQuality
+                IsSentToQuality = taskIndicator.IsSentToQuality,
+                // Phase 7 - Standard comparison fields
+                StandardId = taskIndicator.StandardId,
+                StandardName = standardName,
+                ComparisonOperator = comparisonOperator,
+                AllowedLimit = allowedLimit
             });
         }
 
@@ -644,6 +676,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
         }
 
+        // Lưu StandardId nếu có
+        taskIndicator.StandardId = input.StandardId;
+
         if (input.Approve)
         {
             // Approve
@@ -703,6 +738,33 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 method?.Name ?? ""
             );
         }
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
+    /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can update standard
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new UserFriendlyException("Bạn không có quyền cập nhật tiêu chuẩn");
+        }
+
+        // Validate: Only allow update when indicator status is Entered (Chờ phê duyệt)
+        if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Entered)
+        {
+            throw new UserFriendlyException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'");
+        }
+
+        taskIndicator.StandardId = standardId;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
@@ -1378,6 +1440,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             if (taskIndicator == null || taskIndicator.LaboratoryTaskId != taskId)
             {
                 continue;
+            }
+
+            // Lưu StandardId nếu có trong mapping
+            if (input.StandardIds != null && input.StandardIds.TryGetValue(indicatorId, out var standardId))
+            {
+                taskIndicator.StandardId = standardId;
             }
 
             if (input.Approve)

@@ -196,6 +196,11 @@ public class TestingIndicatorDto
     public string? Result { get; set; }
 
     /// <summary>
+    /// Ghi chú - Note
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
     /// Ngày nhập kết quả - Entry Date
     /// </summary>
     public DateTime? EntryDate { get; set; }

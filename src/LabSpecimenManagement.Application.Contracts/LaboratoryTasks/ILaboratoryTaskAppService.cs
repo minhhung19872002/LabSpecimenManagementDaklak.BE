@@ -70,6 +70,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(Guid indicatorId, ApproveIndicatorDto input);
 
     /// <summary>
+    /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
+    /// </summary>
+    Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId);
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality)
     /// </summary>
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);

@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -18,4 +19,9 @@ public class ApproveIndicatorDto
     /// </summary>
     [StringLength(1000)]
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// Tiêu chuẩn so sánh (optional)
+    /// </summary>
+    public Guid? StandardId { get; set; }
 }

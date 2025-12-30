@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Domain.Entities;
 
@@ -90,6 +91,17 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// Đã gửi cho QLCL chưa - Is Sent To Quality
     /// </summary>
     public bool IsSentToQuality { get; set; }
+
+    /// <summary>
+    /// Tiêu chuẩn so sánh - Standard ID (để so sánh kết quả với giới hạn cho phép)
+    /// </summary>
+    public Guid? StandardId { get; set; }
+
+    /// <summary>
+    /// Ghi chú của kỹ thuật viên khi nhập kết quả
+    /// </summary>
+    [MaxLength(500)]
+    public string? Note { get; set; }
 
     /// <summary>
     /// Navigation property to LaboratoryTask
