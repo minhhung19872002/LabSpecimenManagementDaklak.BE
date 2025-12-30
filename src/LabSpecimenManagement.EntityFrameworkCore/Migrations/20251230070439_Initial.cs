@@ -1857,7 +1857,8 @@ namespace LabSpecimenManagement.Migrations
                     ApprovalStatus = table.Column<int>(type: "integer", nullable: false),
                     ApprovalDate = table.Column<DateTime>(type: "timestamp without time zone", nullable: true),
                     ApprovedById = table.Column<Guid>(type: "uuid", nullable: true),
-                    RejectionReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true)
+                    RejectionReason = table.Column<string>(type: "character varying(1000)", maxLength: 1000, nullable: true),
+                    IsSentToQuality = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {

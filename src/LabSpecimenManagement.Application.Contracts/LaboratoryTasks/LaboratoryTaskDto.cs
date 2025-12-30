@@ -236,6 +236,11 @@ public class LaboratoryTaskIndicatorDto
     /// Lý do từ chối - Rejection Reason
     /// </summary>
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// Đã gửi cho QLCL chưa - Is Sent To Quality
+    /// </summary>
+    public bool IsSentToQuality { get; set; }
 }
 
 /// <summary>

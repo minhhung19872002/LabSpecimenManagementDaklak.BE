@@ -87,6 +87,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public string? RejectionReason { get; set; }
 
     /// <summary>
+    /// Đã gửi cho QLCL chưa - Is Sent To Quality
+    /// </summary>
+    public bool IsSentToQuality { get; set; }
+
+    /// <summary>
     /// Navigation property to LaboratoryTask
     /// </summary>
     public virtual LaboratoryTask LaboratoryTask { get; set; } = null!;

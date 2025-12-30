@@ -182,6 +182,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("EntryDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<bool>("IsSentToQuality")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("LaboratoryTaskId")
                         .HasColumnType("uuid");
 

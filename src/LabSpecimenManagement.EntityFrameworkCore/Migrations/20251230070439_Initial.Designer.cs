@@ -13,7 +13,7 @@ using Volo.Abp.EntityFrameworkCore;
 namespace LabSpecimenManagement.Migrations
 {
     [DbContext(typeof(LabSpecimenManagementDbContext))]
-    [Migration("20251229152204_Initial")]
+    [Migration("20251230070439_Initial")]
     partial class Initial
     {
         /// <inheritdoc />
@@ -184,6 +184,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<DateTime?>("EntryDate")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("IsSentToQuality")
+                        .HasColumnType("boolean");
 
                     b.Property<Guid>("LaboratoryTaskId")
                         .HasColumnType("uuid");

@@ -83,6 +83,10 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
+
+        // Recalculate status mỗi khi GET để đảm bảo status luôn đúng
+        await UpdateTaskStatusAsync(task);
+
         return await MapToDetailDtoAsync(task);
     }
 
@@ -396,7 +400,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 ApprovalDate = taskIndicator.ApprovalDate,
                 ApprovedById = taskIndicator.ApprovedById,
                 ApprovedByName = approvedByName,
-                RejectionReason = taskIndicator.RejectionReason
+                RejectionReason = taskIndicator.RejectionReason,
+                IsSentToQuality = taskIndicator.IsSentToQuality
             });
         }
 
@@ -436,12 +441,6 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
 
-        // Validation: Không cho assign lại khi đang thí nghiệm trở đi
-        if (!CanEditTask(task.Status))
-        {
-            throw new UserFriendlyException($"Không thể giao việc khi trạng thái là '{GetStatusLabel(task.Status)}'");
-        }
-
         // Get all task indicators for this sample
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
 
@@ -458,6 +457,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         // Validate only assignments that are sent (partial assignment is allowed now)
         // Each assignment must have both MethodId and TechnicianId
+        // Validation: Chỉ cho phép giao việc cho indicator chưa được duyệt hoặc chưa bị hủy
         foreach (var assignment in assignments)
         {
             // Validate that indicator exists in this sample
@@ -465,6 +465,16 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             if (taskIndicator == null)
             {
                 throw new UserFriendlyException("Chỉ tiêu không thuộc mẫu này");
+            }
+
+            // Không cho giao việc lại nếu indicator đã được duyệt hoặc bị hủy
+            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+            {
+                throw new UserFriendlyException("Không thể giao việc lại cho chỉ tiêu đã được duyệt");
+            }
+            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                throw new UserFriendlyException("Không thể giao việc cho chỉ tiêu đã bị hủy");
             }
 
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
@@ -945,12 +955,6 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Don't change status if already SentToQuality (final state)
-        if (task.Status == LaboratoryTaskStatus.SentToQuality)
-        {
-            return;
-        }
-
         // Filter out CustomerCancelled indicators - they should not affect task status calculation
         var activeIndicators = taskIndicators
             .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
@@ -962,40 +966,65 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Check conditions - LOGIC MỚI (only check active indicators)
+        // Check conditions - LOGIC MỚI: Status phản ánh tiến độ THẤP NHẤT (chưa hoàn thành)
+        // Nếu còn chỉ tiêu chưa giao việc → Chưa giao việc
+        // Nếu tất cả đã giao việc nhưng còn chưa có kết quả → Đã giao việc
+        // Nếu tất cả đã nhập kết quả (Entered hoặc Approved) → Chờ phê duyệt hoặc Đã duyệt
+
         var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
         var allEnteredOrApproved = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
             ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
+        // Check if all approved indicators have been sent to quality
+        var allApprovedSentToQuality = activeIndicators
+            .Where(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved)
+            .All(ti => ti.IsSentToQuality);
+        var hasApprovedIndicators = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
         LaboratoryTaskStatus newStatus;
 
-        if (!allAssigned)
+        // Logic ưu tiên theo tiến độ THẤP NHẤT (từ thấp lên cao)
+        // Chỉ lên status cao hơn khi TẤT CẢ chỉ tiêu đã đạt mức đó
+
+        if (!anyAssigned)
         {
-            // Có chỉ tiêu chưa gán KTV hoặc phương pháp
+            // Chưa có chỉ tiêu nào được giao việc
             newStatus = LaboratoryTaskStatus.NotAssigned;
         }
-        else if (allApproved)
+        else if (!allAssigned)
         {
-            // Tất cả đã được duyệt
-            newStatus = LaboratoryTaskStatus.Approved;
+            // Có ≥1 chỉ tiêu chưa giao việc → Chưa giao việc
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
-        else if (allEnteredOrApproved)
+        else if (!allEnteredOrApproved)
         {
-            // TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
-            newStatus = LaboratoryTaskStatus.PendingApproval;
+            // Tất cả đã giao việc nhưng chưa tất cả có kết quả → Đang thử nghiệm
+            // (có chỉ tiêu còn Pending - chưa nhập kết quả)
+            newStatus = LaboratoryTaskStatus.Testing;
         }
         else if (anyEntered)
         {
-            // Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
-            newStatus = LaboratoryTaskStatus.Testing;
+            // Tất cả đã có kết quả (Entered hoặc Approved) và có ≥1 đang chờ duyệt → Chờ phê duyệt
+            newStatus = LaboratoryTaskStatus.PendingApproval;
+        }
+        else if (allApproved && hasApprovedIndicators && allApprovedSentToQuality)
+        {
+            // Tất cả đã được duyệt VÀ tất cả đã gửi QLCL
+            newStatus = LaboratoryTaskStatus.SentToQuality;
+        }
+        else if (allApproved)
+        {
+            // Tất cả đã được duyệt (nhưng còn approved chưa gửi QLCL)
+            newStatus = LaboratoryTaskStatus.Approved;
         }
         else
         {
-            // Tất cả đã có KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.Assigned;
+            // Fallback - shouldn't reach here normally
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
 
         if (task.Status != newStatus)
@@ -1160,7 +1189,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             ApprovalDate = taskIndicator.ApprovalDate,
             ApprovedById = taskIndicator.ApprovedById,
             ApprovedByName = approvedByName,
-            RejectionReason = taskIndicator.RejectionReason
+            RejectionReason = taskIndicator.RejectionReason,
+            IsSentToQuality = taskIndicator.IsSentToQuality
         };
     }
 
@@ -1487,11 +1517,23 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             throw new UserFriendlyException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi");
         }
 
+        // Mark selected indicators as sent to quality
+        foreach (var indicator in selectedIndicators)
+        {
+            indicator.IsSentToQuality = true;
+        }
+        await _laboratoryTaskIndicatorRepository.UpdateManyAsync(selectedIndicators);
+
         // Create or update QualityManagementTask with assigned quality manager
         await CreateQualityManagementTaskAsync(task, selectedIndicators, input.QualityManagerId);
 
-        // Update task status to SentToQuality when indicators are sent
-        if (task.Status != LaboratoryTaskStatus.SentToQuality)
+        // Update task status to SentToQuality only when ALL approved indicators have been sent
+        // Re-fetch all indicators to check if there are any remaining approved but not sent
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
+        var hasUnsentApproved = allTaskIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
+
+        if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
         {
             task.Status = LaboratoryTaskStatus.SentToQuality;
             await _laboratoryTaskRepository.UpdateAsync(task);

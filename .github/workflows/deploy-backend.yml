@@ -131,6 +131,10 @@ jobs:
             docker-compose stop backend || true
             docker-compose rm -f backend || true
 
+            echo "Dropping and recreating database..."
+            docker-compose exec -T postgres psql -U postgres -c "DROP DATABASE IF EXISTS labspecimenmanagement;" || true
+            docker-compose exec -T postgres psql -U postgres -c "CREATE DATABASE labspecimenmanagement;" || true
+
             echo "Running database migrations..."
             docker-compose up --build db-migrator
 
