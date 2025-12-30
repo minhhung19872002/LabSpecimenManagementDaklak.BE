@@ -57,12 +57,8 @@ services:
             - lab-specimen-network
 
     # Gotenberg - PDF conversion service (LibreOffice based)
-    # Custom build with additional fonts for better Unicode checkbox support
     gotenberg:
-        build:
-            context: .
-            dockerfile: Dockerfile.gotenberg
-        image: lab-specimen-gotenberg:custom
+        image: gotenberg/gotenberg:8
         container_name: lab-specimen-gotenberg
         ports:
             - "3100:3000"

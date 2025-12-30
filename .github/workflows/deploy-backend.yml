@@ -127,12 +127,11 @@ jobs:
             docker-compose stop backend gotenberg db-migrator || true
             docker-compose rm -f backend gotenberg db-migrator || true
 
-            echo "Building and starting Gotenberg (PDF service)..."
-            docker-compose build gotenberg
+            echo "Starting Gotenberg (PDF service) - using official image..."
             docker-compose up -d gotenberg
 
             echo "Waiting for Gotenberg to be ready..."
-            sleep 10
+            sleep 15
 
             echo "Handling database migrations..."
             # Check if migration is already applied
