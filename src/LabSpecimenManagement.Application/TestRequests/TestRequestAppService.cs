@@ -1101,6 +1101,102 @@ public class TestRequestAppService :
         return a.Value.Date == b.Value.Date;
     }
 
+    /// <summary>
+    /// Determine the appropriate TestRequestStatus based on indicator approval statuses.
+    /// Returns Completed if all indicators are approved or cancelled.
+    /// Otherwise returns status based on priority:
+    /// 1. Approved (if any indicator is approved)
+    /// 2. PendingApproval (if any indicator is entered/waiting for approval)
+    /// 3. InProgress (if any indicator is pending/testing)
+    /// 4. SampleSent (fallback)
+    /// </summary>
+    private async Task<TestRequestStatus> DetermineStatusBasedOnIndicatorsAsync(Guid testRequestId)
+    {
+        // Get all sample IDs for this test request
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId && !s.IsCancelled);
+        var sampleIds = samples.Select(s => s.Id).ToList();
+
+        if (!sampleIds.Any())
+        {
+            // No samples - can complete
+            return TestRequestStatus.Completed;
+        }
+
+        // Get all sample indicators for these samples
+        var sampleIndicatorIds = await _sampleIndicatorRepository.GetListAsync(si => sampleIds.Contains(si.TestRequestSampleId));
+        var sampleIndicatorIdList = sampleIndicatorIds.Select(si => si.Id).ToList();
+
+        if (!sampleIndicatorIdList.Any())
+        {
+            // No indicators - can complete
+            return TestRequestStatus.Completed;
+        }
+
+        // Get all laboratory task indicators for these sample indicators
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            lti => sampleIndicatorIdList.Contains(lti.TestRequestSampleIndicatorId));
+
+        if (!labTaskIndicators.Any())
+        {
+            // No lab task indicators - can complete (samples haven't been sent to labs yet)
+            return TestRequestStatus.Completed;
+        }
+
+        // Check indicator statuses
+        var hasApproved = false;
+        var hasEntered = false;
+        var hasPending = false;
+        var allCompletedOrCancelled = true;
+
+        foreach (var indicator in labTaskIndicators)
+        {
+            switch (indicator.ApprovalStatus)
+            {
+                case IndicatorApprovalStatus.Approved:
+                    hasApproved = true;
+                    break;
+                case IndicatorApprovalStatus.Entered:
+                    hasEntered = true;
+                    allCompletedOrCancelled = false;
+                    break;
+                case IndicatorApprovalStatus.Pending:
+                    hasPending = true;
+                    allCompletedOrCancelled = false;
+                    break;
+                case IndicatorApprovalStatus.Rejected:
+                    // Rejected counts as not completed
+                    allCompletedOrCancelled = false;
+                    break;
+                case IndicatorApprovalStatus.CustomerCancelled:
+                    // Customer cancelled is considered completed (no action needed)
+                    break;
+            }
+        }
+
+        // If all indicators are approved or cancelled, allow completion
+        if (allCompletedOrCancelled)
+        {
+            return TestRequestStatus.Completed;
+        }
+
+        // Determine previous status based on priority
+        if (hasApproved)
+        {
+            return TestRequestStatus.Approved;
+        }
+        if (hasEntered)
+        {
+            return TestRequestStatus.PendingApproval;
+        }
+        if (hasPending)
+        {
+            return TestRequestStatus.InProgress;
+        }
+
+        // Fallback to SampleSent
+        return TestRequestStatus.SampleSent;
+    }
+
     #endregion
 
     #region Status Transition Methods
@@ -1328,6 +1424,11 @@ public class TestRequestAppService :
 
     /// <summary>
     /// Complete the test request - update status to Completed
+    /// If not all indicators are approved, update to previous status based on priority:
+    /// 1. Approved (if any indicator is approved)
+    /// 2. PendingApproval (if any indicator is entered)
+    /// 3. InProgress (if any indicator is pending/testing)
+    /// 4. SampleSent (fallback)
     /// </summary>
     public async Task CompleteAsync(Guid id)
     {
@@ -1338,16 +1439,30 @@ public class TestRequestAppService :
             throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
         }
 
-        entity.Status = TestRequestStatus.Completed;
-        entity.CompletedDate = Clock.Now;
-        entity.CompletedByUserId = _currentUser.Id;
-        entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+        // Check if all indicators are completed (Approved)
+        var newStatus = await DetermineStatusBasedOnIndicatorsAsync(id);
+
+        if (newStatus == TestRequestStatus.Completed)
+        {
+            // All indicators are approved - complete normally
+            entity.Status = TestRequestStatus.Completed;
+            entity.CompletedDate = Clock.Now;
+            entity.CompletedByUserId = _currentUser.Id;
+            entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+        }
+        else
+        {
+            // Not all indicators completed - revert to previous status
+            entity.Status = newStatus;
+        }
+
         await Repository.UpdateAsync(entity);
     }
 
     /// <summary>
     /// Complete test request with postal delivery images
     /// Used when DeliveryPostal = true
+    /// If not all indicators are approved, update to previous status based on priority
     /// </summary>
     public async Task CompleteWithImageAsync(Guid id, CompleteWithImageDto input)
     {
@@ -1376,11 +1491,22 @@ public class TestRequestAppService :
         // Save image file IDs as JSON array
         entity.PostalDeliveryImageFileIds = JsonSerializer.Serialize(input.ImageFileIds);
 
-        // Update status
-        entity.Status = TestRequestStatus.Completed;
-        entity.CompletedDate = Clock.Now;
-        entity.CompletedByUserId = _currentUser.Id;
-        entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+        // Check if all indicators are completed (Approved)
+        var newStatus = await DetermineStatusBasedOnIndicatorsAsync(id);
+
+        if (newStatus == TestRequestStatus.Completed)
+        {
+            // All indicators are approved - complete normally
+            entity.Status = TestRequestStatus.Completed;
+            entity.CompletedDate = Clock.Now;
+            entity.CompletedByUserId = _currentUser.Id;
+            entity.CompletedByUserName = _currentUser.Name ?? _currentUser.UserName;
+        }
+        else
+        {
+            // Not all indicators completed - revert to previous status
+            entity.Status = newStatus;
+        }
 
         await Repository.UpdateAsync(entity);
     }
