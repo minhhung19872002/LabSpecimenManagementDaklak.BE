@@ -3,73 +3,93 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
-using LabSpecimenManagement.Reports;
-using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
-using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Repositories;
 
 namespace LabSpecimenManagement.Statistics;
 
-[RemoteService(IsEnabled = false)]
 public class StatisticsAppService : ApplicationService, IStatisticsAppService
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
-    private readonly IRepository<Specimen, Guid> _specimenRepository;
-    private readonly IRepository<Test, Guid> _testRepository;
-    private readonly IRepository<Report, Guid> _reportRepository;
-    private readonly IRepository<TaskAssignment, Guid> _taskRepository;
+    private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
+    private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
+    private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
+    private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
 
     public StatisticsAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
-        IRepository<Specimen, Guid> specimenRepository,
-        IRepository<Test, Guid> testRepository,
-        IRepository<Report, Guid> reportRepository,
-        IRepository<TaskAssignment, Guid> taskRepository,
+        IRepository<TestRequestSample, Guid> sampleRepository,
+        IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
+        IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
+        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository)
     {
         _testRequestRepository = testRequestRepository;
-        _specimenRepository = specimenRepository;
-        _testRepository = testRepository;
-        _reportRepository = reportRepository;
-        _taskRepository = taskRepository;
+        _sampleRepository = sampleRepository;
+        _sampleIndicatorRepository = sampleIndicatorRepository;
+        _laboratoryTaskRepository = laboratoryTaskRepository;
+        _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _laboratoryRepository = laboratoryRepository;
         _specimenTypeRepository = specimenTypeRepository;
     }
 
     public async Task<StatisticsOverviewDto> GetOverviewAsync(DateTime? fromDate = null, DateTime? toDate = null)
     {
-        var from = fromDate ?? DateTime.Now.AddMonths(-1);
-        var to = toDate ?? DateTime.Now;
+        // Default date range: last 30 days if not specified
+        var from = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var to = (toDate?.Date ?? DateTime.Now.Date).AddDays(1); // Include the end date
 
-        var testRequests = await _testRequestRepository.GetQueryableAsync();
-        var specimens = await _specimenRepository.GetQueryableAsync();
-        var tests = await _testRepository.GetQueryableAsync();
-        var reports = await _reportRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
 
-        var filteredRequests = testRequests.Where(x => x.RequestDate >= from && x.RequestDate <= to);
-        var totalRequests = filteredRequests.Count();
-        var completedRequests = filteredRequests.Count(x => x.Status == TestRequestStatus.Completed);
+        // Filter by date range
+        var filteredRequests = testRequestQuery.Where(x => x.RequestDate >= from && x.RequestDate < to);
+
+        // Get sample IDs for filtered requests
+        var filteredRequestIds = filteredRequests.Select(r => r.Id).ToList();
+        var filteredSamples = sampleQuery.Where(s => filteredRequestIds.Contains(s.TestRequestId));
+        var filteredSampleIds = filteredSamples.Select(s => s.Id).ToList();
+
+        // Get indicators through sample indicators
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var filteredSampleIndicatorIds = sampleIndicatorQuery
+            .Where(si => filteredSampleIds.Contains(si.TestRequestSampleId))
+            .Select(si => si.Id).ToList();
+        var filteredIndicators = indicatorQuery.Where(i => filteredSampleIndicatorIds.Contains(i.TestRequestSampleIndicatorId));
+
+        // Calculate counts
+        var totalRequests = await AsyncExecuter.CountAsync(filteredRequests);
+        var completedRequests = await AsyncExecuter.CountAsync(filteredRequests.Where(x => x.Status == TestRequestStatus.Completed));
+        var totalSamples = await AsyncExecuter.CountAsync(filteredSamples);
+        var totalTests = await AsyncExecuter.CountAsync(filteredIndicators);
+
+        // Count reports (TestRequests with status Completed)
+        var totalReports = completedRequests;
 
         // Calculate TAT compliance
-        var requestsWithDeadline = filteredRequests.Where(x => x.ExpectedCompletionDate.HasValue);
-        var onTimeRequests = requestsWithDeadline.Count(x =>
-            x.Status == TestRequestStatus.Completed &&
-            x.LastModificationTime <= x.ExpectedCompletionDate);
-        var totalWithDeadline = requestsWithDeadline.Count();
+        // On-time = Completed requests where CompletedDate <= ResultDeliveryDate
+        var requestsWithDeadline = filteredRequests.Where(x => x.ResultDeliveryDate.HasValue && x.Status == TestRequestStatus.Completed);
+        var onTimeRequests = await AsyncExecuter.CountAsync(requestsWithDeadline.Where(x =>
+            x.CompletedDate.HasValue && x.CompletedDate <= x.ResultDeliveryDate));
+        var totalWithDeadline = await AsyncExecuter.CountAsync(requestsWithDeadline);
 
         return new StatisticsOverviewDto
         {
             TotalTestRequests = totalRequests,
-            TotalSpecimens = specimens.Count(x => x.CreationTime >= from && x.CreationTime <= to),
-            TotalTests = tests.Count(x => x.CreationTime >= from && x.CreationTime <= to),
-            TotalReports = reports.Count(x => x.CreationTime >= from && x.CreationTime <= to),
-            CompletionRate = totalRequests > 0 ? (decimal)completedRequests / totalRequests * 100 : 0,
-            TATComplianceRate = totalWithDeadline > 0 ? (decimal)onTimeRequests / totalWithDeadline * 100 : 0
+            TotalSpecimens = totalSamples,
+            TotalTests = totalTests,
+            TotalReports = totalReports,
+            CompletionRate = totalRequests > 0 ? Math.Round((decimal)completedRequests / totalRequests * 100, 1) : 0,
+            TATComplianceRate = totalWithDeadline > 0 ? Math.Round((decimal)onTimeRequests / totalWithDeadline * 100, 1) : 100
         };
     }
 
@@ -77,102 +97,122 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     {
         var overview = await GetOverviewAsync(fromDate, toDate);
 
-        // Get all queryables
-        var specimens = await _specimenRepository.GetQueryableAsync();
-        var specimenTypes = await _specimenTypeRepository.GetQueryableAsync();
-        var tests = await _testRepository.GetQueryableAsync();
-        var reports = await _reportRepository.GetQueryableAsync();
-        var testRequests = await _testRequestRepository.GetQueryableAsync();
-        var tasks = await _taskRepository.GetQueryableAsync();
+        // Sample Matrix - group by SpecimenType
+        var sampleMatrix = await BuildSampleMatrixAsync(fromDate, toDate);
 
-        // Sample Matrix - group specimens by type
-        var sampleMatrix = specimens
-                          .GroupBy(s => s.Type ?? "Không xác định")
-                          .Select(g => new SampleMatrixDto
-                          {
-                              SpecimenType = g.Key,
-                              TotalCount = g.Count(),
-                              ReceivedCount = g.Count(x => x.Status == SpecimenStatus.Received),
-                              TestingCount = g.Count(x => x.Status == SpecimenStatus.Testing),
-                              CompletedCount = g.Count(x => x.Status == SpecimenStatus.Storage)
-                          })
-                          .ToList();
+        // Workload by Laboratory (Department)
+        var workloadByDepartment = await BuildWorkloadByLaboratoryAsync(fromDate, toDate);
 
-        // Workload by Department
-        var workloadByDept = tasks
-            .Where(x => !string.IsNullOrEmpty(x.Department))
-            .GroupBy(x => x.Department)
-            .Select(g => new WorkloadByDepartmentDto
-            {
-                Department = g.Key,
-                TotalTasks = g.Count(),
-                PendingTasks = g.Count(x => x.Status == TaskAssignmentStatus.Pending),
-                InProgressTasks = g.Count(x => x.Status == TaskAssignmentStatus.InProgress),
-                CompletedTasks = g.Count(x => x.Status == TaskAssignmentStatus.Completed),
-                CompletionRate = g.Count() > 0
-                    ? Math.Round((decimal)g.Count(x => x.Status == TaskAssignmentStatus.Completed) / g.Count() * 100, 1)
-                    : 0
-            })
-            .OrderByDescending(x => x.TotalTasks)
-            .ToList();
-
-        // TAT Compliance - calculate by week for last 4 weeks
-        var tatCompliance = CalculateTATCompliance(testRequests);
+        // TAT Compliance by period
+        var tatCompliance = await BuildTATComplianceAsync();
 
         // Monthly trends for last 12 months
-        var monthlyTrends = Enumerable.Range(0, 12)
-            .Select(i => DateTime.Now.AddMonths(-i))
-            .Select(date => new MonthlyTrendDto
-            {
-                Month = $"T{date.Month}/{date.Year}",
-                TestRequests = testRequests.Count(x =>
-                    x.RequestDate.Year == date.Year && x.RequestDate.Month == date.Month),
-                Specimens = specimens.Count(x =>
-                    x.CreationTime.Year == date.Year && x.CreationTime.Month == date.Month),
-                Tests = tests.Count(x =>
-                    x.CreationTime.Year == date.Year && x.CreationTime.Month == date.Month),
-                Reports = reports.Count(x =>
-                    x.CreationTime.Year == date.Year && x.CreationTime.Month == date.Month)
-            })
-            .Reverse()
-            .ToList();
+        var monthlyTrends = await BuildMonthlyTrendsAsync();
 
         return new StatisticsDataDto
         {
             Overview = overview,
             SampleMatrix = sampleMatrix,
             TATCompliance = tatCompliance,
-            WorkloadByDepartment = workloadByDept,
+            WorkloadByDepartment = workloadByDepartment,
             MonthlyTrends = monthlyTrends
         };
     }
 
-    private List<TATComplianceDto> CalculateTATCompliance(IQueryable<TestRequest> testRequests)
+    private async Task<List<SampleMatrixDto>> BuildSampleMatrixAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var to = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id, st => st.Name);
+
+        // Get samples for filtered test requests
+        var filteredRequestIds = testRequestQuery
+            .Where(x => x.RequestDate >= from && x.RequestDate < to)
+            .Select(r => r.Id).ToList();
+
+        var filteredSamples = await AsyncExecuter.ToListAsync(
+            sampleQuery.Where(s => filteredRequestIds.Contains(s.TestRequestId)));
+
+        // Group by SpecimenType
+        var grouped = filteredSamples
+            .GroupBy(s => s.SpecimenTypeId)
+            .Select(g => new SampleMatrixDto
+            {
+                SpecimenType = g.Key.HasValue && specimenTypeDict.ContainsKey(g.Key.Value)
+                    ? specimenTypeDict[g.Key.Value]
+                    : "Không phân loại",
+                TotalCount = g.Count(),
+                ReceivedCount = g.Count(s => s.ProcessingStatus == "Đã nhận" || !string.IsNullOrEmpty(s.ProcessingStatus)),
+                TestingCount = g.Count(s => s.ProcessingStatus == "Đang thử nghiệm"),
+                CompletedCount = g.Count(s => s.ProcessingStatus == "Hoàn thành" || s.ProcessingStatus == "Trả kết quả")
+            })
+            .OrderByDescending(x => x.TotalCount)
+            .ToList();
+
+        return grouped;
+    }
+
+    private async Task<List<WorkloadByDepartmentDto>> BuildWorkloadByLaboratoryAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var from = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var to = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var laboratoryTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var laboratories = await _laboratoryRepository.GetListAsync();
+        var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
+
+        // Get tasks within date range (based on CreationTime or TransferDate)
+        var filteredTasks = await AsyncExecuter.ToListAsync(
+            laboratoryTaskQuery.Where(t => t.CreationTime >= from && t.CreationTime < to));
+
+        // Group by Laboratory
+        var grouped = filteredTasks
+            .GroupBy(t => t.LaboratoryId)
+            .Select(g => new WorkloadByDepartmentDto
+            {
+                Department = labDict.ContainsKey(g.Key) ? labDict[g.Key] : "Không xác định",
+                TotalTasks = g.Count(),
+                PendingTasks = g.Count(t => t.Status == LaboratoryTaskStatus.NotAssigned || t.Status == LaboratoryTaskStatus.Assigned),
+                InProgressTasks = g.Count(t => t.Status == LaboratoryTaskStatus.Testing || t.Status == LaboratoryTaskStatus.PendingApproval),
+                CompletedTasks = g.Count(t => t.Status == LaboratoryTaskStatus.Approved || t.Status == LaboratoryTaskStatus.SentToQuality),
+                CompletionRate = g.Count() > 0
+                    ? Math.Round((decimal)g.Count(t => t.Status == LaboratoryTaskStatus.Approved || t.Status == LaboratoryTaskStatus.SentToQuality) / g.Count() * 100, 1)
+                    : 0
+            })
+            .OrderByDescending(x => x.TotalTasks)
+            .ToList();
+
+        return grouped;
+    }
+
+    private async Task<List<TATComplianceDto>> BuildTATComplianceAsync()
     {
         var result = new List<TATComplianceDto>();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
 
         // Calculate for last 4 weeks
         for (int i = 0; i < 4; i++)
         {
-            var weekStart = DateTime.Now.Date.AddDays(-7 * (i + 1));
             var weekEnd = DateTime.Now.Date.AddDays(-7 * i);
+            var weekStart = weekEnd.AddDays(-7);
 
-            var weekRequests = testRequests
-                .Where(x => x.RequestDate >= weekStart && x.RequestDate < weekEnd)
-                .ToList();
+            var weekRequests = await AsyncExecuter.ToListAsync(
+                testRequestQuery.Where(x => x.RequestDate >= weekStart && x.RequestDate < weekEnd));
 
             var totalRequests = weekRequests.Count;
             var requestsWithDeadline = weekRequests
-                .Where(x => x.ExpectedCompletionDate.HasValue)
+                .Where(x => x.ResultDeliveryDate.HasValue && x.Status == TestRequestStatus.Completed)
                 .ToList();
 
             var onTimeRequests = requestsWithDeadline
-                .Count(x => x.Status == TestRequestStatus.Completed &&
-                           x.LastModificationTime <= x.ExpectedCompletionDate);
+                .Count(x => x.CompletedDate.HasValue && x.CompletedDate <= x.ResultDeliveryDate);
 
             var delayedRequests = requestsWithDeadline
-                .Count(x => x.Status == TestRequestStatus.Completed &&
-                           x.LastModificationTime > x.ExpectedCompletionDate);
+                .Count(x => x.CompletedDate.HasValue && x.CompletedDate > x.ResultDeliveryDate);
 
             result.Add(new TATComplianceDto
             {
@@ -182,23 +222,21 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 DelayedRequests = delayedRequests,
                 ComplianceRate = requestsWithDeadline.Count > 0
                     ? Math.Round((decimal)onTimeRequests / requestsWithDeadline.Count * 100, 1)
-                    : 0
+                    : 100
             });
         }
 
-        // Add monthly summary
+        // Add current month summary at the beginning
         var monthStart = new DateTime(DateTime.Now.Year, DateTime.Now.Month, 1);
-        var monthRequests = testRequests
-            .Where(x => x.RequestDate >= monthStart)
-            .ToList();
+        var monthRequests = await AsyncExecuter.ToListAsync(
+            testRequestQuery.Where(x => x.RequestDate >= monthStart));
 
         var monthWithDeadline = monthRequests
-            .Where(x => x.ExpectedCompletionDate.HasValue)
+            .Where(x => x.ResultDeliveryDate.HasValue && x.Status == TestRequestStatus.Completed)
             .ToList();
 
         var monthOnTime = monthWithDeadline
-            .Count(x => x.Status == TestRequestStatus.Completed &&
-                       x.LastModificationTime <= x.ExpectedCompletionDate);
+            .Count(x => x.CompletedDate.HasValue && x.CompletedDate <= x.ResultDeliveryDate);
 
         result.Insert(0, new TATComplianceDto
         {
@@ -206,12 +244,64 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             TotalRequests = monthRequests.Count,
             OnTimeRequests = monthOnTime,
             DelayedRequests = monthWithDeadline.Count(x =>
-                x.Status == TestRequestStatus.Completed &&
-                x.LastModificationTime > x.ExpectedCompletionDate),
+                x.CompletedDate.HasValue && x.CompletedDate > x.ResultDeliveryDate),
             ComplianceRate = monthWithDeadline.Count > 0
                 ? Math.Round((decimal)monthOnTime / monthWithDeadline.Count * 100, 1)
-                : 0
+                : 100
         });
+
+        return result;
+    }
+
+    private async Task<List<MonthlyTrendDto>> BuildMonthlyTrendsAsync()
+    {
+        var result = new List<MonthlyTrendDto>();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+
+        // Last 12 months
+        for (int i = 11; i >= 0; i--)
+        {
+            var date = DateTime.Now.AddMonths(-i);
+            var monthStart = new DateTime(date.Year, date.Month, 1);
+            var monthEnd = monthStart.AddMonths(1);
+
+            // Count test requests
+            var requestCount = await AsyncExecuter.CountAsync(
+                testRequestQuery.Where(x => x.RequestDate >= monthStart && x.RequestDate < monthEnd));
+
+            // Count samples
+            var requestIds = testRequestQuery
+                .Where(x => x.RequestDate >= monthStart && x.RequestDate < monthEnd)
+                .Select(r => r.Id).ToList();
+            var sampleCount = await AsyncExecuter.CountAsync(
+                sampleQuery.Where(s => requestIds.Contains(s.TestRequestId)));
+
+            // Count tests (indicators with results)
+            var sampleIds = sampleQuery
+                .Where(s => requestIds.Contains(s.TestRequestId))
+                .Select(s => s.Id).ToList();
+            var sampleIndicatorIds = sampleIndicatorQuery
+                .Where(si => sampleIds.Contains(si.TestRequestSampleId))
+                .Select(si => si.Id).ToList();
+            var testCount = await AsyncExecuter.CountAsync(
+                indicatorQuery.Where(ind => sampleIndicatorIds.Contains(ind.TestRequestSampleIndicatorId) && ind.Result != null));
+
+            // Count reports (completed test requests)
+            var reportCount = await AsyncExecuter.CountAsync(
+                testRequestQuery.Where(x => x.RequestDate >= monthStart && x.RequestDate < monthEnd && x.Status == TestRequestStatus.Completed));
+
+            result.Add(new MonthlyTrendDto
+            {
+                Month = $"T{date.Month}/{date.Year}",
+                TestRequests = requestCount,
+                Specimens = sampleCount,
+                Tests = testCount,
+                Reports = reportCount
+            });
+        }
 
         return result;
     }
@@ -227,12 +317,12 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         {
             ["Tổng quan"] = new[]
             {
-                new { Chỉ_số = "Tổng yêu cầu thử nghiệm", Giá_trị = data.Overview.TotalTestRequests },
-                new { Chỉ_số = "Tổng mẫu thử", Giá_trị = data.Overview.TotalSpecimens },
-                new { Chỉ_số = "Tổng phép thử", Giá_trị = data.Overview.TotalTests },
-                new { Chỉ_số = "Tổng báo cáo", Giá_trị = data.Overview.TotalReports },
-                new { Chỉ_số = "Tỷ lệ hoàn thành (%)", Giá_trị = (int)data.Overview.CompletionRate },
-                new { Chỉ_số = "Tỷ lệ đúng hạn TAT (%)", Giá_trị = (int)data.Overview.TATComplianceRate }
+                new { Chỉ_số = "Tổng yêu cầu thử nghiệm", Giá_trị = data.Overview.TotalTestRequests.ToString() },
+                new { Chỉ_số = "Tổng mẫu thử", Giá_trị = data.Overview.TotalSpecimens.ToString() },
+                new { Chỉ_số = "Tổng phép thử", Giá_trị = data.Overview.TotalTests.ToString() },
+                new { Chỉ_số = "Tổng báo cáo", Giá_trị = data.Overview.TotalReports.ToString() },
+                new { Chỉ_số = "Tỷ lệ hoàn thành (%)", Giá_trị = data.Overview.CompletionRate.ToString("F1") },
+                new { Chỉ_số = "Tỷ lệ đúng hạn TAT (%)", Giá_trị = data.Overview.TATComplianceRate.ToString("F1") }
             },
             ["Theo tháng"] = data.MonthlyTrends.Select(m => new
             {

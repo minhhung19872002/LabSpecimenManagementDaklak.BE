@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.NCRs;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
@@ -25,6 +26,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
     private readonly IRepository<TaskAssignment, Guid> _taskRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _indicatorRepository;
+    private readonly IRepository<QualityManagementTask, Guid> _qualityManagementTaskRepository;
 
     private static readonly string[] MonthNames = { "Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12" };
 
@@ -37,7 +39,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         IRepository<Report, Guid> reportRepository,
         IRepository<TaskAssignment, Guid> taskRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
-        IRepository<TestRequestSampleIndicator, Guid> indicatorRepository)
+        IRepository<TestRequestSampleIndicator, Guid> indicatorRepository,
+        IRepository<QualityManagementTask, Guid> qualityManagementTaskRepository)
     {
         _testRequestRepository = testRequestRepository;
         _specimenRepository = specimenRepository;
@@ -48,6 +51,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         _taskRepository = taskRepository;
         _sampleRepository = sampleRepository;
         _indicatorRepository = indicatorRepository;
+        _qualityManagementTaskRepository = qualityManagementTaskRepository;
     }
 
     public async Task<DashboardStatisticsDto> GetStatisticsAsync()
@@ -450,9 +454,13 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             .Count(x => x.PendingApprovalDate.HasValue && x.ExpectedCompletionDate.HasValue &&
                         x.PendingApprovalDate.Value > x.ExpectedCompletionDate.Value);
 
-        // 8. Pending Approval - Count contracts with status = PendingApproval (only those not yet approved)
-        var pendingApproval = filteredRequests
-            .Count(x => x.Status == TestRequestStatus.PendingApproval);
+        // 8. Pending Approval - Đếm từ bảng QualityManagementTask
+        // Bao gồm: HĐ chờ phê duyệt kết quả (ResultApproval) + HĐ chờ phê duyệt thay đổi (ChangeApproval)
+        var qmTaskQuery = await _qualityManagementTaskRepository.GetQueryableAsync();
+        var pendingApproval = qmTaskQuery
+            .Where(q => q.Status == QualityManagementStatus.PendingApproval)
+            .Where(q => q.CreationTime >= fromDate.Date && q.CreationTime < adjustedToDate)
+            .Count();
 
         return new DashboardOverviewDto
         {
