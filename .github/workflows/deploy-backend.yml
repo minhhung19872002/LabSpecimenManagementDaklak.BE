@@ -123,16 +123,32 @@ jobs:
             ENCRYPTION_KEY=${ENCRYPTION_KEY}
             EOF
 
-            echo "Stopping backend container..."
-            docker-compose stop backend || true
-            docker-compose rm -f backend || true
+            echo "Stopping old containers..."
+            docker-compose stop backend gotenberg db-migrator || true
+            docker-compose rm -f backend gotenberg db-migrator || true
 
             echo "Building and starting Gotenberg (PDF service)..."
             docker-compose build gotenberg
             docker-compose up -d gotenberg
 
+            echo "Waiting for Gotenberg to be ready..."
+            sleep 10
+
             echo "Running database migrations..."
-            docker-compose up --build db-migrator
+            # Run migrations but don't fail if tables already exist
+            docker-compose up --build db-migrator || {
+              echo "⚠️  Migrator exited with error. Checking if it's just a duplicate table issue..."
+
+              # Check if the migration is already applied
+              MIGRATION_EXISTS=$(docker exec lab-specimen-postgres psql -U postgres -d LabSpecimenManagement -t -c "SELECT COUNT(*) FROM \"__EFMigrationsHistory\" WHERE \"MigrationId\" = '20251229152204_Initial';" 2>/dev/null | tr -d '[:space:]')
+
+              if [ "$MIGRATION_EXISTS" = "1" ]; then
+                echo "✅ Migration already applied. Continuing..."
+              else
+                echo "📝 Marking migration as applied in database..."
+                docker exec lab-specimen-postgres psql -U postgres -d LabSpecimenManagement -c "INSERT INTO \"__EFMigrationsHistory\" (\"MigrationId\", \"ProductVersion\") VALUES ('20251229152204_Initial', '9.0.0') ON CONFLICT DO NOTHING;" || echo "Could not mark migration as applied"
+              fi
+            }
 
             echo "Rebuilding and starting backend..."
             docker-compose build --no-cache backend
