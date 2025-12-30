@@ -13,6 +13,7 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 
@@ -93,12 +94,30 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Recalculate status mỗi khi GET để đảm bảo status luôn đúng
         await UpdateTaskStatusAsync(task);
 
+        // Đồng bộ trạng thái TestRequest
+        await UpdateTestRequestStatusAsync(task.TestRequestId);
+
         return await MapToDetailDtoAsync(task);
     }
 
     public async Task<PagedResultDto<LaboratoryTaskDto>> GetFilteredListAsync(GetLaboratoryTaskListDto input)
     {
         var queryable = await _laboratoryTaskRepository.GetQueryableAsync();
+
+        // Filter by current user's access (admin sees all, others see tasks where they are QLKT or supporter)
+        var currentUserId = CurrentUser.Id;
+        if (currentUserId.HasValue && !CurrentUser.IsInRole("admin"))
+        {
+            // Get task IDs where current user is a supporter
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            // Filter: current user is QLKT OR current user is supporter
+            queryable = queryable.Where(x =>
+                x.TechnicalManagerId == currentUserId.Value ||
+                supporterTaskIds.Contains(x.Id));
+        }
 
         // Apply search filter - search by ContractNumber and TechnicalManager name
         if (!string.IsNullOrWhiteSpace(input.Search))
@@ -317,6 +336,17 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             {
                 dto.TechnicalManagerName = user.Name ?? user.UserName;
             }
+        }
+
+        // Set current user role flags
+        var currentUserId = CurrentUser.Id;
+        if (currentUserId.HasValue)
+        {
+            dto.IsCurrentUserTechnicalManager = task.TechnicalManagerId == currentUserId.Value;
+
+            // Check if current user is a supporter
+            var supporters = await _supporterRepository.GetListAsync(s => s.LaboratoryTaskId == task.Id);
+            dto.IsCurrentUserSupporter = supporters.Any(s => s.UserId == currentUserId.Value);
         }
 
         return dto;
@@ -637,6 +667,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
         await UpdateTaskStatusAsync(task);
 
+        // Đồng bộ trạng thái TestRequest
+        await UpdateTestRequestStatusAsync(task.TestRequestId);
+
         // Notify QLKT about new result submitted (Case 1 & 6)
         if (task.TechnicalManagerId.HasValue)
         {
@@ -715,6 +748,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Đồng bộ trạng thái TestRequest
+        await UpdateTestRequestStatusAsync(task.TestRequestId);
 
         // Notify technician when result is rejected (Case 5 KTV - single rejection)
         if (!input.Approve && taskIndicator.EnteredById.HasValue)
@@ -1000,13 +1036,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     /// <summary>
     /// Tự động cập nhật trạng thái task dựa trên trạng thái các indicators
-    /// Logic MỚI:
-    /// - Chưa gắn phương pháp (0): Có chỉ tiêu chưa gắn method HOẶC chưa assign KTV
-    /// - Đã gán phương pháp (1): Tất cả chỉ tiêu đã gắn method VÀ KTV
-    /// - Đang thí nghiệm (2): Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
-    /// - Chờ duyệt kết quả (3): TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
-    /// - Đã duyệt (4): Tất cả chỉ tiêu đã được Approved
-    /// - Đã gửi kết quả (5): QL đã gửi kết quả (trạng thái cuối cùng)
+    /// Logic: Ưu tiên trạng thái CAO NHẤT (optimistic - hiển thị tiến độ cao nhất đạt được)
+    /// Thứ tự ưu tiên từ CAO → THẤP:
+    /// - Đã gửi QLCL (5): Có ≥1 chỉ tiêu đã gửi QLCL (IsSentToQuality = true)
+    /// - Đã duyệt (4): Có ≥1 chỉ tiêu đã được Approved
+    /// - Chờ duyệt kết quả (3): Có ≥1 chỉ tiêu đã nhập KQ (Entered)
+    /// - Đang thử nghiệm (2): Có ≥1 chỉ tiêu có testDate (KTV đã check-in)
+    /// - Đã giao việc (1): Có ≥1 chỉ tiêu đã có method + KTV
+    /// - Chưa giao việc (0): Tất cả chỉ tiêu chưa được giao việc
     /// </summary>
     private async Task UpdateTaskStatusAsync(LaboratoryTask task)
     {
@@ -1028,64 +1065,56 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             return;
         }
 
-        // Check conditions - LOGIC MỚI: Status phản ánh tiến độ THẤP NHẤT (chưa hoàn thành)
-        // Nếu còn chỉ tiêu chưa giao việc → Chưa giao việc
-        // Nếu tất cả đã giao việc nhưng còn chưa có kết quả → Đã giao việc
-        // Nếu tất cả đã nhập kết quả (Entered hoặc Approved) → Chờ phê duyệt hoặc Đã duyệt
+        // Check conditions for status calculation
+        // Có ≥1 chỉ tiêu đã gửi QLCL (Approved + IsSentToQuality)
+        var anySentToQuality = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
 
-        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        // Có ≥1 chỉ tiêu đã được duyệt (Approved)
+        var anyApproved = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt)
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-        var allEnteredOrApproved = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
-        // Check if all approved indicators have been sent to quality
-        var allApprovedSentToQuality = activeIndicators
-            .Where(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved)
-            .All(ti => ti.IsSentToQuality);
-        var hasApprovedIndicators = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in)
+        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+
+        // Có ≥1 chỉ tiêu đã được giao việc (có method + KTV)
+        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
 
         LaboratoryTaskStatus newStatus;
 
-        // Logic ưu tiên theo tiến độ THẤP NHẤT (từ thấp lên cao)
-        // Chỉ lên status cao hơn khi TẤT CẢ chỉ tiêu đã đạt mức đó
+        // Logic ưu tiên theo tiến độ CAO NHẤT (từ cao xuống thấp)
+        // Hiển thị trạng thái cao nhất mà task đã đạt được
 
-        if (!anyAssigned)
+        if (anySentToQuality)
         {
-            // Chưa có chỉ tiêu nào được giao việc
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            // Có ≥1 chỉ tiêu đã gửi QLCL
+            newStatus = LaboratoryTaskStatus.SentToQuality;
         }
-        else if (!allAssigned)
+        else if (anyApproved)
         {
-            // Có ≥1 chỉ tiêu chưa giao việc → Chưa giao việc
-            newStatus = LaboratoryTaskStatus.NotAssigned;
-        }
-        else if (!allEnteredOrApproved)
-        {
-            // Tất cả đã giao việc nhưng chưa tất cả có kết quả → Đang thử nghiệm
-            // (có chỉ tiêu còn Pending - chưa nhập kết quả)
-            newStatus = LaboratoryTaskStatus.Testing;
+            // Có ≥1 chỉ tiêu đã được duyệt
+            newStatus = LaboratoryTaskStatus.Approved;
         }
         else if (anyEntered)
         {
-            // Tất cả đã có kết quả (Entered hoặc Approved) và có ≥1 đang chờ duyệt → Chờ phê duyệt
+            // Có ≥1 chỉ tiêu đã nhập KQ (chờ duyệt)
             newStatus = LaboratoryTaskStatus.PendingApproval;
         }
-        else if (allApproved && hasApprovedIndicators && allApprovedSentToQuality)
+        else if (anyTesting)
         {
-            // Tất cả đã được duyệt VÀ tất cả đã gửi QLCL
-            newStatus = LaboratoryTaskStatus.SentToQuality;
+            // Có ≥1 chỉ tiêu đang thử nghiệm (KTV đã check-in)
+            newStatus = LaboratoryTaskStatus.Testing;
         }
-        else if (allApproved)
+        else if (anyAssigned)
         {
-            // Tất cả đã được duyệt (nhưng còn approved chưa gửi QLCL)
-            newStatus = LaboratoryTaskStatus.Approved;
+            // Có ≥1 chỉ tiêu đã được giao việc
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
         else
         {
-            // Fallback - shouldn't reach here normally
+            // Tất cả chưa được giao việc
             newStatus = LaboratoryTaskStatus.NotAssigned;
         }
 
@@ -1093,6 +1122,93 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         {
             task.Status = newStatus;
             await _laboratoryTaskRepository.UpdateAsync(task);
+        }
+    }
+
+    /// <summary>
+    /// Đồng bộ trạng thái TestRequest dựa trên trạng thái các indicators của tất cả tasks
+    /// Logic: Ưu tiên trạng thái CAO NHẤT (optimistic)
+    /// - Đã phê duyệt: Có ≥1 chỉ tiêu đã được QLCL duyệt (IsSentToQuality + Approved)
+    /// - Chờ phê duyệt KQ: Có ≥1 chỉ tiêu đã gửi QLKT (Entered) hoặc đã được QLKT duyệt (Approved nhưng chưa gửi QLCL)
+    /// - Đang thử nghiệm: Có ≥1 chỉ tiêu có testDate (KTV đã check-in)
+    /// - Đã gửi mẫu: Tất cả chỉ tiêu chưa có testDate
+    /// </summary>
+    private async Task UpdateTestRequestStatusAsync(Guid testRequestId)
+    {
+        var testRequest = await _testRequestRepository.FindAsync(testRequestId);
+        if (testRequest == null) return;
+
+        // Chỉ cập nhật khi status đang ở các trạng thái cho phép thay đổi tự động
+        // Không thay đổi nếu đã ở: PendingChangeApproval, Approved, ResultSent, Completed
+        if (testRequest.Status == TestRequestStatus.PendingChangeApproval ||
+            testRequest.Status == TestRequestStatus.Approved ||
+            testRequest.Status == TestRequestStatus.ResultSent ||
+            testRequest.Status == TestRequestStatus.Completed)
+        {
+            return;
+        }
+
+        // Lấy tất cả tasks của TestRequest này
+        var tasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        if (!tasks.Any()) return;
+
+        var taskIds = tasks.Select(t => t.Id).ToList();
+
+        // Lấy tất cả indicators của các tasks
+        var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => taskIds.Contains(ti.LaboratoryTaskId));
+
+        // Loại trừ các chỉ tiêu bị KH hủy
+        var activeIndicators = allIndicators
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        if (!activeIndicators.Any()) return;
+
+        // Check conditions - logic ưu tiên CAO NHẤT
+        // Có ≥1 chỉ tiêu đã được QLCL duyệt (đã gửi QLCL và Approved)
+        var anySentToQuality = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
+
+        // Có ≥1 chỉ tiêu đã được QLKT duyệt (Approved) hoặc đã nhập KQ (Entered)
+        var anyEnteredOrApproved = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate)
+        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+
+        TestRequestStatus newStatus;
+
+        if (anySentToQuality)
+        {
+            // Đã gửi QLCL → TestRequest chờ phê duyệt (QLCL duyệt)
+            newStatus = TestRequestStatus.PendingApproval;
+        }
+        else if (anyEnteredOrApproved)
+        {
+            // Có indicator đã nhập KQ hoặc QLKT đã duyệt → Chờ phê duyệt
+            newStatus = TestRequestStatus.PendingApproval;
+        }
+        else if (anyTesting)
+        {
+            // Có indicator đang thử nghiệm → Đang thử nghiệm
+            newStatus = TestRequestStatus.InProgress;
+        }
+        else
+        {
+            // Tất cả chưa có testDate → giữ nguyên SampleSent (nếu đã gửi mẫu)
+            if (testRequest.Status == TestRequestStatus.SampleSent)
+            {
+                return; // Giữ nguyên SampleSent
+            }
+            newStatus = testRequest.Status; // Giữ nguyên status hiện tại
+        }
+
+        if (testRequest.Status != newStatus)
+        {
+            testRequest.Status = newStatus;
+            await _testRequestRepository.UpdateAsync(testRequest);
         }
     }
 
@@ -1289,10 +1405,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
 
-        // Validate: Only QLKT or existing supporter can add supporters
-        if (!await CanManageTaskAsync(task))
+        // Validate: Only admin or QLKT can add supporters (supporter không có quyền thêm supporter)
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole("admin");
+        var isQlkt = task.TechnicalManagerId.HasValue && task.TechnicalManagerId == currentUserId;
+
+        if (!isAdmin && !isQlkt)
         {
-            throw new UserFriendlyException("Bạn không có quyền thêm người hỗ trợ");
+            throw new UserFriendlyException("Chỉ QLKT mới có quyền thêm người hỗ trợ");
         }
 
         // Get existing supporter user IDs
@@ -1331,10 +1451,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
 
-        // Validate: Only QLKT or the supporter themselves can remove
-        if (!await CanManageTaskAsync(task))
+        // Validate: Only admin or QLKT can remove supporters
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole("admin");
+        var isQlkt = task.TechnicalManagerId.HasValue && task.TechnicalManagerId == currentUserId;
+
+        if (!isAdmin && !isQlkt)
         {
-            throw new UserFriendlyException("Bạn không có quyền xóa người hỗ trợ");
+            throw new UserFriendlyException("Chỉ QLKT mới có quyền xóa người hỗ trợ");
         }
 
         var supporter = await _supporterRepository.FindAsync(supporterId);
@@ -1361,10 +1485,23 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             existingUserIds.Add(task.TechnicalManagerId.Value);
         }
 
+        // Get QLKT's department ID to filter available supporters
+        Guid? qlktDepartmentId = null;
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var qlktUser = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
+            if (qlktUser != null)
+            {
+                qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
+            }
+        }
+
         // Get all active users and exclude existing supporters and QLKT
         var users = await _userRepository.GetListAsync();
         var availableUsers = users
             .Where(u => u.IsActive && !existingUserIds.Contains(u.Id))
+            // Filter by same department as QLKT (if QLKT has department)
+            .Where(u => !qlktDepartmentId.HasValue || u.GetProperty<Guid?>("DepartmentId") == qlktDepartmentId.Value)
             .Select(u => new UserLookupDto
             {
                 Id = u.Id,
@@ -1478,6 +1615,9 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Đồng bộ trạng thái TestRequest
+        await UpdateTestRequestStatusAsync(task.TestRequestId);
 
         // Notify technicians when results are rejected (Case 4 & 5 KTV)
         if (!input.Approve)

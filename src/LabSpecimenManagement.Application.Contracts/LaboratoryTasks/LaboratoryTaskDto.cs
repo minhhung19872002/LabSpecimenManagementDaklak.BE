@@ -98,6 +98,16 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Danh sách người hỗ trợ - Supporters
     /// </summary>
     public List<LaboratoryTaskSupporterDto> Supporters { get; set; } = new();
+
+    /// <summary>
+    /// Current user là QLKT của task này hay không
+    /// </summary>
+    public bool IsCurrentUserTechnicalManager { get; set; }
+
+    /// <summary>
+    /// Current user là Supporter của task này hay không
+    /// </summary>
+    public bool IsCurrentUserSupporter { get; set; }
 }
 
 /// <summary>
