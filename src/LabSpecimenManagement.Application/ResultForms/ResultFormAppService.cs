@@ -225,6 +225,97 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         return string.Join(", ", parts);
     }
 
+    /// <summary>
+    /// Calculate TimeOfTesting from a list of LaboratoryTaskIndicators
+    /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
+    /// - Start date = Min(TestDate) of all indicators
+    /// - End date = Max(SubmitDate) of all indicators
+    /// </summary>
+    private string CalculateTimeOfTesting(List<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (taskIndicators == null || !taskIndicators.Any())
+        {
+            return "";
+        }
+
+        // Get Min TestDate (ngày bắt đầu thử nghiệm sớm nhất)
+        var minTestDate = taskIndicators
+            .Where(ti => ti.TestDate.HasValue)
+            .Select(ti => ti.TestDate!.Value)
+            .DefaultIfEmpty()
+            .Min();
+
+        // Get Max SubmitDate (ngày gửi kết quả muộn nhất)
+        var maxSubmitDate = taskIndicators
+            .Where(ti => ti.SubmitDate.HasValue)
+            .Select(ti => ti.SubmitDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
+        // Format result
+        if (minTestDate == default && maxSubmitDate == default)
+        {
+            return "";
+        }
+        else if (minTestDate == default)
+        {
+            return maxSubmitDate.ToString("dd/MM/yyyy");
+        }
+        else if (maxSubmitDate == default)
+        {
+            return minTestDate.ToString("dd/MM/yyyy");
+        }
+        else if (minTestDate.Date == maxSubmitDate.Date)
+        {
+            // Same date, show only one
+            return minTestDate.ToString("dd/MM/yyyy");
+        }
+        else
+        {
+            return $"{minTestDate:dd/MM/yyyy} - {maxSubmitDate:dd/MM/yyyy}";
+        }
+    }
+
+    /// <summary>
+    /// Calculate TimeOfTesting for a single LaboratoryTaskIndicator
+    /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
+    /// - Start date = TestDate
+    /// - End date = SubmitDate
+    /// </summary>
+    private string CalculateTimeOfTestingForSingleIndicator(LaboratoryTaskIndicator taskIndicator)
+    {
+        if (taskIndicator == null)
+        {
+            return "";
+        }
+
+        var testDate = taskIndicator.TestDate;
+        var submitDate = taskIndicator.SubmitDate;
+
+        // Format result
+        if (!testDate.HasValue && !submitDate.HasValue)
+        {
+            return "";
+        }
+        else if (!testDate.HasValue)
+        {
+            return submitDate!.Value.ToString("dd/MM/yyyy");
+        }
+        else if (!submitDate.HasValue)
+        {
+            return testDate.Value.ToString("dd/MM/yyyy");
+        }
+        else if (testDate.Value.Date == submitDate.Value.Date)
+        {
+            // Same date, show only one
+            return testDate.Value.ToString("dd/MM/yyyy");
+        }
+        else
+        {
+            return $"{testDate.Value:dd/MM/yyyy} - {submitDate.Value:dd/MM/yyyy}";
+        }
+    }
+
     private void ProcessDocument(string filePath, Dictionary<string, string> placeholders, List<ResultFormTableRow> tableData)
     {
         using var document = WordprocessingDocument.Open(filePath, true);
@@ -735,8 +826,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Get test date from laboratory task
-        var testDate = relatedTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of indicators in this sample
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -750,7 +841,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
-            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
@@ -1551,6 +1642,9 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
         }
 
+        // Calculate TimeOfTesting: TestDate - SubmitDate for single indicator
+        var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
+
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var placeholders = new Dictionary<string, string>
@@ -1563,7 +1657,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
-            { "{{TimeOfTesting}}", labTask.TestDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
@@ -1700,8 +1794,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Get test date from first lab task
-        var testDate = labTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of all selected indicators
+        var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -1715,7 +1809,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{Address}}", address },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
             { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
-            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
@@ -1881,8 +1975,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Get test date from laboratory tasks
-        var testDate = relatedTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of all indicators from selected samples
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // Use first sample for header info (or combine if needed)
         var firstSample = samples.FirstOrDefault();
@@ -1901,7 +1995,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{Address}}", address },
             { "{{NameOfSample}}", sampleNames },
             { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
-            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
