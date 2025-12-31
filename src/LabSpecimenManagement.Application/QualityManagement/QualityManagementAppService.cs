@@ -786,7 +786,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         return response;
     }
 
-    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null)
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
@@ -801,7 +801,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         {
             TaskId = taskId,
             IndicatorId = indicatorId,
-            Note = note
+            Note = note,
+            TemplateName = templateName
         });
 
         // Update status to PendingSignature (only if not already ResultSent - allow reprinting)
@@ -817,7 +818,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         };
     }
 
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
 
@@ -835,7 +836,8 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         {
             TaskId = taskId,
             IndicatorIds = indicatorIds,
-            Note = note
+            Note = note,
+            TemplateName = templateName
         });
 
         // Update status to PendingSignature (only if not already ResultSent - allow reprinting)

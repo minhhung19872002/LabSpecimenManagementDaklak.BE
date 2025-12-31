@@ -59,6 +59,12 @@ public class GenerateBM01ResultFormInput
     /// Optional note to include in the result form (will be placed in {{Note}} placeholder)
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Template name (without .template.docx extension)
+    /// If null, uses default template (BM01)
+    /// </summary>
+    public string? TemplateName { get; set; }
 }
 
 /// <summary>
@@ -115,6 +121,12 @@ public class GenerateSingleIndicatorInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Template name (without .template.docx extension)
+    /// If null, uses default template
+    /// </summary>
+    public string? TemplateName { get; set; }
 }
 
 /// <summary>
@@ -138,6 +150,12 @@ public class GenerateMixedIndicatorInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Template name (without .template.docx extension)
+    /// If null, uses default template
+    /// </summary>
+    public string? TemplateName { get; set; }
 }
 
 /// <summary>
@@ -162,4 +180,25 @@ public class GenerateMixedSamplesResultFormInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+}
+
+/// <summary>
+/// DTO for template information
+/// </summary>
+public class TemplateDto
+{
+    /// <summary>
+    /// Template name (without .template.docx extension) - used as value
+    /// </summary>
+    public string Name { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Display name (same as Name, for UI display)
+    /// </summary>
+    public string DisplayName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Full file name with extension
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
 }

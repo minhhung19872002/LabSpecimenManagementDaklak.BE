@@ -45,4 +45,9 @@ public interface IResultFormAppService : IApplicationService
     /// Used from TestRequestDetail page - combines indicators from multiple samples
     /// </summary>
     Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input);
+
+    /// <summary>
+    /// Get list of available templates (files with .template.docx extension)
+    /// </summary>
+    Task<List<TemplateDto>> GetTemplatesAsync();
 }

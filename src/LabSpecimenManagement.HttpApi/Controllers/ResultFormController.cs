@@ -84,6 +84,16 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get list of available templates (files with .template.docx extension)
+    /// </summary>
+    [HttpGet("templates")]
+    public async Task<ActionResult<List<TemplateDto>>> GetTemplates()
+    {
+        var result = await _resultFormAppService.GetTemplatesAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Download generated result form
     /// </summary>
     [HttpGet("download/{fileName}")]

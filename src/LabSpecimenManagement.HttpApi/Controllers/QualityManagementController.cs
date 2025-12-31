@@ -117,7 +117,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-single")]
     public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleInput input)
     {
-        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note);
+        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName);
     }
 
     /// <summary>
@@ -126,7 +126,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-mixed")]
     public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedInput input)
     {
-        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note);
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName);
     }
 
     /// <summary>
@@ -218,6 +218,12 @@ public class PrintSingleInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Template name (without .template.docx extension)
+    /// If null, uses default template
+    /// </summary>
+    public string? TemplateName { get; set; }
 }
 
 /// <summary>
@@ -231,6 +237,12 @@ public class PrintMixedInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Template name (without .template.docx extension)
+    /// If null, uses default template
+    /// </summary>
+    public string? TemplateName { get; set; }
 }
 
 /// <summary>

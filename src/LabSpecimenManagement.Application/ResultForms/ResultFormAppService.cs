@@ -43,7 +43,17 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
     private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
     private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
+    private const string TemplateBM02 = "Form trả KQ tổng hợp - BM02-QT13-BCKQ_3.2.template.docx"; // For mixed indicator result
     private const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx"; // Changed to .docx for OpenXML support
+
+    // Templates cho In KQ Đơn (dùng cho dropdown selection)
+    private static readonly string[] SingleIndicatorTemplates = new[]
+    {
+        "form mẫu QLNN BM05-QT13-BCKQ_3.2.template.docx",
+        "Form thêm cột GH BM04-QT13-BCKQ_3.2.template.docx",
+        "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx",
+        "Form trả kq BM03-QT13-BCKQ_3.2.template.docx"
+    };
 
     // Checkbox symbols for document placeholders
     // Using Unicode ballot box characters
@@ -679,11 +689,15 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 text.Text = text.Text
                     .Replace("{{TestTable}}", "")
                     .Replace("{{No}}", data.No.ToString())
+                    .Replace("{{NameOfSample}}", data.NameOfSample ?? "") // BM02 - Tên mẫu
+                    .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "") // BM02 - Mã số mẫu
                     .Replace("{{Parameters}}", data.Parameters ?? "")
                     .Replace("{{Unit}}", data.Unit ?? "")
                     .Replace("{{TestMethod}}", data.TestMethod ?? "")
                     .Replace("{{Result}}", data.Result ?? "")
                     .Replace("{{Standards}}", data.Standards ?? "")
+                    .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                    .Replace("{{Allowlimit}}", data.Allowlimit ?? "") // BM04 - Giới hạn cho phép
                     .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                     .Replace("{{Proclaim}}", data.Proclaim ?? "");
             }
@@ -891,11 +905,15 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private class ResultFormTableRow
     {
         public int No { get; set; }
+        public string NameOfSample { get; set; } = ""; // BM02 - Tên mẫu
+        public string CodeOfNumber { get; set; } = ""; // BM02 - Mã số mẫu
         public string Parameters { get; set; } = "";
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
         public string Result { get; set; } = "";
         public string Standards { get; set; } = "";
+        public string CompareWithStandard { get; set; } = ""; // For BM05-QLNN template
+        public string Allowlimit { get; set; } = ""; // For BM04 template - Giới hạn cho phép
         public string Uncertainty { get; set; } = "";
         public string Proclaim { get; set; } = "";
     }
@@ -1058,7 +1076,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" }
+            { "{{Note}}", input.Note ?? "" },
+            { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
         // 3. Build table data (BM01 has fewer columns than BM03)
@@ -1083,18 +1102,21 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
                 Result = taskIndicator?.Result ?? "",
-                // BM01 doesn't use these fields but we keep them empty
+                // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
+                // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
                 Standards = "",
+                CompareWithStandard = "", // BM05-QLNN - So với TCVN/QCVN
+                Allowlimit = "", // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             });
         }
 
-        // 4. Generate document
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        // 4. Generate document using selected template or default BM01
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new UserFriendlyException($"Template không tồn tại: {input.TemplateName ?? TemplateBM01}");
         }
 
         // Create temp directory if not exists
@@ -1106,7 +1128,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // Generate unique filename - sanitize sample code to remove invalid path characters
         var safeSampleCode = (sample.SampleCode ?? "unknown").Replace("/", "-").Replace("\\", "-");
-        var fileName = $"{Guid.NewGuid():N}_BM01_{safeSampleCode}.docx";
+        var templateName = string.IsNullOrEmpty(input.TemplateName) ? "BM01" : input.TemplateName;
+        var fileName = $"{Guid.NewGuid():N}_{templateName}_{safeSampleCode}.docx";
         var outputPath = Path.Combine(tempDir, fileName);
 
         // Copy template to temp
@@ -1957,6 +1980,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var address = BuildAddress(testRequest);
         var placeholders = new Dictionary<string, string>
         {
+            // Common placeholders (BM01, BM03)
             { "{{SampleCode}}", sample.SampleCode ?? "" },
             { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
@@ -1969,7 +1993,17 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" }
+            { "{{Note}}", input.Note ?? "" },
+
+            // Additional placeholders for BM05-QLNN template
+            { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" }, // TODO: Add field to Sample if needed
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" }, // TODO: Add attachment info if needed
+            { "{{Result}}", labTaskIndicator.Result ?? "" },
+            { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
         // 4. Build table data - single indicator
@@ -1983,13 +2017,15 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 TestMethod = method?.Name ?? "",
                 Result = labTaskIndicator.Result ?? "",
                 Standards = qualityIndicator.ReferenceLimit ?? "",
+                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
+                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             }
         };
 
-        // 5. Generate document using BM01 template
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        // 5. Generate document using selected template or default BM01
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
         if (!File.Exists(templatePath))
         {
             throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
@@ -2090,6 +2126,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         var sampleIds = sampleIndicators.Select(si => si.TestRequestSampleId).Distinct().ToList();
         var samples = await _sampleRepository.GetListAsync(x => sampleIds.Contains(x.Id));
+        var sampleDict = samples.ToDictionary(s => s.Id);
         var firstSample = samples.FirstOrDefault();
 
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
@@ -2107,10 +2144,11 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
+        var now = DateTime.Now;
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
-            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", now.ToString("dd/MM/yyyy") },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
@@ -2121,7 +2159,14 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" }
+            { "{{Note}}", input.Note ?? "" },
+            // BM02 specific placeholders
+            { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
+            { "{{Date}}", now.Day.ToString() },
+            { "{{Month}}", now.Month.ToString() },
+            { "{{Year}}", now.Year.ToString() },
+            { "{{CustomerName}}", testRequest.CustomerName ?? "" },
+            { "{{FullAddress}}", address }
         };
 
         // 5. Build table data - multiple indicators
@@ -2137,6 +2182,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             if (sampleIndicator == null) continue;
 
             var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
+            var sample = sampleDict.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
             TestMethod? method = null;
             if (labTaskIndicator.MethodId.HasValue)
             {
@@ -2153,21 +2199,26 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             tableData.Add(new ResultFormTableRow
             {
                 No = rowIndex++,
+                NameOfSample = sample?.SampleName ?? "", // BM02 - Tên mẫu
+                CodeOfNumber = sample?.SampleCode ?? "", // BM02 - Mã số mẫu
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
                 Result = resultText,
                 Standards = qualityIndicator.ReferenceLimit ?? "",
+                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
+                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             });
         }
 
-        // 6. Generate document using BM01 template
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        // 6. Generate document using fixed BM02 template for mixed indicator result
+        // In KQ Hỗn hợp always uses BM02 template (no dropdown selection)
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM02);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM02}");
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2410,5 +2461,55 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             FileName = pdfFileName,
             SampleCode = sampleCodes
         };
+    }
+
+    /// <summary>
+    /// Get list of available templates for In KQ Đơn (single indicator result)
+    /// Only returns specific templates for this purpose
+    /// </summary>
+    public Task<List<TemplateDto>> GetTemplatesAsync()
+    {
+        var templatesDir = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        var templates = new List<TemplateDto>();
+
+        // Only return templates for In KQ Đơn
+        foreach (var templateFileName in SingleIndicatorTemplates)
+        {
+            var filePath = Path.Combine(templatesDir, templateFileName);
+            if (File.Exists(filePath))
+            {
+                // Remove .template.docx extension to get display name
+                var displayName = templateFileName.Replace(".template.docx", "");
+
+                templates.Add(new TemplateDto
+                {
+                    Name = displayName,
+                    DisplayName = displayName,
+                    FileName = templateFileName
+                });
+            }
+        }
+
+        return Task.FromResult(templates.OrderBy(t => t.DisplayName).ToList());
+    }
+
+    /// <summary>
+    /// Get template path by name, falls back to default template if not found
+    /// </summary>
+    private string GetTemplatePath(string? templateName, string defaultTemplate)
+    {
+        var templatesDir = Path.Combine(_environment.WebRootPath ?? "", "templates");
+
+        if (!string.IsNullOrWhiteSpace(templateName))
+        {
+            var customTemplatePath = Path.Combine(templatesDir, $"{templateName}.template.docx");
+            if (File.Exists(customTemplatePath))
+            {
+                return customTemplatePath;
+            }
+            _logger.LogWarning("Template not found: {TemplateName}, using default: {DefaultTemplate}", templateName, defaultTemplate);
+        }
+
+        return Path.Combine(templatesDir, defaultTemplate);
     }
 }
