@@ -139,8 +139,6 @@ services:
                 condition: service_healthy
             gotenberg:
                 condition: service_healthy
-            db-migrator:
-                condition: service_completed_successfully
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
             interval: 30s
