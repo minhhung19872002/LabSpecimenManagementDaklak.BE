@@ -256,12 +256,12 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Get list of Quality Managers
+    /// Get list of Quality Managers (filtered by same department as QLKT of task)
     /// </summary>
-    [HttpGet("quality-managers")]
-    public virtual Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync()
+    [HttpGet("{taskId}/quality-managers")]
+    public virtual Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync(Guid taskId)
     {
-        return _laboratoryTaskAppService.GetQualityManagersAsync();
+        return _laboratoryTaskAppService.GetQualityManagersAsync(taskId);
     }
 
     #endregion

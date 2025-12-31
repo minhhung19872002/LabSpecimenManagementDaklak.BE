@@ -132,9 +132,9 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskDto> SendToQualityAsync(Guid taskId, SendToQualityDto input);
 
     /// <summary>
-    /// Lấy danh sách QLCL để chọn người nhận
+    /// Lấy danh sách QLCL để chọn người nhận (filter theo cùng phòng ban với QLKT của task)
     /// </summary>
-    Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync();
+    Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync(Guid taskId);
 
     #endregion
 

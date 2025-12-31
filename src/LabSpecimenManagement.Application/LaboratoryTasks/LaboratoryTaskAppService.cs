@@ -1806,15 +1806,40 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-    public async Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync()
+    public async Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync(Guid taskId)
     {
-        // Get users with QLCL role
+        // Get task to find QLKT's department
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+        Guid? qlktDepartmentId = null;
+
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var qlktUser = await _userRepository.GetAsync(task.TechnicalManagerId.Value);
+            qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
+        }
+
         var users = await _userRepository.GetListAsync();
         var qualityManagers = new List<UserLookupDto>();
 
         foreach (var user in users.Where(u => u.IsActive))
         {
-            // For now, return all active users - in real scenario, filter by role
+            // Check if user has QualityManager role
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            {
+                continue;
+            }
+
+            // Filter by same department as QLKT (if QLKT has department)
+            if (qlktDepartmentId.HasValue)
+            {
+                var userDepartmentId = user.GetProperty<Guid?>("DepartmentId");
+                if (userDepartmentId != qlktDepartmentId)
+                {
+                    continue;
+                }
+            }
+
             qualityManagers.Add(new UserLookupDto
             {
                 Id = user.Id,
