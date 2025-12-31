@@ -665,23 +665,98 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // Replace placeholders in all Text elements
-        foreach (var text in newRow.Descendants<Text>())
+        foreach (var text in newRow.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            text.Text = text.Text
-                .Replace("{{TestTable}}", "")
-                .Replace("{{No}}", data.No.ToString())
-                .Replace("{{Parameters}}", data.Parameters ?? "")
-                .Replace("{{Unit}}", data.Unit ?? "")
-                .Replace("{{TestMethod}}", data.TestMethod ?? "")
-                .Replace("{{Result}}", data.Result ?? "")
-                .Replace("{{Standards}}", data.Standards ?? "")
-                .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
-                .Replace("{{Proclaim}}", data.Proclaim ?? "");
+            // Handle Result placeholder specially - it may contain newlines for Note
+            if (text.Text.Contains("{{Result}}") && !string.IsNullOrEmpty(data.Result) && data.Result.Contains('\n'))
+            {
+                ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
+            }
+            else
+            {
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{No}}", data.No.ToString())
+                    .Replace("{{Parameters}}", data.Parameters ?? "")
+                    .Replace("{{Unit}}", data.Unit ?? "")
+                    .Replace("{{TestMethod}}", data.TestMethod ?? "")
+                    .Replace("{{Result}}", data.Result ?? "")
+                    .Replace("{{Standards}}", data.Standards ?? "")
+                    .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
+                    .Replace("{{Proclaim}}", data.Proclaim ?? "");
+            }
         }
 
         return newRow;
+    }
+
+    /// <summary>
+    /// Replace placeholder text with content that includes line breaks (for Word documents)
+    /// This creates proper <w:br/> elements instead of \n characters
+    /// </summary>
+    private void ReplaceTextWithLineBreaks(Text textElement, string placeholder, string valueWithNewlines)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null)
+        {
+            // Fallback - just replace without line breaks
+            textElement.Text = textElement.Text.Replace(placeholder, valueWithNewlines.Replace("\n", " "));
+            return;
+        }
+
+        var originalText = textElement.Text;
+        var placeholderIndex = originalText.IndexOf(placeholder);
+
+        if (placeholderIndex < 0)
+        {
+            return;
+        }
+
+        var beforeText = originalText.Substring(0, placeholderIndex);
+        var afterText = originalText.Substring(placeholderIndex + placeholder.Length);
+
+        // Split the value by newlines
+        var lines = valueWithNewlines.Split('\n');
+
+        // Update original text to before part only
+        textElement.Text = beforeText;
+
+        // Get reference to insert elements after
+        OpenXmlElement insertAfter = textElement;
+
+        // Add each line with breaks between them
+        for (int i = 0; i < lines.Length; i++)
+        {
+            // Add text
+            var lineText = new Text(lines[i]);
+            if (lines[i].StartsWith(" ") || lines[i].EndsWith(" "))
+            {
+                lineText.Space = SpaceProcessingModeValues.Preserve;
+            }
+            parentRun.InsertAfter(lineText, insertAfter);
+            insertAfter = lineText;
+
+            // Add line break (except after the last line)
+            if (i < lines.Length - 1)
+            {
+                var lineBreak = new Break();
+                parentRun.InsertAfter(lineBreak, insertAfter);
+                insertAfter = lineBreak;
+            }
+        }
+
+        // Add after text if any
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            var afterTextElement = new Text(afterText);
+            if (afterText.StartsWith(" ") || afterText.EndsWith(" "))
+            {
+                afterTextElement.Space = SpaceProcessingModeValues.Preserve;
+            }
+            parentRun.InsertAfter(afterTextElement, insertAfter);
+        }
     }
 
     /// <summary>
@@ -2068,13 +2143,20 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
                 method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
             }
 
+            // Build Result with Note (format: Result + newline + Note)
+            var resultText = labTaskIndicator.Result ?? "";
+            if (!string.IsNullOrWhiteSpace(labTaskIndicator.Note))
+            {
+                resultText = $"{resultText}\n{labTaskIndicator.Note}";
+            }
+
             tableData.Add(new ResultFormTableRow
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = labTaskIndicator.Result ?? "",
+                Result = resultText,
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 Uncertainty = "",
                 Proclaim = ""
