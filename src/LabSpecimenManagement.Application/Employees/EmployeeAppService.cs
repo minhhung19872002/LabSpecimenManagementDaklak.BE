@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
@@ -169,7 +170,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         var result = await _userManager.CreateAsync(user, password);
         if (!result.Succeeded)
         {
-            throw new UserFriendlyException(string.Join(", ", result.Errors.Select(e => e.Description)));
+            throw new ValidationException("user", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
         // Assign role
@@ -284,7 +285,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
         if (!result.Succeeded)
         {
-            throw new UserFriendlyException(string.Join(", ", result.Errors.Select(e => e.Description)));
+            throw new ValidationException("password", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
         // Send password reset email

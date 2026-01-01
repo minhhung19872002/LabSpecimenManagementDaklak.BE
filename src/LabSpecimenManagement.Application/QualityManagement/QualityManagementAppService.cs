@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
-using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
@@ -182,7 +182,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ tiêu này không ở trạng thái chờ phê duyệt.");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu này không ở trạng thái chờ phê duyệt.", "indicator");
         }
 
         var oldStatus = indicator.ApprovalStatus;
@@ -236,14 +236,14 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối.");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối.");
         }
 
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
 
         if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ tiêu này không ở trạng thái chờ phê duyệt.");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu này không ở trạng thái chờ phê duyệt.", "indicator");
         }
 
         var oldStatus = indicator.ApprovalStatus;
@@ -398,7 +398,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối.");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối.");
         }
 
         var result = new BulkRejectIndicatorsResultDto();
@@ -793,7 +793,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
         {
-            throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt.");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
         }
 
         // Generate PDF result form
@@ -827,7 +827,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             var indicator = await _indicatorRepository.GetAsync(indicatorId);
             if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt.");
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
             }
         }
 
@@ -863,7 +863,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         if (!hasApprovedIndicators)
         {
-            throw new UserFriendlyException("Không có chỉ tiêu nào đã được duyệt để gửi.");
+            throw new Common.Exceptions.InvalidOperationException("Không có chỉ tiêu nào đã được duyệt để gửi.", "indicator");
         }
 
         // Update task status (even if already ResultSent - for resending)
@@ -943,7 +943,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
         if (task.TaskType != QualityTaskType.ChangeApproval)
         {
-            throw new UserFriendlyException("Task này không phải là phê duyệt thay đổi.");
+            throw new Common.Exceptions.InvalidOperationException("Task này không phải là phê duyệt thay đổi.", "task");
         }
 
         // Call TestRequestAppService to apply changes and update status
@@ -968,14 +968,14 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     {
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối.");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối.");
         }
 
         var task = await _taskRepository.GetAsync(taskId);
 
         if (task.TaskType != QualityTaskType.ChangeApproval)
         {
-            throw new UserFriendlyException("Task này không phải là phê duyệt thay đổi.");
+            throw new Common.Exceptions.InvalidOperationException("Task này không phải là phê duyệt thay đổi.", "task");
         }
 
         // Call TestRequestAppService to reject changes and update status

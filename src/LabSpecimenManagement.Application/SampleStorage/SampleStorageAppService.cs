@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.TestRequests;
-using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
@@ -85,7 +85,7 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
 
         if (testRequest == null)
         {
-            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+            throw new EntityNotFoundException("TestRequest", id);
         }
 
         return await MapToDetailDtoAsync(testRequest);
@@ -100,7 +100,7 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
 
         if (sample.IsCancelled)
         {
-            throw new UserFriendlyException("Không thể cập nhật mẫu đã hủy");
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật mẫu đã hủy", "sample");
         }
 
         if (!string.IsNullOrWhiteSpace(input.SampleName))
@@ -132,7 +132,7 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
 
         if (sample.IsCancelled)
         {
-            throw new UserFriendlyException("Mẫu này đã được hủy");
+            throw new Common.Exceptions.InvalidOperationException("Mẫu này đã được hủy", "sample");
         }
 
         sample.IsCancelled = true;
@@ -151,7 +151,7 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
 
         if (testRequest == null)
         {
-            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+            throw new EntityNotFoundException("TestRequest", testRequestId);
         }
 
         var now = Clock.Now;

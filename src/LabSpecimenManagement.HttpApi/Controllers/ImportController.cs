@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Import;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -143,7 +144,7 @@ public class ImportController : LabSpecimenManagementController
     {
         if (file == null || file.Length == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn file Excel để import.");
+            throw new ValidationException("file", "Vui lòng chọn file Excel để import.");
         }
 
         var allowedExtensions = new[] { ".xlsx", ".xls" };
@@ -151,13 +152,13 @@ public class ImportController : LabSpecimenManagementController
 
         if (!allowedExtensions.Contains(extension))
         {
-            throw new UserFriendlyException("Chỉ hỗ trợ file Excel (.xlsx, .xls).");
+            throw new ValidationException("file", "Chỉ hỗ trợ file Excel (.xlsx, .xls).");
         }
 
         // Max 10MB
         if (file.Length > 10 * 1024 * 1024)
         {
-            throw new UserFriendlyException("File không được vượt quá 10MB.");
+            throw new ValidationException("file", "File không được vượt quá 10MB.");
         }
     }
 

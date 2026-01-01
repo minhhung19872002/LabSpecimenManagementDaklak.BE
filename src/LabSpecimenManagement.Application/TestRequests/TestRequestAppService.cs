@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
 using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
@@ -555,7 +556,7 @@ public class TestRequestAppService :
         // Validate edit permission based on status
         if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
         {
-            throw new UserFriendlyException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'");
+            throw new Common.Exceptions.InvalidOperationException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status");
         }
 
         // Validate limited update - check locked fields
@@ -760,7 +761,7 @@ public class TestRequestAppService :
                                 labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                                 labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                             {
-                                throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                                throw new Common.Exceptions.InvalidOperationException("Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "indicator");
                             }
 
                             // If status is Pending (not yet tested), mark as CustomerCancelled
@@ -1076,8 +1077,8 @@ public class TestRequestAppService :
 
         if (errors.Any())
         {
-            throw new UserFriendlyException(
-                $"Không thể thay đổi các trường sau khi đang thử nghiệm: {string.Join(", ", errors)}"
+            throw new Common.Exceptions.InvalidOperationException(
+                $"Không thể thay đổi các trường sau khi đang thử nghiệm: {string.Join(", ", errors)}", "fields"
             );
         }
     }
@@ -1253,7 +1254,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.Pending)
         {
-            throw new UserFriendlyException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'", "status");
         }
 
         entity.Status = TestRequestStatus.SampleSent;
@@ -1344,7 +1345,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể phê duyệt khi trạng thái là 'Chờ Phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể phê duyệt khi trạng thái là 'Chờ Phê duyệt'", "status");
         }
 
         entity.Status = TestRequestStatus.Approved;
@@ -1364,12 +1365,12 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể từ chối kết quả khi trạng thái là 'Chờ Phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể từ chối kết quả khi trạng thái là 'Chờ Phê duyệt'", "status");
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
         }
 
         // Update TestRequest status back to InProgress for QLKT to review
@@ -1401,7 +1402,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.Approved)
         {
-            throw new UserFriendlyException("Chỉ có thể gửi kết quả khi đã được phê duyệt");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kết quả khi đã được phê duyệt", "status");
         }
 
         entity.Status = TestRequestStatus.ResultSent;
@@ -1436,7 +1437,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.ResultSent)
         {
-            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể hoàn thành khi đã gửi kết quả", "status");
         }
 
         // Check if all indicators are completed (Approved)
@@ -1470,22 +1471,22 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.ResultSent)
         {
-            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể hoàn thành khi đã gửi kết quả", "status");
         }
 
         if (!entity.DeliveryPostal)
         {
-            throw new UserFriendlyException("Phiếu yêu cầu này không yêu cầu gửi bưu điện");
+            throw new Common.Exceptions.InvalidOperationException("Phiếu yêu cầu này không yêu cầu gửi bưu điện", "deliveryPostal");
         }
 
         if (input.ImageFileIds == null || input.ImageFileIds.Count == 0)
         {
-            throw new UserFriendlyException("Phải có ít nhất 1 hình ảnh");
+            throw new ValidationException("imageFileIds", "Phải có ít nhất 1 hình ảnh");
         }
 
         if (input.ImageFileIds.Count > 5)
         {
-            throw new UserFriendlyException("Tối đa 5 hình ảnh");
+            throw new ValidationException("imageFileIds", "Tối đa 5 hình ảnh");
         }
 
         // Save image file IDs as JSON array
@@ -1524,7 +1525,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingChangeApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể phê duyệt thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể phê duyệt thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'", "status");
         }
 
         // Get pending change history
@@ -1533,10 +1534,10 @@ public class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+            throw new EntityNotFoundException("ChangeHistory", id);
         }
 
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
         // Apply changes from newValue in change history (also restores previous status)
@@ -1780,7 +1781,7 @@ public class TestRequestAppService :
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
-                            throw new UserFriendlyException($"Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                            throw new Common.Exceptions.InvalidOperationException("Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "sample");
                         }
                         // Delete the LaboratoryTaskIndicator
                         await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
@@ -1882,7 +1883,7 @@ public class TestRequestAppService :
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
-                            throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                            throw new Common.Exceptions.InvalidOperationException("Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "indicator");
                         }
                         // Delete the LaboratoryTaskIndicator
                         await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
@@ -2168,7 +2169,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingChangeApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể từ chối thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể từ chối thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'", "status");
         }
 
         // Get pending change history
@@ -2177,10 +2178,10 @@ public class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+            throw new EntityNotFoundException("ChangeHistory", id);
         }
 
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
         // No rollback needed - entity was never changed, only status was changed to PendingChangeApproval
@@ -2433,8 +2434,8 @@ public class TestRequestAppService :
 
         if (!CanDelete(entity.Status))
         {
-            throw new UserFriendlyException(
-                $"Không thể xóa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'"
+            throw new Common.Exceptions.InvalidOperationException(
+                $"Không thể xóa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status"
             );
         }
 
@@ -2499,7 +2500,7 @@ public class TestRequestAppService :
 
         if (testRequest == null)
         {
-            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+            throw new EntityNotFoundException("TestRequest", id);
         }
 
         var result = new TestRequestTimelineDto

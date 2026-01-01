@@ -8,6 +8,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
@@ -91,12 +92,12 @@ public class FormTemplateController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("Template not found");
+            throw new EntityNotFoundException("Template", fileName);
         }
 
         var provider = new FileExtensionContentTypeProvider();
@@ -123,12 +124,12 @@ public class FormTemplateController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("Template not found");
+            throw new EntityNotFoundException("Template", fileName);
         }
 
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
@@ -179,7 +180,7 @@ public class FormTemplateController : LabSpecimenManagementController
             }
             catch (Exception ex)
             {
-                return StatusCode(500, $"Failed to convert to PDF: {ex.Message}");
+                throw new Common.Exceptions.InvalidOperationException($"Chuyển đổi sang PDF thất bại: {ex.Message}");
             }
         }
 
@@ -207,12 +208,12 @@ public class FormTemplateController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("Template not found");
+            throw new EntityNotFoundException("Template", fileName);
         }
 
         // Use BackendUrlForDocker for URLs that OnlyOffice (in Docker) needs to access

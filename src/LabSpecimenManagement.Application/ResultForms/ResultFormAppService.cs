@@ -13,10 +13,10 @@ using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.Common.Exceptions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
-using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Users;
@@ -100,7 +100,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (sample.TestRequestId != input.TestRequestId)
         {
-            throw new UserFriendlyException("Sample không thuộc TestRequest này");
+            throw new ValidationException("sample", "Sample không thuộc TestRequest này");
         }
 
         // Get sample indicators
@@ -186,7 +186,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM03);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM03}");
+            throw new EntityNotFoundException("Template", TemplateBM03);
         }
 
         // Create temp directory if not exists
@@ -1008,7 +1008,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (sample.TestRequestId != input.TestRequestId)
         {
-            throw new UserFriendlyException("Sample không thuộc TestRequest này");
+            throw new ValidationException("sample", "Sample không thuộc TestRequest này");
         }
 
         // Get sample indicators
@@ -1037,13 +1037,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Validate: Max status of related tasks must be ResultSent
         if (!relatedTasks.Any())
         {
-            throw new UserFriendlyException("Mẫu chưa được gán phòng xét nghiệm");
+            throw new Common.Exceptions.InvalidOperationException("Mẫu chưa được gán phòng xét nghiệm", "sample");
         }
 
         var maxStatus = relatedTasks.Max(t => t.Status);
         if (maxStatus != LaboratoryTaskStatus.SentToQuality)
         {
-            throw new UserFriendlyException("Mẫu chưa xét nghiệm xong");
+            throw new Common.Exceptions.InvalidOperationException("Mẫu chưa xét nghiệm xong", "sample");
         }
 
         // Get indicator and method details
@@ -1116,7 +1116,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {input.TemplateName ?? TemplateBM01}");
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateBM01);
         }
 
         // Create temp directory if not exists
@@ -1221,7 +1221,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM05);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM05}");
+            throw new EntityNotFoundException("Template", TemplateBM05);
         }
 
         // 4. Create temp directory if not exists
@@ -1948,12 +1948,12 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (qualityIndicator.QualityManagementTaskId != input.TaskId)
         {
-            throw new UserFriendlyException("Chỉ tiêu không thuộc công việc này");
+            throw new ValidationException("indicator", "Chỉ tiêu không thuộc công việc này");
         }
 
         if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
         {
-            throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt", "indicator");
         }
 
         // 2. Get laboratory task indicator and related data
@@ -2028,7 +2028,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new EntityNotFoundException("Template", TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2089,7 +2089,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     {
         if (input.IndicatorIds == null || input.IndicatorIds.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu");
         }
 
         // 1. Load quality task and indicators
@@ -2102,11 +2102,11 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         {
             if (qi.QualityManagementTaskId != input.TaskId)
             {
-                throw new UserFriendlyException("Có chỉ tiêu không thuộc công việc này");
+                throw new ValidationException("indicator", "Có chỉ tiêu không thuộc công việc này");
             }
             if (qi.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt", "indicator");
             }
         }
 
@@ -2218,7 +2218,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM02);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM02}");
+            throw new EntityNotFoundException("Template", TemplateBM02);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2279,7 +2279,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     {
         if (input.SampleIds == null || input.SampleIds.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một mẫu");
+            throw new ValidationException("sampleIds", "Vui lòng chọn ít nhất một mẫu");
         }
 
         // 1. Load and validate data
@@ -2291,7 +2291,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         {
             if (sample.TestRequestId != input.TestRequestId)
             {
-                throw new UserFriendlyException($"Mẫu {sample.SampleCode} không thuộc phiếu yêu cầu này");
+                throw new ValidationException("sample", $"Mẫu {sample.SampleCode} không thuộc phiếu yêu cầu này");
             }
         }
 
@@ -2321,13 +2321,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Validate: All related tasks must have status SentToQuality
         if (!relatedTasks.Any())
         {
-            throw new UserFriendlyException("Các mẫu chưa được gán phòng xét nghiệm");
+            throw new Common.Exceptions.InvalidOperationException("Các mẫu chưa được gán phòng xét nghiệm", "sample");
         }
 
         var notCompletedTasks = relatedTasks.Where(t => t.Status != LaboratoryTaskStatus.SentToQuality).ToList();
         if (notCompletedTasks.Any())
         {
-            throw new UserFriendlyException("Có mẫu chưa xét nghiệm xong");
+            throw new Common.Exceptions.InvalidOperationException("Có mẫu chưa xét nghiệm xong", "sample");
         }
 
         // Get indicator and method details
@@ -2403,7 +2403,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new EntityNotFoundException("Template", TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");

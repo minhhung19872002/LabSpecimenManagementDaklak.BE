@@ -5,6 +5,8 @@ using System.Net;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Hosting;
@@ -107,6 +109,23 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
                 else
                 {
                     AddError(errors, businessEx.Field ?? businessEx.ErrorCode, businessEx.Message);
+                }
+                break;
+
+            // Legacy Validation Exceptions
+            case TestRequestValidationException testRequestEx:
+                statusCode = (int)HttpStatusCode.BadRequest;
+                foreach (var error in testRequestEx.Errors)
+                {
+                    AddError(errors, error.Key, error.Value);
+                }
+                break;
+
+            case SpecimenTypeValidationException specimenTypeEx:
+                statusCode = (int)HttpStatusCode.BadRequest;
+                foreach (var error in specimenTypeEx.Errors)
+                {
+                    AddError(errors, error.Key, error.Value);
                 }
                 break;
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
@@ -190,13 +191,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
             // Validate: Only assigned technician or technical manager can edit
             if (!CanEditIndicator(indicator, task, currentUserId))
             {
-                throw new UserFriendlyException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
+                throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
             }
 
             // Validate: Cannot edit if already approved
             if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt");
+                throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
             }
 
             // Validate result: must be a valid number >= 0 with max 1 decimal place
@@ -204,17 +205,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             {
                 if (!decimal.TryParse(result.Result, out var numResult))
                 {
-                    throw new UserFriendlyException($"Kết quả '{result.Result}' không phải là số hợp lệ");
+                    throw new ValidationException("result", $"Kết quả '{result.Result}' không phải là số hợp lệ");
                 }
                 if (numResult < 0)
                 {
-                    throw new UserFriendlyException("Kết quả phải >= 0");
+                    throw new ValidationException("result", "Kết quả phải >= 0");
                 }
                 // Check max 1 decimal place
                 var decimalPart = result.Result.Contains('.') ? result.Result.Split('.')[1] : "";
                 if (decimalPart.Length > 1)
                 {
-                    throw new UserFriendlyException("Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
+                    throw new ValidationException("result", "Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
                 }
             }
 
@@ -251,13 +252,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
             // Validate: Only assigned technician or technical manager can submit
             if (!CanEditIndicator(indicator, task, currentUserId))
             {
-                throw new UserFriendlyException("Bạn không có quyền gửi duyệt chỉ tiêu này");
+                throw new ForbiddenAccessException("Bạn không có quyền gửi duyệt chỉ tiêu này");
             }
 
             // Validate: Must have result
             if (string.IsNullOrWhiteSpace(indicator.Result))
             {
-                throw new UserFriendlyException("Vui lòng nhập kết quả trước khi gửi duyệt");
+                throw new ValidationException("result", "Vui lòng nhập kết quả trước khi gửi duyệt");
             }
 
             // Validate: Cannot submit if already approved
@@ -790,12 +791,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
         if (task == null)
         {
-            throw new UserFriendlyException("Không tìm thấy task");
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
         if (input.IndicatorIds == null || !input.IndicatorIds.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         foreach (var indicatorId in input.IndicatorIds)
@@ -845,12 +846,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
         if (task == null)
         {
-            throw new UserFriendlyException("Không tìm thấy task");
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
         if (input.IndicatorIds == null || !input.IndicatorIds.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         var errors = new List<string>();
@@ -900,7 +901,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (errors.Any())
         {
-            throw new UserFriendlyException(string.Join("; ", errors.Distinct()));
+            throw new ValidationException("indicators", string.Join("; ", errors.Distinct()));
         }
 
         // Update task status
@@ -1018,7 +1019,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!hasPermission)
         {
-            throw new UserFriendlyException("Bạn không có quyền upload hình ảnh cho mẫu này");
+            throw new ForbiddenAccessException("Bạn không có quyền upload hình ảnh cho mẫu này");
         }
 
         // Validate: Max 5 images per type
@@ -1030,7 +1031,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         if (existingImages.Count >= 5)
         {
             var imageTypeName = input.ImageType == SampleTestingImageType.BeforeTesting ? "trước thử nghiệm" : "sau thử nghiệm";
-            throw new UserFriendlyException($"Đã đạt tối đa 5 hình ảnh {imageTypeName}");
+            throw new ValidationException("images", $"Đã đạt tối đa 5 hình ảnh {imageTypeName}");
         }
 
         var image = new SampleTestingImage(
@@ -1073,7 +1074,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         // Validate: Chỉ người tạo hoặc QLKT được xóa
         if (image.CreatorId != currentUserId && task.TechnicalManagerId != currentUserId)
         {
-            throw new UserFriendlyException("Bạn không có quyền xóa hình ảnh này");
+            throw new ForbiddenAccessException("Bạn không có quyền xóa hình ảnh này");
         }
 
         await _sampleTestingImageRepository.DeleteAsync(image);

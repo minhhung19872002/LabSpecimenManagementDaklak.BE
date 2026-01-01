@@ -3,9 +3,9 @@ using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
-using Volo.Abp;
 using Volo.Abp.DependencyInjection;
 
 namespace LabSpecimenManagement.Common;
@@ -56,10 +56,10 @@ public class PdfConversionService : IPdfConversionService, ITransientDependency
     {
         if (!File.Exists(inputDocxPath))
         {
-            throw new UserFriendlyException($"File không tồn tại: {inputDocxPath}");
+            throw new EntityNotFoundException("File", inputDocxPath);
         }
 
-        var inputDir = Path.GetDirectoryName(inputDocxPath) ?? throw new UserFriendlyException("Không thể xác định thư mục input");
+        var inputDir = Path.GetDirectoryName(inputDocxPath) ?? throw new Common.Exceptions.InvalidOperationException("Không thể xác định thư mục input");
         var inputFileName = Path.GetFileNameWithoutExtension(inputDocxPath);
 
         // Output path
@@ -93,7 +93,7 @@ public class PdfConversionService : IPdfConversionService, ITransientDependency
             {
                 var errorMessage = await response.Content.ReadAsStringAsync();
                 _logger.LogError("Gotenberg conversion failed: {StatusCode} - {Error}", response.StatusCode, errorMessage);
-                throw new UserFriendlyException($"Chuyển đổi PDF thất bại: {response.StatusCode}");
+                throw new Common.Exceptions.InvalidOperationException($"Chuyển đổi PDF thất bại: {response.StatusCode}");
             }
 
             // Save PDF response to file
@@ -106,12 +106,12 @@ public class PdfConversionService : IPdfConversionService, ITransientDependency
         catch (HttpRequestException ex)
         {
             _logger.LogError(ex, "Failed to connect to Gotenberg service at {Url}", _gotenbergUrl);
-            throw new UserFriendlyException("Không thể kết nối đến service chuyển đổi PDF. Vui lòng kiểm tra Gotenberg đang chạy.");
+            throw new Common.Exceptions.InvalidOperationException("Không thể kết nối đến service chuyển đổi PDF. Vui lòng kiểm tra Gotenberg đang chạy.");
         }
-        catch (Exception ex) when (ex is not UserFriendlyException)
+        catch (Exception ex) when (ex is not Common.Exceptions.BusinessException)
         {
             _logger.LogError(ex, "Error converting DOCX to PDF");
-            throw new UserFriendlyException($"Lỗi khi chuyển đổi sang PDF: {ex.Message}");
+            throw new Common.Exceptions.InvalidOperationException($"Lỗi khi chuyển đổi sang PDF: {ex.Message}");
         }
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
@@ -10,7 +11,6 @@ using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
-using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
@@ -482,7 +482,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validation: Không cho xóa khi đang thí nghiệm trở đi
         if (!CanEditTask(task.Status))
         {
-            throw new UserFriendlyException($"Không thể xóa công việc khi trạng thái là '{GetStatusLabel(task.Status)}'");
+            throw new Common.Exceptions.InvalidOperationException($"Không thể xóa công việc khi trạng thái là '{GetStatusLabel(task.Status)}'", "task");
         }
 
         // Delete junction records first
@@ -526,22 +526,22 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator == null)
             {
-                throw new UserFriendlyException("Chỉ tiêu không thuộc mẫu này");
+                throw new ValidationException("indicator", "Chỉ tiêu không thuộc mẫu này");
             }
 
             // Không cho giao việc lại nếu indicator đã được duyệt hoặc bị hủy
             if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Không thể giao việc lại cho chỉ tiêu đã được duyệt");
+                throw new Common.Exceptions.InvalidOperationException("Không thể giao việc lại cho chỉ tiêu đã được duyệt", "indicator");
             }
             if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
             {
-                throw new UserFriendlyException("Không thể giao việc cho chỉ tiêu đã bị hủy");
+                throw new Common.Exceptions.InvalidOperationException("Không thể giao việc cho chỉ tiêu đã bị hủy", "indicator");
             }
 
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
             {
-                throw new UserFriendlyException("Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
+                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
             }
         }
 
@@ -646,7 +646,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validation: Must have method assigned
         if (!taskIndicator.MethodId.HasValue)
         {
-            throw new UserFriendlyException("Chỉ tiêu chưa được gán phương pháp");
+            throw new ValidationException("method", "Chỉ tiêu chưa được gán phương pháp");
         }
 
         taskIndicator.Result = input.Result;
@@ -706,7 +706,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can approve
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền phê duyệt kết quả");
         }
 
         // Lưu StandardId nếu có
@@ -725,7 +725,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             // Reject - reset to Pending for re-entry
             if (string.IsNullOrWhiteSpace(input.RejectionReason))
             {
-                throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+                throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
             }
 
             taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
@@ -790,13 +790,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can update standard
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền cập nhật tiêu chuẩn");
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật tiêu chuẩn");
         }
 
         // Validate: Only allow update when indicator status is Entered (Chờ phê duyệt)
         if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Entered)
         {
-            throw new UserFriendlyException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'", "indicator");
         }
 
         taskIndicator.StandardId = standardId;
@@ -819,14 +819,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Must have at least one active indicator
         if (!activeIndicators.Any())
         {
-            throw new UserFriendlyException("Không có chỉ tiêu nào để gửi kết quả");
+            throw new ValidationException("indicator", "Không có chỉ tiêu nào để gửi kết quả");
         }
 
         // Validate: All active indicators must be approved
         var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         if (!allApproved)
         {
-            throw new UserFriendlyException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả", "indicator");
         }
 
         task.Status = LaboratoryTaskStatus.SentToQuality;
@@ -1293,7 +1293,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
         if (sampleIndicator == null)
         {
-            throw new UserFriendlyException("Không tìm thấy thông tin chỉ tiêu mẫu");
+            throw new EntityNotFoundException("SampleIndicator", taskIndicator.TestRequestSampleIndicatorId);
         }
 
         var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
@@ -1412,7 +1412,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!isAdmin && !isQlkt)
         {
-            throw new UserFriendlyException("Chỉ QLKT mới có quyền thêm người hỗ trợ");
+            throw new ForbiddenAccessException("Chỉ QLKT mới có quyền thêm người hỗ trợ");
         }
 
         // Get existing supporter user IDs
@@ -1458,13 +1458,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!isAdmin && !isQlkt)
         {
-            throw new UserFriendlyException("Chỉ QLKT mới có quyền xóa người hỗ trợ");
+            throw new ForbiddenAccessException("Chỉ QLKT mới có quyền xóa người hỗ trợ");
         }
 
         var supporter = await _supporterRepository.FindAsync(supporterId);
         if (supporter == null || supporter.LaboratoryTaskId != taskId)
         {
-            throw new UserFriendlyException("Không tìm thấy người hỗ trợ");
+            throw new EntityNotFoundException("Supporter", supporterId);
         }
 
         await _supporterRepository.DeleteAsync(supporter);
@@ -1561,12 +1561,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can approve
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền phê duyệt kết quả");
         }
 
         if (!input.Approve && string.IsNullOrWhiteSpace(input.RejectionReason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
         }
 
         var results = new List<LaboratoryTaskIndicatorDto>();
@@ -1704,7 +1704,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can send
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền gửi kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền gửi kết quả");
         }
 
         // Get selected indicators
@@ -1715,14 +1715,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!selectedIndicators.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu để gửi");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu để gửi");
         }
 
         // Validate: All selected indicators must be approved
         var notApproved = selectedIndicators.Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.Approved).ToList();
         if (notApproved.Any())
         {
-            throw new UserFriendlyException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi");
+            throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi", "indicator");
         }
 
         // Mark selected indicators as sent to quality

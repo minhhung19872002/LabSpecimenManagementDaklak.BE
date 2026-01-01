@@ -1,5 +1,6 @@
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -56,7 +57,7 @@ public class FileController : LabSpecimenManagementController
     {
         if (files == null || files.Length == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một file để upload.");
+            throw new ValidationException("files", "Vui lòng chọn ít nhất một file để upload.");
         }
 
         var results = new FileUploadResultDto[files.Length];
@@ -87,7 +88,7 @@ public class FileController : LabSpecimenManagementController
 
         if (fileStream == null)
         {
-            return NotFound(new { message = "File không tồn tại." });
+            throw new EntityNotFoundException("File", fileId);
         }
 
         return File(fileStream, contentType, fileName);
@@ -98,16 +99,15 @@ public class FileController : LabSpecimenManagementController
     /// </summary>
     /// <param name="fileId">ID của file</param>
     [HttpDelete("{fileId}")]
-    public async Task<IActionResult> DeleteAsync(string fileId)
+    public async Task DeleteAsync(string fileId)
     {
         var exists = await _fileAppService.ExistsAsync(fileId);
         if (!exists)
         {
-            return NotFound(new { message = "File không tồn tại." });
+            throw new EntityNotFoundException("File", fileId);
         }
 
         await _fileAppService.DeleteAsync(fileId);
-        return Ok(new { message = "File đã được xóa." });
     }
 
     #region Private Methods
@@ -116,20 +116,20 @@ public class FileController : LabSpecimenManagementController
     {
         if (file == null || file.Length == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn file để upload.");
+            throw new ValidationException("file", "Vui lòng chọn file để upload.");
         }
 
         // Validate extension
         var extension = System.IO.Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!AllowedImageExtensions.Contains(extension))
         {
-            throw new UserFriendlyException($"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
+            throw new ValidationException("file", $"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
         }
 
         // Validate file size
         if (file.Length > MaxFileSize)
         {
-            throw new UserFriendlyException($"Kích thước file không được vượt quá {MaxFileSize / (1024 * 1024)} MB.");
+            throw new ValidationException("file", $"Kích thước file không được vượt quá {MaxFileSize / (1024 * 1024)} MB.");
         }
     }
 

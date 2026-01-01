@@ -4,6 +4,7 @@ using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.ResultForms;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -107,12 +108,12 @@ public class ResultFormController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(tempDir)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("File not found");
+            throw new EntityNotFoundException("File", fileName);
         }
 
         var provider = new FileExtensionContentTypeProvider();
@@ -139,12 +140,12 @@ public class ResultFormController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(tempDir)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("File not found");
+            throw new EntityNotFoundException("File", fileName);
         }
 
         var provider = new FileExtensionContentTypeProvider();
@@ -171,12 +172,12 @@ public class ResultFormController : LabSpecimenManagementController
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(tempDir)))
         {
-            return BadRequest("Invalid file name");
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
-            return NotFound("File not found");
+            throw new EntityNotFoundException("File", fileName);
         }
 
         // Use BackendUrlForDocker for URLs that OnlyOffice (in Docker) needs to access
