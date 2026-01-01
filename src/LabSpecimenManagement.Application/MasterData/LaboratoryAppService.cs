@@ -2,11 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
-using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.MasterData;
 
@@ -20,14 +20,17 @@ public class LaboratoryAppService :
         CreateUpdateLaboratoryDto>,
     ILaboratoryAppService
 {
-    private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
+    private readonly IEntityValidationService _validationService;
 
     public LaboratoryAppService(
         IRepository<Laboratory, Guid> repository,
-        IIdentityUserRepository userRepository)
+        IUserNameProvider userNameProvider,
+        IEntityValidationService validationService)
         : base(repository)
     {
-        _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
+        _validationService = validationService;
     }
 
     public async Task<ListResultDto<LaboratoryDto>> GetActiveLaboratoriesAsync()
@@ -35,32 +38,11 @@ public class LaboratoryAppService :
         var query = await Repository.GetQueryableAsync();
         var items = query
             .Where(x => x.IsActive)
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-
-        // Get user names for technical managers
-        var userIds = items
-            .Where(x => x.TechnicalManagerId.HasValue)
-            .Select(x => x.TechnicalManagerId!.Value)
-            .Distinct()
-            .ToList();
-
-        if (userIds.Any())
-        {
-            var users = await _userRepository.GetListByIdsAsync(userIds);
-            var userDict = users.ToDictionary(u => u.Id, u => u.Name ?? u.UserName);
-
-            foreach (var dto in dtos)
-            {
-                if (dto.TechnicalManagerId.HasValue && userDict.TryGetValue(dto.TechnicalManagerId.Value, out var userName))
-                {
-                    dto.TechnicalManagerName = userName;
-                }
-            }
-        }
+        await EnrichWithTechnicalManagerNamesAsync(dtos);
 
         return new ListResultDto<LaboratoryDto>(dtos);
     }
@@ -69,32 +51,11 @@ public class LaboratoryAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-
-        // Get user names for technical managers
-        var userIds = items
-            .Where(x => x.TechnicalManagerId.HasValue)
-            .Select(x => x.TechnicalManagerId!.Value)
-            .Distinct()
-            .ToList();
-
-        if (userIds.Any())
-        {
-            var users = await _userRepository.GetListByIdsAsync(userIds);
-            var userDict = users.ToDictionary(u => u.Id, u => u.Name ?? u.UserName);
-
-            foreach (var dto in dtos)
-            {
-                if (dto.TechnicalManagerId.HasValue && userDict.TryGetValue(dto.TechnicalManagerId.Value, out var userName))
-                {
-                    dto.TechnicalManagerName = userName;
-                }
-            }
-        }
+        await EnrichWithTechnicalManagerNamesAsync(dtos);
 
         return new ListResultDto<LaboratoryDto>(dtos);
     }
@@ -104,14 +65,7 @@ public class LaboratoryAppService :
         var entity = await Repository.GetAsync(id);
         var dto = ObjectMapper.Map<Laboratory, LaboratoryDto>(entity);
 
-        if (entity.TechnicalManagerId.HasValue)
-        {
-            var user = await _userRepository.FindAsync(entity.TechnicalManagerId.Value);
-            if (user != null)
-            {
-                dto.TechnicalManagerName = user.Name ?? user.UserName;
-            }
-        }
+        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(entity.TechnicalManagerId);
 
         return dto;
     }
@@ -122,77 +76,61 @@ public class LaboratoryAppService :
 
         var totalCount = query.Count();
 
-        if (!string.IsNullOrEmpty(input.Sorting))
-        {
-            query = query.OrderBy(x => x.SortOrder).ThenBy(x => x.Name);
-        }
-
         var items = query
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount)
+            .OrderByThenBy(x => x.SortOrder, x => x.Name)
+            .ApplyPaging(input)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-
-        // Get user names for technical managers
-        var userIds = items
-            .Where(x => x.TechnicalManagerId.HasValue)
-            .Select(x => x.TechnicalManagerId!.Value)
-            .Distinct()
-            .ToList();
-
-        if (userIds.Any())
-        {
-            var users = await _userRepository.GetListByIdsAsync(userIds);
-            var userDict = users.ToDictionary(u => u.Id, u => u.Name ?? u.UserName);
-
-            foreach (var dto in dtos)
-            {
-                if (dto.TechnicalManagerId.HasValue && userDict.TryGetValue(dto.TechnicalManagerId.Value, out var userName))
-                {
-                    dto.TechnicalManagerName = userName;
-                }
-            }
-        }
+        await EnrichWithTechnicalManagerNamesAsync(dtos);
 
         return new PagedResultDto<LaboratoryDto>(totalCount, dtos);
     }
 
     public override async Task<LaboratoryDto> CreateAsync(CreateUpdateLaboratoryDto input)
     {
-        // Check for duplicate code
-        var existingCode = await Repository.FindAsync(x => x.Code == input.Code);
-        if (existingCode != null)
-        {
-            throw new UserFriendlyException($"Mã khoa phòng '{input.Code}' đã tồn tại!");
-        }
+        await _validationService.ValidateUniqueAsync(
+            Repository,
+            x => x.Code == input.Code,
+            "code",
+            $"Mã khoa phòng '{input.Code}' đã tồn tại");
 
-        // Check for duplicate name
-        var existingName = await Repository.FindAsync(x => x.Name == input.Name);
-        if (existingName != null)
-        {
-            throw new UserFriendlyException($"Tên khoa phòng '{input.Name}' đã tồn tại!");
-        }
+        await _validationService.ValidateUniqueAsync(
+            Repository,
+            x => x.Name == input.Name,
+            "name",
+            $"Tên khoa phòng '{input.Name}' đã tồn tại");
 
         return await base.CreateAsync(input);
     }
 
     public override async Task<LaboratoryDto> UpdateAsync(Guid id, CreateUpdateLaboratoryDto input)
     {
-        // Check for duplicate code (excluding current entity)
-        var existingCode = await Repository.FindAsync(x => x.Code == input.Code && x.Id != id);
-        if (existingCode != null)
-        {
-            throw new UserFriendlyException($"Mã khoa phòng '{input.Code}' đã tồn tại!");
-        }
+        await _validationService.ValidateUniqueAsync(
+            Repository,
+            x => x.Code == input.Code,
+            "code",
+            $"Mã khoa phòng '{input.Code}' đã tồn tại",
+            excludeId: id);
 
-        // Check for duplicate name (excluding current entity)
-        var existingName = await Repository.FindAsync(x => x.Name == input.Name && x.Id != id);
-        if (existingName != null)
-        {
-            throw new UserFriendlyException($"Tên khoa phòng '{input.Name}' đã tồn tại!");
-        }
+        await _validationService.ValidateUniqueAsync(
+            Repository,
+            x => x.Name == input.Name,
+            "name",
+            $"Tên khoa phòng '{input.Name}' đã tồn tại",
+            excludeId: id);
 
         return await base.UpdateAsync(id, input);
+    }
+
+    /// <summary>
+    /// Enriches DTOs with technical manager names
+    /// </summary>
+    private async Task EnrichWithTechnicalManagerNamesAsync(List<LaboratoryDto> dtos)
+    {
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            dtos,
+            dto => dto.TechnicalManagerId,
+            (dto, name) => dto.TechnicalManagerName = name);
     }
 }

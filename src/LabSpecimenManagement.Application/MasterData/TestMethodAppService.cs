@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -112,7 +113,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         if (hasIndicators)
         {
-            throw new BusinessException("Không thể xóa phương pháp đang có chỉ tiêu. Vui lòng xóa hết chỉ tiêu trước.");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể xóa phương pháp đang có chỉ tiêu. Vui lòng xóa hết chỉ tiêu trước.",
+                "id");
         }
 
         await _testMethodRepository.DeleteAsync(id);
@@ -311,7 +314,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         if (entity == null)
         {
-            throw new EntityNotFoundException(typeof(TestMethodIndicator));
+            throw new Common.Exceptions.EntityNotFoundException("TestMethodIndicator");
         }
 
         await _testMethodIndicatorRepository.DeleteAsync(entity);
@@ -357,7 +360,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
             if (nextNumber > 999)
             {
-                throw new BusinessException("Đã đạt giới hạn số phương pháp trong ngày (999). Vui lòng thử lại vào ngày mai.");
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Đã đạt giới hạn số phương pháp trong ngày (999). Vui lòng thử lại vào ngày mai.");
             }
 
             return $"{datePrefix}{nextNumber:D3}";

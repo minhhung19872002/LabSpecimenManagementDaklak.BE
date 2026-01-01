@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.TestRequests;
@@ -181,7 +182,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var canDelete = await CanDeleteAsync(id);
         if (!canDelete)
         {
-            throw new UserFriendlyException("Không thể xóa chỉ tiêu này vì đã được sử dụng trong phiếu yêu cầu.");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể xóa chỉ tiêu này vì đã được sử dụng trong phiếu yêu cầu.",
+                "id");
         }
 
         await _indicatorRepository.DeleteAsync(id);

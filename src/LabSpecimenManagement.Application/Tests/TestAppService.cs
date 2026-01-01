@@ -3,13 +3,14 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
-using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Domain.Entities;
-using Volo.Abp.Identity;
-using LabSpecimenManagement.TestRequests;
+using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Linq;
 
 namespace LabSpecimenManagement.Tests;
 
@@ -25,45 +26,23 @@ public class TestAppService :
     ITestAppService
 {
     private readonly IRepository<Specimen, Guid> _specimenRepository;
-    private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public TestAppService(
         IRepository<Test, Guid> repository,
         IRepository<Specimen, Guid> specimenRepository,
-        IIdentityUserRepository userRepository)
+        IUserNameProvider userNameProvider,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _specimenRepository = specimenRepository;
-        _userRepository = userRepository;
-    }
-
-    private async Task<Dictionary<Guid, string>> GetUserNamesAsync(IEnumerable<Guid?> userIds)
-    {
-        var validIds = userIds.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
-        if (validIds.Count == 0)
-        {
-            return new Dictionary<Guid, string>();
-        }
-
-        var users = await _userRepository.GetListAsync();
-        return users
-            .Where(u => validIds.Contains(u.Id))
-            .ToDictionary(u => u.Id, u => $"{u.Surname} {u.Name}".Trim());
-    }
-
-    private async Task<string?> GetUserNameAsync(Guid? userId)
-    {
-        if (!userId.HasValue) return null;
-
-        var user = await _userRepository.FindAsync(userId.Value);
-        if (user == null) return null;
-
-        return $"{user.Surname} {user.Name}".Trim();
+        _userNameProvider = userNameProvider;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<Test> MapToEntityAsync(CreateTestDto createInput)
     {
-        // Generate test code automatically
         var testCode = await GenerateTestCodeAsync();
 
         var entity = new Test(
@@ -86,80 +65,29 @@ public class TestAppService :
     {
         var query = await Repository.WithDetailsAsync(x => x.Specimen);
 
-        // Apply search filter
-        if (!string.IsNullOrWhiteSpace(input.Search))
-        {
-            var search = input.Search.ToLower();
-            query = query.Where(x =>
-                x.Code.ToLower().Contains(search) ||
-                x.Name.ToLower().Contains(search) ||
-                x.Method.ToLower().Contains(search) ||
-                x.Standard.ToLower().Contains(search) ||
-                (x.Specimen != null && x.Specimen.Code.ToLower().Contains(search)));
-        }
+        // Apply filters using extension methods
+        var search = input.Search?.NormalizeSearch();
+        query = query
+            .WhereIf(!string.IsNullOrEmpty(search), x =>
+                x.Code.ToLower().Contains(search!) ||
+                x.Name.ToLower().Contains(search!) ||
+                x.Method.ToLower().Contains(search!) ||
+                x.Standard.ToLower().Contains(search!) ||
+                (x.Specimen != null && x.Specimen.Code.ToLower().Contains(search!)))
+            .WhereIf(input.Status.HasValue, x => x.Status == input.Status!.Value)
+            .WhereIf(input.SpecimenId.HasValue, x => x.SpecimenId == input.SpecimenId!.Value)
+            .WhereIf(!string.IsNullOrWhiteSpace(input.Method), x => x.Method == input.Method)
+            .WhereIf(input.AssigneeId.HasValue, x => x.AssigneeId == input.AssigneeId!.Value);
 
-        // Apply status filter
-        if (input.Status.HasValue)
-        {
-            query = query.Where(x => x.Status == input.Status.Value);
-        }
-
-        // Apply specimen filter
-        if (input.SpecimenId.HasValue)
-        {
-            query = query.Where(x => x.SpecimenId == input.SpecimenId.Value);
-        }
-
-        // Apply method filter
-        if (!string.IsNullOrWhiteSpace(input.Method))
-        {
-            query = query.Where(x => x.Method == input.Method);
-        }
-
-        // Apply assignee filter
-        if (input.AssigneeId.HasValue)
-        {
-            query = query.Where(x => x.AssigneeId == input.AssigneeId.Value);
-        }
-
-        // Get total count
         var totalCount = await AsyncExecuter.CountAsync(query);
 
-        // Apply sorting
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
-        {
-            query = query.OrderBy(input.Sorting);
-        }
-        else
-        {
-            query = query.OrderByDescending(x => x.CreationTime);
-        }
-
-        // Apply paging
-        query = query
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount);
+        query = query.ApplySorting(input.Sorting, x => x.CreationTime, defaultDescending: true);
+        query = query.ApplyPaging(input);
 
         var entities = await AsyncExecuter.ToListAsync(query);
-
-        // Get user names for assigneeId
-        var userNames = await GetUserNamesAsync(entities.Select(e => e.AssigneeId));
-
         var dtos = ObjectMapper.Map<List<Test>, List<TestDto>>(entities);
 
-        foreach (var dto in dtos)
-        {
-            var entity = entities.FirstOrDefault(x => x.Id == dto.Id);
-            if (entity?.Specimen != null)
-            {
-                dto.SpecimenCode = entity.Specimen.Code;
-                dto.SpecimenName = entity.Specimen.Name;
-            }
-            if (entity?.AssigneeId.HasValue == true && userNames.TryGetValue(entity.AssigneeId.Value, out var userName))
-            {
-                dto.AssigneeName = userName;
-            }
-        }
+        await EnrichTestDtosAsync(dtos, entities);
 
         return new PagedResultDto<TestDto>(totalCount, dtos);
     }
@@ -168,38 +96,18 @@ public class TestAppService :
     {
         var query = await Repository.WithDetailsAsync(x => x.Specimen);
 
-        query = ApplyDefaultSorting(query);
-
         var totalCount = await AsyncExecuter.CountAsync(query);
 
-        query = ApplySorting(query, input);
-        query = ApplyPaging(query, input);
+        query = query
+            .ApplySorting(input.Sorting, x => x.CreationTime, defaultDescending: true)
+            .ApplyPaging(input);
 
         var entities = await AsyncExecuter.ToListAsync(query);
+        var dtos = ObjectMapper.Map<List<Test>, List<TestDto>>(entities);
 
-        // Get user names for assigneeId
-        var userNames = await GetUserNamesAsync(entities.Select(e => e.AssigneeId));
+        await EnrichTestDtosAsync(dtos, entities);
 
-        var dtos = ObjectMapper.Map<System.Collections.Generic.List<Test>, System.Collections.Generic.List<TestDto>>(entities);
-
-        foreach (var dto in dtos)
-        {
-            var entity = entities.FirstOrDefault(x => x.Id == dto.Id);
-            if (entity?.Specimen != null)
-            {
-                dto.SpecimenCode = entity.Specimen.Code;
-                dto.SpecimenName = entity.Specimen.Name;
-            }
-            if (entity?.AssigneeId.HasValue == true && userNames.TryGetValue(entity.AssigneeId.Value, out var userName))
-            {
-                dto.AssigneeName = userName;
-            }
-        }
-
-        return new PagedResultDto<TestDto>(
-            totalCount,
-            dtos
-        );
+        return new PagedResultDto<TestDto>(totalCount, dtos);
     }
 
     public override async Task<TestDto> GetAsync(Guid id)
@@ -220,22 +128,9 @@ public class TestAppService :
             dto.SpecimenName = entity.Specimen.Name;
         }
 
-        // Get user name for assigneeId
-        dto.AssigneeName = await GetUserNameAsync(entity.AssigneeId);
+        dto.AssigneeName = await _userNameProvider.GetUserNameAsync(entity.AssigneeId);
 
         return dto;
-    }
-
-    private async Task<string> GenerateTestCodeAsync()
-    {
-        // Generate test code format: TEST-YYYYMMDD-XXXX
-        var today = DateTime.Now;
-        var prefix = $"TEST-{today:yyyyMMdd}";
-
-        var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-
-        return $"{prefix}-{sequence}";
     }
 
     public async Task<ListResultDto<TestDto>> GetBySpecimenAsync(Guid specimenId)
@@ -247,7 +142,40 @@ public class TestAppService :
             .ToList();
 
         return new ListResultDto<TestDto>(
-            ObjectMapper.Map<System.Collections.Generic.List<Test>, System.Collections.Generic.List<TestDto>>(items)
+            ObjectMapper.Map<List<Test>, List<TestDto>>(items)
         );
+    }
+
+    /// <summary>
+    /// Generates test code with date prefix
+    /// </summary>
+    private async Task<string> GenerateTestCodeAsync()
+    {
+        var prefix = _codeGenerator.GetTodayPrefix("TEST");
+        var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
+        return _codeGenerator.GenerateCodeWithDate("TEST", count);
+    }
+
+    /// <summary>
+    /// Enriches test DTOs with specimen and assignee information
+    /// </summary>
+    private async Task EnrichTestDtosAsync(List<TestDto> dtos, List<Test> entities)
+    {
+        // Enrich with specimen information
+        foreach (var dto in dtos)
+        {
+            var entity = entities.FirstOrDefault(x => x.Id == dto.Id);
+            if (entity?.Specimen != null)
+            {
+                dto.SpecimenCode = entity.Specimen.Code;
+                dto.SpecimenName = entity.Specimen.Name;
+            }
+        }
+
+        // Enrich with assignee names
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            dtos,
+            dto => entities.FirstOrDefault(e => e.Id == dto.Id)?.AssigneeId,
+            (dto, name) => dto.AssigneeName = name);
     }
 }
