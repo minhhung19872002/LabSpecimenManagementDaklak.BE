@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Vị trí lưu trữ - Storage Location
 /// </summary>
-public class StorageLocation : FullAuditedAggregateRoot<Guid>
+public class StorageLocation : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã vị trí - Location Code

@@ -1,3 +1,4 @@
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.QualityManagement;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -61,7 +62,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Reject indicator (QLCL từ chối kết quả)
     /// </summary>
     [HttpPost("indicators/{indicatorId}/reject")]
-    public virtual Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, [FromBody] RejectIndicatorDto input)
+    public virtual Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, [FromBody] RejectWithReasonDto input)
     {
         return _qualityManagementAppService.RejectIndicatorAsync(indicatorId, input.Reason);
     }
@@ -172,7 +173,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Reject changes (Từ chối thay đổi phiếu yêu cầu)
     /// </summary>
     [HttpPost("{taskId}/reject-changes")]
-    public virtual Task RejectChangesAsync(Guid taskId, [FromBody] RejectChangesDto input)
+    public virtual Task RejectChangesAsync(Guid taskId, [FromBody] RejectWithReasonDto input)
     {
         return _qualityManagementAppService.RejectChangesAsync(taskId, input.Reason);
     }

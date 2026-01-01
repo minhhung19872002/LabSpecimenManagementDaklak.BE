@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Khách hàng - Customer
 /// </summary>
-public class Customer : FullAuditedAggregateRoot<Guid>
+public class Customer : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã khách hàng - Customer Code (auto-generated)

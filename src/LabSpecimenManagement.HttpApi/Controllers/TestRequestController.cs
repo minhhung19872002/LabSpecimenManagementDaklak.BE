@@ -91,7 +91,7 @@ public class TestRequestController : LabSpecimenManagementController
     /// </summary>
     [HttpPost("{id}/reject-result")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task RejectResultAsync(Guid id, [FromBody] RejectChangesDto input)
+    public virtual Task RejectResultAsync(Guid id, [FromBody] RejectWithReasonDto input)
     {
         return _testRequestAppService.RejectResultAsync(id, input.Reason);
     }
@@ -152,7 +152,7 @@ public class TestRequestController : LabSpecimenManagementController
     /// </summary>
     [HttpPost("{id}/reject-changes")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task RejectChangesAsync(Guid id, [FromBody] RejectChangesDto input)
+    public virtual Task RejectChangesAsync(Guid id, [FromBody] RejectWithReasonDto input)
     {
         return _testRequestAppService.RejectChangesAsync(id, input.Reason);
     }

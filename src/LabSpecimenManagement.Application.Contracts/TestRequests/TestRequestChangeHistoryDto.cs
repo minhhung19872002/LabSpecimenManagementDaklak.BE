@@ -74,13 +74,3 @@ public class TestRequestChangeHistoryDto : EntityDto<Guid>
     public string? CreatorName { get; set; }
 }
 
-/// <summary>
-/// DTO cho từ chối thay đổi
-/// </summary>
-public class RejectChangesDto
-{
-    /// <summary>
-    /// Lý do từ chối
-    /// </summary>
-    public string Reason { get; set; } = string.Empty;
-}

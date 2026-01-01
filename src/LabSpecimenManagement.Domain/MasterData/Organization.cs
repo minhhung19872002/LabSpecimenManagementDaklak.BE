@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Co so/Doanh nghiep - Organization
 /// </summary>
-public class Organization : FullAuditedAggregateRoot<Guid>
+public class Organization : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Ten co so/doanh nghiep

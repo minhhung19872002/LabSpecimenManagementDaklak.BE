@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Chỉ tiêu - Indicator
 /// </summary>
-public class Indicator : FullAuditedAggregateRoot<Guid>
+public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã chỉ tiêu (tự động sinh: CT-0001, CT-0002...)

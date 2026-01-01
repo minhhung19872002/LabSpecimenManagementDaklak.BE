@@ -5,15 +5,6 @@ using System.ComponentModel.DataAnnotations;
 namespace LabSpecimenManagement.QualityManagement;
 
 /// <summary>
-/// Input DTO for rejecting indicator
-/// </summary>
-public class RejectIndicatorDto
-{
-    [Required]
-    public string Reason { get; set; } = null!;
-}
-
-/// <summary>
 /// Input DTO for updating indicator standard
 /// </summary>
 public class UpdateIndicatorStandardDto
@@ -61,14 +52,6 @@ public class PrintMixedDto
     public string? TemplateName { get; set; }
 }
 
-/// <summary>
-/// Input DTO for rejecting changes
-/// </summary>
-public class RejectChangesDto
-{
-    [Required]
-    public string Reason { get; set; } = null!;
-}
 
 /// <summary>
 /// Input DTO for bulk approve indicators
