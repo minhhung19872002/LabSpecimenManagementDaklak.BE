@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
-using Volo.Abp.Identity;
 using LabSpecimenManagement.TestRequests;
 
 namespace LabSpecimenManagement.SpecimenHistories;
@@ -23,40 +23,16 @@ public class SpecimenHistoryAppService : CrudAppService<
     UpdateSpecimenHistoryDto>, ISpecimenHistoryAppService
 {
     private readonly IGuidGenerator _guidGenerator;
-    private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
 
     public SpecimenHistoryAppService(
         IRepository<SpecimenHistory, Guid> repository,
         IGuidGenerator guidGenerator,
-        IIdentityUserRepository userRepository)
+        IUserNameProvider userNameProvider)
         : base(repository)
     {
         _guidGenerator = guidGenerator;
-        _userRepository = userRepository;
-    }
-
-    private async Task<Dictionary<Guid, string>> GetUserNamesAsync(IEnumerable<Guid?> userIds)
-    {
-        var validIds = userIds.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
-        if (!validIds.Any())
-        {
-            return new Dictionary<Guid, string>();
-        }
-
-        var users = await _userRepository.GetListAsync();
-        return users
-            .Where(u => validIds.Contains(u.Id))
-            .ToDictionary(u => u.Id, u => $"{u.Surname} {u.Name}".Trim());
-    }
-
-    private async Task<string?> GetUserNameAsync(Guid? userId)
-    {
-        if (!userId.HasValue) return null;
-
-        var user = await _userRepository.FindAsync(userId.Value);
-        if (user == null) return null;
-
-        return $"{user.Surname} {user.Name}".Trim();
+        _userNameProvider = userNameProvider;
     }
 
     protected override Task<SpecimenHistory> MapToEntityAsync(CreateSpecimenHistoryDto createInput)
@@ -146,7 +122,7 @@ public class SpecimenHistoryAppService : CrudAppService<
         var entities = await AsyncExecuter.ToListAsync(query);
 
         // Get user names for performedById
-        var userNames = await GetUserNamesAsync(entities.Select(e => e.PerformedById));
+        var userNames = await _userNameProvider.GetUserNamesAsync(entities.Select(e => e.PerformedById));
 
         var dtos = entities.Select(entity =>
         {
@@ -175,7 +151,7 @@ public class SpecimenHistoryAppService : CrudAppService<
             .ToList();
 
         // Get user names for performedById
-        var userNames = await GetUserNamesAsync(items.Select(e => e.PerformedById));
+        var userNames = await _userNameProvider.GetUserNamesAsync(items.Select(e => e.PerformedById));
 
         var dtos = items.Select(entity =>
         {
@@ -206,7 +182,7 @@ public class SpecimenHistoryAppService : CrudAppService<
         var entities = await AsyncExecuter.ToListAsync(queryable);
 
         // Get user names for performedById
-        var userNames = await GetUserNamesAsync(entities.Select(e => e.PerformedById));
+        var userNames = await _userNameProvider.GetUserNamesAsync(entities.Select(e => e.PerformedById));
 
         var dtos = entities.Select(entity =>
         {
@@ -244,7 +220,7 @@ public class SpecimenHistoryAppService : CrudAppService<
         }
 
         // Get user name for performedById
-        dto.PerformedByName = await GetUserNameAsync(entity.PerformedById);
+        dto.PerformedByName = await _userNameProvider.GetUserNameAsync(entity.PerformedById);
 
         return dto;
     }

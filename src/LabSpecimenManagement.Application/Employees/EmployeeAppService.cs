@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
@@ -56,14 +57,14 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         // Filter by search text (name, username, email, phone)
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var searchText = input.Filter.ToLower();
-            filteredUsers = filteredUsers.Where(u =>
-                (u.UserName != null && u.UserName.ToLower().Contains(searchText)) ||
-                (u.Name != null && u.Name.ToLower().Contains(searchText)) ||
-                (u.Surname != null && u.Surname.ToLower().Contains(searchText)) ||
-                (u.Email != null && u.Email.ToLower().Contains(searchText)) ||
-                (u.PhoneNumber != null && u.PhoneNumber.Contains(searchText)) ||
-                ($"{u.Surname} {u.Name}".ToLower().Contains(searchText))
+            filteredUsers = filteredUsers.WhereContainsIgnoreCase(
+                input.Filter,
+                u => u.UserName,
+                u => u.Name,
+                u => u.Surname,
+                u => u.Email,
+                u => u.PhoneNumber,
+                u => $"{u.Surname} {u.Name}"
             );
         }
 

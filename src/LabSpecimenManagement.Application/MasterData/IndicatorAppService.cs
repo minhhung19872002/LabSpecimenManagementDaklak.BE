@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
@@ -21,12 +22,15 @@ namespace LabSpecimenManagement.MasterData;
 [Authorize(LabSpecimenManagementPermissions.Indicators.Default)]
 public class IndicatorAppService : ApplicationService, IIndicatorAppService
 {
+    private const string CodePrefix = "CT";
+
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestRequestIndicator, Guid> _testRequestIndicatorRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IDataFilter _dataFilter;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public IndicatorAppService(
         IRepository<Indicator, Guid> indicatorRepository,
@@ -34,7 +38,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
-        IDataFilter dataFilter)
+        IDataFilter dataFilter,
+        ICodeGeneratorService codeGenerator)
     {
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
@@ -42,6 +47,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _testMethodRepository = testMethodRepository;
         _dataFilter = dataFilter;
+        _codeGenerator = codeGenerator;
     }
 
     public async Task<PagedResultDto<IndicatorDto>> GetListAsync(IndicatorFilterDto input)
@@ -142,7 +148,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             var item = input.Indicators[i];
 
             // Generate code and add to existingCodes to prevent duplicates in same batch
-            var code = $"CT-{nextSequence.ToString("D4")}";
+            var code = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
             existingCodes.Add(code);
             nextSequence++;
 
@@ -425,7 +431,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private async Task<string> GenerateCodeAsync()
     {
         var nextSequence = await GetNextSequenceAsync();
-        return $"CT-{nextSequence.ToString("D4")}";
+        return _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
     }
 
     /// <summary>
@@ -446,9 +452,10 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     private async Task<string> GenerateUniqueCodeAsync()
     {
+        var prefix = $"{CodePrefix}-";
         var query = await _indicatorRepository.GetQueryableAsync();
         var existingCodes = query
-            .Where(x => x.Code.StartsWith("CT-"))
+            .Where(x => x.Code.StartsWith(prefix))
             .Select(x => x.Code)
             .ToHashSet();
 
@@ -458,19 +465,19 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             nextSequence = existingCodes
                 .Select(code =>
                 {
-                    var numberPart = code.Replace("CT-", "");
+                    var numberPart = code.Replace(prefix, "");
                     return int.TryParse(numberPart, out var num) ? num : 0;
                 })
                 .Max() + 1;
         }
 
-        var newCode = $"CT-{nextSequence.ToString("D4")}";
+        var newCode = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
 
         // Double check to ensure uniqueness (in case of race condition)
         while (existingCodes.Contains(newCode))
         {
             nextSequence++;
-            newCode = $"CT-{nextSequence.ToString("D4")}";
+            newCode = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
         }
 
         return newCode;

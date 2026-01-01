@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Domain.Entities;
 using LabSpecimenManagement.TestRequests;
-using Microsoft.Extensions.Logging;
 
 namespace LabSpecimenManagement.Specimens;
 
@@ -25,13 +25,16 @@ public class SpecimenAppService :
     ISpecimenAppService
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public SpecimenAppService(
         IRepository<Specimen, Guid> repository,
-        IRepository<TestRequest, Guid> testRequestRepository)
+        IRepository<TestRequest, Guid> testRequestRepository,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _testRequestRepository = testRequestRepository;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<Specimen> MapToEntityAsync(CreateSpecimenDto createInput)
@@ -188,14 +191,9 @@ public class SpecimenAppService :
 
     private async Task<string> GenerateSpecimenCodeAsync()
     {
-        // Generate specimen code format: SPE-YYYYMMDD-XXXX
-        var today = DateTime.Now;
-        var prefix = $"SPE-{today:yyyyMMdd}";
-
+        var prefix = _codeGenerator.GetTodayPrefix("SPE");
         var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("SPE", count);
     }
 
     public async Task<ListResultDto<SpecimenDto>> GetByTestRequestAsync(Guid testRequestId)

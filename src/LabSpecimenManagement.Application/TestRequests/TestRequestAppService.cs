@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
 using Microsoft.Extensions.Logging;
@@ -49,6 +50,8 @@ public class TestRequestAppService :
     private readonly INotificationAppService _notificationAppService;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
+    private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IUserNameProvider _userNameProvider;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -68,7 +71,9 @@ public class TestRequestAppService :
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         INotificationAppService notificationAppService,
         INotificationCreator notificationCreator,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        ICodeGeneratorService codeGenerator,
+        IUserNameProvider userNameProvider)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -78,6 +83,7 @@ public class TestRequestAppService :
         _laboratoryRepository = laboratoryRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _codeGenerator = codeGenerator;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
@@ -88,6 +94,8 @@ public class TestRequestAppService :
         _notificationAppService = notificationAppService;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
+        _codeGenerator = codeGenerator;
+        _userNameProvider = userNameProvider;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -248,17 +256,15 @@ public class TestRequestAppService :
         // Set total cost from calculated value
         dto.TotalCost = calculatedTotalCost;
 
-        // Load user names
-        if (dto.SupervisorId.HasValue)
+        // Load user names (batch fetch)
+        var userNames = await _userNameProvider.GetUserNamesAsync(new[] { dto.SupervisorId, dto.DirectorId });
+        if (dto.SupervisorId.HasValue && userNames.TryGetValue(dto.SupervisorId.Value, out var supervisorName))
         {
-            var supervisor = await _userRepository.FindAsync(dto.SupervisorId.Value);
-            dto.SupervisorName = supervisor?.Name ?? supervisor?.UserName;
+            dto.SupervisorName = supervisorName;
         }
-
-        if (dto.DirectorId.HasValue)
+        if (dto.DirectorId.HasValue && userNames.TryGetValue(dto.DirectorId.Value, out var directorName))
         {
-            var director = await _userRepository.FindAsync(dto.DirectorId.Value);
-            dto.DirectorName = director?.Name ?? director?.UserName;
+            dto.DirectorName = directorName;
         }
 
         return dto;
@@ -878,14 +884,9 @@ public class TestRequestAppService :
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        // Generate request number format: REQ-YYYYMMDD-XXXX
-        var today = DateTime.Now;
-        var prefix = $"REQ-{today:yyyyMMdd}";
-
+        var prefix = _codeGenerator.GetTodayPrefix("REQ");
         var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("REQ", count);
     }
 
     /// <summary>
@@ -2321,43 +2322,29 @@ public class TestRequestAppService :
         var allChanges = await _changeHistoryRepository.GetListAsync(c => c.TestRequestId == id);
         var changes = allChanges.OrderByDescending(c => c.CreationTime).ToList();
 
-        var result = new List<TestRequestChangeHistoryDto>();
-        foreach (var change in changes)
+        // Batch fetch all user names
+        var allUserIds = changes
+            .SelectMany(c => new[] { c.CreatorId, c.ApprovedById })
+            .ToList();
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
+        return changes.Select(change => new TestRequestChangeHistoryDto
         {
-            var dto = new TestRequestChangeHistoryDto
-            {
-                Id = change.Id,
-                TestRequestId = change.TestRequestId,
-                FieldName = change.FieldName,
-                OldValue = change.OldValue,
-                NewValue = change.NewValue,
-                ApprovalStatus = change.ApprovalStatus,
-                PreviousStatus = change.PreviousStatus,
-                ApprovedById = change.ApprovedById,
-                ApprovalDate = change.ApprovalDate,
-                RejectionReason = change.RejectionReason,
-                CreationTime = change.CreationTime,
-                CreatorId = change.CreatorId
-            };
-
-            // Get creator name
-            if (change.CreatorId.HasValue)
-            {
-                var creator = await _userRepository.FindAsync(change.CreatorId.Value);
-                dto.CreatorName = creator?.Name ?? creator?.UserName;
-            }
-
-            // Get approver name
-            if (change.ApprovedById.HasValue)
-            {
-                var approver = await _userRepository.FindAsync(change.ApprovedById.Value);
-                dto.ApprovedByName = approver?.Name ?? approver?.UserName;
-            }
-
-            result.Add(dto);
-        }
-
-        return result;
+            Id = change.Id,
+            TestRequestId = change.TestRequestId,
+            FieldName = change.FieldName,
+            OldValue = change.OldValue,
+            NewValue = change.NewValue,
+            ApprovalStatus = change.ApprovalStatus,
+            PreviousStatus = change.PreviousStatus,
+            ApprovedById = change.ApprovedById,
+            ApprovalDate = change.ApprovalDate,
+            RejectionReason = change.RejectionReason,
+            CreationTime = change.CreationTime,
+            CreatorId = change.CreatorId,
+            CreatorName = change.CreatorId.HasValue && userNames.TryGetValue(change.CreatorId.Value, out var cn) ? cn : null,
+            ApprovedByName = change.ApprovedById.HasValue && userNames.TryGetValue(change.ApprovedById.Value, out var an) ? an : null
+        }).ToList();
     }
 
     /// <summary>
@@ -2612,12 +2599,7 @@ public class TestRequestAppService :
         });
 
         // Get creator name for fallback (used in New and Pending steps if no specific data)
-        string? creatorName = null;
-        if (testRequest.CreatorId.HasValue)
-        {
-            var creator = await _userRepository.FindAsync(testRequest.CreatorId.Value);
-            creatorName = creator?.Name ?? creator?.UserName;
-        }
+        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
 
         // Step 7: Chờ xử lý (Pending)
         var isPending = currentStatus >= TestRequestStatus.Pending;

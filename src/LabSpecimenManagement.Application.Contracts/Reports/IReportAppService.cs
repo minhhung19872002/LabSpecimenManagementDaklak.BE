@@ -18,7 +18,7 @@ public interface IReportAppService : ICrudAppService<
     Task<ReportDto> RejectAsync(Guid id, string? reason);
     Task<ReportDto> IssueAsync(Guid id);
     Task SendEmailAsync(Guid id);
-    Task<ReportDto> GetByReportNumberAsync(string reportNumber);
+    Task<ReportDto?> GetByReportNumberAsync(string reportNumber);
     Task<ListResultDto<ReportDto>> GetByTestRequestAsync(Guid testRequestId);
     Task<IRemoteStreamContent> ExportPdfAsync(Guid id);
     Task<ReportVerifyResultDto> VerifyReportAsync(string reportNumber);

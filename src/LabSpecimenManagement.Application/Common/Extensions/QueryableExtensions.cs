@@ -1,10 +1,39 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Linq.Dynamic.Core;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.Common;
+
+/// <summary>
+/// Extension methods for IEnumerable to provide common operations
+/// </summary>
+public static class EnumerableExtensions
+{
+    /// <summary>
+    /// Filters items that contain the search text (case-insensitive) in any of the specified fields
+    /// </summary>
+    /// <typeparam name="T">Item type</typeparam>
+    /// <param name="source">Source collection</param>
+    /// <param name="searchText">Text to search for</param>
+    /// <param name="fieldSelectors">Functions to get string fields from item</param>
+    /// <returns>Filtered collection</returns>
+    public static IEnumerable<T> WhereContainsIgnoreCase<T>(
+        this IEnumerable<T> source,
+        string? searchText,
+        params Func<T, string?>[] fieldSelectors)
+    {
+        if (string.IsNullOrWhiteSpace(searchText))
+            return source;
+
+        var search = searchText.Trim();
+        return source.Where(item =>
+            fieldSelectors.Any(selector =>
+                selector(item).ContainsIgnoreCase(search)));
+    }
+}
 
 /// <summary>
 /// Extension methods for IQueryable to provide common query operations

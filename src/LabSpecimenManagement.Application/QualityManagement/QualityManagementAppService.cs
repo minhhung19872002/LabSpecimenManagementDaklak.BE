@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
@@ -35,6 +36,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<IdentityUser, Guid> _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly INotificationCreator _notificationCreator;
@@ -57,6 +59,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<IdentityUser, Guid> userRepository,
+        IUserNameProvider userNameProvider,
         ITestRequestAppService testRequestAppService,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         INotificationCreator notificationCreator,
@@ -78,6 +81,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         _standardIndicatorRepository = standardIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
         _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
         _testRequestAppService = testRequestAppService;
         _specimenTypeRepository = specimenTypeRepository;
         _notificationCreator = notificationCreator;
@@ -555,38 +559,29 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
     public async Task<List<QualityIndicatorStatusHistoryDto>> GetIndicatorHistoryAsync(Guid indicatorId)
     {
         var histories = await _historyRepository.GetListAsync(h => h.QualityManagementIndicatorId == indicatorId);
+        var orderedHistories = histories.OrderByDescending(x => x.CreationTime).ToList();
 
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
         var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
         var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
         var masterIndicator = await _masterIndicatorRepository.GetAsync(sampleIndicator.IndicatorId);
 
-        var dtos = new List<QualityIndicatorStatusHistoryDto>();
-        foreach (var h in histories.OrderByDescending(x => x.CreationTime))
+        // Batch fetch user names
+        var userNames = await _userNameProvider.GetUserNamesAsync(orderedHistories.Select(h => h.CreatorId));
+
+        return orderedHistories.Select(h => new QualityIndicatorStatusHistoryDto
         {
-            var creatorName = "";
-            if (h.CreatorId.HasValue)
-            {
-                var user = await _userRepository.FindAsync(h.CreatorId.Value);
-                creatorName = user?.Name ?? user?.UserName ?? "";
-            }
-
-            dtos.Add(new QualityIndicatorStatusHistoryDto
-            {
-                Id = h.Id,
-                QualityManagementIndicatorId = h.QualityManagementIndicatorId,
-                IndicatorCode = masterIndicator.Code,
-                IndicatorName = masterIndicator.Name,
-                OldStatus = h.OldStatus,
-                NewStatus = h.NewStatus,
-                Comment = h.Comment,
-                CreationTime = h.CreationTime,
-                CreatorId = h.CreatorId,
-                CreatorName = creatorName
-            });
-        }
-
-        return dtos;
+            Id = h.Id,
+            QualityManagementIndicatorId = h.QualityManagementIndicatorId,
+            IndicatorCode = masterIndicator.Code,
+            IndicatorName = masterIndicator.Name,
+            OldStatus = h.OldStatus,
+            NewStatus = h.NewStatus,
+            Comment = h.Comment,
+            CreationTime = h.CreationTime,
+            CreatorId = h.CreatorId,
+            CreatorName = h.CreatorId.HasValue && userNames.TryGetValue(h.CreatorId.Value, out var name) ? name : ""
+        }).ToList();
     }
 
     public async Task<TaskHistoryResponseDto> GetTaskHistoryAsync(Guid taskId)
@@ -622,37 +617,22 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
                 }
             }
 
-            // Cache user names to avoid repeated queries
-            var userCache = new Dictionary<Guid, string>();
+            // Batch fetch all user names upfront
+            var allUserIds = allChangeHistories
+                .SelectMany(ch => new[] { ch.CreatorId, ch.ApprovedById })
+                .ToList();
+            var userCache = await _userNameProvider.GetUserNamesAsync(allUserIds);
 
             // Build ChangeHistoryBatches (new grouped format)
             foreach (var batch in batches.OrderByDescending(b => b.BatchTime))
             {
                 var firstChange = batch.Changes.First();
 
-                // Get creator name
-                var creatorName = "";
-                if (firstChange.CreatorId.HasValue)
-                {
-                    if (!userCache.TryGetValue(firstChange.CreatorId.Value, out creatorName!))
-                    {
-                        var user = await _userRepository.FindAsync(firstChange.CreatorId.Value);
-                        creatorName = user?.Name ?? user?.UserName ?? "";
-                        userCache[firstChange.CreatorId.Value] = creatorName;
-                    }
-                }
+                // Get creator name from cache
+                var creatorName = firstChange.CreatorId.HasValue && userCache.TryGetValue(firstChange.CreatorId.Value, out var cn) ? cn : "";
 
-                // Get approver name
-                var approvedByName = "";
-                if (firstChange.ApprovedById.HasValue)
-                {
-                    if (!userCache.TryGetValue(firstChange.ApprovedById.Value, out approvedByName!))
-                    {
-                        var approver = await _userRepository.FindAsync(firstChange.ApprovedById.Value);
-                        approvedByName = approver?.Name ?? approver?.UserName ?? "";
-                        userCache[firstChange.ApprovedById.Value] = approvedByName;
-                    }
-                }
+                // Get approver name from cache
+                var approvedByName = firstChange.ApprovedById.HasValue && userCache.TryGetValue(firstChange.ApprovedById.Value, out var an) ? an : "";
 
                 // Determine action based on status
                 var action = firstChange.ApprovalStatus switch
@@ -735,6 +715,9 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
             var histories = await _historyRepository.GetListAsync(h => indicatorIds.Contains(h.QualityManagementIndicatorId));
 
+            // Batch fetch all user names for histories
+            var historyUserNames = await _userNameProvider.GetUserNamesAsync(histories.Select(h => h.CreatorId));
+
             // Group histories by indicator
             var groupedHistories = histories.GroupBy(h => h.QualityManagementIndicatorId);
 
@@ -757,12 +740,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
 
                 foreach (var h in group.OrderByDescending(x => x.CreationTime))
                 {
-                    var creatorName = "";
-                    if (h.CreatorId.HasValue)
-                    {
-                        var user = await _userRepository.FindAsync(h.CreatorId.Value);
-                        creatorName = user?.Name ?? user?.UserName ?? "";
-                    }
+                    var creatorName = h.CreatorId.HasValue && historyUserNames.TryGetValue(h.CreatorId.Value, out var name) ? name : "";
 
                     indicatorHistoryDto.Histories.Add(new QualityIndicatorStatusHistoryDto
                     {
@@ -872,12 +850,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         await _taskRepository.UpdateAsync(task);
 
         // Get current user name
-        string? currentUserName = null;
-        if (CurrentUser.Id.HasValue)
-        {
-            var user = await _userRepository.FindAsync(CurrentUser.Id.Value);
-            currentUserName = user?.Name ?? user?.UserName;
-        }
+        var currentUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
 
         // Also update TestRequest status and ResultSent info
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
@@ -1126,12 +1099,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             var changeHistory = await _changeHistoryRepository.FindAsync(task.ChangeHistoryId.Value);
             if (changeHistory != null)
             {
-                string? createdByName = null;
-                if (changeHistory.CreatorId.HasValue)
-                {
-                    var creator = await _userRepository.FindAsync(changeHistory.CreatorId.Value);
-                    createdByName = creator?.Name ?? creator?.UserName;
-                }
+                var createdByName = await _userNameProvider.GetUserNameAsync(changeHistory.CreatorId);
 
                 dto.ChangeHistory = new ChangeHistoryInfoDto
                 {
@@ -1174,12 +1142,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             standardName = standard?.Name;
         }
 
-        string? approvedByName = null;
-        if (indicator.ApprovedById.HasValue)
-        {
-            var approver = await _userRepository.FindAsync(indicator.ApprovedById.Value);
-            approvedByName = approver?.Name ?? approver?.UserName;
-        }
+        var approvedByName = await _userNameProvider.GetUserNameAsync(indicator.ApprovedById);
 
         string? specimenTypeName = null;
         if (sample.SpecimenTypeId.HasValue)
@@ -1256,13 +1219,7 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
             // Only update if not already set (to preserve first approval info)
             if (!testRequest.ApprovedDate.HasValue)
             {
-                // Get current user name
-                string? currentUserName = null;
-                if (CurrentUser.Id.HasValue)
-                {
-                    var user = await _userRepository.FindAsync(CurrentUser.Id.Value);
-                    currentUserName = user?.Name ?? user?.UserName;
-                }
+                var currentUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
 
                 testRequest.ApprovedDate = DateTime.Now;
                 testRequest.ApprovedByUserId = CurrentUser.Id;

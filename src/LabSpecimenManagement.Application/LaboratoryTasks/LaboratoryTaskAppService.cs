@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
@@ -34,6 +35,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
@@ -56,6 +58,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
+        IUserNameProvider userNameProvider,
         IIdentityRoleRepository roleRepository,
         ITestRequestAppService testRequestAppService,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
@@ -77,6 +80,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _indicatorGroupRepository = indicatorGroupRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
         _roleRepository = roleRepository;
         _testRequestAppService = testRequestAppService;
         _qualityTaskRepository = qualityTaskRepository;
@@ -329,14 +333,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
 
         // Get Technical Manager name
-        if (task.TechnicalManagerId.HasValue)
-        {
-            var user = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
-            if (user != null)
-            {
-                dto.TechnicalManagerName = user.Name ?? user.UserName;
-            }
-        }
+        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(task.TechnicalManagerId);
 
         // Set current user role flags
         var currentUserId = CurrentUser.Id;
@@ -360,6 +357,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var taskIndicators = await _laboratoryTaskIndicatorRepository
             .GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
+        // Batch fetch all user names needed for indicators
+        var allUserIds = taskIndicators
+            .SelectMany(ti => new[] { ti.TechnicianId, ti.EnteredById, ti.ApprovedById })
+            .ToList();
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
         foreach (var taskIndicator in taskIndicators)
         {
             var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
@@ -375,27 +378,11 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 indicatorGroupName = indicatorGroup?.Name;
             }
 
-            // Get user names for workflow fields
-            string? technicianName = null;
-            string? enteredByName = null;
-            string? approvedByName = null;
+            // Get user names from batch-fetched dictionary
+            string? technicianName = taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var tn) ? tn : null;
+            string? enteredByName = taskIndicator.EnteredById.HasValue && userNames.TryGetValue(taskIndicator.EnteredById.Value, out var en) ? en : null;
+            string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
             string? methodName = null;
-
-            if (taskIndicator.TechnicianId.HasValue)
-            {
-                var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-                technicianName = technician?.Name ?? technician?.UserName;
-            }
-            if (taskIndicator.EnteredById.HasValue)
-            {
-                var enteredBy = await _userRepository.FindAsync(taskIndicator.EnteredById.Value);
-                enteredByName = enteredBy?.Name ?? enteredBy?.UserName;
-            }
-            if (taskIndicator.ApprovedById.HasValue)
-            {
-                var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
-                approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
-            }
             string? unit = taskIndicator.Unit;
             if (taskIndicator.MethodId.HasValue)
             {
@@ -1306,27 +1293,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             indicatorGroupName = indicatorGroup?.Name;
         }
 
-        // Get user names for workflow fields
-        string? technicianName = null;
-        string? enteredByName = null;
-        string? approvedByName = null;
-        string? methodName = null;
+        // Get user names for workflow fields (batch fetch)
+        var userIds = new[] { taskIndicator.TechnicianId, taskIndicator.EnteredById, taskIndicator.ApprovedById };
+        var userNames = await _userNameProvider.GetUserNamesAsync(userIds);
 
-        if (taskIndicator.TechnicianId.HasValue)
-        {
-            var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-            technicianName = technician?.Name ?? technician?.UserName;
-        }
-        if (taskIndicator.EnteredById.HasValue)
-        {
-            var enteredBy = await _userRepository.FindAsync(taskIndicator.EnteredById.Value);
-            enteredByName = enteredBy?.Name ?? enteredBy?.UserName;
-        }
-        if (taskIndicator.ApprovedById.HasValue)
-        {
-            var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
-            approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
-        }
+        string? technicianName = taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var tn) ? tn : null;
+        string? enteredByName = taskIndicator.EnteredById.HasValue && userNames.TryGetValue(taskIndicator.EnteredById.Value, out var en) ? en : null;
+        string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
+        string? methodName = null;
         string? unit = taskIndicator.Unit;
         if (taskIndicator.MethodId.HasValue)
         {
@@ -1380,22 +1354,18 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     public async Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId)
     {
         var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var dtos = new List<LaboratoryTaskSupporterDto>();
 
-        foreach (var supporter in supporters)
+        // Batch fetch user names
+        var userNames = await _userNameProvider.GetUserNamesAsync(supporters.Select(s => (Guid?)s.UserId));
+
+        var dtos = supporters.Select(supporter => new LaboratoryTaskSupporterDto
         {
-            var user = await _userRepository.FindAsync(supporter.UserId);
-            dtos.Add(new LaboratoryTaskSupporterDto
-            {
-                Id = supporter.Id,
-                LaboratoryTaskId = supporter.LaboratoryTaskId,
-                UserId = supporter.UserId,
-                UserName = user?.UserName,
-                FullName = user != null ? $"{user.Surname} {user.Name}".Trim() : null,
-                Email = user?.Email,
-                CreationTime = supporter.CreationTime
-            });
-        }
+            Id = supporter.Id,
+            LaboratoryTaskId = supporter.LaboratoryTaskId,
+            UserId = supporter.UserId,
+            FullName = userNames.TryGetValue(supporter.UserId, out var name) ? name : null,
+            CreationTime = supporter.CreationTime
+        }).ToList();
 
         return dtos.OrderBy(x => x.FullName).ToList();
     }
@@ -2008,22 +1978,18 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             // Determine task name based on priority
             // Priority: "Có kết quả cần thực hiện lại" > "Có kết quả chỉ tiêu cần gửi" > "Có chỉ tiêu cần thực hiện"
             string taskName;
-            int priority;
 
             if (rejectedCount > 0)
             {
                 taskName = "Có kết quả cần thực hiện lại";
-                priority = 0;
             }
             else if (enteredCount > 0)
             {
                 taskName = "Có kết quả chỉ tiêu cần gửi";
-                priority = 1;
             }
             else
             {
                 taskName = "Có chỉ tiêu cần thực hiện";
-                priority = 2;
             }
 
             result.Add(new LabTechnicianPendingTaskDto

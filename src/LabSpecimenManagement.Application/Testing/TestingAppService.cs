@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
@@ -15,7 +16,6 @@ using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
-using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
 
@@ -34,7 +34,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
-    private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
 
@@ -50,7 +50,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
-        IIdentityUserRepository userRepository,
+        IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator)
     {
@@ -65,7 +65,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
-        _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
     }
@@ -287,32 +287,30 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
     public async Task<List<RejectionHistoryDto>> GetRejectionHistoryAsync(Guid indicatorId)
     {
-        var dtos = new List<RejectionHistoryDto>();
-
         try
         {
             var histories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == indicatorId);
+            var orderedHistories = histories.OrderByDescending(h => h.RejectedDate).ToList();
 
-            foreach (var history in histories.OrderByDescending(h => h.RejectedDate))
+            // Batch fetch user names
+            var userNames = await _userNameProvider.GetUserNamesAsync(
+                orderedHistories.Select(h => (Guid?)h.RejectedById));
+
+            return orderedHistories.Select(history => new RejectionHistoryDto
             {
-                var rejectedByUser = await _userRepository.FindAsync(history.RejectedById);
-                dtos.Add(new RejectionHistoryDto
-                {
-                    Id = history.Id,
-                    IndicatorId = history.IndicatorId,
-                    RejectionReason = history.RejectionReason,
-                    RejectedDate = history.RejectedDate,
-                    RejectedById = history.RejectedById,
-                    RejectedByName = rejectedByUser?.Name ?? rejectedByUser?.UserName
-                });
-            }
+                Id = history.Id,
+                IndicatorId = history.IndicatorId,
+                RejectionReason = history.RejectionReason,
+                RejectedDate = history.RejectedDate,
+                RejectedById = history.RejectedById,
+                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null
+            }).ToList();
         }
         catch
         {
             // Table may not exist yet - migration not applied
+            return new List<RejectionHistoryDto>();
         }
-
-        return dtos;
     }
 
     #region Private Methods
@@ -509,8 +507,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
             dto.TotalSampleCount = userSampleIds.Count;
 
             // TechnicianNames = current user's name only
-            var currentUser = await _userRepository.FindAsync(currentUserId.Value);
-            dto.TechnicianNames = currentUser?.Name ?? currentUser?.UserName ?? "";
+            dto.TechnicianNames = await _userNameProvider.GetUserNameAsync(currentUserId.Value) ?? "";
         }
         else
         {
@@ -520,25 +517,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             dto.TotalSampleCount = task.TotalSampleCount;
             dto.TotalIndicatorCount = activeIndicators.Count;
 
-            // Get all technician names (distinct)
+            // Get all technician names (distinct) - batch fetch
             var technicianIds = indicators
                 .Where(i => i.TechnicianId.HasValue)
-                .Select(i => i.TechnicianId!.Value)
+                .Select(i => i.TechnicianId)
                 .Distinct()
                 .ToList();
 
             if (technicianIds.Any())
             {
-                var technicianNames = new List<string>();
-                foreach (var techId in technicianIds)
-                {
-                    var user = await _userRepository.FindAsync(techId);
-                    if (user != null)
-                    {
-                        technicianNames.Add(user.Name ?? user.UserName ?? "");
-                    }
-                }
-                dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+                var userNames = await _userNameProvider.GetUserNamesAsync(technicianIds);
+                dto.TechnicianNames = string.Join(", ", userNames.Values.Where(n => !string.IsNullOrWhiteSpace(n)));
             }
         }
 
@@ -585,11 +574,15 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
 
+        // Collect all user IDs needed for this DTO (batch fetch)
+        var allUserIds = new List<Guid?> { task.TechnicalManagerId };
+        allUserIds.AddRange(taskIndicators.Select(i => i.TechnicianId));
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
         // Get technical manager name
-        if (task.TechnicalManagerId.HasValue)
+        if (task.TechnicalManagerId.HasValue && userNames.TryGetValue(task.TechnicalManagerId.Value, out var managerName))
         {
-            var manager = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
-            dto.TechnicalManagerName = manager?.Name ?? manager?.UserName;
+            dto.TechnicalManagerName = managerName;
         }
 
         // Get technician names
@@ -601,16 +594,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (technicianIds.Any())
         {
-            var technicianNames = new List<string>();
-            foreach (var techId in technicianIds)
-            {
-                var user = await _userRepository.FindAsync(techId);
-                if (user != null)
-                {
-                    technicianNames.Add(user.Name ?? user.UserName ?? "");
-                }
-            }
-            dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+            var technicianNameList = technicianIds
+                .Where(id => userNames.ContainsKey(id))
+                .Select(id => userNames[id])
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .ToList();
+            dto.TechnicianNames = string.Join(", ", technicianNameList);
         }
 
         // Count completed indicators (loại trừ CustomerCancelled khỏi tổng số)
@@ -706,10 +695,9 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 }
             }
 
-            if (taskIndicator.TechnicianId.HasValue)
+            if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
             {
-                var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-                technicianName = technician?.Name ?? technician?.UserName;
+                technicianName = techName;
             }
 
             // Get rejection history count and latest reason

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -47,12 +48,13 @@ public class UserLookupAppService : ApplicationService, IUserLookupAppService
 
         if (!string.IsNullOrWhiteSpace(filter))
         {
-            var lowerFilter = filter.ToLower();
-            activeUsers = activeUsers.Where(u =>
-                (u.UserName != null && u.UserName.ToLower().Contains(lowerFilter)) ||
-                (u.Name != null && u.Name.ToLower().Contains(lowerFilter)) ||
-                (u.Surname != null && u.Surname.ToLower().Contains(lowerFilter)) ||
-                (u.Email != null && u.Email.ToLower().Contains(lowerFilter)));
+            activeUsers = activeUsers.WhereContainsIgnoreCase(
+                filter,
+                u => u.UserName,
+                u => u.Name,
+                u => u.Surname,
+                u => u.Email
+            );
         }
 
         var departments = await _departmentRepository.GetListAsync();

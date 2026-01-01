@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -23,16 +24,19 @@ public class TaskAssignmentAppService :
     ITaskAssignmentAppService
 {
     private readonly ICurrentUser _currentUser;
-    private readonly IRepository<Volo.Abp.Identity.IdentityUser, Guid> _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public TaskAssignmentAppService(
         IRepository<TaskAssignment, Guid> repository,
         ICurrentUser currentUser,
-        IRepository<Volo.Abp.Identity.IdentityUser, Guid> userRepository)
+        IUserNameProvider userNameProvider,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _currentUser = currentUser;
-        _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<TaskAssignmentDto> MapToGetOutputDtoAsync(TaskAssignment entity)
@@ -51,18 +55,17 @@ public class TaskAssignmentAppService :
 
     private async Task PopulateUserNamesAsync(TaskAssignmentDto dto, TaskAssignment entity)
     {
-        // Populate AssignedToName
-        var assignedTo = await _userRepository.FindAsync(entity.AssignedToId);
-        if (assignedTo != null)
+        var userIds = new Guid?[] { entity.AssignedToId, entity.AssignedById };
+        var userNames = await _userNameProvider.GetUserNamesAsync(userIds);
+
+        if (userNames.TryGetValue(entity.AssignedToId, out var assignedToName))
         {
-            dto.AssignedToName = assignedTo.Name ?? assignedTo.UserName;
+            dto.AssignedToName = assignedToName;
         }
 
-        // Populate AssignedByName
-        var assignedBy = await _userRepository.FindAsync(entity.AssignedById);
-        if (assignedBy != null)
+        if (userNames.TryGetValue(entity.AssignedById, out var assignedByName))
         {
-            dto.AssignedByName = assignedBy.Name ?? assignedBy.UserName;
+            dto.AssignedByName = assignedByName;
         }
     }
 
@@ -250,10 +253,8 @@ public class TaskAssignmentAppService :
 
     private async Task<string> GenerateTaskNumberAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"TASK-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("TASK");
         var count = await Repository.CountAsync(x => x.TaskNumber.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("TASK", count);
     }
 }
