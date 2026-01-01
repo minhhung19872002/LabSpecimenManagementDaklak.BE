@@ -44,6 +44,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
@@ -66,6 +67,7 @@ public partial class TestRequestAppService :
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
@@ -88,6 +90,7 @@ public partial class TestRequestAppService :
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
         _qualityTaskRepository = qualityTaskRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
         _attachmentRepository = attachmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
@@ -1144,6 +1147,19 @@ public partial class TestRequestAppService :
             return TestRequestStatus.Completed;
         }
 
+        // Get all quality management indicators for the lab task indicators that were sent to QLCL
+        var labTaskIndicatorIds = labTaskIndicators
+            .Where(lti => lti.IsSentToQuality)
+            .Select(lti => lti.Id)
+            .ToList();
+
+        var qualityIndicators = labTaskIndicatorIds.Any()
+            ? await _qualityIndicatorRepository.GetListAsync(qi => labTaskIndicatorIds.Contains(qi.LaboratoryTaskIndicatorId))
+            : new List<QualityManagementIndicator>();
+
+        // Create a lookup for quick access to quality indicator status
+        var qualityIndicatorLookup = qualityIndicators.ToDictionary(qi => qi.LaboratoryTaskIndicatorId, qi => qi);
+
         // Check indicator statuses
         var hasApproved = false;
         var hasEntered = false;
@@ -1155,6 +1171,17 @@ public partial class TestRequestAppService :
             switch (indicator.ApprovalStatus)
             {
                 case IndicatorApprovalStatus.Approved:
+                    // If indicator was sent to QLCL, check QLCL approval status
+                    if (indicator.IsSentToQuality && qualityIndicatorLookup.TryGetValue(indicator.Id, out var qualityIndicator))
+                    {
+                        if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+                        {
+                            // QLCL hasn't approved yet - not completed
+                            allCompletedOrCancelled = false;
+                            hasApproved = true; // QLKT approved but waiting for QLCL
+                            continue;
+                        }
+                    }
                     hasApproved = true;
                     break;
                 case IndicatorApprovalStatus.Entered:
@@ -1175,7 +1202,7 @@ public partial class TestRequestAppService :
             }
         }
 
-        // If all indicators are approved or cancelled, allow completion
+        // If all indicators are approved (including QLCL approval) or cancelled, allow completion
         if (allCompletedOrCancelled)
         {
             return TestRequestStatus.Completed;
