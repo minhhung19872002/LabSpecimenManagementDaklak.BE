@@ -277,18 +277,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         app.UseCorrelationId();
         app.MapAbpStaticAssets();
 
-        // Configure static files for uploads folder (use WebRootPath for consistency)
-        var webRootPath = env.WebRootPath ?? env.ContentRootPath;
-        var uploadsPath = Path.Combine(webRootPath, "uploads");
-        if (!Directory.Exists(uploadsPath))
-        {
-            Directory.CreateDirectory(uploadsPath);
-        }
-        app.UseStaticFiles(new StaticFileOptions
-        {
-            FileProvider = new PhysicalFileProvider(uploadsPath),
-            RequestPath = "/uploads"
-        });
+        // Uploads are handled via Azure Blob Storage, no local file storage needed
+        // var webRootPath = env.WebRootPath ?? env.ContentRootPath;
+        // var uploadsPath = Path.Combine(webRootPath, "uploads");
+        // if (!Directory.Exists(uploadsPath))
+        // {
+        //     Directory.CreateDirectory(uploadsPath);
+        // }
+        // app.UseStaticFiles(new StaticFileOptions
+        // {
+        //     FileProvider = new PhysicalFileProvider(uploadsPath),
+        //     RequestPath = "/uploads"
+        // });
 
         app.UseRouting();
         app.UseCors();
