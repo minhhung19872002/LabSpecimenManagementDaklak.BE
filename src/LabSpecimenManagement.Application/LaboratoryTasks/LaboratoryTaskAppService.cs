@@ -504,36 +504,38 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
-        // Validate only assignments that are sent (partial assignment is allowed now)
-        // Each assignment must have both MethodId and TechnicianId
-        // Validation: Chỉ cho phép giao việc cho indicator chưa được duyệt hoặc chưa bị hủy
+        // Filter assignments: chỉ lấy các chỉ tiêu có thể giao việc
+        // Bỏ qua (skip) các chỉ tiêu đã được duyệt, đang chờ duyệt, hoặc đã bị hủy
+        var validAssignments = new List<AssignIndicatorDto>();
         foreach (var assignment in assignments)
         {
             // Validate that indicator exists in this sample
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator == null)
             {
-                throw new ValidationException("indicator", "Chỉ tiêu không thuộc mẫu này");
+                // Chỉ tiêu không thuộc mẫu này - bỏ qua
+                continue;
             }
 
-            // Không cho giao việc lại nếu indicator đã được duyệt hoặc bị hủy
-            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+            // Bỏ qua chỉ tiêu đã được duyệt, đang chờ duyệt, hoặc đã bị hủy
+            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
             {
-                throw new Common.Exceptions.InvalidOperationException("Không thể giao việc lại cho chỉ tiêu đã được duyệt", "indicator");
-            }
-            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
-            {
-                throw new Common.Exceptions.InvalidOperationException("Không thể giao việc cho chỉ tiêu đã bị hủy", "indicator");
+                continue;
             }
 
+            // Chỉ validate method + technician cho các chỉ tiêu hợp lệ
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
             {
                 throw new ValidationException("assignment", "Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
             }
+
+            validAssignments.Add(assignment);
         }
 
-        // Apply assignments
-        foreach (var assignment in assignments)
+        // Apply assignments - chỉ xử lý các chỉ tiêu hợp lệ
+        foreach (var assignment in validAssignments)
         {
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator != null)
@@ -557,7 +559,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
 
         // Notify technicians about assigned indicators (Case 1 & 2 KTV)
-        await NotifyTechniciansOnAssignAsync(task, indicatorsForSample, assignments);
+        // Chỉ notify cho các chỉ tiêu thực sự được giao việc (validAssignments)
+        await NotifyTechniciansOnAssignAsync(task, indicatorsForSample, validAssignments);
 
         return await MapToDetailDtoAsync(task);
     }
