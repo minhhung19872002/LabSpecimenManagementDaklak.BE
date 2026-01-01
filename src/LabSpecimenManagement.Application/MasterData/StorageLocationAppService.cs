@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -28,7 +29,7 @@ public class StorageLocationAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 
@@ -41,7 +42,8 @@ public class StorageLocationAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive && x.CurrentCount < x.Capacity)
+            .WhereActive()
+            .Where(x => x.CurrentCount < x.Capacity)
             .OrderBy(x => x.Name)
             .ToList();
 

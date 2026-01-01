@@ -228,9 +228,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var query = await _indicatorRepository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .WhereActive()
+            .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
         return await MapToDtosAsync(items);
@@ -616,9 +615,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         // Get all active indicators
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var indicators = indicatorQuery
-            .Where(x => x.IsActive)
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .WhereActive()
+            .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
         if (!indicators.Any())

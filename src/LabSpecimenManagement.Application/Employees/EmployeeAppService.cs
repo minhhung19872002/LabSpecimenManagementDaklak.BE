@@ -102,16 +102,16 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         var totalCount = usersList.Count;
 
         // Apply sorting
-        var sorting = input.Sorting ?? "CreationTime DESC";
-        if (sorting.Contains("CreationTime", StringComparison.OrdinalIgnoreCase))
+        var sorting = input.Sorting ?? AppConstants.DefaultEmployeeSorting;
+        if (sorting.Contains(SortingFields.CreationTime, StringComparison.OrdinalIgnoreCase))
         {
-            usersList = sorting.Contains("DESC", StringComparison.OrdinalIgnoreCase)
+            usersList = sorting.Contains(AppConstants.SortDescending, StringComparison.OrdinalIgnoreCase)
                 ? usersList.OrderByDescending(u => u.CreationTime).ToList()
                 : usersList.OrderBy(u => u.CreationTime).ToList();
         }
         else if (sorting.Contains("UserName", StringComparison.OrdinalIgnoreCase))
         {
-            usersList = sorting.Contains("DESC", StringComparison.OrdinalIgnoreCase)
+            usersList = sorting.Contains(AppConstants.SortDescending, StringComparison.OrdinalIgnoreCase)
                 ? usersList.OrderByDescending(u => u.UserName).ToList()
                 : usersList.OrderBy(u => u.UserName).ToList();
         }

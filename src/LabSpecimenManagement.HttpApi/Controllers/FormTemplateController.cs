@@ -9,11 +9,13 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
+using LabSpecimenManagement.ResultForms;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 using Volo.Abp;
 
 namespace LabSpecimenManagement.Controllers;
@@ -26,17 +28,20 @@ public class FormTemplateController : LabSpecimenManagementController
     private readonly IConfiguration _configuration;
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly IPdfConversionService _pdfConversionService;
+    private readonly ILogger<FormTemplateController> _logger;
 
     public FormTemplateController(
         IWebHostEnvironment environment,
         IConfiguration configuration,
         IHttpClientFactory httpClientFactory,
-        IPdfConversionService pdfConversionService)
+        IPdfConversionService pdfConversionService,
+        ILogger<FormTemplateController> logger)
     {
         _environment = environment;
         _configuration = configuration;
         _httpClientFactory = httpClientFactory;
         _pdfConversionService = pdfConversionService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -322,7 +327,7 @@ public class FormTemplateController : LabSpecimenManagementController
         // 6 - document is being edited, but current state saved
         // 7 - error while force saving
 
-        Console.WriteLine($"OnlyOffice callback received - Status: {callback.Status}, FileName: {fileName}");
+        _logger.LogInformation("OnlyOffice callback received - Status: {Status}, FileName: {FileName}", callback.Status, fileName);
 
         // Always respond quickly with success for status 1 (editing) and 4 (closed without changes)
         if (callback.Status == 1 || callback.Status == 4)
@@ -342,25 +347,25 @@ public class FormTemplateController : LabSpecimenManagementController
                 var fullPath = Path.GetFullPath(filePath);
                 if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
                 {
-                    Console.WriteLine($"OnlyOffice callback - Security check failed for: {fileName}");
+                    _logger.LogWarning("OnlyOffice callback - Security check failed for: {FileName}", fileName);
                     return Ok(new { error = 1 });
                 }
 
                 // Download the document from OnlyOffice
                 if (!string.IsNullOrEmpty(callback.Url))
                 {
-                    Console.WriteLine($"OnlyOffice callback - Downloading document from: {callback.Url}");
+                    _logger.LogInformation("OnlyOffice callback - Downloading document from: {Url}", callback.Url);
                     var httpClient = _httpClientFactory.CreateClient();
                     var documentBytes = await httpClient.GetByteArrayAsync(callback.Url);
                     await System.IO.File.WriteAllBytesAsync(filePath, documentBytes);
-                    Console.WriteLine($"OnlyOffice callback - Document saved successfully: {fileName}");
+                    _logger.LogInformation("OnlyOffice callback - Document saved successfully: {FileName}", fileName);
                 }
 
                 return Ok(new { error = 0 });
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"OnlyOffice callback error: {ex.Message}");
+                _logger.LogError(ex, "OnlyOffice callback error");
                 return Ok(new { error = 1 });
             }
         }
@@ -464,198 +469,4 @@ public class FormTemplateController : LabSpecimenManagementController
         output = output.Replace('+', '-').Replace('/', '_').TrimEnd('=');
         return output;
     }
-}
-
-public class FormTemplateDto
-{
-    public string FileName { get; set; } = string.Empty;
-    public string Name { get; set; } = string.Empty;
-}
-
-public class OnlyOfficeEditorConfigDto
-{
-    [System.Text.Json.Serialization.JsonPropertyName("documentServerUrl")]
-    public string DocumentServerUrl { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("config")]
-    public OnlyOfficeConfig Config { get; set; } = new();
-}
-
-public class OnlyOfficeConfig
-{
-    [System.Text.Json.Serialization.JsonPropertyName("document")]
-    public OnlyOfficeDocument Document { get; set; } = new();
-
-    [System.Text.Json.Serialization.JsonPropertyName("documentType")]
-    public string DocumentType { get; set; } = "word";
-
-    [System.Text.Json.Serialization.JsonPropertyName("editorConfig")]
-    public OnlyOfficeEditorSettings EditorConfig { get; set; } = new();
-
-    [System.Text.Json.Serialization.JsonPropertyName("height")]
-    public string Height { get; set; } = "100%";
-
-    [System.Text.Json.Serialization.JsonPropertyName("width")]
-    public string Width { get; set; } = "100%";
-
-    [System.Text.Json.Serialization.JsonPropertyName("type")]
-    public string Type { get; set; } = "desktop";
-
-    [System.Text.Json.Serialization.JsonPropertyName("token")]
-    public string? Token { get; set; }
-}
-
-public class OnlyOfficeDocument
-{
-    [System.Text.Json.Serialization.JsonPropertyName("fileType")]
-    public string FileType { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("key")]
-    public string Key { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("title")]
-    public string Title { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("url")]
-    public string Url { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("permissions")]
-    public OnlyOfficePermissions Permissions { get; set; } = new();
-}
-
-public class OnlyOfficePermissions
-{
-    [System.Text.Json.Serialization.JsonPropertyName("comment")]
-    public bool Comment { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("copy")]
-    public bool Copy { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("download")]
-    public bool Download { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("edit")]
-    public bool Edit { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("fillForms")]
-    public bool FillForms { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("modifyContentControl")]
-    public bool ModifyContentControl { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("modifyFilter")]
-    public bool ModifyFilter { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("print")]
-    public bool Print { get; set; } = true;
-
-    [System.Text.Json.Serialization.JsonPropertyName("review")]
-    public bool Review { get; set; } = true;
-}
-
-public class OnlyOfficeEditorSettings
-{
-    [System.Text.Json.Serialization.JsonPropertyName("callbackUrl")]
-    public string CallbackUrl { get; set; } = string.Empty;
-
-    [System.Text.Json.Serialization.JsonPropertyName("lang")]
-    public string Lang { get; set; } = "vi";
-
-    [System.Text.Json.Serialization.JsonPropertyName("mode")]
-    public string Mode { get; set; } = "edit";
-
-    [System.Text.Json.Serialization.JsonPropertyName("user")]
-    public OnlyOfficeUser? User { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("customization")]
-    public OnlyOfficeCustomization Customization { get; set; } = new();
-}
-
-public class OnlyOfficeUser
-{
-    [System.Text.Json.Serialization.JsonPropertyName("id")]
-    public string Id { get; set; } = "1";
-
-    [System.Text.Json.Serialization.JsonPropertyName("name")]
-    public string Name { get; set; } = "Editor";
-}
-
-public class OnlyOfficeCustomization
-{
-    [System.Text.Json.Serialization.JsonPropertyName("autosave")]
-    public bool Autosave { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("chat")]
-    public bool Chat { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("comments")]
-    public bool Comments { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("compactHeader")]
-    public bool CompactHeader { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("compactToolbar")]
-    public bool CompactToolbar { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("feedback")]
-    public bool Feedback { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("forcesave")]
-    public bool ForceSave { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("help")]
-    public bool Help { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("hideRightMenu")]
-    public bool HideRightMenu { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("hideRulers")]
-    public bool HideRulers { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("integrationMode")]
-    public string IntegrationMode { get; set; } = "embed";
-
-    [System.Text.Json.Serialization.JsonPropertyName("logo")]
-    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
-    public object? Logo { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("macrosMode")]
-    public string MacrosMode { get; set; } = "disable";
-
-    [System.Text.Json.Serialization.JsonPropertyName("mentionShare")]
-    public bool MentionShare { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("plugins")]
-    public bool Plugins { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("reviewDisplay")]
-    public string ReviewDisplay { get; set; } = "original";
-
-    [System.Text.Json.Serialization.JsonPropertyName("toolbarHideFileName")]
-    public bool ToolbarHideFileName { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("toolbarNoTabs")]
-    public bool ToolbarNoTabs { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("uiTheme")]
-    public bool Uiicons { get; set; }
-
-    [System.Text.Json.Serialization.JsonPropertyName("unit")]
-    public string Unit { get; set; } = "cm";
-
-    [System.Text.Json.Serialization.JsonPropertyName("zoom")]
-    public int Zoom { get; set; } = 100;
-}
-
-public class OnlyOfficeCallbackDto
-{
-    public List<string>? Actions { get; set; }
-    public string? ChangesUrl { get; set; }
-    public object? ForceSaveType { get; set; }
-    public object? History { get; set; }
-    public string? Key { get; set; }
-    public int Status { get; set; }
-    public string? Url { get; set; }
-    public List<string>? Users { get; set; }
-    public string? UserData { get; set; }
 }

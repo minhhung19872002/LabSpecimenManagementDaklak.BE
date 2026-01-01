@@ -146,4 +146,55 @@ public static class QueryableExtensions
     {
         return query.OrderBy(primarySort).ThenBy(secondarySort);
     }
+
+    /// <summary>
+    /// Applies case-insensitive search filter using EF.Functions.Like for database-level search
+    /// </summary>
+    /// <typeparam name="T">Entity type</typeparam>
+    /// <param name="query">Source query</param>
+    /// <param name="searchTerm">Search term (will be wrapped with %)</param>
+    /// <param name="predicate">Filter predicate</param>
+    /// <returns>Filtered query</returns>
+    public static IQueryable<T> WhereIfSearch<T>(
+        this IQueryable<T> query,
+        string? searchTerm,
+        Expression<Func<T, bool>> predicate)
+    {
+        if (string.IsNullOrWhiteSpace(searchTerm))
+            return query;
+
+        return query.Where(predicate);
+    }
+}
+
+/// <summary>
+/// Helper class for building case-insensitive search expressions for EF Core
+/// Uses ToLower().Contains() pattern which EF Core translates to LOWER() LIKE '%...%'
+/// </summary>
+public static class SearchHelper
+{
+    /// <summary>
+    /// Checks if the field contains the search term (case-insensitive)
+    /// For use in EF Core queries - translates to SQL LOWER(field) LIKE '%term%'
+    /// </summary>
+    public static bool ContainsSearch(string? field, string searchLower)
+    {
+        return field != null && field.ToLower().Contains(searchLower);
+    }
+
+    /// <summary>
+    /// Prepares search term for case-insensitive comparison
+    /// </summary>
+    public static string PrepareSearch(string? search)
+    {
+        return search?.Trim().ToLowerInvariant() ?? string.Empty;
+    }
+
+    /// <summary>
+    /// Checks if search term is valid (not null or whitespace)
+    /// </summary>
+    public static bool HasSearch(string? search)
+    {
+        return !string.IsNullOrWhiteSpace(search);
+    }
 }

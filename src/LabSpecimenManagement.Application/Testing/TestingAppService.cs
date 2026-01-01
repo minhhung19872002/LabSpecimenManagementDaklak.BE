@@ -21,7 +21,7 @@ namespace LabSpecimenManagement.Testing;
 
 [RemoteService(IsEnabled = false)]
 [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-public class TestingAppService : ApplicationService, ITestingAppService
+public partial class TestingAppService : ApplicationService, ITestingAppService
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
@@ -140,14 +140,14 @@ public class TestingAppService : ApplicationService, ITestingAppService
         {
             sortedTasks = input.Sorting.ToLower() switch
             {
-                "transferdate" => sortedTasks.OrderBy(x => x.Task.TransferDate),
-                "transferdate desc" => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
-                "requestcompletiondate" => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
-                "requestcompletiondate desc" => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
-                "testdate" => sortedTasks.OrderBy(x => x.Task.TestDate),
-                "testdate desc" => sortedTasks.OrderByDescending(x => x.Task.TestDate),
-                "testingstatus" => sortedTasks.OrderBy(x => x.TestingStatus),
-                "testingstatus desc" => sortedTasks.OrderByDescending(x => x.TestingStatus),
+                SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
+                SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
+                SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
+                SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
+                SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
+                SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
+                SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
+                SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
                 _ => sortedTasks.OrderByDescending(x => x.Task.CreationTime)
             };
         }

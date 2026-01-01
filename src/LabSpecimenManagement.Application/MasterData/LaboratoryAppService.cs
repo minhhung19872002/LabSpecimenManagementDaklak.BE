@@ -37,7 +37,7 @@ public class LaboratoryAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 

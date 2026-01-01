@@ -52,7 +52,7 @@ public class CustomerAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 

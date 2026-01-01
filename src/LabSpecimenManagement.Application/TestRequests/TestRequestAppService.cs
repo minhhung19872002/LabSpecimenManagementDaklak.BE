@@ -23,7 +23,7 @@ using Volo.Abp.Users;
 namespace LabSpecimenManagement.TestRequests;
 
 [RemoteService(IsEnabled = false)]
-public class TestRequestAppService :
+public partial class TestRequestAppService :
     CrudAppService<
         TestRequest,
         TestRequestDto,
@@ -1595,142 +1595,142 @@ public class TestRequestAppService :
 
         switch (lowerField)
         {
-            case "contractnumber":
+            case SortingFields.ContractNumber:
                 entity.ContractNumber = newValue;
                 break;
-            case "contractdate":
+            case SortingFields.ContractDate:
                 entity.ContractDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "customername":
+            case SortingFields.CustomerName:
                 entity.CustomerName = newValue ?? "";
                 break;
-            case "address":
+            case SortingFields.Address:
                 entity.Address = newValue;
                 break;
-            case "taxcode":
+            case SortingFields.TaxCode:
                 entity.TaxCode = newValue;
                 break;
-            case "contactperson":
+            case SortingFields.ContactPerson:
                 entity.ContactPerson = newValue;
                 break;
-            case "phone":
+            case SortingFields.Phone:
                 entity.Phone = newValue;
                 break;
-            case "provincecode":
+            case SortingFields.ProvinceCode:
                 entity.ProvinceCode = newValue;
                 break;
-            case "province":
+            case SortingFields.Province:
                 entity.Province = newValue;
                 break;
-            case "districtcode":
+            case SortingFields.DistrictCode:
                 entity.DistrictCode = newValue;
                 break;
-            case "district":
+            case SortingFields.District:
                 entity.District = newValue;
                 break;
-            case "wardcode":
+            case SortingFields.WardCode:
                 entity.WardCode = newValue;
                 break;
-            case "ward":
+            case SortingFields.Ward:
                 entity.Ward = newValue;
                 break;
-            case "notes":
+            case SortingFields.Notes:
                 entity.Notes = newValue;
                 break;
-            case "expectedcompletiondate":
+            case SortingFields.ExpectedCompletionDate:
                 entity.ExpectedCompletionDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "resultdeliverydate":
+            case SortingFields.ResultDeliveryDate:
                 entity.ResultDeliveryDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "totalcost":
+            case SortingFields.TotalCost:
                 entity.TotalCost = string.IsNullOrEmpty(newValue) ? 0 : decimal.Parse(newValue);
                 break;
-            case "totalcostinwords":
+            case SortingFields.TotalCostInWords:
                 entity.TotalCostInWords = newValue;
                 break;
-            case "methodwesthighlandinstitute":
+            case SortingFields.MethodWestHighlandInstitute:
                 entity.MethodWestHighlandInstitute = newValue?.ToLower() == "true";
                 break;
-            case "methodcustomer":
+            case SortingFields.MethodCustomer:
                 entity.MethodCustomer = newValue?.ToLower() == "true";
                 break;
-            case "methodcustomerdetail":
+            case SortingFields.MethodCustomerDetail:
                 entity.MethodCustomerDetail = newValue;
                 break;
-            case "resultlanguage":
+            case SortingFields.ResultLanguage:
                 entity.ResultLanguage = string.IsNullOrEmpty(newValue) ? ResultLanguage.Vietnamese : (ResultLanguage)int.Parse(newValue);
                 break;
-            case "resultcopycount":
+            case SortingFields.ResultCopyCount:
                 entity.ResultCopyCount = newValue;
                 break;
-            case "separatepassedresults":
+            case SortingFields.SeparatePassedResults:
                 entity.SeparatePassedResults = newValue?.ToLower() == "true";
                 break;
-            case "conformitydeclaration":
+            case SortingFields.ConformityDeclaration:
                 entity.ConformityDeclaration = newValue;
                 break;
-            case "otherrequirements":
+            case SortingFields.OtherRequirements:
                 entity.OtherRequirements = newValue;
                 break;
-            case "subcontract":
+            case SortingFields.Subcontract:
                 entity.SubContract = newValue;
                 break;
-            case "samplingrequirement":
+            case SortingFields.SamplingRequirement:
                 entity.SamplingRequirement = string.IsNullOrEmpty(newValue) ? SamplingRequirement.CustomerSampling : (SamplingRequirement)int.Parse(newValue);
                 break;
-            case "deliverydirectpickup":
+            case SortingFields.DeliveryDirectPickup:
                 entity.DeliveryDirectPickup = newValue?.ToLower() == "true";
                 break;
-            case "deliverypostal":
+            case SortingFields.DeliveryPostal:
                 entity.DeliveryPostal = newValue?.ToLower() == "true";
                 break;
-            case "returnstoredsample":
+            case SortingFields.ReturnStoredSample:
                 entity.ReturnStoredSample = newValue?.ToLower() == "true";
                 break;
-            case "sampletypeservice":
+            case SortingFields.SampleTypeService:
                 entity.SampleTypeService = newValue?.ToLower() == "true";
                 break;
-            case "sampletypecontract":
+            case SortingFields.SampleTypeContract:
                 entity.SampleTypeContract = newValue?.ToLower() == "true";
                 break;
-            case "sampletypetask":
+            case SortingFields.SampleTypeTask:
                 entity.SampleTypeTask = newValue?.ToLower() == "true";
                 break;
-            case "sampletypesubcontract":
+            case SortingFields.SampleTypeSubcontract:
                 entity.SampleTypeSubContract = newValue?.ToLower() == "true";
                 break;
-            case "samplestorage":
+            case SortingFields.SampleStorage:
                 entity.SampleStorage = string.IsNullOrEmpty(newValue) ? SampleStorageOption.No : (SampleStorageOption)int.Parse(newValue);
                 break;
-            case "receiptnumber":
+            case SortingFields.ReceiptNumber:
                 entity.ReceiptNumber = newValue;
                 break;
-            case "senttoaccounting":
+            case SortingFields.SentToAccounting:
                 entity.SentToAccounting = newValue?.ToLower() == "true";
                 break;
-            case "paymentreceived":
+            case SortingFields.PaymentReceived:
                 entity.PaymentReceived = newValue?.ToLower() == "true";
                 break;
-            case "senttodepartment":
+            case SortingFields.SentToDepartment:
                 entity.SentToDepartment = newValue?.ToLower() == "true";
                 break;
-            case "resultreturned":
+            case SortingFields.ResultReturned:
                 entity.ResultReturned = newValue?.ToLower() == "true";
                 break;
-            case "agreeterms":
+            case SortingFields.AgreeTerms:
                 entity.AgreeTerms = newValue?.ToLower() == "true";
                 break;
-            case "changerequest":
+            case SortingFields.ChangeRequest:
                 entity.ChangeRequest = newValue;
                 break;
-            case "supervisorid":
+            case SortingFields.SupervisorId:
                 entity.SupervisorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
                 break;
-            case "directorid":
+            case SortingFields.DirectorId:
                 entity.DirectorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
                 break;
-            case "subcontractor":
+            case SortingFields.Subcontractor:
                 entity.Subcontractor = newValue;
                 break;
         }

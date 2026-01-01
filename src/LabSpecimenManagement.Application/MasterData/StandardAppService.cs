@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using Volo.Abp;
@@ -131,9 +132,8 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         var items = await AsyncExecuter.ToListAsync(
             query
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.SortOrder)
-                .ThenBy(x => x.Name)
+                .WhereActive()
+                .OrderByThenBy(x => x.SortOrder, x => x.Name)
         );
 
         var dtos = items.Select(item =>

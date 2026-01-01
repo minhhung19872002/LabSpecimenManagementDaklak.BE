@@ -24,7 +24,7 @@ using Volo.Abp.Users;
 namespace LabSpecimenManagement.ResultForms;
 
 [Authorize]
-public class ResultFormAppService : ApplicationService, IResultFormAppService
+public partial class ResultFormAppService : ApplicationService, IResultFormAppService
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
@@ -41,24 +41,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<ResultFormAppService> _logger;
 
-    private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
-    private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
-    private const string TemplateBM02 = "Form trả KQ tổng hợp - BM02-QT13-BCKQ_3.2.template.docx"; // For mixed indicator result
-    private const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx"; // Changed to .docx for OpenXML support
-
-    // Templates cho In KQ Đơn (dùng cho dropdown selection)
-    private static readonly string[] SingleIndicatorTemplates = new[]
-    {
-        "form mẫu QLNN BM05-QT13-BCKQ_3.2.template.docx",
-        "Form thêm cột GH BM04-QT13-BCKQ_3.2.template.docx",
-        "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx",
-        "Form trả kq BM03-QT13-BCKQ_3.2.template.docx"
-    };
-
-    // Checkbox symbols for document placeholders
-    // Using Unicode ballot box characters
-    private const string CheckedBox = "☑";   // U+2611 - BALLOT BOX WITH CHECK
-    private const string UncheckedBox = "☐"; // U+2610 - BALLOT BOX
+    // Template constants are defined in TemplateConstants class
+    // Use TemplateConstants.StandardBasedTemplates for single indicator templates
 
     public ResultFormAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -183,10 +167,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM03);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM03);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateBM03);
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM03);
         }
 
         // Create temp directory if not exists
@@ -1113,10 +1097,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateBM01);
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM01);
         }
 
         // Create temp directory if not exists
@@ -1128,7 +1112,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // Generate unique filename - sanitize sample code to remove invalid path characters
         var safeSampleCode = (sample.SampleCode ?? "unknown").Replace("/", "-").Replace("\\", "-");
-        var templateName = string.IsNullOrEmpty(input.TemplateName) ? "BM01" : input.TemplateName;
+        var templateName = string.IsNullOrEmpty(input.TemplateName) ? TemplateConstants.DefaultTemplateName : input.TemplateName;
         var fileName = $"{Guid.NewGuid():N}_{templateName}_{safeSampleCode}.docx";
         var outputPath = Path.Combine(tempDir, fileName);
 
@@ -1218,10 +1202,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 3. Check if template exists
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM05);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateBM05);
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM05);
         }
 
         // 4. Create temp directory if not exists
@@ -1233,7 +1217,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // 5. Generate unique filename - keep original extension
         var safeRequestNumber = testRequest.RequestNumber?.Replace("/", "-") ?? "unknown";
-        var templateExtension = Path.GetExtension(TemplateBM05); // .doc or .docx
+        var templateExtension = Path.GetExtension(TemplateConstants.TemplateBM05); // .doc or .docx
         var fileName = $"{Guid.NewGuid():N}_BM05_{safeRequestNumber}{templateExtension}";
         var outputPath = Path.Combine(tempDir, fileName);
 
@@ -1802,44 +1786,44 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{CurrentDate}}", currentDateText },
 
             // Checkbox - Test Method
-            { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? CheckedBox : UncheckedBox },
-            { "{{CB_TestMethod_Customer}}", testRequest.MethodCustomer ? CheckedBox : UncheckedBox },
+            { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_TestMethod_Customer}}", testRequest.MethodCustomer ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Report Language
-            { "{{CB_Report_VN}}", testRequest.ResultLanguage == ResultLanguage.Vietnamese ? CheckedBox : UncheckedBox },
-            { "{{CB_Report_EN}}", testRequest.ResultLanguage == ResultLanguage.English ? CheckedBox : UncheckedBox },
-            { "{{CB_Report_Both}}", testRequest.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? CheckedBox : UncheckedBox },
+            { "{{CB_Report_VN}}", testRequest.ResultLanguage == ResultLanguage.Vietnamese ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_EN}}", testRequest.ResultLanguage == ResultLanguage.English ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_Both}}", testRequest.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Separate Results
-            { "{{CB_SeparateResult}}", testRequest.SeparatePassedResults ? CheckedBox : UncheckedBox },
+            { "{{CB_SeparateResult}}", testRequest.SeparatePassedResults ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sampling Requirement
-            { "{{CB_Sampling_Center}}", testRequest.SamplingRequirement == SamplingRequirement.LabSampling ? CheckedBox : UncheckedBox },
-            { "{{CB_Sampling_Customer}}", testRequest.SamplingRequirement == SamplingRequirement.CustomerSampling ? CheckedBox : UncheckedBox },
+            { "{{CB_Sampling_Center}}", testRequest.SamplingRequirement == SamplingRequirement.LabSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Sampling_Customer}}", testRequest.SamplingRequirement == SamplingRequirement.CustomerSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Delivery Method
-            { "{{CB_Delivery_Direct}}", testRequest.DeliveryDirectPickup ? CheckedBox : UncheckedBox },
-            { "{{CB_Delivery_Post}}", testRequest.DeliveryPostal ? CheckedBox : UncheckedBox },
+            { "{{CB_Delivery_Direct}}", testRequest.DeliveryDirectPickup ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Delivery_Post}}", testRequest.DeliveryPostal ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Return Sample
-            { "{{CB_ReturnSample}}", testRequest.ReturnStoredSample ? CheckedBox : UncheckedBox },
+            { "{{CB_ReturnSample}}", testRequest.ReturnStoredSample ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Agree Terms
-            { "{{CB_AgreeTerms}}", testRequest.AgreeTerms ? CheckedBox : UncheckedBox },
+            { "{{CB_AgreeTerms}}", testRequest.AgreeTerms ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Type
-            { "{{CB_Service}}", testRequest.SampleTypeService ? CheckedBox : UncheckedBox },
-            { "{{CB_Contract}}", testRequest.SampleTypeContract ? CheckedBox : UncheckedBox },
-            { "{{CB_QLNN}}", testRequest.SampleTypeTask ? CheckedBox : UncheckedBox },
-            { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? CheckedBox : UncheckedBox },
+            { "{{CB_Service}}", testRequest.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Contract}}", testRequest.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_QLNN}}", testRequest.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Storage
-            { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? CheckedBox : UncheckedBox },
-            { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? CheckedBox : UncheckedBox },
+            { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Payment Method (disabled - paymentReceived field is not used in form)
-            { "{{CB_Cash}}", UncheckedBox },
-            { "{{CB_Credit}}", UncheckedBox }
+            { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
         };
 
         return placeholders;
@@ -2025,10 +2009,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         };
 
         // 5. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateBM01);
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2215,10 +2199,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // 6. Generate document using fixed BM02 template for mixed indicator result
         // In KQ Hỗn hợp always uses BM02 template (no dropdown selection)
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM02);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM02);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateBM02);
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM02);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2400,10 +2384,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateBM01);
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2473,13 +2457,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templates = new List<TemplateDto>();
 
         // Only return templates for In KQ Đơn
-        foreach (var templateFileName in SingleIndicatorTemplates)
+        foreach (var templateFileName in TemplateConstants.StandardBasedTemplates)
         {
             var filePath = Path.Combine(templatesDir, templateFileName);
             if (File.Exists(filePath))
             {
                 // Remove .template.docx extension to get display name
-                var displayName = templateFileName.Replace(".template.docx", "");
+                var displayName = TemplateConstants.GetDisplayName(templateFileName);
 
                 templates.Add(new TemplateDto
                 {
@@ -2502,7 +2486,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (!string.IsNullOrWhiteSpace(templateName))
         {
-            var customTemplatePath = Path.Combine(templatesDir, $"{templateName}.template.docx");
+            var customTemplatePath = Path.Combine(templatesDir, TemplateConstants.GetTemplateFileName(templateName));
             if (File.Exists(customTemplatePath))
             {
                 return customTemplatePath;

@@ -18,7 +18,7 @@ using Volo.Abp.Identity;
 namespace LabSpecimenManagement.QualityManagement;
 
 [Authorize]
-public class QualityManagementAppService : ApplicationService, IQualityManagementAppService
+public partial class QualityManagementAppService : ApplicationService, IQualityManagementAppService
 {
     private readonly IRepository<QualityManagementTask, Guid> _taskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _indicatorRepository;
@@ -127,14 +127,14 @@ public class QualityManagementAppService : ApplicationService, IQualityManagemen
         {
             query = input.Sorting.ToLower() switch
             {
-                "contractnumber" => query.OrderBy(t => t.ContractNumber),
-                "contractnumber desc" => query.OrderByDescending(t => t.ContractNumber),
-                "transferdate" => query.OrderBy(t => t.TransferDate),
-                "transferdate desc" => query.OrderByDescending(t => t.TransferDate),
-                "requestcompletiondate" => query.OrderBy(t => t.RequestCompletionDate),
-                "requestcompletiondate desc" => query.OrderByDescending(t => t.RequestCompletionDate),
-                "status" => query.OrderBy(t => t.Status),
-                "status desc" => query.OrderByDescending(t => t.Status),
+                SortingFields.ContractNumber => query.OrderBy(t => t.ContractNumber),
+                SortingFields.ContractNumberDesc => query.OrderByDescending(t => t.ContractNumber),
+                SortingFields.TransferDate => query.OrderBy(t => t.TransferDate),
+                SortingFields.TransferDateDesc => query.OrderByDescending(t => t.TransferDate),
+                SortingFields.RequestCompletionDate => query.OrderBy(t => t.RequestCompletionDate),
+                SortingFields.RequestCompletionDateDesc => query.OrderByDescending(t => t.RequestCompletionDate),
+                SortingFields.Status => query.OrderBy(t => t.Status),
+                SortingFields.StatusDesc => query.OrderByDescending(t => t.Status),
                 _ => query.OrderByDescending(t => t.CreationTime)
             };
         }

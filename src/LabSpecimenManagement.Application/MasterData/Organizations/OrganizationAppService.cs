@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -47,9 +48,8 @@ public class OrganizationAppService : CrudAppService<
     {
         var query = await Repository.GetQueryableAsync();
         var list = await AsyncExecuter.ToListAsync(
-            query.Where(x => x.IsActive)
-                 .OrderBy(x => x.SortOrder)
-                 .ThenBy(x => x.Name)
+            query.WhereActive()
+                 .OrderByThenBy(x => x.SortOrder, x => x.Name)
         );
         return ObjectMapper.Map<List<Organization>, List<OrganizationDto>>(list);
     }
