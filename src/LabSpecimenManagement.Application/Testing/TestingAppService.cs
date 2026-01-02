@@ -398,54 +398,65 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
         // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
-        var taskIndicators = allTaskIndicators.Where(ti =>
+        var activeIndicators = allTaskIndicators.Where(ti =>
             ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
-        if (!taskIndicators.Any())
+        if (!activeIndicators.Any())
         {
             return;
         }
 
-        // Don't change status if already SentToQuality (final state)
-        if (task.Status == LaboratoryTaskStatus.SentToQuality)
-        {
-            return;
-        }
+        // Check conditions for status calculation - ĐỒNG BỘ VỚI LaboratoryTaskAppService
+        // Có ≥1 chỉ tiêu đã gửi QLCL (Approved + IsSentToQuality)
+        var anySentToQuality = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
 
-        // Check conditions - LOGIC MỚI (giống LaboratoryTaskAppService)
-        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-        var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-        var allEnteredOrApproved = taskIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // Có ≥1 chỉ tiêu đã được duyệt (Approved)
+        var anyApproved = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt)
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in)
+        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+
+        // Có ≥1 chỉ tiêu đã được giao việc (có method + KTV)
+        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
 
         LaboratoryTaskStatus newStatus;
 
-        if (!allAssigned)
+        // Logic ưu tiên theo tiến độ CAO NHẤT (từ cao xuống thấp)
+        // Hiển thị trạng thái cao nhất mà task đã đạt được
+
+        if (anySentToQuality)
         {
-            // Có chỉ tiêu chưa gán KTV hoặc phương pháp
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            // Có ≥1 chỉ tiêu đã gửi QLCL
+            newStatus = LaboratoryTaskStatus.SentToQuality;
         }
-        else if (allApproved)
+        else if (anyApproved)
         {
-            // Tất cả đã được duyệt
+            // Có ≥1 chỉ tiêu đã được duyệt
             newStatus = LaboratoryTaskStatus.Approved;
-        }
-        else if (allEnteredOrApproved)
-        {
-            // TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
-            newStatus = LaboratoryTaskStatus.PendingApproval;
         }
         else if (anyEntered)
         {
-            // Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
+            // Có ≥1 chỉ tiêu đã nhập KQ (chờ duyệt)
+            newStatus = LaboratoryTaskStatus.PendingApproval;
+        }
+        else if (anyTesting)
+        {
+            // Có ≥1 chỉ tiêu đang thử nghiệm (KTV đã check-in)
             newStatus = LaboratoryTaskStatus.Testing;
+        }
+        else if (anyAssigned)
+        {
+            // Có ≥1 chỉ tiêu đã được giao việc
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
         else
         {
-            // Tất cả đã có KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.Assigned;
+            // Tất cả chưa được giao việc
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
 
         if (task.Status != newStatus)
