@@ -39,6 +39,7 @@ using Volo.Abp.Security.Claims;
 using Volo.Abp.Swashbuckle;
 using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
+using Volo.Abp.Timing;
 using LabSpecimenManagement.Hubs;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Services;
@@ -106,9 +107,22 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureEmail(context, configuration);
         ConfigureHangfire(context, configuration);
         ConfigureSignalR(context);
+        ConfigureClock();
 
         // Register HttpClient for OnlyOffice integration
         context.Services.AddHttpClient();
+    }
+
+    /// <summary>
+    /// Cấu hình ABP Clock sử dụng múi giờ Vietnam (UTC+7)
+    /// Lưu ý: Không ảnh hưởng đến Hangfire cronjob vì cronjob đã config TimeZone riêng
+    /// </summary>
+    private void ConfigureClock()
+    {
+        Configure<AbpClockOptions>(options =>
+        {
+            options.Kind = DateTimeKind.Local;
+        });
     }
 
     private void ConfigureSignalR(ServiceConfigurationContext context)

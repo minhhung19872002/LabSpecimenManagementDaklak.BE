@@ -358,9 +358,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.PendingApproval;
         }
 
-        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã check-in (TestDate != null)
+        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã check-in (TestDate != null) và đang Pending
+        // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved (đã hoàn thành)
         var anyInProgress = activeIndicators.Any(i =>
-            i.TestDate.HasValue);
+            i.TestDate.HasValue && i.ApprovalStatus == IndicatorApprovalStatus.Pending);
 
         if (anyInProgress)
         {
@@ -393,6 +394,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return false;
     }
 
+    /// <summary>
+    /// Tự động cập nhật trạng thái task dựa trên trạng thái các indicators
+    /// ĐỒNG BỘ VỚI LaboratoryTaskAppService.UpdateTaskStatusAsync
+    /// Logic: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành TẤT CẢ mới lên status cao hơn)
+    /// Ngoại trừ PendingApproval - ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
+    /// </summary>
     private async Task UpdateTaskStatusAsync(LaboratoryTask task)
     {
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
@@ -407,55 +414,61 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         // Check conditions for status calculation - ĐỒNG BỘ VỚI LaboratoryTaskAppService
-        // Có ≥1 chỉ tiêu đã gửi QLCL (Approved + IsSentToQuality)
-        var anySentToQuality = activeIndicators.Any(ti =>
+        // Logic mới: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành tất cả mới lên status cao hơn)
+        // Ngoại trừ PendingApproval - cần hiển thị ngay khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
+
+        // TẤT CẢ chỉ tiêu đã gửi QLCL
+        var allSentToQuality = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
 
-        // Có ≥1 chỉ tiêu đã được duyệt (Approved)
-        var anyApproved = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // TẤT CẢ chỉ tiêu đã được duyệt (Approved)
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
-        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt)
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
 
-        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in)
-        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+        // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
+        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
 
-        // Có ≥1 chỉ tiêu đã được giao việc (có method + KTV)
-        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending)
+        // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved/Entered/Rejected
+        var anyTesting = activeIndicators.Any(ti =>
+            ti.TestDate.HasValue && ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
 
         LaboratoryTaskStatus newStatus;
 
-        // Logic ưu tiên theo tiến độ CAO NHẤT (từ cao xuống thấp)
-        // Hiển thị trạng thái cao nhất mà task đã đạt được
+        // Logic ưu tiên:
+        // 1. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
+        // 2. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
 
-        if (anySentToQuality)
+        if (anyEntered)
         {
-            // Có ≥1 chỉ tiêu đã gửi QLCL
-            newStatus = LaboratoryTaskStatus.SentToQuality;
-        }
-        else if (anyApproved)
-        {
-            // Có ≥1 chỉ tiêu đã được duyệt
-            newStatus = LaboratoryTaskStatus.Approved;
-        }
-        else if (anyEntered)
-        {
-            // Có ≥1 chỉ tiêu đã nhập KQ (chờ duyệt)
+            // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
             newStatus = LaboratoryTaskStatus.PendingApproval;
         }
-        else if (anyTesting)
+        else if (allSentToQuality)
         {
-            // Có ≥1 chỉ tiêu đang thử nghiệm (KTV đã check-in)
+            // TẤT CẢ chỉ tiêu đã gửi QLCL
+            newStatus = LaboratoryTaskStatus.SentToQuality;
+        }
+        else if (allApproved)
+        {
+            // TẤT CẢ chỉ tiêu đã được duyệt (nhưng chưa gửi hết QLCL)
+            newStatus = LaboratoryTaskStatus.Approved;
+        }
+        else if (allAssigned && anyTesting)
+        {
+            // TẤT CẢ chỉ tiêu đã được giao việc VÀ có ≥1 đang thử nghiệm
             newStatus = LaboratoryTaskStatus.Testing;
         }
-        else if (anyAssigned)
+        else if (allAssigned)
         {
-            // Có ≥1 chỉ tiêu đã được giao việc
+            // TẤT CẢ chỉ tiêu đã được giao việc (chưa có ai test)
             newStatus = LaboratoryTaskStatus.Assigned;
         }
         else
         {
-            // Tất cả chưa được giao việc
+            // Còn chỉ tiêu chưa được giao việc
             newStatus = LaboratoryTaskStatus.NotAssigned;
         }
 
@@ -832,6 +845,50 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Update TestRequest status to InProgress when KTV checks in
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
+    }
+
+    /// <summary>
+    /// Kiểm tra và cập nhật TestRequest sang InProgress khi có KTV check-in (có testDate)
+    /// </summary>
+    private async Task TryUpdateTestRequestToInProgressAsync(Guid testRequestId)
+    {
+        var testRequest = await _testRequestRepository.FindAsync(testRequestId);
+        if (testRequest == null) return;
+
+        // Chỉ cập nhật khi status đang ở SampleSent
+        if (testRequest.Status != TestRequests.TestRequestStatus.SampleSent)
+        {
+            return;
+        }
+
+        // Lấy tất cả tasks của TestRequest này
+        var tasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        if (!tasks.Any()) return;
+
+        var taskIds = tasks.Select(t => t.Id).ToList();
+
+        // Lấy tất cả indicators của các tasks
+        var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => taskIds.Contains(ti.LaboratoryTaskId));
+
+        // Loại trừ các chỉ tiêu bị KH hủy
+        var activeIndicators = allIndicators
+            .Where(ti => ti.ApprovalStatus != LaboratoryTasks.IndicatorApprovalStatus.CustomerCancelled)
+            .ToList();
+
+        if (!activeIndicators.Any()) return;
+
+        // Chỉ chuyển sang InProgress khi có ≥1 KTV đã check-in (có testDate)
+        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+
+        if (anyTesting)
+        {
+            testRequest.Status = TestRequests.TestRequestStatus.InProgress;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
     }
 
     /// <summary>
