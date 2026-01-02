@@ -835,38 +835,68 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     {
         var task = await _taskRepository.GetAsync(taskId);
 
-        // Allow resending - check if there are approved indicators
+        // Allow resending - check if there are approved indicators that haven't been sent yet
         var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == taskId);
-        var hasApprovedIndicators = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved);
+        var approvedNotSentIndicators = indicators
+            .Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved && !i.IsResultSent)
+            .ToList();
 
-        if (!hasApprovedIndicators)
+        if (!approvedNotSentIndicators.Any())
         {
             throw new Common.Exceptions.InvalidOperationException("Không có chỉ tiêu nào đã được duyệt để gửi.", "indicator");
         }
 
-        // Update task status (even if already ResultSent - for resending)
-        task.Status = QualityManagementStatus.ResultSent;
-        task.ResultSentDate = DateTime.Now;
-        await _taskRepository.UpdateAsync(task);
+        // Mark approved indicators as sent
+        var now = DateTime.Now;
+        foreach (var indicator in approvedNotSentIndicators)
+        {
+            indicator.IsResultSent = true;
+            indicator.ResultSentDate = now;
+        }
+        await _indicatorRepository.UpdateManyAsync(approvedNotSentIndicators);
+
+        // Check if all indicators are processed (approved or rejected, no pending)
+        var hasPendingIndicators = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval);
+
+        // Only update task status to ResultSent when ALL indicators are processed (no pending)
+        if (!hasPendingIndicators)
+        {
+            task.Status = QualityManagementStatus.ResultSent;
+            task.ResultSentDate = now;
+            await _taskRepository.UpdateAsync(task);
+        }
 
         // Get current user name
         var currentUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
 
-        // Also update TestRequest status and ResultSent info
-        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-        testRequest.Status = TestRequestStatus.ResultSent;
-        testRequest.ResultSentDate = DateTime.Now;
-        testRequest.ResultSentByUserId = CurrentUser.Id;
-        testRequest.ResultSentByUserName = currentUserName;
-        await _testRequestRepository.UpdateAsync(testRequest);
+        // Check if ALL quality tasks for this TestRequest have sent results
+        // Only update TestRequest status when all tasks are ResultSent
+        var allQualityTasks = await _taskRepository.GetListAsync(qt => qt.TestRequestId == task.TestRequestId);
+        var allTasksSentOrNoIndicatorsPending = allQualityTasks.All(qt =>
+            qt.Status == QualityManagementStatus.ResultSent || (qt.Id == taskId && !hasPendingIndicators));
 
-        // Notify the test request creator - Case 4 SampleReceiver (first notification)
-        if (testRequest.CreatorId.HasValue)
+        if (allTasksSentOrNoIndicatorsPending)
         {
-            await _notificationCreator.NotifySampleReturnReminderAsync(
-                testRequest.CreatorId.Value,
-                testRequest.ContractNumber ?? "",
-                testRequest.Id);
+            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+
+            // Only update if not already ResultSent (avoid overwriting date/user)
+            if (testRequest.Status != TestRequestStatus.ResultSent)
+            {
+                testRequest.Status = TestRequestStatus.ResultSent;
+                testRequest.ResultSentDate = DateTime.Now;
+                testRequest.ResultSentByUserId = CurrentUser.Id;
+                testRequest.ResultSentByUserName = currentUserName;
+                await _testRequestRepository.UpdateAsync(testRequest);
+
+                // Notify the test request creator - Case 4 SampleReceiver (first notification)
+                if (testRequest.CreatorId.HasValue)
+                {
+                    await _notificationCreator.NotifySampleReturnReminderAsync(
+                        testRequest.CreatorId.Value,
+                        testRequest.ContractNumber ?? "",
+                        testRequest.Id);
+                }
+            }
         }
     }
 
@@ -1175,6 +1205,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             ReferenceLimit = indicator.ReferenceLimit,
             ApprovalStatus = indicator.ApprovalStatus,
             RejectionReason = indicator.RejectionReason,
+            IsResultSent = indicator.IsResultSent,
+            QualityResultSentDate = indicator.ResultSentDate,
             ApprovedById = indicator.ApprovedById,
             ApprovedByName = approvedByName
         };

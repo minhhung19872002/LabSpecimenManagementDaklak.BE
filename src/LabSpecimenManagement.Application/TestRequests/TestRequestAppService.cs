@@ -1171,14 +1171,33 @@ public partial class TestRequestAppService :
             switch (indicator.ApprovalStatus)
             {
                 case IndicatorApprovalStatus.Approved:
-                    // If indicator was sent to QLCL, check QLCL approval status
-                    if (indicator.IsSentToQuality && qualityIndicatorLookup.TryGetValue(indicator.Id, out var qualityIndicator))
+                    // QLKT đã duyệt - kiểm tra đã gửi sang QLCL chưa
+                    if (!indicator.IsSentToQuality)
                     {
+                        // QLKT duyệt nhưng chưa gửi sang QLCL - chưa hoàn thành
+                        allCompletedOrCancelled = false;
+                        hasApproved = true;
+                        continue;
+                    }
+
+                    // Đã gửi sang QLCL - kiểm tra QLCL đã duyệt và gửi kết quả chưa
+                    if (qualityIndicatorLookup.TryGetValue(indicator.Id, out var qualityIndicator))
+                    {
+                        // Kiểm tra QLCL đã duyệt chưa
                         if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
                         {
-                            // QLCL hasn't approved yet - not completed
+                            // QLCL chưa duyệt - chưa hoàn thành
                             allCompletedOrCancelled = false;
-                            hasApproved = true; // QLKT approved but waiting for QLCL
+                            hasApproved = true;
+                            continue;
+                        }
+
+                        // QLCL đã duyệt - kiểm tra đã gửi kết quả chưa (kiểm tra ở cấp indicator)
+                        if (!qualityIndicator.IsResultSent)
+                        {
+                            // QLCL duyệt nhưng chưa gửi kết quả - chưa hoàn thành
+                            allCompletedOrCancelled = false;
+                            hasApproved = true;
                             continue;
                         }
                     }
