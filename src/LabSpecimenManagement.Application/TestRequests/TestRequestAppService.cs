@@ -1843,7 +1843,7 @@ public partial class TestRequestAppService :
                     }
                 }
 
-                // If sample has LaboratoryTask, keep sample for history (mark as cancelled)
+                // If sample has LaboratoryTask, keep sample for history (mark as customer cancelled)
                 // Only delete sample if no LaboratoryTask exists (sample not yet sent)
                 if (!hasLabTask)
                 {
@@ -1851,9 +1851,9 @@ public partial class TestRequestAppService :
                 }
                 else
                 {
-                    // Mark sample as cancelled for sample storage management
-                    existingSample.IsCancelled = true;
-                    existingSample.CancelledDate = DateTime.UtcNow;
+                    // Mark sample as customer cancelled (KH hủy sau khi đã gửi mẫu)
+                    existingSample.IsCustomerCancelled = true;
+                    existingSample.CustomerCancelledDate = DateTime.UtcNow;
                     await _sampleRepository.UpdateAsync(existingSample, autoSave: true);
 
                     // Track for notification (Case 8.2)

@@ -118,6 +118,11 @@ public class TestRequestSampleDto
     public bool IsCancelled { get; set; }
 
     /// <summary>
+    /// Đánh dấu mẫu đã bị khách hàng hủy (sau khi đã gửi mẫu)
+    /// </summary>
+    public bool IsCustomerCancelled { get; set; }
+
+    /// <summary>
     /// Loại mẫu ID
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }

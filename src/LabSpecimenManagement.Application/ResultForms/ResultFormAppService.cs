@@ -908,7 +908,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     public async Task<List<SampleForSelectionDto>> GetSamplesForResultFormAsync(Guid testRequestId)
     {
         var testRequest = await _testRequestRepository.GetAsync(testRequestId);
-        var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == testRequestId);
+        // Filter out samples that are customer cancelled (KH hủy)
+        var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == testRequestId && !x.IsCustomerCancelled);
         var laboratoryTasks = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequestId);
 
         // Get sample indicator IDs for all samples
@@ -1072,6 +1073,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
             var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
+
+            // Skip CustomerCancelled indicators (KH hủy)
+            if (taskIndicator?.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                continue;
+            }
 
             TestMethod? method = null;
             if (taskIndicator?.MethodId != null)
@@ -2363,6 +2370,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             var sample = sampleDict.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
             var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
             var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
+
+            // Skip CustomerCancelled indicators (KH hủy)
+            if (taskIndicator?.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                continue;
+            }
 
             TestMethod? method = null;
             if (taskIndicator?.MethodId != null)
