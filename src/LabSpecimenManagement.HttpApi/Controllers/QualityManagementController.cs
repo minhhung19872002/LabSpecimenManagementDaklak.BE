@@ -1,3 +1,4 @@
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.QualityManagement;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -61,7 +62,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Reject indicator (QLCL từ chối kết quả)
     /// </summary>
     [HttpPost("indicators/{indicatorId}/reject")]
-    public virtual Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, [FromBody] RejectIndicatorInput input)
+    public virtual Task<QualityManagementIndicatorDto> RejectIndicatorAsync(Guid indicatorId, [FromBody] RejectWithReasonDto input)
     {
         return _qualityManagementAppService.RejectIndicatorAsync(indicatorId, input.Reason);
     }
@@ -70,7 +71,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Bulk approve indicators (QLCL duyệt nhiều chỉ tiêu cùng lúc)
     /// </summary>
     [HttpPost("indicators/bulk-approve")]
-    public virtual Task<BulkApproveIndicatorsResultDto> BulkApproveIndicatorsAsync([FromBody] BulkApproveIndicatorsInput input)
+    public virtual Task<BulkApproveIndicatorsResultDto> BulkApproveIndicatorsAsync([FromBody] BulkApproveIndicatorsDto input)
     {
         return _qualityManagementAppService.BulkApproveIndicatorsAsync(input.IndicatorIds);
     }
@@ -79,7 +80,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Bulk reject indicators (QLCL từ chối nhiều chỉ tiêu cùng lúc)
     /// </summary>
     [HttpPost("indicators/bulk-reject")]
-    public virtual Task<BulkRejectIndicatorsResultDto> BulkRejectIndicatorsAsync([FromBody] BulkRejectIndicatorsInput input)
+    public virtual Task<BulkRejectIndicatorsResultDto> BulkRejectIndicatorsAsync([FromBody] BulkRejectIndicatorsDto input)
     {
         return _qualityManagementAppService.BulkRejectIndicatorsAsync(input.IndicatorIds, input.Reason);
     }
@@ -88,7 +89,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Update indicator standard (chọn tiêu chuẩn so sánh)
     /// </summary>
     [HttpPut("indicators/{indicatorId}/standard")]
-    public virtual Task<QualityManagementIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, [FromBody] UpdateIndicatorStandardInput input)
+    public virtual Task<QualityManagementIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, [FromBody] UpdateIndicatorStandardDto input)
     {
         return _qualityManagementAppService.UpdateIndicatorStandardAsync(indicatorId, input.StandardId);
     }
@@ -115,7 +116,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Print single result (In KQ Đơn) - generates PDF and returns file name
     /// </summary>
     [HttpPost("{taskId}/print-single")]
-    public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleInput input)
+    public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleDto input)
     {
         return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName);
     }
@@ -124,7 +125,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Print mixed result (In KQ Hỗn hợp) - generates PDF and returns file name
     /// </summary>
     [HttpPost("{taskId}/print-mixed")]
-    public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedInput input)
+    public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
     {
         return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName);
     }
@@ -172,7 +173,7 @@ public class QualityManagementController : LabSpecimenManagementController
     /// Reject changes (Từ chối thay đổi phiếu yêu cầu)
     /// </summary>
     [HttpPost("{taskId}/reject-changes")]
-    public virtual Task RejectChangesAsync(Guid taskId, [FromBody] RejectChangesInput input)
+    public virtual Task RejectChangesAsync(Guid taskId, [FromBody] RejectWithReasonDto input)
     {
         return _qualityManagementAppService.RejectChangesAsync(taskId, input.Reason);
     }
@@ -189,83 +190,4 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     #endregion
-}
-
-/// <summary>
-/// Input DTO for rejecting indicator
-/// </summary>
-public class RejectIndicatorInput
-{
-    public string Reason { get; set; } = null!;
-}
-
-/// <summary>
-/// Input DTO for updating indicator standard
-/// </summary>
-public class UpdateIndicatorStandardInput
-{
-    public Guid? StandardId { get; set; }
-}
-
-/// <summary>
-/// Input DTO for print single
-/// </summary>
-public class PrintSingleInput
-{
-    public Guid IndicatorId { get; set; }
-
-    /// <summary>
-    /// Optional note to include in the result form
-    /// </summary>
-    public string? Note { get; set; }
-
-    /// <summary>
-    /// Template name (without .template.docx extension)
-    /// If null, uses default template
-    /// </summary>
-    public string? TemplateName { get; set; }
-}
-
-/// <summary>
-/// Input DTO for print mixed
-/// </summary>
-public class PrintMixedInput
-{
-    public List<Guid> IndicatorIds { get; set; } = new();
-
-    /// <summary>
-    /// Optional note to include in the result form
-    /// </summary>
-    public string? Note { get; set; }
-
-    /// <summary>
-    /// Template name (without .template.docx extension)
-    /// If null, uses default template
-    /// </summary>
-    public string? TemplateName { get; set; }
-}
-
-/// <summary>
-/// Input DTO for rejecting changes
-/// </summary>
-public class RejectChangesInput
-{
-    public string Reason { get; set; } = null!;
-}
-
-/// <summary>
-/// Input DTO for bulk approve indicators
-/// </summary>
-public class BulkApproveIndicatorsInput
-{
-    public List<Guid> IndicatorIds { get; set; } = new();
-}
-
-/// <summary>
-/// Input DTO for bulk reject indicators
-/// </summary>
-public class BulkRejectIndicatorsInput
-{
-    public List<Guid> IndicatorIds { get; set; } = new();
-    public string Reason { get; set; } = null!;
 }

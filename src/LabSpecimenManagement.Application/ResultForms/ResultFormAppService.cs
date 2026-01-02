@@ -13,10 +13,10 @@ using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.Common.Exceptions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
-using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Users;
@@ -24,7 +24,7 @@ using Volo.Abp.Users;
 namespace LabSpecimenManagement.ResultForms;
 
 [Authorize]
-public class ResultFormAppService : ApplicationService, IResultFormAppService
+public partial class ResultFormAppService : ApplicationService, IResultFormAppService
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
@@ -41,24 +41,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<ResultFormAppService> _logger;
 
-    private const string TemplateBM03 = "Form trả kq BM03-QT13-BCKQ_3.2.template.docx";
-    private const string TemplateBM01 = "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx";
-    private const string TemplateBM02 = "Form trả KQ tổng hợp - BM02-QT13-BCKQ_3.2.template.docx"; // For mixed indicator result
-    private const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx"; // Changed to .docx for OpenXML support
-
-    // Templates cho In KQ Đơn (dùng cho dropdown selection)
-    private static readonly string[] SingleIndicatorTemplates = new[]
-    {
-        "form mẫu QLNN BM05-QT13-BCKQ_3.2.template.docx",
-        "Form thêm cột GH BM04-QT13-BCKQ_3.2.template.docx",
-        "Form trả KQ - BM01-QT13-BCKQ_3.2.template.docx",
-        "Form trả kq BM03-QT13-BCKQ_3.2.template.docx"
-    };
-
-    // Checkbox symbols for document placeholders
-    // Using Unicode ballot box characters
-    private const string CheckedBox = "☑";   // U+2611 - BALLOT BOX WITH CHECK
-    private const string UncheckedBox = "☐"; // U+2610 - BALLOT BOX
+    // Template constants are defined in TemplateConstants class
+    // Use TemplateConstants.StandardBasedTemplates for single indicator templates
 
     public ResultFormAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -100,7 +84,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (sample.TestRequestId != input.TestRequestId)
         {
-            throw new UserFriendlyException("Sample không thuộc TestRequest này");
+            throw new ValidationException("sample", "Sample không thuộc TestRequest này");
         }
 
         // Get sample indicators
@@ -183,10 +167,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM03);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM03);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM03}");
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM03);
         }
 
         // Create temp directory if not exists
@@ -924,7 +908,8 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     public async Task<List<SampleForSelectionDto>> GetSamplesForResultFormAsync(Guid testRequestId)
     {
         var testRequest = await _testRequestRepository.GetAsync(testRequestId);
-        var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == testRequestId);
+        // Filter out samples that are customer cancelled (KH hủy)
+        var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == testRequestId && !x.IsCustomerCancelled);
         var laboratoryTasks = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequestId);
 
         // Get sample indicator IDs for all samples
@@ -1008,7 +993,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (sample.TestRequestId != input.TestRequestId)
         {
-            throw new UserFriendlyException("Sample không thuộc TestRequest này");
+            throw new ValidationException("sample", "Sample không thuộc TestRequest này");
         }
 
         // Get sample indicators
@@ -1037,13 +1022,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Validate: Max status of related tasks must be ResultSent
         if (!relatedTasks.Any())
         {
-            throw new UserFriendlyException("Mẫu chưa được gán phòng xét nghiệm");
+            throw new Common.Exceptions.InvalidOperationException("Mẫu chưa được gán phòng xét nghiệm", "sample");
         }
 
         var maxStatus = relatedTasks.Max(t => t.Status);
         if (maxStatus != LaboratoryTaskStatus.SentToQuality)
         {
-            throw new UserFriendlyException("Mẫu chưa xét nghiệm xong");
+            throw new Common.Exceptions.InvalidOperationException("Mẫu chưa xét nghiệm xong", "sample");
         }
 
         // Get indicator and method details
@@ -1089,6 +1074,12 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
             var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
 
+            // Skip CustomerCancelled indicators (KH hủy)
+            if (taskIndicator?.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                continue;
+            }
+
             TestMethod? method = null;
             if (taskIndicator?.MethodId != null)
             {
@@ -1113,10 +1104,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {input.TemplateName ?? TemplateBM01}");
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM01);
         }
 
         // Create temp directory if not exists
@@ -1128,7 +1119,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // Generate unique filename - sanitize sample code to remove invalid path characters
         var safeSampleCode = (sample.SampleCode ?? "unknown").Replace("/", "-").Replace("\\", "-");
-        var templateName = string.IsNullOrEmpty(input.TemplateName) ? "BM01" : input.TemplateName;
+        var templateName = string.IsNullOrEmpty(input.TemplateName) ? TemplateConstants.DefaultTemplateName : input.TemplateName;
         var fileName = $"{Guid.NewGuid():N}_{templateName}_{safeSampleCode}.docx";
         var outputPath = Path.Combine(tempDir, fileName);
 
@@ -1218,10 +1209,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 3. Check if template exists
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM05);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM05}");
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM05);
         }
 
         // 4. Create temp directory if not exists
@@ -1233,7 +1224,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // 5. Generate unique filename - keep original extension
         var safeRequestNumber = testRequest.RequestNumber?.Replace("/", "-") ?? "unknown";
-        var templateExtension = Path.GetExtension(TemplateBM05); // .doc or .docx
+        var templateExtension = Path.GetExtension(TemplateConstants.TemplateBM05); // .doc or .docx
         var fileName = $"{Guid.NewGuid():N}_BM05_{safeRequestNumber}{templateExtension}";
         var outputPath = Path.Combine(tempDir, fileName);
 
@@ -1802,44 +1793,44 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             { "{{CurrentDate}}", currentDateText },
 
             // Checkbox - Test Method
-            { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? CheckedBox : UncheckedBox },
-            { "{{CB_TestMethod_Customer}}", testRequest.MethodCustomer ? CheckedBox : UncheckedBox },
+            { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_TestMethod_Customer}}", testRequest.MethodCustomer ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Report Language
-            { "{{CB_Report_VN}}", testRequest.ResultLanguage == ResultLanguage.Vietnamese ? CheckedBox : UncheckedBox },
-            { "{{CB_Report_EN}}", testRequest.ResultLanguage == ResultLanguage.English ? CheckedBox : UncheckedBox },
-            { "{{CB_Report_Both}}", testRequest.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? CheckedBox : UncheckedBox },
+            { "{{CB_Report_VN}}", testRequest.ResultLanguage == ResultLanguage.Vietnamese ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_EN}}", testRequest.ResultLanguage == ResultLanguage.English ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_Both}}", testRequest.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Separate Results
-            { "{{CB_SeparateResult}}", testRequest.SeparatePassedResults ? CheckedBox : UncheckedBox },
+            { "{{CB_SeparateResult}}", testRequest.SeparatePassedResults ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sampling Requirement
-            { "{{CB_Sampling_Center}}", testRequest.SamplingRequirement == SamplingRequirement.LabSampling ? CheckedBox : UncheckedBox },
-            { "{{CB_Sampling_Customer}}", testRequest.SamplingRequirement == SamplingRequirement.CustomerSampling ? CheckedBox : UncheckedBox },
+            { "{{CB_Sampling_Center}}", testRequest.SamplingRequirement == SamplingRequirement.LabSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Sampling_Customer}}", testRequest.SamplingRequirement == SamplingRequirement.CustomerSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Delivery Method
-            { "{{CB_Delivery_Direct}}", testRequest.DeliveryDirectPickup ? CheckedBox : UncheckedBox },
-            { "{{CB_Delivery_Post}}", testRequest.DeliveryPostal ? CheckedBox : UncheckedBox },
+            { "{{CB_Delivery_Direct}}", testRequest.DeliveryDirectPickup ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Delivery_Post}}", testRequest.DeliveryPostal ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Return Sample
-            { "{{CB_ReturnSample}}", testRequest.ReturnStoredSample ? CheckedBox : UncheckedBox },
+            { "{{CB_ReturnSample}}", testRequest.ReturnStoredSample ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Agree Terms
-            { "{{CB_AgreeTerms}}", testRequest.AgreeTerms ? CheckedBox : UncheckedBox },
+            { "{{CB_AgreeTerms}}", testRequest.AgreeTerms ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Type
-            { "{{CB_Service}}", testRequest.SampleTypeService ? CheckedBox : UncheckedBox },
-            { "{{CB_Contract}}", testRequest.SampleTypeContract ? CheckedBox : UncheckedBox },
-            { "{{CB_QLNN}}", testRequest.SampleTypeTask ? CheckedBox : UncheckedBox },
-            { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? CheckedBox : UncheckedBox },
+            { "{{CB_Service}}", testRequest.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Contract}}", testRequest.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_QLNN}}", testRequest.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Storage
-            { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? CheckedBox : UncheckedBox },
-            { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? CheckedBox : UncheckedBox },
+            { "{{CB_Save_No}}", testRequest.SampleStorage == SampleStorageOption.No ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Save_Yes}}", testRequest.SampleStorage == SampleStorageOption.Yes ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Payment Method (disabled - paymentReceived field is not used in form)
-            { "{{CB_Cash}}", UncheckedBox },
-            { "{{CB_Credit}}", UncheckedBox }
+            { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
         };
 
         return placeholders;
@@ -1948,12 +1939,12 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (qualityIndicator.QualityManagementTaskId != input.TaskId)
         {
-            throw new UserFriendlyException("Chỉ tiêu không thuộc công việc này");
+            throw new ValidationException("indicator", "Chỉ tiêu không thuộc công việc này");
         }
 
         if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
         {
-            throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt", "indicator");
         }
 
         // 2. Get laboratory task indicator and related data
@@ -2025,10 +2016,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         };
 
         // 5. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateBM01);
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2089,7 +2080,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     {
         if (input.IndicatorIds == null || input.IndicatorIds.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu");
         }
 
         // 1. Load quality task and indicators
@@ -2102,11 +2093,11 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         {
             if (qi.QualityManagementTaskId != input.TaskId)
             {
-                throw new UserFriendlyException("Có chỉ tiêu không thuộc công việc này");
+                throw new ValidationException("indicator", "Có chỉ tiêu không thuộc công việc này");
             }
             if (qi.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Chỉ có thể in kết quả đã được duyệt");
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt", "indicator");
             }
         }
 
@@ -2215,10 +2206,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         // 6. Generate document using fixed BM02 template for mixed indicator result
         // In KQ Hỗn hợp always uses BM02 template (no dropdown selection)
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM02);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM02);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM02}");
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM02);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2279,7 +2270,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
     {
         if (input.SampleIds == null || input.SampleIds.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một mẫu");
+            throw new ValidationException("sampleIds", "Vui lòng chọn ít nhất một mẫu");
         }
 
         // 1. Load and validate data
@@ -2291,7 +2282,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         {
             if (sample.TestRequestId != input.TestRequestId)
             {
-                throw new UserFriendlyException($"Mẫu {sample.SampleCode} không thuộc phiếu yêu cầu này");
+                throw new ValidationException("sample", $"Mẫu {sample.SampleCode} không thuộc phiếu yêu cầu này");
             }
         }
 
@@ -2321,13 +2312,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         // Validate: All related tasks must have status SentToQuality
         if (!relatedTasks.Any())
         {
-            throw new UserFriendlyException("Các mẫu chưa được gán phòng xét nghiệm");
+            throw new Common.Exceptions.InvalidOperationException("Các mẫu chưa được gán phòng xét nghiệm", "sample");
         }
 
         var notCompletedTasks = relatedTasks.Where(t => t.Status != LaboratoryTaskStatus.SentToQuality).ToList();
         if (notCompletedTasks.Any())
         {
-            throw new UserFriendlyException("Có mẫu chưa xét nghiệm xong");
+            throw new Common.Exceptions.InvalidOperationException("Có mẫu chưa xét nghiệm xong", "sample");
         }
 
         // Get indicator and method details
@@ -2380,6 +2371,12 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
             var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
             var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
 
+            // Skip CustomerCancelled indicators (KH hủy)
+            if (taskIndicator?.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                continue;
+            }
+
             TestMethod? method = null;
             if (taskIndicator?.MethodId != null)
             {
@@ -2400,10 +2397,10 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         }
 
         // 4. Generate document
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateBM01);
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new UserFriendlyException($"Template không tồn tại: {TemplateBM01}");
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2473,13 +2470,13 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
         var templates = new List<TemplateDto>();
 
         // Only return templates for In KQ Đơn
-        foreach (var templateFileName in SingleIndicatorTemplates)
+        foreach (var templateFileName in TemplateConstants.StandardBasedTemplates)
         {
             var filePath = Path.Combine(templatesDir, templateFileName);
             if (File.Exists(filePath))
             {
                 // Remove .template.docx extension to get display name
-                var displayName = templateFileName.Replace(".template.docx", "");
+                var displayName = TemplateConstants.GetDisplayName(templateFileName);
 
                 templates.Add(new TemplateDto
                 {
@@ -2502,7 +2499,7 @@ public class ResultFormAppService : ApplicationService, IResultFormAppService
 
         if (!string.IsNullOrWhiteSpace(templateName))
         {
-            var customTemplatePath = Path.Combine(templatesDir, $"{templateName}.template.docx");
+            var customTemplatePath = Path.Combine(templatesDir, TemplateConstants.GetTemplateFileName(templateName));
             if (File.Exists(customTemplatePath))
             {
                 return customTemplatePath;

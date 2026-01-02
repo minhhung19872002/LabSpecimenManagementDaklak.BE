@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities;
 
 namespace LabSpecimenManagement.MasterData;
@@ -7,7 +8,7 @@ namespace LabSpecimenManagement.MasterData;
 /// Bảng trung gian liên kết Tiêu chuẩn và Chỉ tiêu (Many-to-Many)
 /// Chỉ tiêu so sánh trong tiêu chuẩn
 /// </summary>
-public class StandardIndicator : Entity<Guid>
+public class StandardIndicator : Entity<Guid>, IHasActive
 {
     /// <summary>
     /// ID Tiêu chuẩn

@@ -39,6 +39,10 @@ using Volo.Abp.Security.Claims;
 using Volo.Abp.Swashbuckle;
 using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
+using LabSpecimenManagement.Hubs;
+using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.Services;
+using Microsoft.AspNetCore.SignalR;
 
 namespace LabSpecimenManagement;
 
@@ -101,9 +105,21 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureApiFilters(context);
         ConfigureEmail(context, configuration);
         ConfigureHangfire(context, configuration);
+        ConfigureSignalR(context);
 
         // Register HttpClient for OnlyOffice integration
         context.Services.AddHttpClient();
+    }
+
+    private void ConfigureSignalR(ServiceConfigurationContext context)
+    {
+        context.Services.AddSignalR();
+
+        // Register custom UserIdProvider for ABP Framework compatibility
+        context.Services.AddSingleton<IUserIdProvider, AbpUserIdProvider>();
+
+        // Register NotificationHubService for real-time notifications
+        context.Services.AddTransient<INotificationHubService, NotificationHubService>();
     }
 
     private void ConfigureHangfire(ServiceConfigurationContext context, IConfiguration configuration)
@@ -328,6 +344,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         app.UseConfiguredEndpoints(endpoints =>
         {
             endpoints.MapHealthChecks("/health");
+            endpoints.MapHub<NotificationHub>("/signalr/notifications");
         });
     }
 

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -19,14 +20,20 @@ public class CustomerAppService :
         CreateUpdateCustomerDto>,
     ICustomerAppService
 {
-    public CustomerAppService(IRepository<Customer, Guid> repository)
+    private readonly ICodeGeneratorService _codeGenerator;
+
+    public CustomerAppService(
+        IRepository<Customer, Guid> repository,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<Customer> MapToEntityAsync(CreateUpdateCustomerDto createInput)
     {
-        var code = await GenerateCustomerCodeAsync();
+        var count = await Repository.CountAsync();
+        var code = _codeGenerator.GenerateCode("CUST", count);
         var entity = new Customer(GuidGenerator.Create(), code, createInput.Name);
 
         entity.Email = createInput.Email;
@@ -45,20 +52,12 @@ public class CustomerAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 
         return new ListResultDto<CustomerDto>(
             ObjectMapper.Map<List<Customer>, List<CustomerDto>>(items)
         );
-    }
-
-    private async Task<string> GenerateCustomerCodeAsync()
-    {
-        var prefix = "CUST";
-        var count = await Repository.CountAsync();
-        var sequence = (count + 1).ToString("D4");
-        return $"{prefix}-{sequence}";
     }
 }

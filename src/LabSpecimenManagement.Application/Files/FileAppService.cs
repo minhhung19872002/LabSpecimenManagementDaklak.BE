@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
@@ -38,20 +39,20 @@ public class FileAppService : ApplicationService, IFileAppService
         // Validate file name
         if (string.IsNullOrWhiteSpace(fileName))
         {
-            throw new UserFriendlyException("Tên file không được để trống.");
+            throw new ValidationException("fileName", "Tên file không được để trống.");
         }
 
         // Validate extension
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         if (!IsAllowedExtension(extension))
         {
-            throw new UserFriendlyException($"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
+            throw new ValidationException("fileName", $"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
         }
 
         // Validate file size
         if (fileContent.Length > MaxFileSize)
         {
-            throw new UserFriendlyException($"Kích thước file không được vượt quá {MaxFileSize / (1024 * 1024)} MB.");
+            throw new ValidationException("fileSize", $"Kích thước file không được vượt quá {MaxFileSize / (1024 * 1024)} MB.");
         }
 
         // Generate unique file ID
@@ -74,7 +75,7 @@ public class FileAppService : ApplicationService, IFileAppService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to save file: {FileName}", fileName);
-            throw new UserFriendlyException("Không thể lưu file. Vui lòng thử lại.");
+            throw new Common.Exceptions.InvalidOperationException("Không thể lưu file. Vui lòng thử lại.");
         }
 
         _logger.LogInformation("File uploaded successfully: {FileId}, Original name: {FileName}", fileId, fileName);
@@ -163,7 +164,7 @@ public class FileAppService : ApplicationService, IFileAppService
                 catch (Exception ex)
                 {
                     _logger.LogError(ex, "Failed to delete file: {FileId}", fileId);
-                    throw new UserFriendlyException("Không thể xóa file. Vui lòng thử lại.");
+                    throw new Common.Exceptions.InvalidOperationException("Không thể xóa file. Vui lòng thử lại.");
                 }
                 break;
             }

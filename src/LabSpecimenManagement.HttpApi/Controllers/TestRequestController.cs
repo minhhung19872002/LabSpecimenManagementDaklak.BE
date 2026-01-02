@@ -1,9 +1,11 @@
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -36,32 +38,16 @@ public class TestRequestController : LabSpecimenManagementController
 
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Create)]
-    public virtual async Task<IActionResult> CreateAsync([FromBody] CreateTestRequestDto input)
+    public virtual async Task<TestRequestDto> CreateAsync([FromBody] CreateTestRequestDto input)
     {
-        try
-        {
-            var result = await _testRequestAppService.CreateAsync(input);
-            return Ok(result);
-        }
-        catch (TestRequestValidationException ex)
-        {
-            return BadRequest(ex.Errors);
-        }
+        return await _testRequestAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual async Task<IActionResult> UpdateAsync(Guid id, [FromBody] UpdateTestRequestDto input)
+    public virtual async Task<TestRequestDto> UpdateAsync(Guid id, [FromBody] UpdateTestRequestDto input)
     {
-        try
-        {
-            var result = await _testRequestAppService.UpdateAsync(id, input);
-            return Ok(result);
-        }
-        catch (TestRequestValidationException ex)
-        {
-            return BadRequest(ex.Errors);
-        }
+        return await _testRequestAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
@@ -107,7 +93,7 @@ public class TestRequestController : LabSpecimenManagementController
     /// </summary>
     [HttpPost("{id}/reject-result")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task RejectResultAsync(Guid id, [FromBody] RejectChangesDto input)
+    public virtual Task RejectResultAsync(Guid id, [FromBody] RejectWithReasonDto input)
     {
         return _testRequestAppService.RejectResultAsync(id, input.Reason);
     }
@@ -168,7 +154,7 @@ public class TestRequestController : LabSpecimenManagementController
     /// </summary>
     [HttpPost("{id}/reject-changes")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task RejectChangesAsync(Guid id, [FromBody] RejectChangesDto input)
+    public virtual Task RejectChangesAsync(Guid id, [FromBody] RejectWithReasonDto input)
     {
         return _testRequestAppService.RejectChangesAsync(id, input.Reason);
     }
@@ -195,8 +181,37 @@ public class TestRequestController : LabSpecimenManagementController
     /// Get pending tasks for SampleReceiver (used for popup reminder)
     /// </summary>
     [HttpGet("sample-receiver-pending-tasks")]
-    public virtual Task<System.Collections.Generic.List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
+    public virtual Task<List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
     {
         return _testRequestAppService.GetSampleReceiverPendingTasksAsync();
+    }
+
+    /// <summary>
+    /// Get approved indicators for printing (In KQ)
+    /// </summary>
+    [HttpGet("{id}/approved-indicators")]
+    public virtual Task<List<QualityManagementIndicatorDto>> GetApprovedIndicatorsAsync(Guid id)
+    {
+        return _testRequestAppService.GetApprovedIndicatorsAsync(id);
+    }
+
+    /// <summary>
+    /// Print single indicator result (In KQ Đơn)
+    /// </summary>
+    [HttpPost("{id}/print-single")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, [FromBody] PrintSingleDto input)
+    {
+        return _testRequestAppService.PrintSingleResultAsync(id, input.IndicatorId, input.Note, input.TemplateName);
+    }
+
+    /// <summary>
+    /// Print mixed indicators result (In KQ Hỗn hợp)
+    /// </summary>
+    [HttpPost("{id}/print-mixed")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, [FromBody] PrintMixedDto input)
+    {
+        return _testRequestAppService.PrintMixedResultAsync(id, input.IndicatorIds, input.Note, input.TemplateName);
     }
 }

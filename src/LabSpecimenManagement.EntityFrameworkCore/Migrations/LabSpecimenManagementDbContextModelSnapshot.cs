@@ -1449,6 +1449,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("ApprovedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsResultSent")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("LaboratoryTaskIndicatorId")
                         .HasColumnType("uuid");
 
@@ -1462,6 +1465,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime?>("ResultSentDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid?>("StandardId")
                         .HasColumnType("uuid");
@@ -2725,6 +2731,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("CreatorId");
 
+                    b.Property<DateTime?>("CustomerCancelledDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid?>("DeleterId")
                         .HasColumnType("uuid")
                         .HasColumnName("DeleterId");
@@ -2734,6 +2743,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnName("DeletionTime");
 
                     b.Property<bool>("IsCancelled")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsCustomerCancelled")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("IsDeleted")

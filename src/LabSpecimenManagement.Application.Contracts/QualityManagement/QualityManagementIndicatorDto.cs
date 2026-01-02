@@ -118,6 +118,16 @@ public class QualityManagementIndicatorDto
     public string? RejectionReason { get; set; }
 
     /// <summary>
+    /// Đã gửi kết quả cho BPGN - Is Result Sent
+    /// </summary>
+    public bool IsResultSent { get; set; }
+
+    /// <summary>
+    /// Ngày gửi kết quả cho BPGN - Quality Result Sent Date
+    /// </summary>
+    public DateTime? QualityResultSentDate { get; set; }
+
+    /// <summary>
     /// ID người duyệt - Approved By ID
     /// </summary>
     public Guid? ApprovedById { get; set; }

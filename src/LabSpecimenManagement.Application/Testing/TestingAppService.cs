@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
@@ -14,13 +16,12 @@ using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
-using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
 
 [RemoteService(IsEnabled = false)]
 [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-public class TestingAppService : ApplicationService, ITestingAppService
+public partial class TestingAppService : ApplicationService, ITestingAppService
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
@@ -33,7 +34,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
-    private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
 
@@ -49,7 +50,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
-        IIdentityUserRepository userRepository,
+        IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator)
     {
@@ -64,7 +65,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
-        _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
     }
@@ -139,14 +140,14 @@ public class TestingAppService : ApplicationService, ITestingAppService
         {
             sortedTasks = input.Sorting.ToLower() switch
             {
-                "transferdate" => sortedTasks.OrderBy(x => x.Task.TransferDate),
-                "transferdate desc" => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
-                "requestcompletiondate" => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
-                "requestcompletiondate desc" => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
-                "testdate" => sortedTasks.OrderBy(x => x.Task.TestDate),
-                "testdate desc" => sortedTasks.OrderByDescending(x => x.Task.TestDate),
-                "testingstatus" => sortedTasks.OrderBy(x => x.TestingStatus),
-                "testingstatus desc" => sortedTasks.OrderByDescending(x => x.TestingStatus),
+                SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
+                SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
+                SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
+                SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
+                SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
+                SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
+                SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
+                SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
                 _ => sortedTasks.OrderByDescending(x => x.Task.CreationTime)
             };
         }
@@ -190,13 +191,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
             // Validate: Only assigned technician or technical manager can edit
             if (!CanEditIndicator(indicator, task, currentUserId))
             {
-                throw new UserFriendlyException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
+                throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
             }
 
             // Validate: Cannot edit if already approved
             if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
             {
-                throw new UserFriendlyException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt");
+                throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
             }
 
             // Validate result: must be a valid number >= 0 with max 1 decimal place
@@ -204,17 +205,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             {
                 if (!decimal.TryParse(result.Result, out var numResult))
                 {
-                    throw new UserFriendlyException($"Kết quả '{result.Result}' không phải là số hợp lệ");
+                    throw new ValidationException("result", $"Kết quả '{result.Result}' không phải là số hợp lệ");
                 }
                 if (numResult < 0)
                 {
-                    throw new UserFriendlyException("Kết quả phải >= 0");
+                    throw new ValidationException("result", "Kết quả phải >= 0");
                 }
                 // Check max 1 decimal place
                 var decimalPart = result.Result.Contains('.') ? result.Result.Split('.')[1] : "";
                 if (decimalPart.Length > 1)
                 {
-                    throw new UserFriendlyException("Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
+                    throw new ValidationException("result", "Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
                 }
             }
 
@@ -251,13 +252,13 @@ public class TestingAppService : ApplicationService, ITestingAppService
             // Validate: Only assigned technician or technical manager can submit
             if (!CanEditIndicator(indicator, task, currentUserId))
             {
-                throw new UserFriendlyException("Bạn không có quyền gửi duyệt chỉ tiêu này");
+                throw new ForbiddenAccessException("Bạn không có quyền gửi duyệt chỉ tiêu này");
             }
 
             // Validate: Must have result
             if (string.IsNullOrWhiteSpace(indicator.Result))
             {
-                throw new UserFriendlyException("Vui lòng nhập kết quả trước khi gửi duyệt");
+                throw new ValidationException("result", "Vui lòng nhập kết quả trước khi gửi duyệt");
             }
 
             // Validate: Cannot submit if already approved
@@ -286,32 +287,30 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
     public async Task<List<RejectionHistoryDto>> GetRejectionHistoryAsync(Guid indicatorId)
     {
-        var dtos = new List<RejectionHistoryDto>();
-
         try
         {
             var histories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == indicatorId);
+            var orderedHistories = histories.OrderByDescending(h => h.RejectedDate).ToList();
 
-            foreach (var history in histories.OrderByDescending(h => h.RejectedDate))
+            // Batch fetch user names
+            var userNames = await _userNameProvider.GetUserNamesAsync(
+                orderedHistories.Select(h => (Guid?)h.RejectedById));
+
+            return orderedHistories.Select(history => new RejectionHistoryDto
             {
-                var rejectedByUser = await _userRepository.FindAsync(history.RejectedById);
-                dtos.Add(new RejectionHistoryDto
-                {
-                    Id = history.Id,
-                    IndicatorId = history.IndicatorId,
-                    RejectionReason = history.RejectionReason,
-                    RejectedDate = history.RejectedDate,
-                    RejectedById = history.RejectedById,
-                    RejectedByName = rejectedByUser?.Name ?? rejectedByUser?.UserName
-                });
-            }
+                Id = history.Id,
+                IndicatorId = history.IndicatorId,
+                RejectionReason = history.RejectionReason,
+                RejectedDate = history.RejectedDate,
+                RejectedById = history.RejectedById,
+                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null
+            }).ToList();
         }
         catch
         {
             // Table may not exist yet - migration not applied
+            return new List<RejectionHistoryDto>();
         }
-
-        return dtos;
     }
 
     #region Private Methods
@@ -399,54 +398,65 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
         // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
-        var taskIndicators = allTaskIndicators.Where(ti =>
+        var activeIndicators = allTaskIndicators.Where(ti =>
             ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
-        if (!taskIndicators.Any())
+        if (!activeIndicators.Any())
         {
             return;
         }
 
-        // Don't change status if already SentToQuality (final state)
-        if (task.Status == LaboratoryTaskStatus.SentToQuality)
-        {
-            return;
-        }
+        // Check conditions for status calculation - ĐỒNG BỘ VỚI LaboratoryTaskAppService
+        // Có ≥1 chỉ tiêu đã gửi QLCL (Approved + IsSentToQuality)
+        var anySentToQuality = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
 
-        // Check conditions - LOGIC MỚI (giống LaboratoryTaskAppService)
-        var allAssigned = taskIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-        var anyEntered = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-        var allEnteredOrApproved = taskIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        // Có ≥1 chỉ tiêu đã được duyệt (Approved)
+        var anyApproved = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt)
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in)
+        var anyTesting = activeIndicators.Any(ti => ti.TestDate.HasValue);
+
+        // Có ≥1 chỉ tiêu đã được giao việc (có method + KTV)
+        var anyAssigned = activeIndicators.Any(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
 
         LaboratoryTaskStatus newStatus;
 
-        if (!allAssigned)
+        // Logic ưu tiên theo tiến độ CAO NHẤT (từ cao xuống thấp)
+        // Hiển thị trạng thái cao nhất mà task đã đạt được
+
+        if (anySentToQuality)
         {
-            // Có chỉ tiêu chưa gán KTV hoặc phương pháp
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            // Có ≥1 chỉ tiêu đã gửi QLCL
+            newStatus = LaboratoryTaskStatus.SentToQuality;
         }
-        else if (allApproved)
+        else if (anyApproved)
         {
-            // Tất cả đã được duyệt
+            // Có ≥1 chỉ tiêu đã được duyệt
             newStatus = LaboratoryTaskStatus.Approved;
-        }
-        else if (allEnteredOrApproved)
-        {
-            // TẤT CẢ chỉ tiêu đã gửi duyệt (Entered hoặc Approved)
-            newStatus = LaboratoryTaskStatus.PendingApproval;
         }
         else if (anyEntered)
         {
-            // Có ≥1 chỉ tiêu đã gửi duyệt (Entered)
+            // Có ≥1 chỉ tiêu đã nhập KQ (chờ duyệt)
+            newStatus = LaboratoryTaskStatus.PendingApproval;
+        }
+        else if (anyTesting)
+        {
+            // Có ≥1 chỉ tiêu đang thử nghiệm (KTV đã check-in)
             newStatus = LaboratoryTaskStatus.Testing;
+        }
+        else if (anyAssigned)
+        {
+            // Có ≥1 chỉ tiêu đã được giao việc
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
         else
         {
-            // Tất cả đã có KTV nhưng chưa gửi duyệt
-            newStatus = LaboratoryTaskStatus.Assigned;
+            // Tất cả chưa được giao việc
+            newStatus = LaboratoryTaskStatus.NotAssigned;
         }
 
         if (task.Status != newStatus)
@@ -508,8 +518,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
             dto.TotalSampleCount = userSampleIds.Count;
 
             // TechnicianNames = current user's name only
-            var currentUser = await _userRepository.FindAsync(currentUserId.Value);
-            dto.TechnicianNames = currentUser?.Name ?? currentUser?.UserName ?? "";
+            dto.TechnicianNames = await _userNameProvider.GetUserNameAsync(currentUserId.Value) ?? "";
         }
         else
         {
@@ -519,25 +528,17 @@ public class TestingAppService : ApplicationService, ITestingAppService
             dto.TotalSampleCount = task.TotalSampleCount;
             dto.TotalIndicatorCount = activeIndicators.Count;
 
-            // Get all technician names (distinct)
+            // Get all technician names (distinct) - batch fetch
             var technicianIds = indicators
                 .Where(i => i.TechnicianId.HasValue)
-                .Select(i => i.TechnicianId!.Value)
+                .Select(i => i.TechnicianId)
                 .Distinct()
                 .ToList();
 
             if (technicianIds.Any())
             {
-                var technicianNames = new List<string>();
-                foreach (var techId in technicianIds)
-                {
-                    var user = await _userRepository.FindAsync(techId);
-                    if (user != null)
-                    {
-                        technicianNames.Add(user.Name ?? user.UserName ?? "");
-                    }
-                }
-                dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+                var userNames = await _userNameProvider.GetUserNamesAsync(technicianIds);
+                dto.TechnicianNames = string.Join(", ", userNames.Values.Where(n => !string.IsNullOrWhiteSpace(n)));
             }
         }
 
@@ -584,11 +585,15 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
 
+        // Collect all user IDs needed for this DTO (batch fetch)
+        var allUserIds = new List<Guid?> { task.TechnicalManagerId };
+        allUserIds.AddRange(taskIndicators.Select(i => i.TechnicianId));
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
         // Get technical manager name
-        if (task.TechnicalManagerId.HasValue)
+        if (task.TechnicalManagerId.HasValue && userNames.TryGetValue(task.TechnicalManagerId.Value, out var managerName))
         {
-            var manager = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
-            dto.TechnicalManagerName = manager?.Name ?? manager?.UserName;
+            dto.TechnicalManagerName = managerName;
         }
 
         // Get technician names
@@ -600,16 +605,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (technicianIds.Any())
         {
-            var technicianNames = new List<string>();
-            foreach (var techId in technicianIds)
-            {
-                var user = await _userRepository.FindAsync(techId);
-                if (user != null)
-                {
-                    technicianNames.Add(user.Name ?? user.UserName ?? "");
-                }
-            }
-            dto.TechnicianNames = string.Join(", ", technicianNames.Where(n => !string.IsNullOrWhiteSpace(n)));
+            var technicianNameList = technicianIds
+                .Where(id => userNames.ContainsKey(id))
+                .Select(id => userNames[id])
+                .Where(n => !string.IsNullOrWhiteSpace(n))
+                .ToList();
+            dto.TechnicianNames = string.Join(", ", technicianNameList);
         }
 
         // Count completed indicators (loại trừ CustomerCancelled khỏi tổng số)
@@ -705,10 +706,9 @@ public class TestingAppService : ApplicationService, ITestingAppService
                 }
             }
 
-            if (taskIndicator.TechnicianId.HasValue)
+            if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
             {
-                var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-                technicianName = technician?.Name ?? technician?.UserName;
+                technicianName = techName;
             }
 
             // Get rejection history count and latest reason
@@ -790,12 +790,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
         if (task == null)
         {
-            throw new UserFriendlyException("Không tìm thấy task");
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
         if (input.IndicatorIds == null || !input.IndicatorIds.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         foreach (var indicatorId in input.IndicatorIds)
@@ -845,12 +845,12 @@ public class TestingAppService : ApplicationService, ITestingAppService
         var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
         if (task == null)
         {
-            throw new UserFriendlyException("Không tìm thấy task");
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
         if (input.IndicatorIds == null || !input.IndicatorIds.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         var errors = new List<string>();
@@ -900,7 +900,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (errors.Any())
         {
-            throw new UserFriendlyException(string.Join("; ", errors.Distinct()));
+            throw new ValidationException("indicators", string.Join("; ", errors.Distinct()));
         }
 
         // Update task status
@@ -965,7 +965,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
     {
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
         {
-            return IndicatorTestingStatus.Done; // Không cần làm
+            return IndicatorTestingStatus.Cancelled; // KH đã hủy
         }
 
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
@@ -1018,7 +1018,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
 
         if (!hasPermission)
         {
-            throw new UserFriendlyException("Bạn không có quyền upload hình ảnh cho mẫu này");
+            throw new ForbiddenAccessException("Bạn không có quyền upload hình ảnh cho mẫu này");
         }
 
         // Validate: Max 5 images per type
@@ -1030,7 +1030,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         if (existingImages.Count >= 5)
         {
             var imageTypeName = input.ImageType == SampleTestingImageType.BeforeTesting ? "trước thử nghiệm" : "sau thử nghiệm";
-            throw new UserFriendlyException($"Đã đạt tối đa 5 hình ảnh {imageTypeName}");
+            throw new ValidationException("images", $"Đã đạt tối đa 5 hình ảnh {imageTypeName}");
         }
 
         var image = new SampleTestingImage(
@@ -1073,7 +1073,7 @@ public class TestingAppService : ApplicationService, ITestingAppService
         // Validate: Chỉ người tạo hoặc QLKT được xóa
         if (image.CreatorId != currentUserId && task.TechnicalManagerId != currentUserId)
         {
-            throw new UserFriendlyException("Bạn không có quyền xóa hình ảnh này");
+            throw new ForbiddenAccessException("Bạn không có quyền xóa hình ảnh này");
         }
 
         await _sampleTestingImageRepository.DeleteAsync(image);

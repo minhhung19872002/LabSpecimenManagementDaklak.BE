@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Khoa phòng - Laboratory
 /// </summary>
-public class Laboratory : FullAuditedAggregateRoot<Guid>
+public class Laboratory : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã khoa phòng - Laboratory Code (unique)

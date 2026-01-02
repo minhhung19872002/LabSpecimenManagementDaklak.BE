@@ -50,6 +50,16 @@ public class QualityManagementIndicator : Entity<Guid>
     public string? RejectionReason { get; set; }
 
     /// <summary>
+    /// Đã gửi kết quả - Is Result Sent
+    /// </summary>
+    public bool IsResultSent { get; set; }
+
+    /// <summary>
+    /// Ngày gửi kết quả - Result Sent Date
+    /// </summary>
+    public DateTime? ResultSentDate { get; set; }
+
+    /// <summary>
     /// Navigation property to QualityManagementTask
     /// </summary>
     public virtual QualityManagementTask QualityManagementTask { get; set; } = null!;

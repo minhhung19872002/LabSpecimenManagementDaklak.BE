@@ -4,12 +4,15 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
 using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.Testing;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -21,7 +24,7 @@ using Volo.Abp.Users;
 namespace LabSpecimenManagement.TestRequests;
 
 [RemoteService(IsEnabled = false)]
-public class TestRequestAppService :
+public partial class TestRequestAppService :
     CrudAppService<
         TestRequest,
         TestRequestDto,
@@ -42,12 +45,16 @@ public class TestRequestAppService :
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<TestRequestChangeHistory, Guid> _changeHistoryRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
+    private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IUserNameProvider _userNameProvider;
+    private readonly IResultFormAppService _resultFormAppService;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -62,12 +69,16 @@ public class TestRequestAppService :
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<TestRequestChangeHistory, Guid> changeHistoryRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         INotificationAppService notificationAppService,
         INotificationCreator notificationCreator,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        ICodeGeneratorService codeGenerator,
+        IUserNameProvider userNameProvider,
+        IResultFormAppService resultFormAppService)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -77,16 +88,21 @@ public class TestRequestAppService :
         _laboratoryRepository = laboratoryRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _codeGenerator = codeGenerator;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _changeHistoryRepository = changeHistoryRepository;
         _qualityTaskRepository = qualityTaskRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
         _attachmentRepository = attachmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _notificationAppService = notificationAppService;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
+        _codeGenerator = codeGenerator;
+        _userNameProvider = userNameProvider;
+        _resultFormAppService = resultFormAppService;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -247,17 +263,15 @@ public class TestRequestAppService :
         // Set total cost from calculated value
         dto.TotalCost = calculatedTotalCost;
 
-        // Load user names
-        if (dto.SupervisorId.HasValue)
+        // Load user names (batch fetch)
+        var userNames = await _userNameProvider.GetUserNamesAsync(new[] { dto.SupervisorId, dto.DirectorId });
+        if (dto.SupervisorId.HasValue && userNames.TryGetValue(dto.SupervisorId.Value, out var supervisorName))
         {
-            var supervisor = await _userRepository.FindAsync(dto.SupervisorId.Value);
-            dto.SupervisorName = supervisor?.Name ?? supervisor?.UserName;
+            dto.SupervisorName = supervisorName;
         }
-
-        if (dto.DirectorId.HasValue)
+        if (dto.DirectorId.HasValue && userNames.TryGetValue(dto.DirectorId.Value, out var directorName))
         {
-            var director = await _userRepository.FindAsync(dto.DirectorId.Value);
-            dto.DirectorName = director?.Name ?? director?.UserName;
+            dto.DirectorName = directorName;
         }
 
         return dto;
@@ -555,7 +569,7 @@ public class TestRequestAppService :
         // Validate edit permission based on status
         if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
         {
-            throw new UserFriendlyException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'");
+            throw new Common.Exceptions.InvalidOperationException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status");
         }
 
         // Validate limited update - check locked fields
@@ -760,7 +774,7 @@ public class TestRequestAppService :
                                 labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                                 labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                             {
-                                throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                                throw new Common.Exceptions.InvalidOperationException("Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "indicator");
                             }
 
                             // If status is Pending (not yet tested), mark as CustomerCancelled
@@ -877,14 +891,9 @@ public class TestRequestAppService :
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        // Generate request number format: REQ-YYYYMMDD-XXXX
-        var today = DateTime.Now;
-        var prefix = $"REQ-{today:yyyyMMdd}";
-
+        var prefix = _codeGenerator.GetTodayPrefix("REQ");
         var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("REQ", count);
     }
 
     /// <summary>
@@ -1076,8 +1085,8 @@ public class TestRequestAppService :
 
         if (errors.Any())
         {
-            throw new UserFriendlyException(
-                $"Không thể thay đổi các trường sau khi đang thử nghiệm: {string.Join(", ", errors)}"
+            throw new Common.Exceptions.InvalidOperationException(
+                $"Không thể thay đổi các trường sau khi đang thử nghiệm: {string.Join(", ", errors)}", "fields"
             );
         }
     }
@@ -1142,6 +1151,19 @@ public class TestRequestAppService :
             return TestRequestStatus.Completed;
         }
 
+        // Get all quality management indicators for the lab task indicators that were sent to QLCL
+        var labTaskIndicatorIds = labTaskIndicators
+            .Where(lti => lti.IsSentToQuality)
+            .Select(lti => lti.Id)
+            .ToList();
+
+        var qualityIndicators = labTaskIndicatorIds.Any()
+            ? await _qualityIndicatorRepository.GetListAsync(qi => labTaskIndicatorIds.Contains(qi.LaboratoryTaskIndicatorId))
+            : new List<QualityManagementIndicator>();
+
+        // Create a lookup for quick access to quality indicator status
+        var qualityIndicatorLookup = qualityIndicators.ToDictionary(qi => qi.LaboratoryTaskIndicatorId, qi => qi);
+
         // Check indicator statuses
         var hasApproved = false;
         var hasEntered = false;
@@ -1153,6 +1175,36 @@ public class TestRequestAppService :
             switch (indicator.ApprovalStatus)
             {
                 case IndicatorApprovalStatus.Approved:
+                    // QLKT đã duyệt - kiểm tra đã gửi sang QLCL chưa
+                    if (!indicator.IsSentToQuality)
+                    {
+                        // QLKT duyệt nhưng chưa gửi sang QLCL - chưa hoàn thành
+                        allCompletedOrCancelled = false;
+                        hasApproved = true;
+                        continue;
+                    }
+
+                    // Đã gửi sang QLCL - kiểm tra QLCL đã duyệt và gửi kết quả chưa
+                    if (qualityIndicatorLookup.TryGetValue(indicator.Id, out var qualityIndicator))
+                    {
+                        // Kiểm tra QLCL đã duyệt chưa
+                        if (qualityIndicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+                        {
+                            // QLCL chưa duyệt - chưa hoàn thành
+                            allCompletedOrCancelled = false;
+                            hasApproved = true;
+                            continue;
+                        }
+
+                        // QLCL đã duyệt - kiểm tra đã gửi kết quả chưa (kiểm tra ở cấp indicator)
+                        if (!qualityIndicator.IsResultSent)
+                        {
+                            // QLCL duyệt nhưng chưa gửi kết quả - chưa hoàn thành
+                            allCompletedOrCancelled = false;
+                            hasApproved = true;
+                            continue;
+                        }
+                    }
                     hasApproved = true;
                     break;
                 case IndicatorApprovalStatus.Entered:
@@ -1173,7 +1225,7 @@ public class TestRequestAppService :
             }
         }
 
-        // If all indicators are approved or cancelled, allow completion
+        // If all indicators are approved (including QLCL approval) or cancelled, allow completion
         if (allCompletedOrCancelled)
         {
             return TestRequestStatus.Completed;
@@ -1253,7 +1305,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.Pending)
         {
-            throw new UserFriendlyException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'", "status");
         }
 
         entity.Status = TestRequestStatus.SampleSent;
@@ -1344,7 +1396,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể phê duyệt khi trạng thái là 'Chờ Phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể phê duyệt khi trạng thái là 'Chờ Phê duyệt'", "status");
         }
 
         entity.Status = TestRequestStatus.Approved;
@@ -1364,12 +1416,12 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể từ chối kết quả khi trạng thái là 'Chờ Phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể từ chối kết quả khi trạng thái là 'Chờ Phê duyệt'", "status");
         }
 
         if (string.IsNullOrWhiteSpace(reason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
         }
 
         // Update TestRequest status back to InProgress for QLKT to review
@@ -1401,7 +1453,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.Approved)
         {
-            throw new UserFriendlyException("Chỉ có thể gửi kết quả khi đã được phê duyệt");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kết quả khi đã được phê duyệt", "status");
         }
 
         entity.Status = TestRequestStatus.ResultSent;
@@ -1436,7 +1488,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.ResultSent)
         {
-            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể hoàn thành khi đã gửi kết quả", "status");
         }
 
         // Check if all indicators are completed (Approved)
@@ -1470,22 +1522,22 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.ResultSent)
         {
-            throw new UserFriendlyException("Chỉ có thể hoàn thành khi đã gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể hoàn thành khi đã gửi kết quả", "status");
         }
 
         if (!entity.DeliveryPostal)
         {
-            throw new UserFriendlyException("Phiếu yêu cầu này không yêu cầu gửi bưu điện");
+            throw new Common.Exceptions.InvalidOperationException("Phiếu yêu cầu này không yêu cầu gửi bưu điện", "deliveryPostal");
         }
 
         if (input.ImageFileIds == null || input.ImageFileIds.Count == 0)
         {
-            throw new UserFriendlyException("Phải có ít nhất 1 hình ảnh");
+            throw new ValidationException("imageFileIds", "Phải có ít nhất 1 hình ảnh");
         }
 
         if (input.ImageFileIds.Count > 5)
         {
-            throw new UserFriendlyException("Tối đa 5 hình ảnh");
+            throw new ValidationException("imageFileIds", "Tối đa 5 hình ảnh");
         }
 
         // Save image file IDs as JSON array
@@ -1524,7 +1576,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingChangeApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể phê duyệt thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể phê duyệt thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'", "status");
         }
 
         // Get pending change history
@@ -1533,10 +1585,10 @@ public class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+            throw new EntityNotFoundException("ChangeHistory", id);
         }
 
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
         // Apply changes from newValue in change history (also restores previous status)
@@ -1593,142 +1645,142 @@ public class TestRequestAppService :
 
         switch (lowerField)
         {
-            case "contractnumber":
+            case SortingFields.ContractNumber:
                 entity.ContractNumber = newValue;
                 break;
-            case "contractdate":
+            case SortingFields.ContractDate:
                 entity.ContractDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "customername":
+            case SortingFields.CustomerName:
                 entity.CustomerName = newValue ?? "";
                 break;
-            case "address":
+            case SortingFields.Address:
                 entity.Address = newValue;
                 break;
-            case "taxcode":
+            case SortingFields.TaxCode:
                 entity.TaxCode = newValue;
                 break;
-            case "contactperson":
+            case SortingFields.ContactPerson:
                 entity.ContactPerson = newValue;
                 break;
-            case "phone":
+            case SortingFields.Phone:
                 entity.Phone = newValue;
                 break;
-            case "provincecode":
+            case SortingFields.ProvinceCode:
                 entity.ProvinceCode = newValue;
                 break;
-            case "province":
+            case SortingFields.Province:
                 entity.Province = newValue;
                 break;
-            case "districtcode":
+            case SortingFields.DistrictCode:
                 entity.DistrictCode = newValue;
                 break;
-            case "district":
+            case SortingFields.District:
                 entity.District = newValue;
                 break;
-            case "wardcode":
+            case SortingFields.WardCode:
                 entity.WardCode = newValue;
                 break;
-            case "ward":
+            case SortingFields.Ward:
                 entity.Ward = newValue;
                 break;
-            case "notes":
+            case SortingFields.Notes:
                 entity.Notes = newValue;
                 break;
-            case "expectedcompletiondate":
+            case SortingFields.ExpectedCompletionDate:
                 entity.ExpectedCompletionDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "resultdeliverydate":
+            case SortingFields.ResultDeliveryDate:
                 entity.ResultDeliveryDate = string.IsNullOrEmpty(newValue) ? null : DateTime.Parse(newValue);
                 break;
-            case "totalcost":
+            case SortingFields.TotalCost:
                 entity.TotalCost = string.IsNullOrEmpty(newValue) ? 0 : decimal.Parse(newValue);
                 break;
-            case "totalcostinwords":
+            case SortingFields.TotalCostInWords:
                 entity.TotalCostInWords = newValue;
                 break;
-            case "methodwesthighlandinstitute":
+            case SortingFields.MethodWestHighlandInstitute:
                 entity.MethodWestHighlandInstitute = newValue?.ToLower() == "true";
                 break;
-            case "methodcustomer":
+            case SortingFields.MethodCustomer:
                 entity.MethodCustomer = newValue?.ToLower() == "true";
                 break;
-            case "methodcustomerdetail":
+            case SortingFields.MethodCustomerDetail:
                 entity.MethodCustomerDetail = newValue;
                 break;
-            case "resultlanguage":
+            case SortingFields.ResultLanguage:
                 entity.ResultLanguage = string.IsNullOrEmpty(newValue) ? ResultLanguage.Vietnamese : (ResultLanguage)int.Parse(newValue);
                 break;
-            case "resultcopycount":
+            case SortingFields.ResultCopyCount:
                 entity.ResultCopyCount = newValue;
                 break;
-            case "separatepassedresults":
+            case SortingFields.SeparatePassedResults:
                 entity.SeparatePassedResults = newValue?.ToLower() == "true";
                 break;
-            case "conformitydeclaration":
+            case SortingFields.ConformityDeclaration:
                 entity.ConformityDeclaration = newValue;
                 break;
-            case "otherrequirements":
+            case SortingFields.OtherRequirements:
                 entity.OtherRequirements = newValue;
                 break;
-            case "subcontract":
+            case SortingFields.Subcontract:
                 entity.SubContract = newValue;
                 break;
-            case "samplingrequirement":
+            case SortingFields.SamplingRequirement:
                 entity.SamplingRequirement = string.IsNullOrEmpty(newValue) ? SamplingRequirement.CustomerSampling : (SamplingRequirement)int.Parse(newValue);
                 break;
-            case "deliverydirectpickup":
+            case SortingFields.DeliveryDirectPickup:
                 entity.DeliveryDirectPickup = newValue?.ToLower() == "true";
                 break;
-            case "deliverypostal":
+            case SortingFields.DeliveryPostal:
                 entity.DeliveryPostal = newValue?.ToLower() == "true";
                 break;
-            case "returnstoredsample":
+            case SortingFields.ReturnStoredSample:
                 entity.ReturnStoredSample = newValue?.ToLower() == "true";
                 break;
-            case "sampletypeservice":
+            case SortingFields.SampleTypeService:
                 entity.SampleTypeService = newValue?.ToLower() == "true";
                 break;
-            case "sampletypecontract":
+            case SortingFields.SampleTypeContract:
                 entity.SampleTypeContract = newValue?.ToLower() == "true";
                 break;
-            case "sampletypetask":
+            case SortingFields.SampleTypeTask:
                 entity.SampleTypeTask = newValue?.ToLower() == "true";
                 break;
-            case "sampletypesubcontract":
+            case SortingFields.SampleTypeSubcontract:
                 entity.SampleTypeSubContract = newValue?.ToLower() == "true";
                 break;
-            case "samplestorage":
+            case SortingFields.SampleStorage:
                 entity.SampleStorage = string.IsNullOrEmpty(newValue) ? SampleStorageOption.No : (SampleStorageOption)int.Parse(newValue);
                 break;
-            case "receiptnumber":
+            case SortingFields.ReceiptNumber:
                 entity.ReceiptNumber = newValue;
                 break;
-            case "senttoaccounting":
+            case SortingFields.SentToAccounting:
                 entity.SentToAccounting = newValue?.ToLower() == "true";
                 break;
-            case "paymentreceived":
+            case SortingFields.PaymentReceived:
                 entity.PaymentReceived = newValue?.ToLower() == "true";
                 break;
-            case "senttodepartment":
+            case SortingFields.SentToDepartment:
                 entity.SentToDepartment = newValue?.ToLower() == "true";
                 break;
-            case "resultreturned":
+            case SortingFields.ResultReturned:
                 entity.ResultReturned = newValue?.ToLower() == "true";
                 break;
-            case "agreeterms":
+            case SortingFields.AgreeTerms:
                 entity.AgreeTerms = newValue?.ToLower() == "true";
                 break;
-            case "changerequest":
+            case SortingFields.ChangeRequest:
                 entity.ChangeRequest = newValue;
                 break;
-            case "supervisorid":
+            case SortingFields.SupervisorId:
                 entity.SupervisorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
                 break;
-            case "directorid":
+            case SortingFields.DirectorId:
                 entity.DirectorId = string.IsNullOrEmpty(newValue) ? null : Guid.Parse(newValue);
                 break;
-            case "subcontractor":
+            case SortingFields.Subcontractor:
                 entity.Subcontractor = newValue;
                 break;
         }
@@ -1756,7 +1808,7 @@ public class TestRequestAppService :
         var cancelledSampleCodes = new List<string>();
         var cancelledIndicatorCountBySample = new Dictionary<string, int>();
 
-        // Handle samples not in new list - delete indicators and mark sample as cancelled
+        // Handle samples not in new list - mark as CustomerCancelled instead of deleting
         foreach (var existingSample in existingSamples)
         {
             if (!newSampleIds.Contains(existingSample.Id))
@@ -1764,6 +1816,7 @@ public class TestRequestAppService :
                 // Get all indicators for this sample
                 var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == existingSample.Id);
                 bool hasLabTask = false;
+                int cancelledIndicatorCount = 0;
 
                 foreach (var indicator in indicators)
                 {
@@ -1775,21 +1828,26 @@ public class TestRequestAppService :
                     if (labTaskIndicator != null)
                     {
                         hasLabTask = true;
-                        // Check if indicator is being tested or already has results
+                        // Không cho phép hủy mẫu có chỉ tiêu đã có kết quả
                         if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
-                            throw new UserFriendlyException($"Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                            throw new Common.Exceptions.InvalidOperationException("Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "sample");
                         }
-                        // Delete the LaboratoryTaskIndicator
-                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
+                        // Đánh dấu CustomerCancelled thay vì xóa
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        cancelledIndicatorCount++;
                     }
-                    // Delete the indicator
-                    await _sampleIndicatorRepository.DeleteAsync(indicator, autoSave: true);
+                    else
+                    {
+                        // Nếu chưa có LaboratoryTaskIndicator (chưa gửi mẫu) thì xóa hẳn
+                        await _sampleIndicatorRepository.DeleteAsync(indicator, autoSave: true);
+                    }
                 }
 
-                // If sample has LaboratoryTask, keep sample for history (mark as cancelled)
+                // If sample has LaboratoryTask, keep sample for history (mark as customer cancelled)
                 // Only delete sample if no LaboratoryTask exists (sample not yet sent)
                 if (!hasLabTask)
                 {
@@ -1797,14 +1855,14 @@ public class TestRequestAppService :
                 }
                 else
                 {
-                    // Mark sample as cancelled for sample storage management
-                    existingSample.IsCancelled = true;
-                    existingSample.CancelledDate = DateTime.UtcNow;
+                    // Mark sample as customer cancelled (KH hủy sau khi đã gửi mẫu)
+                    existingSample.IsCustomerCancelled = true;
+                    existingSample.CustomerCancelledDate = DateTime.UtcNow;
                     await _sampleRepository.UpdateAsync(existingSample, autoSave: true);
 
                     // Track for notification (Case 8.2)
                     cancelledSampleCodes.Add(existingSample.SampleCode ?? existingSample.SampleName ?? "");
-                    cancelledIndicatorCountBySample[existingSample.SampleCode ?? existingSample.SampleName ?? ""] = indicators.Count;
+                    cancelledIndicatorCountBySample[existingSample.SampleCode ?? existingSample.SampleName ?? ""] = cancelledIndicatorCount;
                 }
             }
         }
@@ -1867,7 +1925,7 @@ public class TestRequestAppService :
             var existingIndicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
             var newIndicatorIds = sampleDto.Indicators?.Where(i => i.Id != null).Select(i => i.Id!.Value).ToList() ?? new List<Guid>();
 
-            // Delete indicators not in new list
+            // Handle indicators not in new list - mark as CustomerCancelled instead of deleting
             foreach (var existingIndicator in existingIndicators)
             {
                 if (!newIndicatorIds.Contains(existingIndicator.Id))
@@ -1878,17 +1936,22 @@ public class TestRequestAppService :
 
                     if (labTaskIndicator != null)
                     {
+                        // Không cho phép hủy chỉ tiêu đã có kết quả (Entered, Approved, Rejected)
                         if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
-                            throw new UserFriendlyException($"Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.");
+                            throw new Common.Exceptions.InvalidOperationException("Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "indicator");
                         }
-                        // Delete the LaboratoryTaskIndicator
-                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
+                        // Đánh dấu CustomerCancelled thay vì xóa (sau khi đã gửi mẫu)
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
                     }
-                    // Always delete the indicator
-                    await _sampleIndicatorRepository.DeleteAsync(existingIndicator, autoSave: true);
+                    else
+                    {
+                        // Nếu chưa có LaboratoryTaskIndicator (chưa gửi mẫu) thì xóa hẳn
+                        await _sampleIndicatorRepository.DeleteAsync(existingIndicator, autoSave: true);
+                    }
                 }
             }
 
@@ -2168,7 +2231,7 @@ public class TestRequestAppService :
 
         if (entity.Status != TestRequestStatus.PendingChangeApproval)
         {
-            throw new UserFriendlyException("Chỉ có thể từ chối thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể từ chối thay đổi khi trạng thái là 'Chờ phê duyệt thay đổi'", "status");
         }
 
         // Get pending change history
@@ -2177,10 +2240,10 @@ public class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new UserFriendlyException("Không tìm thấy thay đổi nào đang chờ phê duyệt");
+            throw new EntityNotFoundException("ChangeHistory", id);
         }
 
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var previousStatus = pendingChanges.First().PreviousStatus ?? TestRequestStatus.InProgress;
 
         // No rollback needed - entity was never changed, only status was changed to PendingChangeApproval
@@ -2320,43 +2383,29 @@ public class TestRequestAppService :
         var allChanges = await _changeHistoryRepository.GetListAsync(c => c.TestRequestId == id);
         var changes = allChanges.OrderByDescending(c => c.CreationTime).ToList();
 
-        var result = new List<TestRequestChangeHistoryDto>();
-        foreach (var change in changes)
+        // Batch fetch all user names
+        var allUserIds = changes
+            .SelectMany(c => new[] { c.CreatorId, c.ApprovedById })
+            .ToList();
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
+        return changes.Select(change => new TestRequestChangeHistoryDto
         {
-            var dto = new TestRequestChangeHistoryDto
-            {
-                Id = change.Id,
-                TestRequestId = change.TestRequestId,
-                FieldName = change.FieldName,
-                OldValue = change.OldValue,
-                NewValue = change.NewValue,
-                ApprovalStatus = change.ApprovalStatus,
-                PreviousStatus = change.PreviousStatus,
-                ApprovedById = change.ApprovedById,
-                ApprovalDate = change.ApprovalDate,
-                RejectionReason = change.RejectionReason,
-                CreationTime = change.CreationTime,
-                CreatorId = change.CreatorId
-            };
-
-            // Get creator name
-            if (change.CreatorId.HasValue)
-            {
-                var creator = await _userRepository.FindAsync(change.CreatorId.Value);
-                dto.CreatorName = creator?.Name ?? creator?.UserName;
-            }
-
-            // Get approver name
-            if (change.ApprovedById.HasValue)
-            {
-                var approver = await _userRepository.FindAsync(change.ApprovedById.Value);
-                dto.ApprovedByName = approver?.Name ?? approver?.UserName;
-            }
-
-            result.Add(dto);
-        }
-
-        return result;
+            Id = change.Id,
+            TestRequestId = change.TestRequestId,
+            FieldName = change.FieldName,
+            OldValue = change.OldValue,
+            NewValue = change.NewValue,
+            ApprovalStatus = change.ApprovalStatus,
+            PreviousStatus = change.PreviousStatus,
+            ApprovedById = change.ApprovedById,
+            ApprovalDate = change.ApprovalDate,
+            RejectionReason = change.RejectionReason,
+            CreationTime = change.CreationTime,
+            CreatorId = change.CreatorId,
+            CreatorName = change.CreatorId.HasValue && userNames.TryGetValue(change.CreatorId.Value, out var cn) ? cn : null,
+            ApprovedByName = change.ApprovedById.HasValue && userNames.TryGetValue(change.ApprovedById.Value, out var an) ? an : null
+        }).ToList();
     }
 
     /// <summary>
@@ -2433,8 +2482,8 @@ public class TestRequestAppService :
 
         if (!CanDelete(entity.Status))
         {
-            throw new UserFriendlyException(
-                $"Không thể xóa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'"
+            throw new Common.Exceptions.InvalidOperationException(
+                $"Không thể xóa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status"
             );
         }
 
@@ -2499,7 +2548,7 @@ public class TestRequestAppService :
 
         if (testRequest == null)
         {
-            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+            throw new EntityNotFoundException("TestRequest", id);
         }
 
         var result = new TestRequestTimelineDto
@@ -2611,12 +2660,7 @@ public class TestRequestAppService :
         });
 
         // Get creator name for fallback (used in New and Pending steps if no specific data)
-        string? creatorName = null;
-        if (testRequest.CreatorId.HasValue)
-        {
-            var creator = await _userRepository.FindAsync(testRequest.CreatorId.Value);
-            creatorName = creator?.Name ?? creator?.UserName;
-        }
+        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
 
         // Step 7: Chờ xử lý (Pending)
         var isPending = currentStatus >= TestRequestStatus.Pending;
@@ -2678,6 +2722,167 @@ public class TestRequestAppService :
             ExpectedCompletionDate = tr.ExpectedCompletionDate,
             Status = tr.Status
         }).OrderBy(x => x.PendingDate).ToList();
+    }
+
+    #endregion
+
+    #region Print Result Methods
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu đã duyệt của TestRequest (dùng cho In KQ)
+    /// </summary>
+    public async Task<List<QualityManagementIndicatorDto>> GetApprovedIndicatorsAsync(Guid id)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Lấy tất cả QualityManagementTask của TestRequest này
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        var qualityTaskIds = qualityTasks.Select(t => t.Id).ToList();
+
+        // Lấy tất cả QualityManagementIndicator đã được duyệt
+        var indicators = await _qualityIndicatorRepository.GetListAsync(i =>
+            qualityTaskIds.Contains(i.QualityManagementTaskId) &&
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved);
+
+        // Map to DTO
+        var result = new List<QualityManagementIndicatorDto>();
+        foreach (var indicator in indicators)
+        {
+            // Get LaboratoryTaskIndicator to access sample, indicator, method info
+            var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+            var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
+            var masterIndicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+
+            // Get lab info through LaboratoryTask
+            var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+            var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+
+            // Get specimen type name if exists
+            string? specimenTypeName = null;
+            if (sample.SpecimenTypeId.HasValue)
+            {
+                var specimenType = await _specimenTypeRepository.FindAsync(sample.SpecimenTypeId.Value);
+                specimenTypeName = specimenType?.Name;
+            }
+
+            // Get method info
+            string? methodName = null;
+            if (labIndicator.MethodId.HasValue)
+            {
+                var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
+                methodName = method?.Name;
+            }
+
+            result.Add(new QualityManagementIndicatorDto
+            {
+                Id = indicator.Id,
+                LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
+                LaboratoryId = laboratory.Id,
+                LaboratoryName = laboratory.Name,
+                SampleId = sample.Id,
+                SampleCode = sample.SampleCode,
+                SampleName = sample.SampleName,
+                SpecimenTypeName = specimenTypeName,
+                IndicatorId = masterIndicator.Id,
+                IndicatorCode = masterIndicator.Code,
+                IndicatorName = masterIndicator.Name,
+                MethodId = labIndicator.MethodId,
+                MethodName = methodName,
+                Unit = labIndicator.Unit,
+                Result = labIndicator.Result,
+                ResultSentDate = labIndicator.EntryDate,
+                ApprovalDate = indicator.ApprovalDate,
+                StandardId = indicator.StandardId,
+                ReferenceLimit = indicator.ReferenceLimit,
+                ApprovalStatus = indicator.ApprovalStatus,
+                IsResultSent = indicator.IsResultSent
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// In kết quả đơn (1 chỉ tiêu)
+    /// </summary>
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Validate indicator exists and is approved
+        var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
+        if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+        }
+
+        // Get quality task for this indicator
+        var qualityTask = await _qualityTaskRepository.GetAsync(indicator.QualityManagementTaskId);
+
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
+        {
+            TaskId = qualityTask.Id,
+            IndicatorId = indicatorId,
+            Note = note,
+            TemplateName = templateName
+        });
+
+        // Update TestRequest status to PendingApproval if not already past that
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
+    }
+
+    /// <summary>
+    /// In kết quả hỗn hợp (nhiều chỉ tiêu)
+    /// </summary>
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Validate all indicators are approved
+        foreach (var indicatorId in indicatorIds)
+        {
+            var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            }
+        }
+
+        // Get first indicator to find quality task
+        var firstIndicator = await _qualityIndicatorRepository.GetAsync(indicatorIds.First());
+        var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+        {
+            TaskId = qualityTask.Id,
+            IndicatorIds = indicatorIds,
+            Note = note,
+            TemplateName = templateName
+        });
+
+        // Update TestRequest status to PendingApproval if not already past that
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
     }
 
     #endregion

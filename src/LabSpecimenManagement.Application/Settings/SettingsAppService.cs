@@ -4,9 +4,9 @@ using System.Linq;
 using System.Net;
 using System.Net.Mail;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using Microsoft.AspNetCore.Authorization;
-using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
@@ -44,7 +44,7 @@ public class SettingsAppService : ApplicationService, ISettingsAppService
 
     public async Task<UserProfileDto> GetUserProfileAsync()
     {
-        var userId = CurrentUser.Id ?? throw new UserFriendlyException("User not authenticated");
+        var userId = CurrentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var user = await _userRepository.GetAsync(userId);
 
         var departmentId = user.GetProperty<Guid?>("DepartmentId");
@@ -72,7 +72,7 @@ public class SettingsAppService : ApplicationService, ISettingsAppService
 
     public async Task<UserProfileDto> UpdateUserProfileAsync(UpdateUserProfileDto input)
     {
-        var userId = CurrentUser.Id ?? throw new UserFriendlyException("User not authenticated");
+        var userId = CurrentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var user = await _userRepository.GetAsync(userId);
 
         // Parse fullName
@@ -100,14 +100,14 @@ public class SettingsAppService : ApplicationService, ISettingsAppService
 
     public async Task ChangePasswordAsync(ChangePasswordDto input)
     {
-        var userId = CurrentUser.Id ?? throw new UserFriendlyException("User not authenticated");
+        var userId = CurrentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
         var user = await _userRepository.GetAsync(userId);
 
         var result = await _userManager.ChangePasswordAsync(user, input.CurrentPassword, input.NewPassword);
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new UserFriendlyException(errors);
+            throw new ValidationException("password", $"Đổi mật khẩu thất bại: {errors}");
         }
     }
 
@@ -196,7 +196,7 @@ public class SettingsAppService : ApplicationService, ISettingsAppService
 
         if (string.IsNullOrEmpty(smtpHost) || string.IsNullOrEmpty(smtpUsername) || string.IsNullOrEmpty(fromEmail))
         {
-            throw new UserFriendlyException("Vui lòng cấu hình đầy đủ thông tin SMTP trước khi test.");
+            throw new ValidationException("smtp", "Vui lòng cấu hình đầy đủ thông tin SMTP trước khi test.");
         }
 
         var smtpPort = int.TryParse(smtpPortStr, out var port) ? port : 587;
@@ -229,7 +229,7 @@ public class SettingsAppService : ApplicationService, ISettingsAppService
         }
         catch (Exception ex)
         {
-            throw new UserFriendlyException($"Gửi email thất bại: {ex.Message}");
+            throw new Common.Exceptions.InvalidOperationException($"Gửi email thất bại: {ex.Message}");
         }
     }
 

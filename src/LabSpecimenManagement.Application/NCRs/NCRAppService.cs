@@ -1,6 +1,7 @@
 using System;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -21,13 +22,16 @@ public class NCRAppService :
     INCRAppService
 {
     private readonly ICurrentUser _currentUser;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public NCRAppService(
         IRepository<NCR, Guid> repository,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _currentUser = currentUser;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<NCR> MapToEntityAsync(CreateNCRDto createInput)
@@ -91,10 +95,8 @@ public class NCRAppService :
 
     private async Task<string> GenerateNCRNumberAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"NCR-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("NCR");
         var count = await Repository.CountAsync(x => x.NCRNumber.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("NCR", count);
     }
 }

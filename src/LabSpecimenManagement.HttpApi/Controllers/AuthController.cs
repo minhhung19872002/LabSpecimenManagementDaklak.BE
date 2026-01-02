@@ -1,5 +1,6 @@
 using System.Threading.Tasks;
 using LabSpecimenManagement.Auth;
+using LabSpecimenManagement.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
@@ -102,16 +103,8 @@ public class AuthController : LabSpecimenManagementController
     /// </summary>
     [HttpPost("refresh-token")]
     [AllowAnonymous]
-    public virtual async Task<LoginResultDto> RefreshTokenAsync([FromBody] RefreshTokenRequest request)
+    public virtual async Task<LoginResultDto> RefreshTokenAsync([FromBody] RefreshTokenDto request)
     {
         return await _authAppService.RefreshTokenAsync(request.RefreshToken);
     }
-}
-
-/// <summary>
-/// Refresh token request body
-/// </summary>
-public class RefreshTokenRequest
-{
-    public string RefreshToken { get; set; } = string.Empty;
 }

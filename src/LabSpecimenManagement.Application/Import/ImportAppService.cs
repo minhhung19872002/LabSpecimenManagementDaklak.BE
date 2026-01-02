@@ -4,6 +4,7 @@ using System.ComponentModel.DataAnnotations;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Specimens;
 using LabSpecimenManagement.TestRequests;
@@ -24,6 +25,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IGuidGenerator _guidGenerator;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public ImportAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -31,7 +33,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<Customer, Guid> customerRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Department, Guid> departmentRepository,
-        IGuidGenerator guidGenerator)
+        IGuidGenerator guidGenerator,
+        ICodeGeneratorService codeGenerator)
     {
         _testRequestRepository = testRequestRepository;
         _specimenRepository = specimenRepository;
@@ -39,6 +42,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _testMethodRepository = testMethodRepository;
         _departmentRepository = departmentRepository;
         _guidGenerator = guidGenerator;
+        _codeGenerator = codeGenerator;
     }
 
     #region Preview Methods
@@ -497,7 +501,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         return result;
     }
 
-    private async Task<ImportValidationResult> ValidateTestMethodRowsAsync(List<TestMethodImportRow> rows)
+    private Task<ImportValidationResult> ValidateTestMethodRowsAsync(List<TestMethodImportRow> rows)
     {
         var result = ValidateRows(rows);
 
@@ -523,29 +527,27 @@ public class ImportAppService : ApplicationService, IImportAppService
         }
 
         result.ValidRows = rows.Count - result.Errors.Select(e => e.RowNumber).Distinct().Count();
-        return result;
+        return Task.FromResult(result);
     }
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"REQ-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("REQ");
         var count = await _testRequestRepository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        return $"{prefix}-{(count + 1):D4}";
+        return _codeGenerator.GenerateCodeWithDate("REQ", count);
     }
 
     private async Task<string> GenerateSpecimenCodeAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"SPE-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("SPE");
         var count = await _specimenRepository.CountAsync(x => x.Code.StartsWith(prefix));
-        return $"{prefix}-{(count + 1):D4}";
+        return _codeGenerator.GenerateCodeWithDate("SPE", count);
     }
 
     private async Task<string> GenerateCustomerCodeAsync()
     {
         var count = await _customerRepository.CountAsync();
-        return $"CUST-{(count + 1):D4}";
+        return _codeGenerator.GenerateCode("CUST", count);
     }
 
     #endregion

@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Phương pháp thử - Test Method
 /// </summary>
-public class TestMethod : FullAuditedAggregateRoot<Guid>
+public class TestMethod : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã phương pháp - Auto generated: PPddmmyyyyxxx

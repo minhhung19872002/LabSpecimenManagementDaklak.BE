@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Nhóm chỉ tiêu - Indicator Group
 /// </summary>
-public class IndicatorGroup : FullAuditedAggregateRoot<Guid>
+public class IndicatorGroup : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Tên nhóm chỉ tiêu

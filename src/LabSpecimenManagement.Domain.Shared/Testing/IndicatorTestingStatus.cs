@@ -28,5 +28,10 @@ public enum IndicatorTestingStatus
     /// <summary>
     /// Đã xong - QLKT đã duyệt kết quả
     /// </summary>
-    Done = 4
+    Done = 4,
+
+    /// <summary>
+    /// KH hủy - Khách hàng đã hủy chỉ tiêu này
+    /// </summary>
+    Cancelled = 5
 }

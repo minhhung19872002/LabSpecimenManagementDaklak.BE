@@ -3,8 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Notifications;
-using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Domain.Repositories;
@@ -16,13 +16,16 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
 {
     private readonly IRepository<Notification, Guid> _notificationRepository;
     private readonly ICurrentUser _currentUser;
+    private readonly INotificationHubService? _notificationHubService;
 
     public NotificationAppService(
         IRepository<Notification, Guid> notificationRepository,
-        ICurrentUser currentUser)
+        ICurrentUser currentUser,
+        INotificationHubService? notificationHubService = null)
     {
         _notificationRepository = notificationRepository;
         _currentUser = currentUser;
+        _notificationHubService = notificationHubService;
     }
 
     /// <summary>
@@ -30,7 +33,7 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
     /// </summary>
     public async Task<PagedResultDto<NotificationDto>> GetMyNotificationsAsync(GetNotificationsInput input)
     {
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
 
         var allNotifications = await _notificationRepository.GetListAsync(n => n.UserId == currentUserId);
 
@@ -84,7 +87,7 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
     /// </summary>
     public async Task<int> GetUnreadCountAsync()
     {
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
 
         var unreadNotifications = await _notificationRepository.GetListAsync(
             n => n.UserId == currentUserId && !n.IsRead);
@@ -96,13 +99,13 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
     /// </summary>
     public async Task MarkAsReadAsync(Guid id)
     {
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
 
         var notification = await _notificationRepository.GetAsync(id);
 
         if (notification.UserId != currentUserId)
         {
-            throw new UserFriendlyException("Bạn không có quyền truy cập thông báo này");
+            throw new ForbiddenAccessException("Bạn không có quyền truy cập thông báo này");
         }
 
         notification.MarkAsRead();
@@ -114,7 +117,7 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
     /// </summary>
     public async Task MarkAllAsReadAsync()
     {
-        var currentUserId = _currentUser.Id ?? throw new UserFriendlyException("Người dùng chưa đăng nhập");
+        var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
 
         var unreadNotifications = await _notificationRepository.GetListAsync(
             n => n.UserId == currentUserId && !n.IsRead);
@@ -147,6 +150,12 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
         );
 
         await _notificationRepository.InsertAsync(notification);
+
+        // Push realtime notification
+        if (_notificationHubService != null)
+        {
+            await _notificationHubService.NotifyNewNotificationAsync(notification.UserId, notification.Id);
+        }
     }
 
     /// <summary>
@@ -171,5 +180,14 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
         )).ToList();
 
         await _notificationRepository.InsertManyAsync(notifications);
+
+        // Push realtime notifications to all users
+        if (_notificationHubService != null)
+        {
+            foreach (var notification in notifications)
+            {
+                await _notificationHubService.NotifyNewNotificationAsync(notification.UserId, notification.Id);
+            }
+        }
     }
 }

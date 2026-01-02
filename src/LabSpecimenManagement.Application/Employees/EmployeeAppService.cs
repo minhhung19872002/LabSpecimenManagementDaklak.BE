@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
@@ -55,14 +57,14 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         // Filter by search text (name, username, email, phone)
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var searchText = input.Filter.ToLower();
-            filteredUsers = filteredUsers.Where(u =>
-                (u.UserName != null && u.UserName.ToLower().Contains(searchText)) ||
-                (u.Name != null && u.Name.ToLower().Contains(searchText)) ||
-                (u.Surname != null && u.Surname.ToLower().Contains(searchText)) ||
-                (u.Email != null && u.Email.ToLower().Contains(searchText)) ||
-                (u.PhoneNumber != null && u.PhoneNumber.Contains(searchText)) ||
-                ($"{u.Surname} {u.Name}".ToLower().Contains(searchText))
+            filteredUsers = filteredUsers.WhereContainsIgnoreCase(
+                input.Filter,
+                u => u.UserName,
+                u => u.Name,
+                u => u.Surname,
+                u => u.Email,
+                u => u.PhoneNumber,
+                u => $"{u.Surname} {u.Name}"
             );
         }
 
@@ -100,16 +102,16 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         var totalCount = usersList.Count;
 
         // Apply sorting
-        var sorting = input.Sorting ?? "CreationTime DESC";
-        if (sorting.Contains("CreationTime", StringComparison.OrdinalIgnoreCase))
+        var sorting = input.Sorting ?? AppConstants.DefaultEmployeeSorting;
+        if (sorting.Contains(SortingFields.CreationTime, StringComparison.OrdinalIgnoreCase))
         {
-            usersList = sorting.Contains("DESC", StringComparison.OrdinalIgnoreCase)
+            usersList = sorting.Contains(AppConstants.SortDescending, StringComparison.OrdinalIgnoreCase)
                 ? usersList.OrderByDescending(u => u.CreationTime).ToList()
                 : usersList.OrderBy(u => u.CreationTime).ToList();
         }
         else if (sorting.Contains("UserName", StringComparison.OrdinalIgnoreCase))
         {
-            usersList = sorting.Contains("DESC", StringComparison.OrdinalIgnoreCase)
+            usersList = sorting.Contains(AppConstants.SortDescending, StringComparison.OrdinalIgnoreCase)
                 ? usersList.OrderByDescending(u => u.UserName).ToList()
                 : usersList.OrderBy(u => u.UserName).ToList();
         }
@@ -169,7 +171,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         var result = await _userManager.CreateAsync(user, password);
         if (!result.Succeeded)
         {
-            throw new UserFriendlyException(string.Join(", ", result.Errors.Select(e => e.Description)));
+            throw new ValidationException("user", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
         // Assign role
@@ -284,7 +286,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
         if (!result.Succeeded)
         {
-            throw new UserFriendlyException(string.Join(", ", result.Errors.Select(e => e.Description)));
+            throw new ValidationException("password", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
         // Send password reset email

@@ -1,3 +1,4 @@
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Testing;
 using Microsoft.AspNetCore.Authorization;
@@ -119,7 +120,7 @@ public class TestingController : LabSpecimenManagementController
     {
         if (file == null || file.Length == 0)
         {
-            throw new UserFriendlyException("Vui lòng chọn file để upload");
+            throw new ValidationException("file", "Vui lòng chọn file để upload");
         }
 
         // Validate file type (only images)
@@ -127,7 +128,7 @@ public class TestingController : LabSpecimenManagementController
         var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
         if (!allowedExtensions.Contains(fileExtension))
         {
-            throw new UserFriendlyException("Chỉ chấp nhận file hình ảnh (jpg, jpeg, png, gif, bmp, webp)");
+            throw new ValidationException("file", "Chỉ chấp nhận file hình ảnh (jpg, jpeg, png, gif, bmp, webp)");
         }
 
         // Generate unique file path - save to wwwroot/uploads/testing-images/
@@ -178,7 +179,7 @@ public class TestingController : LabSpecimenManagementController
     {
         if (files == null || !files.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 file để upload");
+            throw new ValidationException("files", "Vui lòng chọn ít nhất 1 file để upload");
         }
 
         var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
@@ -235,7 +236,7 @@ public class TestingController : LabSpecimenManagementController
                 );
                 results.Add(result);
             }
-            catch (UserFriendlyException)
+            catch (Common.Exceptions.InvalidOperationException)
             {
                 // Max images reached, stop uploading
                 break;

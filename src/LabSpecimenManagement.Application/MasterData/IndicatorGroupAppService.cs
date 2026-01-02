@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -44,18 +45,12 @@ public class IndicatorGroupAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-
-        // Get indicator counts
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        foreach (var dto in dtos)
-        {
-            dto.IndicatorCount = indicatorQuery.Count(x => x.IndicatorGroupId == dto.Id);
-        }
+        await EnrichWithIndicatorCountsAsync(dtos);
 
         return new ListResultDto<IndicatorGroupDto>(dtos);
     }
@@ -68,13 +63,7 @@ public class IndicatorGroupAppService :
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-
-        // Get indicator counts
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        foreach (var dto in dtos)
-        {
-            dto.IndicatorCount = indicatorQuery.Count(x => x.IndicatorGroupId == dto.Id);
-        }
+        await EnrichWithIndicatorCountsAsync(dtos);
 
         return new ListResultDto<IndicatorGroupDto>(dtos);
     }
@@ -87,34 +76,28 @@ public class IndicatorGroupAppService :
 
         var items = query
             .OrderBy(x => x.Name)
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount)
+            .ApplyPaging(input)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-
-        // Get indicator counts
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        foreach (var dto in dtos)
-        {
-            dto.IndicatorCount = indicatorQuery.Count(x => x.IndicatorGroupId == dto.Id);
-        }
+        await EnrichWithIndicatorCountsAsync(dtos);
 
         return new PagedResultDto<IndicatorGroupDto>(totalCount, dtos);
     }
 
-    protected override async Task<IndicatorGroup> MapToEntityAsync(CreateUpdateIndicatorGroupDto createInput)
+    protected override Task<IndicatorGroup> MapToEntityAsync(CreateUpdateIndicatorGroupDto createInput)
     {
-        return new IndicatorGroup(GuidGenerator.Create(), createInput.Name)
+        return Task.FromResult(new IndicatorGroup(GuidGenerator.Create(), createInput.Name)
         {
             IsActive = createInput.IsActive
-        };
+        });
     }
 
-    protected override async Task MapToEntityAsync(CreateUpdateIndicatorGroupDto updateInput, IndicatorGroup entity)
+    protected override Task MapToEntityAsync(CreateUpdateIndicatorGroupDto updateInput, IndicatorGroup entity)
     {
         entity.Name = updateInput.Name;
         entity.IsActive = updateInput.IsActive;
+        return Task.CompletedTask;
     }
 
     [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Import)]
@@ -122,81 +105,46 @@ public class IndicatorGroupAppService :
     {
         var result = new ImportIndicatorGroupsResultDto();
 
-        // Get existing groups for duplicate check
         var existingQuery = await Repository.GetQueryableAsync();
         var existingNames = existingQuery.Select(g => g.Name.Trim().ToLower()).ToHashSet();
 
-        // Read Excel using MiniExcel
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
         result.TotalRows = rows.Count;
 
-        foreach (var row in rows.Select((value, index) => new { value, index }))
+        foreach (var (rowData, index) in rows.Select((value, index) => (value as IDictionary<string, object>, index)))
         {
-            var rowNumber = row.index + 2; // +2 because header is row 1, and index starts at 0
-            var rowData = row.value as IDictionary<string, object>;
+            var rowNumber = index + 2;
 
             if (rowData == null)
             {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorGroupErrorDto
-                {
-                    RowNumber = rowNumber,
-                    GroupName = "",
-                    ErrorMessage = "Không thể đọc dữ liệu dòng này"
-                });
+                AddImportError(result, rowNumber, "", "Không thể đọc dữ liệu dòng này");
                 continue;
             }
 
-            // Get name from row
             var name = rowData.ContainsKey("Tên nhóm chỉ tiêu") ? rowData["Tên nhóm chỉ tiêu"]?.ToString()?.Trim() : null;
 
-            // Validate name
             if (string.IsNullOrWhiteSpace(name))
             {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorGroupErrorDto
-                {
-                    RowNumber = rowNumber,
-                    GroupName = name ?? "",
-                    ErrorMessage = "Tên nhóm chỉ tiêu không được để trống"
-                });
+                AddImportError(result, rowNumber, name ?? "", "Tên nhóm chỉ tiêu không được để trống");
                 continue;
             }
 
-            // Check duplicate
             if (existingNames.Contains(name.ToLower()))
             {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorGroupErrorDto
-                {
-                    RowNumber = rowNumber,
-                    GroupName = name,
-                    ErrorMessage = "Nhóm chỉ tiêu đã tồn tại"
-                });
+                AddImportError(result, rowNumber, name, "Nhóm chỉ tiêu đã tồn tại");
                 continue;
             }
 
-            // Create indicator group
             try
             {
-                var entity = new IndicatorGroup(GuidGenerator.Create(), name)
-                {
-                    IsActive = true
-                };
-
+                var entity = new IndicatorGroup(GuidGenerator.Create(), name) { IsActive = true };
                 await Repository.InsertAsync(entity, autoSave: true);
-                existingNames.Add(name.ToLower()); // Add to set to prevent duplicates within same import
+                existingNames.Add(name.ToLower());
                 result.SuccessCount++;
             }
             catch (Exception ex)
             {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorGroupErrorDto
-                {
-                    RowNumber = rowNumber,
-                    GroupName = name,
-                    ErrorMessage = $"Lỗi khi tạo nhóm chỉ tiêu: {ex.Message}"
-                });
+                AddImportError(result, rowNumber, name, $"Lỗi khi tạo nhóm chỉ tiêu: {ex.Message}");
             }
         }
 
@@ -205,45 +153,53 @@ public class IndicatorGroupAppService :
 
     public Task<byte[]> GetExcelTemplateAsync()
     {
-        // Create template data with sample rows
         var templateData = new List<Dictionary<string, object>>
         {
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "Ví dụ: Vi sinh" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "Ví dụ: Hóa lý" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "=== HƯỚNG DẪN ===" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "- Mỗi dòng là một nhóm chỉ tiêu" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được để trống" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được trùng" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên nhóm chỉ tiêu", "- Xóa các dòng hướng dẫn này trước khi import" }
-            }
+            new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Vi sinh" } },
+            new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Hóa lý" } },
+            new() { { "Tên nhóm chỉ tiêu", "" } },
+            new() { { "Tên nhóm chỉ tiêu", "=== HƯỚNG DẪN ===" } },
+            new() { { "Tên nhóm chỉ tiêu", "- Mỗi dòng là một nhóm chỉ tiêu" } },
+            new() { { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được để trống" } },
+            new() { { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được trùng" } },
+            new() { { "Tên nhóm chỉ tiêu", "- Xóa các dòng hướng dẫn này trước khi import" } }
         };
 
         using var stream = new MemoryStream();
         MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
         return Task.FromResult(stream.ToArray());
+    }
+
+    /// <summary>
+    /// Enriches DTOs with indicator counts (batch operation to avoid N+1)
+    /// </summary>
+    private async Task EnrichWithIndicatorCountsAsync(List<IndicatorGroupDto> dtos)
+    {
+        if (dtos.Count == 0) return;
+
+        var groupIds = dtos.Select(d => d.Id).ToList();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var counts = indicatorQuery
+            .Where(x => groupIds.Contains(x.IndicatorGroupId))
+            .GroupBy(x => x.IndicatorGroupId)
+            .Select(g => new { GroupId = g.Key, Count = g.Count() })
+            .ToDictionary(x => x.GroupId, x => x.Count);
+
+        foreach (var dto in dtos)
+        {
+            dto.IndicatorCount = counts.GetValueOrDefault(dto.Id, 0);
+        }
+    }
+
+    private static void AddImportError(ImportIndicatorGroupsResultDto result, int rowNumber, string groupName, string errorMessage)
+    {
+        result.ErrorCount++;
+        result.Errors.Add(new ImportIndicatorGroupErrorDto
+        {
+            RowNumber = rowNumber,
+            GroupName = groupName,
+            ErrorMessage = errorMessage
+        });
     }
 }

@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -115,7 +117,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         if (hasIndicators)
         {
-            throw new BusinessException("Không thể xóa tiêu chuẩn đang có chỉ tiêu. Vui lòng xóa hết chỉ tiêu trước.");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể xóa tiêu chuẩn đang có chỉ tiêu. Vui lòng xóa hết chỉ tiêu trước.",
+                "id");
         }
 
         await _standardRepository.DeleteAsync(id);
@@ -128,9 +132,8 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         var items = await AsyncExecuter.ToListAsync(
             query
-                .Where(x => x.IsActive)
-                .OrderBy(x => x.SortOrder)
-                .ThenBy(x => x.Name)
+                .WhereActive()
+                .OrderByThenBy(x => x.SortOrder, x => x.Name)
         );
 
         var dtos = items.Select(item =>
@@ -365,7 +368,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         if (entity == null)
         {
-            throw new EntityNotFoundException(typeof(StandardIndicator), id);
+            throw new Common.Exceptions.EntityNotFoundException("StandardIndicator", id);
         }
 
         entity.ComparisonOperator = input.ComparisonOperator;
@@ -405,7 +408,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         if (entity == null)
         {
-            throw new EntityNotFoundException(typeof(StandardIndicator), id);
+            throw new Common.Exceptions.EntityNotFoundException("StandardIndicator", id);
         }
 
         await _standardIndicatorRepository.DeleteAsync(entity);
@@ -420,7 +423,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         if (entity == null)
         {
-            throw new EntityNotFoundException(typeof(StandardIndicator), id);
+            throw new Common.Exceptions.EntityNotFoundException("StandardIndicator", id);
         }
 
         entity.IsActive = !entity.IsActive;
@@ -475,7 +478,8 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
             if (nextNumber > 999)
             {
-                throw new BusinessException("Đã đạt giới hạn số tiêu chuẩn trong ngày (999). Vui lòng thử lại vào ngày mai.");
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Đã đạt giới hạn số tiêu chuẩn trong ngày (999). Vui lòng thử lại vào ngày mai.");
             }
 
             return $"{datePrefix}{nextNumber:D3}";

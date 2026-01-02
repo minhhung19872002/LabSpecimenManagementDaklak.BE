@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Tiêu chuẩn - Standard
 /// </summary>
-public class Standard : FullAuditedAggregateRoot<Guid>
+public class Standard : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã tiêu chuẩn - Auto generated: TCddmmyyyyxxx

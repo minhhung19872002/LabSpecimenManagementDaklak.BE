@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.Subcontractors;
@@ -8,7 +9,7 @@ namespace LabSpecimenManagement.Subcontractors;
 /// Nhà thầu phụ - Subcontractor
 /// ISO/IEC 17025:2017 Section 7.1.1
 /// </summary>
-public class Subcontractor : FullAuditedAggregateRoot<Guid>
+public class Subcontractor : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã nhà thầu (auto-generated)

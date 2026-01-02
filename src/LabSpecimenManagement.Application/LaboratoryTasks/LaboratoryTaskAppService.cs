@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
@@ -10,7 +12,6 @@ using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
-using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
@@ -20,7 +21,7 @@ using Volo.Abp.Identity;
 namespace LabSpecimenManagement.LaboratoryTasks;
 
 [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
+public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
@@ -34,6 +35,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
@@ -56,6 +58,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
+        IUserNameProvider userNameProvider,
         IIdentityRoleRepository roleRepository,
         ITestRequestAppService testRequestAppService,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
@@ -77,6 +80,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         _indicatorGroupRepository = indicatorGroupRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
         _roleRepository = roleRepository;
         _testRequestAppService = testRequestAppService;
         _qualityTaskRepository = qualityTaskRepository;
@@ -106,7 +110,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         // Filter by current user's access (admin sees all, others see tasks where they are QLKT or supporter)
         var currentUserId = CurrentUser.Id;
-        if (currentUserId.HasValue && !CurrentUser.IsInRole("admin"))
+        if (currentUserId.HasValue && !CurrentUser.IsInRole(AppConstants.RoleAdmin))
         {
             // Get task IDs where current user is a supporter
             var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
@@ -122,16 +126,17 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Apply search filter - search by ContractNumber and TechnicalManager name
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var search = input.Search.Trim();
 
             // Get list of TechnicalManagerIds that match the search term
             var matchingUserIds = (await _userRepository.GetListAsync())
-                .Where(u => (u.Name != null && u.Name.ToLower().Contains(searchLower)) ||
-                           (u.Surname != null && u.Surname.ToLower().Contains(searchLower)) ||
-                           (u.UserName != null && u.UserName.ToLower().Contains(searchLower)))
+                .Where(u => u.Name.ContainsIgnoreCase(search) ||
+                           u.Surname.ContainsIgnoreCase(search) ||
+                           u.UserName.ContainsIgnoreCase(search))
                 .Select(u => u.Id)
                 .ToList();
 
+            var searchLower = search.ToLower();
             queryable = queryable.Where(x =>
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.TechnicalManagerId.HasValue && matchingUserIds.Contains(x.TechnicalManagerId.Value)));
@@ -178,15 +183,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Apply sorting
         if (!string.IsNullOrWhiteSpace(input.Sorting))
         {
-            // Simple sorting implementation
             queryable = input.Sorting.ToLower() switch
             {
-                "transferdate" => queryable.OrderBy(x => x.TransferDate),
-                "transferdate desc" => queryable.OrderByDescending(x => x.TransferDate),
-                "requestcompletiondate" => queryable.OrderBy(x => x.RequestCompletionDate),
-                "requestcompletiondate desc" => queryable.OrderByDescending(x => x.RequestCompletionDate),
-                "status" => queryable.OrderBy(x => x.Status),
-                "status desc" => queryable.OrderByDescending(x => x.Status),
+                SortingFields.TransferDate => queryable.OrderBy(x => x.TransferDate),
+                SortingFields.TransferDateDesc => queryable.OrderByDescending(x => x.TransferDate),
+                SortingFields.RequestCompletionDate => queryable.OrderBy(x => x.RequestCompletionDate),
+                SortingFields.RequestCompletionDateDesc => queryable.OrderByDescending(x => x.RequestCompletionDate),
+                SortingFields.Status => queryable.OrderBy(x => x.Status),
+                SortingFields.StatusDesc => queryable.OrderByDescending(x => x.Status),
                 _ => queryable.OrderByDescending(x => x.CreationTime)
             };
         }
@@ -329,14 +333,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         }
 
         // Get Technical Manager name
-        if (task.TechnicalManagerId.HasValue)
-        {
-            var user = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
-            if (user != null)
-            {
-                dto.TechnicalManagerName = user.Name ?? user.UserName;
-            }
-        }
+        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(task.TechnicalManagerId);
 
         // Set current user role flags
         var currentUserId = CurrentUser.Id;
@@ -360,6 +357,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var taskIndicators = await _laboratoryTaskIndicatorRepository
             .GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
+        // Batch fetch all user names needed for indicators
+        var allUserIds = taskIndicators
+            .SelectMany(ti => new[] { ti.TechnicianId, ti.EnteredById, ti.ApprovedById })
+            .ToList();
+        var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
+
         foreach (var taskIndicator in taskIndicators)
         {
             var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
@@ -375,27 +378,11 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
                 indicatorGroupName = indicatorGroup?.Name;
             }
 
-            // Get user names for workflow fields
-            string? technicianName = null;
-            string? enteredByName = null;
-            string? approvedByName = null;
+            // Get user names from batch-fetched dictionary
+            string? technicianName = taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var tn) ? tn : null;
+            string? enteredByName = taskIndicator.EnteredById.HasValue && userNames.TryGetValue(taskIndicator.EnteredById.Value, out var en) ? en : null;
+            string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
             string? methodName = null;
-
-            if (taskIndicator.TechnicianId.HasValue)
-            {
-                var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-                technicianName = technician?.Name ?? technician?.UserName;
-            }
-            if (taskIndicator.EnteredById.HasValue)
-            {
-                var enteredBy = await _userRepository.FindAsync(taskIndicator.EnteredById.Value);
-                enteredByName = enteredBy?.Name ?? enteredBy?.UserName;
-            }
-            if (taskIndicator.ApprovedById.HasValue)
-            {
-                var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
-                approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
-            }
             string? unit = taskIndicator.Unit;
             if (taskIndicator.MethodId.HasValue)
             {
@@ -482,7 +469,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validation: Không cho xóa khi đang thí nghiệm trở đi
         if (!CanEditTask(task.Status))
         {
-            throw new UserFriendlyException($"Không thể xóa công việc khi trạng thái là '{GetStatusLabel(task.Status)}'");
+            throw new Common.Exceptions.InvalidOperationException($"Không thể xóa công việc khi trạng thái là '{GetStatusLabel(task.Status)}'", "task");
         }
 
         // Delete junction records first
@@ -517,36 +504,38 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             }
         }
 
-        // Validate only assignments that are sent (partial assignment is allowed now)
-        // Each assignment must have both MethodId and TechnicianId
-        // Validation: Chỉ cho phép giao việc cho indicator chưa được duyệt hoặc chưa bị hủy
+        // Filter assignments: chỉ lấy các chỉ tiêu có thể giao việc
+        // Bỏ qua (skip) các chỉ tiêu đã được duyệt, đang chờ duyệt, hoặc đã bị hủy
+        var validAssignments = new List<AssignIndicatorDto>();
         foreach (var assignment in assignments)
         {
             // Validate that indicator exists in this sample
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator == null)
             {
-                throw new UserFriendlyException("Chỉ tiêu không thuộc mẫu này");
+                // Chỉ tiêu không thuộc mẫu này - bỏ qua
+                continue;
             }
 
-            // Không cho giao việc lại nếu indicator đã được duyệt hoặc bị hủy
-            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+            // Bỏ qua chỉ tiêu đã được duyệt, đang chờ duyệt, hoặc đã bị hủy
+            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
             {
-                throw new UserFriendlyException("Không thể giao việc lại cho chỉ tiêu đã được duyệt");
-            }
-            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
-            {
-                throw new UserFriendlyException("Không thể giao việc cho chỉ tiêu đã bị hủy");
+                continue;
             }
 
+            // Chỉ validate method + technician cho các chỉ tiêu hợp lệ
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
             {
-                throw new UserFriendlyException("Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
+                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
             }
+
+            validAssignments.Add(assignment);
         }
 
-        // Apply assignments
-        foreach (var assignment in assignments)
+        // Apply assignments - chỉ xử lý các chỉ tiêu hợp lệ
+        foreach (var assignment in validAssignments)
         {
             var taskIndicator = indicatorsForSample.FirstOrDefault(ti => ti.Id == assignment.IndicatorId);
             if (taskIndicator != null)
@@ -570,7 +559,8 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
 
         // Notify technicians about assigned indicators (Case 1 & 2 KTV)
-        await NotifyTechniciansOnAssignAsync(task, indicatorsForSample, assignments);
+        // Chỉ notify cho các chỉ tiêu thực sự được giao việc (validAssignments)
+        await NotifyTechniciansOnAssignAsync(task, indicatorsForSample, validAssignments);
 
         return await MapToDetailDtoAsync(task);
     }
@@ -646,7 +636,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validation: Must have method assigned
         if (!taskIndicator.MethodId.HasValue)
         {
-            throw new UserFriendlyException("Chỉ tiêu chưa được gán phương pháp");
+            throw new ValidationException("method", "Chỉ tiêu chưa được gán phương pháp");
         }
 
         taskIndicator.Result = input.Result;
@@ -706,7 +696,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can approve
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền phê duyệt kết quả");
         }
 
         // Lưu StandardId nếu có
@@ -725,7 +715,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             // Reject - reset to Pending for re-entry
             if (string.IsNullOrWhiteSpace(input.RejectionReason))
             {
-                throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+                throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
             }
 
             taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
@@ -790,13 +780,13 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can update standard
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền cập nhật tiêu chuẩn");
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật tiêu chuẩn");
         }
 
         // Validate: Only allow update when indicator status is Entered (Chờ phê duyệt)
         if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Entered)
         {
-            throw new UserFriendlyException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'", "indicator");
         }
 
         taskIndicator.StandardId = standardId;
@@ -819,14 +809,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Must have at least one active indicator
         if (!activeIndicators.Any())
         {
-            throw new UserFriendlyException("Không có chỉ tiêu nào để gửi kết quả");
+            throw new ValidationException("indicator", "Không có chỉ tiêu nào để gửi kết quả");
         }
 
         // Validate: All active indicators must be approved
         var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         if (!allApproved)
         {
-            throw new UserFriendlyException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả");
+            throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu phải được duyệt trước khi gửi kết quả", "indicator");
         }
 
         task.Status = LaboratoryTaskStatus.SentToQuality;
@@ -1293,7 +1283,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
         if (sampleIndicator == null)
         {
-            throw new UserFriendlyException("Không tìm thấy thông tin chỉ tiêu mẫu");
+            throw new EntityNotFoundException("SampleIndicator", taskIndicator.TestRequestSampleIndicatorId);
         }
 
         var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
@@ -1306,27 +1296,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             indicatorGroupName = indicatorGroup?.Name;
         }
 
-        // Get user names for workflow fields
-        string? technicianName = null;
-        string? enteredByName = null;
-        string? approvedByName = null;
-        string? methodName = null;
+        // Get user names for workflow fields (batch fetch)
+        var userIds = new[] { taskIndicator.TechnicianId, taskIndicator.EnteredById, taskIndicator.ApprovedById };
+        var userNames = await _userNameProvider.GetUserNamesAsync(userIds);
 
-        if (taskIndicator.TechnicianId.HasValue)
-        {
-            var technician = await _userRepository.FindAsync(taskIndicator.TechnicianId.Value);
-            technicianName = technician?.Name ?? technician?.UserName;
-        }
-        if (taskIndicator.EnteredById.HasValue)
-        {
-            var enteredBy = await _userRepository.FindAsync(taskIndicator.EnteredById.Value);
-            enteredByName = enteredBy?.Name ?? enteredBy?.UserName;
-        }
-        if (taskIndicator.ApprovedById.HasValue)
-        {
-            var approvedBy = await _userRepository.FindAsync(taskIndicator.ApprovedById.Value);
-            approvedByName = approvedBy?.Name ?? approvedBy?.UserName;
-        }
+        string? technicianName = taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var tn) ? tn : null;
+        string? enteredByName = taskIndicator.EnteredById.HasValue && userNames.TryGetValue(taskIndicator.EnteredById.Value, out var en) ? en : null;
+        string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
+        string? methodName = null;
         string? unit = taskIndicator.Unit;
         if (taskIndicator.MethodId.HasValue)
         {
@@ -1374,182 +1351,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
     #endregion
 
-    #region Supporter Management
-
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-    public async Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId)
-    {
-        var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var dtos = new List<LaboratoryTaskSupporterDto>();
-
-        foreach (var supporter in supporters)
-        {
-            var user = await _userRepository.FindAsync(supporter.UserId);
-            dtos.Add(new LaboratoryTaskSupporterDto
-            {
-                Id = supporter.Id,
-                LaboratoryTaskId = supporter.LaboratoryTaskId,
-                UserId = supporter.UserId,
-                UserName = user?.UserName,
-                FullName = user != null ? $"{user.Surname} {user.Name}".Trim() : null,
-                Email = user?.Email,
-                CreationTime = supporter.CreationTime
-            });
-        }
-
-        return dtos.OrderBy(x => x.FullName).ToList();
-    }
-
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
-    public async Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(Guid taskId, ManageSupportersDto input)
-    {
-        var task = await _laboratoryTaskRepository.GetAsync(taskId);
-
-        // Validate: Only admin or QLKT can add supporters (supporter không có quyền thêm supporter)
-        var currentUserId = CurrentUser.Id;
-        var isAdmin = CurrentUser.IsInRole("admin");
-        var isQlkt = task.TechnicalManagerId.HasValue && task.TechnicalManagerId == currentUserId;
-
-        if (!isAdmin && !isQlkt)
-        {
-            throw new UserFriendlyException("Chỉ QLKT mới có quyền thêm người hỗ trợ");
-        }
-
-        // Get existing supporter user IDs
-        var existingSupporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var existingUserIds = existingSupporters.Select(x => x.UserId).ToHashSet();
-
-        foreach (var userId in input.UserIds)
-        {
-            // Skip if already a supporter
-            if (existingUserIds.Contains(userId))
-            {
-                continue;
-            }
-
-            // Skip if user is the technical manager
-            if (task.TechnicalManagerId == userId)
-            {
-                continue;
-            }
-
-            var supporter = new LaboratoryTaskSupporter(
-                GuidGenerator.Create(),
-                taskId,
-                userId
-            );
-            supporter.CreatorId = CurrentUser.Id;
-
-            await _supporterRepository.InsertAsync(supporter);
-        }
-
-        return await GetSupportersAsync(taskId);
-    }
-
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
-    public async Task RemoveSupporterAsync(Guid taskId, Guid supporterId)
-    {
-        var task = await _laboratoryTaskRepository.GetAsync(taskId);
-
-        // Validate: Only admin or QLKT can remove supporters
-        var currentUserId = CurrentUser.Id;
-        var isAdmin = CurrentUser.IsInRole("admin");
-        var isQlkt = task.TechnicalManagerId.HasValue && task.TechnicalManagerId == currentUserId;
-
-        if (!isAdmin && !isQlkt)
-        {
-            throw new UserFriendlyException("Chỉ QLKT mới có quyền xóa người hỗ trợ");
-        }
-
-        var supporter = await _supporterRepository.FindAsync(supporterId);
-        if (supporter == null || supporter.LaboratoryTaskId != taskId)
-        {
-            throw new UserFriendlyException("Không tìm thấy người hỗ trợ");
-        }
-
-        await _supporterRepository.DeleteAsync(supporter);
-    }
-
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
-    public async Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId)
-    {
-        var task = await _laboratoryTaskRepository.GetAsync(taskId);
-
-        // Get existing supporter user IDs
-        var existingSupporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var existingUserIds = existingSupporters.Select(x => x.UserId).ToHashSet();
-
-        // Add QLKT to excluded list
-        if (task.TechnicalManagerId.HasValue)
-        {
-            existingUserIds.Add(task.TechnicalManagerId.Value);
-        }
-
-        // Get QLKT's department ID to filter available supporters
-        Guid? qlktDepartmentId = null;
-        if (task.TechnicalManagerId.HasValue)
-        {
-            var qlktUser = await _userRepository.FindAsync(task.TechnicalManagerId.Value);
-            if (qlktUser != null)
-            {
-                qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
-            }
-        }
-
-        // Get all active users and exclude existing supporters and QLKT
-        var users = await _userRepository.GetListAsync();
-        var availableUsers = users
-            .Where(u => u.IsActive && !existingUserIds.Contains(u.Id))
-            // Filter by same department as QLKT (if QLKT has department)
-            .Where(u => !qlktDepartmentId.HasValue || u.GetProperty<Guid?>("DepartmentId") == qlktDepartmentId.Value)
-            .Select(u => new UserLookupDto
-            {
-                Id = u.Id,
-                UserName = u.UserName,
-                Name = u.Name,
-                Surname = u.Surname,
-                DisplayName = !string.IsNullOrWhiteSpace(u.Name)
-                    ? $"{u.Surname} {u.Name}".Trim()
-                    : u.UserName,
-                Email = u.Email,
-                PhoneNumber = u.PhoneNumber,
-                IsActive = u.IsActive
-            })
-            .OrderBy(u => u.DisplayName)
-            .ToList();
-
-        return new ListResultDto<UserLookupDto>(availableUsers);
-    }
-
-    /// <summary>
-    /// Check if current user can manage task (admin, QLKT or supporter)
-    /// </summary>
-    private async Task<bool> CanManageTaskAsync(LaboratoryTask task)
-    {
-        var currentUserId = CurrentUser.Id;
-        if (!currentUserId.HasValue)
-        {
-            return false;
-        }
-
-        // Admin can manage all tasks
-        if (CurrentUser.IsInRole("admin"))
-        {
-            return true;
-        }
-
-        // QLKT can manage
-        if (task.TechnicalManagerId == currentUserId.Value)
-        {
-            return true;
-        }
-
-        // Supporters can manage
-        var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-        return supporters.Any(x => x.UserId == currentUserId.Value);
-    }
-
-    #endregion
+    // Supporter Management methods moved to LaboratoryTaskAppService.Supporters.cs
 
     #region Bulk Approval
 
@@ -1561,12 +1363,12 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can approve
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền phê duyệt kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền phê duyệt kết quả");
         }
 
         if (!input.Approve && string.IsNullOrWhiteSpace(input.RejectionReason))
         {
-            throw new UserFriendlyException("Vui lòng nhập lý do từ chối");
+            throw new ValidationException("reason", "Vui lòng nhập lý do từ chối");
         }
 
         var results = new List<LaboratoryTaskIndicatorDto>();
@@ -1704,7 +1506,7 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
         // Validate: Only QLKT or supporter can send
         if (!await CanManageTaskAsync(task))
         {
-            throw new UserFriendlyException("Bạn không có quyền gửi kết quả");
+            throw new ForbiddenAccessException("Bạn không có quyền gửi kết quả");
         }
 
         // Get selected indicators
@@ -1715,14 +1517,14 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
 
         if (!selectedIndicators.Any())
         {
-            throw new UserFriendlyException("Vui lòng chọn ít nhất một chỉ tiêu để gửi");
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu để gửi");
         }
 
         // Validate: All selected indicators must be approved
         var notApproved = selectedIndicators.Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.Approved).ToList();
         if (notApproved.Any())
         {
-            throw new UserFriendlyException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi");
+            throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi", "indicator");
         }
 
         // Mark selected indicators as sent to quality
@@ -2008,22 +1810,18 @@ public class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppSe
             // Determine task name based on priority
             // Priority: "Có kết quả cần thực hiện lại" > "Có kết quả chỉ tiêu cần gửi" > "Có chỉ tiêu cần thực hiện"
             string taskName;
-            int priority;
 
             if (rejectedCount > 0)
             {
                 taskName = "Có kết quả cần thực hiện lại";
-                priority = 0;
             }
             else if (enteredCount > 0)
             {
                 taskName = "Có kết quả chỉ tiêu cần gửi";
-                priority = 1;
             }
             else
             {
                 taskName = "Có chỉ tiêu cần thực hiện";
-                priority = 2;
             }
 
             result.Add(new LabTechnicianPendingTaskDto

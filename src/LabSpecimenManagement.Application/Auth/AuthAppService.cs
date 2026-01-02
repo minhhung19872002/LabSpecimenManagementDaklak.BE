@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Http;
@@ -112,7 +113,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     {
         if (CurrentUser.Id == null)
         {
-            throw new UserFriendlyException("Người dùng chưa đăng nhập.");
+            throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập.");
         }
 
         var user = await _userManager.GetByIdAsync(CurrentUser.Id.Value);
@@ -123,7 +124,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     {
         if (CurrentUser.Id == null)
         {
-            throw new UserFriendlyException("Người dùng chưa đăng nhập.");
+            throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập.");
         }
 
         var user = await _userManager.GetByIdAsync(CurrentUser.Id.Value);
@@ -157,7 +158,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     {
         if (CurrentUser.Id == null)
         {
-            throw new UserFriendlyException("Người dùng chưa đăng nhập.");
+            throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập.");
         }
 
         var user = await _userManager.GetByIdAsync(CurrentUser.Id.Value);
@@ -170,7 +171,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new UserFriendlyException($"Đổi mật khẩu thất bại: {errors}");
+            throw new ValidationException("password", $"Đổi mật khẩu thất bại: {errors}");
         }
 
         return true;
@@ -201,7 +202,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
         if (user == null)
         {
-            throw new UserFriendlyException("Email không tồn tại trong hệ thống.");
+            throw new Common.Exceptions.EntityNotFoundException("User");
         }
 
         var result = await _userManager.ResetPasswordAsync(user, input.ResetToken, input.NewPassword);
@@ -209,7 +210,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         if (!result.Succeeded)
         {
             var errors = string.Join(", ", result.Errors.Select(e => e.Description));
-            throw new UserFriendlyException($"Đặt lại mật khẩu thất bại: {errors}");
+            throw new ValidationException("password", $"Đặt lại mật khẩu thất bại: {errors}");
         }
 
         return true;

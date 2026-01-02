@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -21,13 +22,16 @@ public class SubcontractorAppService :
     ISubcontractorAppService
 {
     private readonly IRepository<SubcontractorCertification, Guid> _certificationRepository;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public SubcontractorAppService(
         IRepository<Subcontractor, Guid> repository,
-        IRepository<SubcontractorCertification, Guid> certificationRepository)
+        IRepository<SubcontractorCertification, Guid> certificationRepository,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _certificationRepository = certificationRepository;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<Subcontractor> MapToEntityAsync(CreateUpdateSubcontractorDto createInput)
@@ -126,7 +130,7 @@ public class SubcontractorAppService :
     {
         var query = await Repository.GetQueryableAsync();
         var items = query
-            .Where(x => x.IsActive)
+            .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 
@@ -151,10 +155,8 @@ public class SubcontractorAppService :
 
     private async Task<string> GenerateCodeAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"NTP-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("NTP");
         var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D3");
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("NTP", count, sequencePadding: 3);
     }
 }

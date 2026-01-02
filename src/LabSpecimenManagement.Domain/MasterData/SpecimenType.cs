@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Loại mẫu - Specimen Type
 /// </summary>
-public class SpecimenType : FullAuditedAggregateRoot<Guid>
+public class SpecimenType : FullAuditedAggregateRoot<Guid>, IHasActive
 {
     /// <summary>
     /// Mã loại mẫu - Specimen Type Code

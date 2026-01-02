@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -46,12 +47,12 @@ public class UserLookupController : LabSpecimenManagementController
     /// Lấy user theo ID
     /// </summary>
     [HttpGet("lookup/{id}")]
-    public async Task<ActionResult<UserLookupDto>> GetByIdAsync(Guid id)
+    public async Task<UserLookupDto> GetByIdAsync(Guid id)
     {
         var result = await _userLookupAppService.GetByIdAsync(id);
         if (result == null)
         {
-            return NotFound();
+            throw new EntityNotFoundException("User", id);
         }
         return result;
     }

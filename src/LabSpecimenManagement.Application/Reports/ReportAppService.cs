@@ -5,6 +5,7 @@ using System.Linq;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.TestRequests;
 using QuestPDF.Fluent;
 using QuestPDF.Helpers;
@@ -33,7 +34,8 @@ public class ReportAppService :
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<Specimen, Guid> _specimenRepository;
     private readonly IRepository<Test, Guid> _testRepository;
-    private readonly IRepository<Volo.Abp.Identity.IdentityUser, Guid> _userRepository;
+    private readonly IUserNameProvider _userNameProvider;
+    private readonly ICodeGeneratorService _codeGenerator;
 
     public ReportAppService(
         IRepository<Report, Guid> repository,
@@ -41,14 +43,16 @@ public class ReportAppService :
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<Specimen, Guid> specimenRepository,
         IRepository<Test, Guid> testRepository,
-        IRepository<Volo.Abp.Identity.IdentityUser, Guid> userRepository)
+        IUserNameProvider userNameProvider,
+        ICodeGeneratorService codeGenerator)
         : base(repository)
     {
         _currentUser = currentUser;
         _testRequestRepository = testRequestRepository;
         _specimenRepository = specimenRepository;
         _testRepository = testRepository;
-        _userRepository = userRepository;
+        _userNameProvider = userNameProvider;
+        _codeGenerator = codeGenerator;
     }
 
     protected override async Task<ReportDto> MapToGetOutputDtoAsync(Report entity)
@@ -114,34 +118,23 @@ public class ReportAppService :
             }
         }
 
-        // Populate PreparedByName
-        if (entity.PreparedById.HasValue)
+        // Populate user names using UserNameProvider
+        var userIds = new[] { entity.PreparedById, entity.ReviewedById, entity.ApprovedById };
+        var userNames = await _userNameProvider.GetUserNamesAsync(userIds);
+
+        if (entity.PreparedById.HasValue && userNames.TryGetValue(entity.PreparedById.Value, out var preparedByName))
         {
-            var preparedBy = await _userRepository.FindAsync(entity.PreparedById.Value);
-            if (preparedBy != null)
-            {
-                dto.PreparedByName = preparedBy.Name ?? preparedBy.UserName;
-            }
+            dto.PreparedByName = preparedByName;
         }
 
-        // Populate ReviewedByName
-        if (entity.ReviewedById.HasValue)
+        if (entity.ReviewedById.HasValue && userNames.TryGetValue(entity.ReviewedById.Value, out var reviewedByName))
         {
-            var reviewedBy = await _userRepository.FindAsync(entity.ReviewedById.Value);
-            if (reviewedBy != null)
-            {
-                dto.ReviewedByName = reviewedBy.Name ?? reviewedBy.UserName;
-            }
+            dto.ReviewedByName = reviewedByName;
         }
 
-        // Populate ApprovedByName
-        if (entity.ApprovedById.HasValue)
+        if (entity.ApprovedById.HasValue && userNames.TryGetValue(entity.ApprovedById.Value, out var approvedByName))
         {
-            var approvedBy = await _userRepository.FindAsync(entity.ApprovedById.Value);
-            if (approvedBy != null)
-            {
-                dto.ApprovedByName = approvedBy.Name ?? approvedBy.UserName;
-            }
+            dto.ApprovedByName = approvedByName;
         }
     }
 
@@ -220,7 +213,7 @@ public class ReportAppService :
         await Repository.UpdateAsync(entity);
     }
 
-    public async Task<ReportDto> GetByReportNumberAsync(string reportNumber)
+    public async Task<ReportDto?> GetByReportNumberAsync(string reportNumber)
     {
         var entity = await Repository.FirstOrDefaultAsync(x => x.ReportNumber == reportNumber);
         return entity != null ? await MapToGetOutputDtoAsync(entity) : null;
@@ -241,11 +234,9 @@ public class ReportAppService :
 
     private async Task<string> GenerateReportNumberAsync()
     {
-        var today = DateTime.Now;
-        var prefix = $"RPT-{today:yyyyMMdd}";
+        var prefix = _codeGenerator.GetTodayPrefix("RPT");
         var count = await Repository.CountAsync(x => x.ReportNumber.StartsWith(prefix));
-        var sequence = (count + 1).ToString("D4");
-        return $"{prefix}-{sequence}";
+        return _codeGenerator.GenerateCodeWithDate("RPT", count);
     }
 
     private string GenerateQRCodeUrl(string reportNumber)

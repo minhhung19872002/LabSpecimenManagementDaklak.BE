@@ -13,13 +13,30 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
 {
     private readonly IRepository<Notification, Guid> _notificationRepository;
     private readonly IGuidGenerator _guidGenerator;
+    private readonly INotificationHubService? _notificationHubService;
 
     public NotificationCreator(
         IRepository<Notification, Guid> notificationRepository,
-        IGuidGenerator guidGenerator)
+        IGuidGenerator guidGenerator,
+        INotificationHubService? notificationHubService = null)
     {
         _notificationRepository = notificationRepository;
         _guidGenerator = guidGenerator;
+        _notificationHubService = notificationHubService;
+    }
+
+    /// <summary>
+    /// Helper method to insert notification and notify user via SignalR
+    /// </summary>
+    private async Task InsertNotificationAndPushAsync(Notification notification)
+    {
+        await _notificationRepository.InsertAsync(notification);
+
+        // Notify user about new notification via SignalR (FE will increment count by 1)
+        if (_notificationHubService != null)
+        {
+            await _notificationHubService.NotifyNewNotificationAsync(notification.UserId, notification.Id);
+        }
     }
 
     #region Notifications for QLKT (LabTechnicalManager)
@@ -73,7 +90,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             indicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -103,7 +120,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             indicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -133,7 +150,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             pendingIndicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -182,7 +199,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             rejectedCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -224,7 +241,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             qualityManagerName
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -254,7 +271,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             newIndicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -284,7 +301,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             cancelledIndicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     #endregion
@@ -337,7 +354,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             indicatorCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -364,7 +381,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             deadline
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -391,7 +408,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     #endregion
@@ -421,7 +438,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -447,7 +464,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -476,7 +493,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             sampleCount
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -502,7 +519,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     #endregion
@@ -534,7 +551,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             deadline
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -565,7 +582,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             deadline
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -592,7 +609,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -619,7 +636,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     /// <summary>
@@ -650,7 +667,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             null
         );
 
-        await _notificationRepository.InsertAsync(notification);
+        await InsertNotificationAndPushAsync(notification);
     }
 
     #endregion

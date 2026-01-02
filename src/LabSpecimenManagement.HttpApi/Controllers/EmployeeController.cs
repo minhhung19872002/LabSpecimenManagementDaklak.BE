@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Employees;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -56,7 +57,7 @@ public class EmployeeController : LabSpecimenManagementController
 
     [HttpPut("{id}/toggle-active")]
     [Authorize(LabSpecimenManagementPermissions.Users.Edit)]
-    public virtual Task<EmployeeDto> ToggleActiveAsync(Guid id, [FromBody] ToggleActiveInput input)
+    public virtual Task<EmployeeDto> ToggleActiveAsync(Guid id, [FromBody] ToggleActiveDto input)
     {
         return _employeeAppService.ToggleActiveAsync(id, input.IsActive);
     }
@@ -67,9 +68,4 @@ public class EmployeeController : LabSpecimenManagementController
     {
         return _employeeAppService.ResetPasswordAsync(id);
     }
-}
-
-public class ToggleActiveInput
-{
-    public bool IsActive { get; set; }
 }
