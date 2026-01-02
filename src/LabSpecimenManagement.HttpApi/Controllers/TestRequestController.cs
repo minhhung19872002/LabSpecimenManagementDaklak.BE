@@ -1,9 +1,11 @@
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -179,8 +181,37 @@ public class TestRequestController : LabSpecimenManagementController
     /// Get pending tasks for SampleReceiver (used for popup reminder)
     /// </summary>
     [HttpGet("sample-receiver-pending-tasks")]
-    public virtual Task<System.Collections.Generic.List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
+    public virtual Task<List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync()
     {
         return _testRequestAppService.GetSampleReceiverPendingTasksAsync();
+    }
+
+    /// <summary>
+    /// Get approved indicators for printing (In KQ)
+    /// </summary>
+    [HttpGet("{id}/approved-indicators")]
+    public virtual Task<List<QualityManagementIndicatorDto>> GetApprovedIndicatorsAsync(Guid id)
+    {
+        return _testRequestAppService.GetApprovedIndicatorsAsync(id);
+    }
+
+    /// <summary>
+    /// Print single indicator result (In KQ Đơn)
+    /// </summary>
+    [HttpPost("{id}/print-single")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, [FromBody] PrintSingleDto input)
+    {
+        return _testRequestAppService.PrintSingleResultAsync(id, input.IndicatorId, input.Note, input.TemplateName);
+    }
+
+    /// <summary>
+    /// Print mixed indicators result (In KQ Hỗn hợp)
+    /// </summary>
+    [HttpPost("{id}/print-mixed")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, [FromBody] PrintMixedDto input)
+    {
+        return _testRequestAppService.PrintMixedResultAsync(id, input.IndicatorIds, input.Note, input.TemplateName);
     }
 }

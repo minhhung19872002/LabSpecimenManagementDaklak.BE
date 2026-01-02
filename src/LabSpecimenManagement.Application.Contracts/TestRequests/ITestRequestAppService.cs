@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.QualityManagement;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -103,4 +104,19 @@ public interface ITestRequestAppService :
     /// Lấy danh sách công việc cần làm cho SampleReceiver (dùng cho popup reminder)
     /// </summary>
     Task<List<SampleReceiverPendingTaskDto>> GetSampleReceiverPendingTasksAsync();
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu đã duyệt của TestRequest (dùng cho In KQ)
+    /// </summary>
+    Task<List<QualityManagementIndicatorDto>> GetApprovedIndicatorsAsync(Guid id);
+
+    /// <summary>
+    /// In kết quả đơn (1 chỉ tiêu)
+    /// </summary>
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null);
+
+    /// <summary>
+    /// In kết quả hỗn hợp (nhiều chỉ tiêu)
+    /// </summary>
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null);
 }

@@ -12,6 +12,7 @@ using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.Testing;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -53,6 +54,7 @@ public partial class TestRequestAppService :
     private readonly ICurrentUser _currentUser;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IUserNameProvider _userNameProvider;
+    private readonly IResultFormAppService _resultFormAppService;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -75,7 +77,8 @@ public partial class TestRequestAppService :
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
         ICodeGeneratorService codeGenerator,
-        IUserNameProvider userNameProvider)
+        IUserNameProvider userNameProvider,
+        IResultFormAppService resultFormAppService)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -99,6 +102,7 @@ public partial class TestRequestAppService :
         _currentUser = currentUser;
         _codeGenerator = codeGenerator;
         _userNameProvider = userNameProvider;
+        _resultFormAppService = resultFormAppService;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -2718,6 +2722,167 @@ public partial class TestRequestAppService :
             ExpectedCompletionDate = tr.ExpectedCompletionDate,
             Status = tr.Status
         }).OrderBy(x => x.PendingDate).ToList();
+    }
+
+    #endregion
+
+    #region Print Result Methods
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu đã duyệt của TestRequest (dùng cho In KQ)
+    /// </summary>
+    public async Task<List<QualityManagementIndicatorDto>> GetApprovedIndicatorsAsync(Guid id)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Lấy tất cả QualityManagementTask của TestRequest này
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        var qualityTaskIds = qualityTasks.Select(t => t.Id).ToList();
+
+        // Lấy tất cả QualityManagementIndicator đã được duyệt
+        var indicators = await _qualityIndicatorRepository.GetListAsync(i =>
+            qualityTaskIds.Contains(i.QualityManagementTaskId) &&
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved);
+
+        // Map to DTO
+        var result = new List<QualityManagementIndicatorDto>();
+        foreach (var indicator in indicators)
+        {
+            // Get LaboratoryTaskIndicator to access sample, indicator, method info
+            var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+            var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
+            var masterIndicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+
+            // Get lab info through LaboratoryTask
+            var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+            var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+
+            // Get specimen type name if exists
+            string? specimenTypeName = null;
+            if (sample.SpecimenTypeId.HasValue)
+            {
+                var specimenType = await _specimenTypeRepository.FindAsync(sample.SpecimenTypeId.Value);
+                specimenTypeName = specimenType?.Name;
+            }
+
+            // Get method info
+            string? methodName = null;
+            if (labIndicator.MethodId.HasValue)
+            {
+                var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
+                methodName = method?.Name;
+            }
+
+            result.Add(new QualityManagementIndicatorDto
+            {
+                Id = indicator.Id,
+                LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
+                LaboratoryId = laboratory.Id,
+                LaboratoryName = laboratory.Name,
+                SampleId = sample.Id,
+                SampleCode = sample.SampleCode,
+                SampleName = sample.SampleName,
+                SpecimenTypeName = specimenTypeName,
+                IndicatorId = masterIndicator.Id,
+                IndicatorCode = masterIndicator.Code,
+                IndicatorName = masterIndicator.Name,
+                MethodId = labIndicator.MethodId,
+                MethodName = methodName,
+                Unit = labIndicator.Unit,
+                Result = labIndicator.Result,
+                ResultSentDate = labIndicator.EntryDate,
+                ApprovalDate = indicator.ApprovalDate,
+                StandardId = indicator.StandardId,
+                ReferenceLimit = indicator.ReferenceLimit,
+                ApprovalStatus = indicator.ApprovalStatus,
+                IsResultSent = indicator.IsResultSent
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// In kết quả đơn (1 chỉ tiêu)
+    /// </summary>
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Validate indicator exists and is approved
+        var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
+        if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+        }
+
+        // Get quality task for this indicator
+        var qualityTask = await _qualityTaskRepository.GetAsync(indicator.QualityManagementTaskId);
+
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
+        {
+            TaskId = qualityTask.Id,
+            IndicatorId = indicatorId,
+            Note = note,
+            TemplateName = templateName
+        });
+
+        // Update TestRequest status to PendingApproval if not already past that
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
+    }
+
+    /// <summary>
+    /// In kết quả hỗn hợp (nhiều chỉ tiêu)
+    /// </summary>
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Validate all indicators are approved
+        foreach (var indicatorId in indicatorIds)
+        {
+            var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            }
+        }
+
+        // Get first indicator to find quality task
+        var firstIndicator = await _qualityIndicatorRepository.GetAsync(indicatorIds.First());
+        var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Generate PDF result form
+        var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+        {
+            TaskId = qualityTask.Id,
+            IndicatorIds = indicatorIds,
+            Note = note,
+            TemplateName = templateName
+        });
+
+        // Update TestRequest status to PendingApproval if not already past that
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintResultOutputDto
+        {
+            FileName = result.FileName
+        };
     }
 
     #endregion
