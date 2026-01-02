@@ -1804,7 +1804,7 @@ public partial class TestRequestAppService :
         var cancelledSampleCodes = new List<string>();
         var cancelledIndicatorCountBySample = new Dictionary<string, int>();
 
-        // Handle samples not in new list - delete indicators and mark sample as cancelled
+        // Handle samples not in new list - mark as CustomerCancelled instead of deleting
         foreach (var existingSample in existingSamples)
         {
             if (!newSampleIds.Contains(existingSample.Id))
@@ -1812,6 +1812,7 @@ public partial class TestRequestAppService :
                 // Get all indicators for this sample
                 var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == existingSample.Id);
                 bool hasLabTask = false;
+                int cancelledIndicatorCount = 0;
 
                 foreach (var indicator in indicators)
                 {
@@ -1823,18 +1824,23 @@ public partial class TestRequestAppService :
                     if (labTaskIndicator != null)
                     {
                         hasLabTask = true;
-                        // Check if indicator is being tested or already has results
+                        // Không cho phép hủy mẫu có chỉ tiêu đã có kết quả
                         if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
                             throw new Common.Exceptions.InvalidOperationException("Không thể xóa mẫu có chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "sample");
                         }
-                        // Delete the LaboratoryTaskIndicator
-                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
+                        // Đánh dấu CustomerCancelled thay vì xóa
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                        cancelledIndicatorCount++;
                     }
-                    // Delete the indicator
-                    await _sampleIndicatorRepository.DeleteAsync(indicator, autoSave: true);
+                    else
+                    {
+                        // Nếu chưa có LaboratoryTaskIndicator (chưa gửi mẫu) thì xóa hẳn
+                        await _sampleIndicatorRepository.DeleteAsync(indicator, autoSave: true);
+                    }
                 }
 
                 // If sample has LaboratoryTask, keep sample for history (mark as cancelled)
@@ -1852,7 +1858,7 @@ public partial class TestRequestAppService :
 
                     // Track for notification (Case 8.2)
                     cancelledSampleCodes.Add(existingSample.SampleCode ?? existingSample.SampleName ?? "");
-                    cancelledIndicatorCountBySample[existingSample.SampleCode ?? existingSample.SampleName ?? ""] = indicators.Count;
+                    cancelledIndicatorCountBySample[existingSample.SampleCode ?? existingSample.SampleName ?? ""] = cancelledIndicatorCount;
                 }
             }
         }
@@ -1915,7 +1921,7 @@ public partial class TestRequestAppService :
             var existingIndicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
             var newIndicatorIds = sampleDto.Indicators?.Where(i => i.Id != null).Select(i => i.Id!.Value).ToList() ?? new List<Guid>();
 
-            // Delete indicators not in new list
+            // Handle indicators not in new list - mark as CustomerCancelled instead of deleting
             foreach (var existingIndicator in existingIndicators)
             {
                 if (!newIndicatorIds.Contains(existingIndicator.Id))
@@ -1926,17 +1932,22 @@ public partial class TestRequestAppService :
 
                     if (labTaskIndicator != null)
                     {
+                        // Không cho phép hủy chỉ tiêu đã có kết quả (Entered, Approved, Rejected)
                         if (labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
                             labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
                         {
                             throw new Common.Exceptions.InvalidOperationException("Không thể xóa chỉ tiêu đang được thử nghiệm hoặc đã có kết quả.", "indicator");
                         }
-                        // Delete the LaboratoryTaskIndicator
-                        await _laboratoryTaskIndicatorRepository.DeleteAsync(labTaskIndicator, autoSave: true);
+                        // Đánh dấu CustomerCancelled thay vì xóa (sau khi đã gửi mẫu)
+                        labTaskIndicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
                     }
-                    // Always delete the indicator
-                    await _sampleIndicatorRepository.DeleteAsync(existingIndicator, autoSave: true);
+                    else
+                    {
+                        // Nếu chưa có LaboratoryTaskIndicator (chưa gửi mẫu) thì xóa hẳn
+                        await _sampleIndicatorRepository.DeleteAsync(existingIndicator, autoSave: true);
+                    }
                 }
             }
 

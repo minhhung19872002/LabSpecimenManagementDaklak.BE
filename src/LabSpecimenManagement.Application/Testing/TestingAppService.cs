@@ -965,7 +965,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     {
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
         {
-            return IndicatorTestingStatus.Done; // Không cần làm
+            return IndicatorTestingStatus.Cancelled; // KH đã hủy
         }
 
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
