@@ -163,6 +163,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         // Settings Permissions
         var settingsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Settings.Default, L("Permission:Settings"));
         settingsPermission.AddChild(LabSpecimenManagementPermissions.Settings.Edit, L("Permission:Settings.Edit"));
+
+        // Quotation Permissions (Báo giá)
+        var quotationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Quotations.Default, L("Permission:Quotations"));
+        quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Create, L("Permission:Quotations.Create"));
+        quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Edit, L("Permission:Quotations.Edit"));
+        quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Delete, L("Permission:Quotations.Delete"));
     }
 
     private static LocalizableString L(string name)

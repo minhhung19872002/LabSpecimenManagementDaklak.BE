@@ -23,6 +23,7 @@ using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Quotations;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -91,6 +92,10 @@ public class LabSpecimenManagementDbContext :
     public DbSet<QualityManagementTask> QualityManagementTasks { get; set; }
     public DbSet<QualityManagementIndicator> QualityManagementIndicators { get; set; }
     public DbSet<QualityIndicatorStatusHistory> QualityIndicatorStatusHistories { get; set; }
+
+    // Quotation Entities
+    public DbSet<Quotation> Quotations { get; set; }
+    public DbSet<QuotationItem> QuotationItems { get; set; }
 
     #region Entities from the modules
 
@@ -860,6 +865,67 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.QualityManagementIndicator)
                 .WithMany()
                 .HasForeignKey(x => x.QualityManagementIndicatorId)
+                .IsRequired();
+        });
+
+        // ============ QUOTATION CONFIGURATION ============
+
+        builder.Entity<Quotation>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Quotations", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.QuotationNumber).IsRequired().HasMaxLength(50);
+            b.Property(x => x.CustomerName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.ProvinceCode).HasMaxLength(10);
+            b.Property(x => x.DistrictCode).HasMaxLength(10);
+            b.Property(x => x.WardCode).HasMaxLength(10);
+            b.Property(x => x.Address).HasMaxLength(500);
+            b.Property(x => x.TaxCode).HasMaxLength(50);
+            b.Property(x => x.ContactPerson).HasMaxLength(256);
+            b.Property(x => x.Phone).HasMaxLength(50);
+            b.Property(x => x.TotalCost).HasPrecision(18, 2);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.QuotationNumber).IsUnique();
+            b.HasIndex(x => x.QuotationDate);
+            b.HasIndex(x => x.CustomerName);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.OrganizationId);
+
+            b.HasOne(x => x.Organization)
+                .WithMany()
+                .HasForeignKey(x => x.OrganizationId)
+                .IsRequired(false);
+        });
+
+        builder.Entity<QuotationItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationItems", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.IndicatorName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.TestMethodName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.TotalPrice).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.QuotationId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.TestMethodId);
+
+            b.HasOne(x => x.Quotation)
+                .WithMany(x => x.Items)
+                .HasForeignKey(x => x.QuotationId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.Indicator)
+                .WithMany()
+                .HasForeignKey(x => x.IndicatorId)
+                .IsRequired();
+
+            b.HasOne(x => x.TestMethod)
+                .WithMany()
+                .HasForeignKey(x => x.TestMethodId)
                 .IsRequired();
         });
     }

@@ -29,6 +29,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     public const string RoleSampleReceiver = "SampleReceiver";            // Bộ phận Giao nhận mẫu
     public const string RoleQualityManager = "QualityManager";            // Quản lý chất lượng (QLCL)
     public const string RoleLabTechnician = "LabTechnician";              // Kỹ thuật viên (KTV)
+    public const string RoleAccountant = "Accountant";                    // Kế toán
 
     public LabUsersDataSeedContributor(
         IGuidGenerator guidGenerator,
@@ -152,6 +153,17 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.TestResults.Edit,
             LabSpecimenManagementPermissions.TestResults.Submit,
         });
+
+        // 5. Accountant - Kế toán (ketoan)
+        // Access: Báo giá
+        await CreateRoleIfNotExistsAsync(RoleAccountant, new[]
+        {
+            // Báo giá (Quotations)
+            LabSpecimenManagementPermissions.Quotations.Default,
+            LabSpecimenManagementPermissions.Quotations.Create,
+            LabSpecimenManagementPermissions.Quotations.Edit,
+            LabSpecimenManagementPermissions.Quotations.Delete,
+        });
     }
 
     private async Task CreateRoleIfNotExistsAsync(string roleName, string[] permissions)
@@ -235,6 +247,15 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             "Kỹ thuật viên 2",
             defaultPassword,
             new[] { RoleLabTechnician }
+        );
+
+        // 8. Kế toán
+        await CreateUserIfNotExistsAsync(
+            "ketoan",
+            "ketoan@lab.vn",
+            "Kế toán",
+            defaultPassword,
+            new[] { RoleAccountant }
         );
     }
 
