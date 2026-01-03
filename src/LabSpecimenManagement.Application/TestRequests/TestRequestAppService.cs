@@ -478,7 +478,8 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
-                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
+                // Resolve SpecimenTypeName to ID (create new if not exists)
+                sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
 
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
 
@@ -729,7 +730,8 @@ public partial class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
-                    sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
+                    // Resolve SpecimenTypeName to ID (create new if not exists)
+                    sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                 }
                 else
                 {
@@ -748,7 +750,8 @@ public partial class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
-                    sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
+                    // Resolve SpecimenTypeName to ID (create new if not exists)
+                    sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                     await _sampleRepository.InsertAsync(sample, autoSave: true);
                 }
 
@@ -927,6 +930,71 @@ public partial class TestRequestAppService :
             organization.Phone = phone ?? string.Empty;
             await _organizationRepository.InsertAsync(organization, autoSave: true);
         }
+    }
+
+    /// <summary>
+    /// Resolve SpecimenType name to ID (case-insensitive)
+    /// Creates new SpecimenType if not exists
+    /// Priority: specimenTypeName > specimenTypeId (user can change specimen type by entering new name)
+    /// </summary>
+    /// <param name="specimenTypeName">Name of the specimen type (prioritized if provided)</param>
+    /// <param name="existingSpecimenTypeId">Existing specimen type ID (used as fallback if name is empty)</param>
+    /// <returns>SpecimenType ID or null if both are empty</returns>
+    private async Task<Guid?> ResolveSpecimenTypeIdAsync(string? specimenTypeName, Guid? existingSpecimenTypeId)
+    {
+        // If specimenTypeName is provided, use it to resolve (allows user to change specimen type)
+        if (!string.IsNullOrWhiteSpace(specimenTypeName))
+        {
+            var normalizedName = specimenTypeName.Trim();
+
+            // Try to find existing SpecimenType by name (case-insensitive)
+            var existingSpecimenType = await _specimenTypeRepository.FirstOrDefaultAsync(
+                st => st.Name.ToLower() == normalizedName.ToLower());
+
+            if (existingSpecimenType != null)
+            {
+                return existingSpecimenType.Id;
+            }
+
+            // Create new SpecimenType with auto-generated code
+            var newCode = await GenerateSpecimenTypeCodeAsync();
+            var newSpecimenType = new SpecimenType(GuidGenerator.Create(), newCode, normalizedName);
+            await _specimenTypeRepository.InsertAsync(newSpecimenType, autoSave: true);
+
+            return newSpecimenType.Id;
+        }
+
+        // Fallback to existing ID if no name provided
+        if (existingSpecimenTypeId.HasValue)
+        {
+            return existingSpecimenTypeId;
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Generate unique code for new SpecimenType (LM001, LM002, etc.)
+    /// </summary>
+    private async Task<string> GenerateSpecimenTypeCodeAsync()
+    {
+        const string prefix = "LM";
+        var allCodes = await _specimenTypeRepository.GetListAsync();
+        var maxNumber = 0;
+
+        foreach (var specimenType in allCodes)
+        {
+            if (!string.IsNullOrEmpty(specimenType.Code) && specimenType.Code.StartsWith(prefix))
+            {
+                var numberPart = specimenType.Code.Substring(prefix.Length);
+                if (int.TryParse(numberPart, out var number) && number > maxNumber)
+                {
+                    maxNumber = number;
+                }
+            }
+        }
+
+        return $"{prefix}{(maxNumber + 1):D3}";
     }
 
     /// <summary>
@@ -1896,7 +1964,8 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
-                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
+                // Resolve SpecimenTypeName to ID (create new if not exists)
+                sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
             }
             else
             {
@@ -1914,7 +1983,8 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
-                sample.SpecimenTypeId = sampleDto.SpecimenTypeId;
+                // Resolve SpecimenTypeName to ID (create new if not exists)
+                sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
 
                 // Track for notification (Case 8.1)

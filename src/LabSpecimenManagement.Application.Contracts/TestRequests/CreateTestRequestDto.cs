@@ -188,6 +188,13 @@ public class CreateTestRequestSampleDto
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }
 
+    /// <summary>
+    /// Loại mẫu Name - sẽ được resolve thành ID ở backend
+    /// Nếu không tồn tại sẽ tạo mới (case-insensitive)
+    /// </summary>
+    [StringLength(100)]
+    public string? SpecimenTypeName { get; set; }
+
     public List<CreateTestRequestSampleIndicatorDto> Indicators { get; set; } = new();
 
     /// <summary>
@@ -247,6 +254,7 @@ public class SampleChangeDto
     public string? Notes { get; set; }
     public string? StorageLocation { get; set; }
     public Guid? SpecimenTypeId { get; set; }
+    public string? SpecimenTypeName { get; set; }
     public List<IndicatorChangeDto>? Indicators { get; set; }
     public List<AttachmentChangeDto>? Attachments { get; set; }
 }
