@@ -1238,10 +1238,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 7. Process document - replace placeholders
         // Note: OpenXML only supports .docx format
         // For .doc files, we just copy the template and let user edit in OnlyOffice
+        _logger.LogInformation("Template extension: {Extension}, processing DOCX: {IsDocx}",
+            templateExtension, templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase));
         if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
         {
             var placeholders = BuildTestRequestFormPlaceholders(testRequest, samples);
             var sampleTableData = await BuildSampleTableDataAsync(samples);
+            _logger.LogInformation("Sample table data count: {Count}, first sample indicators: {IndicatorCount}",
+                sampleTableData.Count, sampleTableData.FirstOrDefault()?.IndicatorDetails.Count ?? 0);
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
@@ -1304,15 +1308,31 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
-            // Build indicators text for this sample
-            var sampleIndicatorIds = allSampleIndicators
+            // Get sample indicators for this sample with their prices
+            var sampleIndicatorList = allSampleIndicators
                 .Where(si => si.TestRequestSampleId == sample.Id)
-                .Select(si => si.IndicatorId)
                 .ToList();
 
-            // Format indicators as list with - prefix and newline
-            var indicatorNames = sampleIndicatorIds
-                .Select(id => indicatorDict.GetValueOrDefault(id)?.Name ?? "")
+            // Build indicator details for sub-table
+            var indicatorDetails = new List<IndicatorSubTableRow>();
+            int subRowIndex = 1;
+            foreach (var si in sampleIndicatorList)
+            {
+                var indicator = indicatorDict.GetValueOrDefault(si.IndicatorId);
+                if (indicator != null)
+                {
+                    indicatorDetails.Add(new IndicatorSubTableRow
+                    {
+                        No = subRowIndex++,
+                        IndicatorName = indicator.Name ?? "",
+                        UnitPrice = si.UnitPrice.ToString("N0")
+                    });
+                }
+            }
+
+            // Format indicators as list with - prefix and newline (for fallback/old template)
+            var indicatorNames = sampleIndicatorList
+                .Select(si => indicatorDict.GetValueOrDefault(si.IndicatorId)?.Name ?? "")
                 .Where(name => !string.IsNullOrEmpty(name))
                 .ToList();
             var indicatorsText = indicatorNames.Count > 0
@@ -1325,7 +1345,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
-                Indicators = indicatorsText
+                Indicators = indicatorsText,
+                IndicatorDetails = indicatorDetails
             });
         }
 
@@ -1531,14 +1552,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             var directRows = table.Elements<TableRow>().ToList();
             foreach (var row in directRows)
             {
-                var hasNestedTable = row.Descendants<Table>().Any();
                 var rowText = GetDirectRowText(row);
 
-                // Look for sample table markers
-                if (!hasNestedTable && (rowText.Contains("{{TestRequestTable}}") || rowText.Contains("{{NameOfSample}}")))
+                // Look for sample table markers - allow rows with or without nested tables
+                if (rowText.Contains("{{TestRequestTable}}") || rowText.Contains("{{NameOfSample}}"))
                 {
                     targetTable = table;
                     templateRow = row;
+                    _logger.LogInformation("Found template row with text: {RowText}, has nested table: {HasNested}",
+                        rowText.Substring(0, Math.Min(100, rowText.Length)),
+                        row.Descendants<Table>().Any());
                     break;
                 }
             }
@@ -1604,12 +1627,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeSplitPlaceholders(para);
         }
 
-        // Then replace placeholders
+        // Check if there's a nested sub-table for indicators
+        var nestedTable = newRow.Descendants<Table>().FirstOrDefault();
+        _logger.LogInformation("Looking for nested table in row. Found: {Found}, IndicatorDetails count: {Count}",
+            nestedTable != null, data.IndicatorDetails.Count);
+        if (nestedTable != null && data.IndicatorDetails.Count > 0)
+        {
+            _logger.LogInformation("Processing nested sub-table with {Count} indicators", data.IndicatorDetails.Count);
+            ProcessIndicatorSubTable(nestedTable, data.IndicatorDetails);
+        }
+
+        // Then replace placeholders in the main row (excluding nested table which is already processed)
         foreach (var text in newRow.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // Handle {{SampleIndicators}} separately - need to insert line breaks
+            // Skip if this text is inside a nested table (already processed)
+            if (text.Ancestors<Table>().Count() > 0 && nestedTable != null)
+            {
+                // Check if this text is inside the nested table
+                var parentTable = text.Ancestors<Table>().FirstOrDefault();
+                if (parentTable == nestedTable) continue;
+            }
+
+            // Handle {{SampleIndicators}} separately - need to insert line breaks (fallback for old template)
             if (text.Text.Contains("{{SampleIndicators}}"))
             {
                 ReplaceTextWithLineBreaks(text, "{{SampleIndicators}}", data.Indicators);
@@ -1626,6 +1667,95 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         return newRow;
+    }
+
+    /// <summary>
+    /// Process indicator sub-table inside sample row
+    /// Handles {{SubTable}}{{SubNo}}, {{SubIndicator}}, {{SubPrice}} placeholders
+    /// </summary>
+    private void ProcessIndicatorSubTable(Table subTable, List<IndicatorSubTableRow> indicatorDetails)
+    {
+        // First, merge split placeholders in all paragraphs within the sub-table
+        foreach (var para in subTable.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Find the template row containing {{SubTable}} or {{SubNo}}
+        TableRow? templateRow = null;
+        foreach (var row in subTable.Elements<TableRow>())
+        {
+            var rowText = string.Concat(row.Descendants<Text>().Select(t => t.Text ?? ""));
+            _logger.LogInformation("Sub-table row text: {RowText}", rowText);
+            if (rowText.Contains("{{SubTable}}") || rowText.Contains("{{SubNo}}") || rowText.Contains("{{SubIndicator}}"))
+            {
+                templateRow = row;
+                _logger.LogInformation("Found template row in sub-table");
+                break;
+            }
+        }
+
+        if (templateRow == null)
+        {
+            _logger.LogWarning("No template row found in sub-table. Available rows: {RowCount}", subTable.Elements<TableRow>().Count());
+            return;
+        }
+
+        // Clone template row and remove original
+        var templateClone = (TableRow)templateRow.CloneNode(true);
+        var templateRowParent = templateRow.Parent;
+        var templateRowIndex = templateRowParent?.Elements<TableRow>().ToList().IndexOf(templateRow) ?? 0;
+        templateRow.Remove();
+
+        // Get all rows after removal to determine insert position
+        var allRows = subTable.Elements<TableRow>().ToList();
+        TableRow? insertAfterRow = templateRowIndex > 0 && allRows.Count > 0
+            ? allRows[Math.Min(templateRowIndex - 1, allRows.Count - 1)]
+            : null;
+
+        // Create and insert data rows for each indicator
+        foreach (var indicator in indicatorDetails)
+        {
+            var newRow = (TableRow)templateClone.CloneNode(true);
+
+            // Merge split placeholders
+            foreach (var para in newRow.Descendants<Paragraph>())
+            {
+                MergeSplitPlaceholders(para);
+            }
+
+            // Replace placeholders in the new row
+            foreach (var text in newRow.Descendants<Text>().ToList())
+            {
+                if (string.IsNullOrEmpty(text.Text)) continue;
+
+                text.Text = text.Text
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{SubNo}}", indicator.No.ToString())
+                    .Replace("{{SubIndicator}}", indicator.IndicatorName)
+                    .Replace("{{SubPrice}}", indicator.UnitPrice);
+            }
+
+            // Insert the new row
+            if (insertAfterRow != null)
+            {
+                insertAfterRow.InsertAfterSelf(newRow);
+                insertAfterRow = newRow;
+            }
+            else
+            {
+                var firstRow = subTable.Elements<TableRow>().FirstOrDefault();
+                if (firstRow != null)
+                {
+                    firstRow.InsertBeforeSelf(newRow);
+                }
+                else
+                {
+                    subTable.AppendChild(newRow);
+                }
+                insertAfterRow = newRow;
+            }
+        }
     }
 
     /// <summary>
@@ -1721,6 +1851,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string Quantity { get; set; } = "";
         public string SampleInfo { get; set; } = "";
         public string Indicators { get; set; } = "";
+        public List<IndicatorSubTableRow> IndicatorDetails { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Indicator sub-table row data for nested table in test request form
+    /// </summary>
+    private class IndicatorSubTableRow
+    {
+        public int No { get; set; }
+        public string IndicatorName { get; set; } = "";
+        public string UnitPrice { get; set; } = "";
     }
 
     /// <summary>
