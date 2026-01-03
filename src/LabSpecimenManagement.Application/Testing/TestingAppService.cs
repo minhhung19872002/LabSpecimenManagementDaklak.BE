@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
@@ -37,6 +38,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
+    private readonly ITestResultValueAppService _testResultValueAppService;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -52,7 +54,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
-        INotificationCreator notificationCreator)
+        INotificationCreator notificationCreator,
+        ITestResultValueAppService testResultValueAppService)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -68,6 +71,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
+        _testResultValueAppService = testResultValueAppService;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -200,24 +204,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
             }
 
-            // Validate result: must be a valid number >= 0 with max 1 decimal place
-            if (!string.IsNullOrWhiteSpace(result.Result))
-            {
-                if (!decimal.TryParse(result.Result, out var numResult))
-                {
-                    throw new ValidationException("result", $"Kết quả '{result.Result}' không phải là số hợp lệ");
-                }
-                if (numResult < 0)
-                {
-                    throw new ValidationException("result", "Kết quả phải >= 0");
-                }
-                // Check max 1 decimal place
-                var decimalPart = result.Result.Contains('.') ? result.Result.Split('.')[1] : "";
-                if (decimalPart.Length > 1)
-                {
-                    throw new ValidationException("result", "Kết quả chỉ cho phép tối đa 1 chữ số thập phân");
-                }
-            }
+            // Note: Result now accepts both numeric values, formulas (2^2, 10^-3),
+            // unicode superscript (2², 10⁻³), and text values (Đạt, Không đạt, Âm tính)
+            // Text values will be auto-created in master data when submitting for approval
 
             // Update indicator
             indicator.MethodId = result.MethodId;
@@ -945,6 +934,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
+            // Auto-create TestResultValue for text values (not numeric/formula)
+            // This allows user to enter new text values like "Đạt", "Không đạt"
+            // which will be saved to master data for future autocomplete
+            if (!IsNumericOrFormulaValue(indicator.Result))
+            {
+                await _testResultValueAppService.GetOrCreateByNameAsync(indicator.Result);
+            }
+
             // Set SubmitDate và ApprovalStatus = Entered
             indicator.SubmitDate = DateTime.Now;
             indicator.EntryDate ??= DateTime.Now;
@@ -1047,6 +1044,58 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         return IndicatorTestingStatus.Todo; // Chưa check-in
+    }
+
+    /// <summary>
+    /// Kiểm tra xem giá trị có phải là số hoặc công thức toán học không
+    /// Các dạng được coi là số/công thức:
+    /// - Số thuần: 0.5, 1.2, 100, -5
+    /// - Công thức mũ dạng caret: 2^2, 10^-3, 1.5^2
+    /// - Unicode superscript: 2², 10⁻³, 5⁺², xⁿ
+    /// - Ký hiệu khoa học: 1.5×10², 2×10⁻⁶, 1.5x10^-3
+    /// - Phân số/tỷ lệ: 1/2, 3:4, 1÷2
+    /// - Khoảng: 1-5, 10~20, 5±2
+    /// - Phần trăm/phần nghìn: 50%, 5‰
+    /// - Bất đẳng thức: >5, <10, ≥3, ≤8, >=5, <=10
+    /// </summary>
+    private bool IsNumericOrFormulaValue(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return false;
+
+        // Trim whitespace
+        value = value.Trim();
+
+        // 1. Số thuần (bao gồm số âm và số thập phân)
+        if (decimal.TryParse(value, out _)) return true;
+
+        // 2. Ký tự superscript unicode (số và chữ)
+        const string superscriptChars = "⁰¹²³⁴⁵⁶⁷⁸⁹⁺⁻ⁿˣʸᵃᵇᶜᵈᵉᶠᵍʰⁱʲᵏˡᵐᵒᵖʳˢᵗᵘᵛʷᶻ";
+
+        // 3. Ký tự subscript unicode
+        const string subscriptChars = "₀₁₂₃₄₅₆₇₈₉₊₋ₐₑₕᵢⱼₖₗₘₙₒₚᵣₛₜᵤᵥₓ";
+
+        // 4. Các ký tự toán học đặc biệt
+        const string mathOperators = "×÷±∓√∛∜∞≈≠≤≥<>≪≫∝∑∏∫∂∇";
+
+        // 5. Các ký tự số và toán học cơ bản
+        const string basicMathChars = "0123456789.,-+*/^:~%‰()[]{}";
+
+        // Kết hợp tất cả các ký tự hợp lệ
+        var allValidChars = superscriptChars + subscriptChars + mathOperators + basicMathChars + "xXeE";
+
+        // Kiểm tra xem chuỗi chỉ chứa các ký tự hợp lệ
+        bool containsOnlyValidChars = value.All(c => allValidChars.Contains(c) || char.IsWhiteSpace(c));
+
+        // Kiểm tra xem có ít nhất một số trong chuỗi
+        bool containsDigit = value.Any(c => char.IsDigit(c) || superscriptChars.Contains(c) || subscriptChars.Contains(c));
+
+        // Nếu chỉ chứa ký tự hợp lệ VÀ có ít nhất một số → là công thức
+        if (containsOnlyValidChars && containsDigit)
+        {
+            return true;
+        }
+
+        return false;
     }
 
     #endregion

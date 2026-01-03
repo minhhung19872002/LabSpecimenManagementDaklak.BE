@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -159,7 +160,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
                 Proclaim = ""      // TODO: Add Proclaim field to LaboratoryTaskIndicator if needed
@@ -1092,7 +1093,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
                 // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
                 Standards = "",
@@ -2345,7 +2346,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
             { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
             { "{{AttachFile}}", "" }, // TODO: Add attachment info if needed
-            { "{{Result}}", labTaskIndicator.Result ?? "" },
+            { "{{Result}}", ConvertToSuperscriptDisplay(labTaskIndicator.Result) },
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
@@ -2358,7 +2359,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = labTaskIndicator.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
                 Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
@@ -2533,7 +2534,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
 
             // Build Result with Note (format: Result + newline + Note)
-            var resultText = labTaskIndicator.Result ?? "";
+            // Apply superscript conversion for formulas like 2^2 → 2²
+            var resultText = ConvertToSuperscriptDisplay(labTaskIndicator.Result);
             if (!string.IsNullOrWhiteSpace(labTaskIndicator.Note))
             {
                 resultText = $"{resultText}\n{labTaskIndicator.Note}";
@@ -2741,7 +2743,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",
                 Proclaim = ""
@@ -2861,4 +2863,52 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return Path.Combine(templatesDir, defaultTemplate);
     }
+
+    #region Superscript Helpers
+
+    /// <summary>
+    /// Unicode Superscript character mapping
+    /// </summary>
+    private static readonly Dictionary<char, char> SuperscriptMap = new()
+    {
+        {'0', '⁰'}, {'1', '¹'}, {'2', '²'}, {'3', '³'}, {'4', '⁴'},
+        {'5', '⁵'}, {'6', '⁶'}, {'7', '⁷'}, {'8', '⁸'}, {'9', '⁹'},
+        {'-', '⁻'}, {'+', '⁺'}, {'.', '·'}
+    };
+
+    /// <summary>
+    /// Convert caret notation to Unicode superscript for display in reports
+    /// Examples:
+    /// - 2^2 → 2²
+    /// - 10^-3 → 10⁻³
+    /// - 1.5x10^-6 → 1.5×10⁻⁶
+    /// - 2X10^2 → 2×10²
+    /// Already-unicode superscript text is passed through unchanged
+    /// </summary>
+    private static string ConvertToSuperscriptDisplay(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text ?? "";
+
+        var result = text;
+
+        // 1. Convert 'x' or 'X' between numbers to '×' (multiplication sign)
+        // Pattern: number followed by x/X followed by number
+        result = Regex.Replace(result, @"(\d)\s*[xX]\s*(\d)", "$1×$2");
+
+        // 2. Convert caret notation to superscript
+        // Pattern: number^exponent (e.g., 2^2, 10^-3, 5.5^2)
+        var caretPattern = @"(\d+(?:\.\d+)?)\^(-?\d+(?:\.\d+)?)";
+        result = Regex.Replace(result, caretPattern, match =>
+        {
+            var baseNum = match.Groups[1].Value;
+            var exponent = match.Groups[2].Value;
+            var superscriptExponent = new string(exponent.Select(c =>
+                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
+            return baseNum + superscriptExponent;
+        });
+
+        return result;
+    }
+
+    #endregion
 }

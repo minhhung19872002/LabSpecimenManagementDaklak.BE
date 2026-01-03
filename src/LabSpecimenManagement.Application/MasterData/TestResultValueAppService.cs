@@ -124,6 +124,29 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
     }
 
     /// <summary>
+    /// Get or create a test result value by name
+    /// Used for auto-creating text values when submitting results for approval
+    /// </summary>
+    public async Task<TestResultValueDto?> GetOrCreateByNameAsync(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+
+        // Tìm existing (case-insensitive)
+        var query = await _repository.GetQueryableAsync();
+        var existing = await AsyncExecuter.FirstOrDefaultAsync(
+            query.Where(x => x.Name.ToLower() == name.ToLower())
+        );
+
+        if (existing != null)
+        {
+            return ObjectMapper.Map<TestResultValue, TestResultValueDto>(existing);
+        }
+
+        // Tạo mới
+        return await CreateAsync(new CreateUpdateTestResultValueDto { Name = name });
+    }
+
+    /// <summary>
     /// Generate code with format KQddmmyyyyxxx
     /// </summary>
     private async Task<string> GenerateCodeAsync()
