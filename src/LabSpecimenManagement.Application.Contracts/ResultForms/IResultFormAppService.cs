@@ -50,4 +50,10 @@ public interface IResultFormAppService : IApplicationService
     /// Get list of available templates (files with .template.docx extension)
     /// </summary>
     Task<List<TemplateDto>> GetTemplatesAsync();
+
+    /// <summary>
+    /// Preview test request form document (BM05) with form data without saving to DB
+    /// Used for previewing unsaved form data in create/edit mode
+    /// </summary>
+    Task<GenerateTestRequestFormOutput> PreviewTestRequestFormAsync(PreviewTestRequestFormInput input);
 }

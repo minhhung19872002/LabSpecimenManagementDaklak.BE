@@ -1287,6 +1287,217 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
+    /// Preview test request form with form data (no DB save required)
+    /// Used when creating new test request or editing unsaved changes
+    /// </summary>
+    public async Task<GenerateTestRequestFormOutput> PreviewTestRequestFormAsync(PreviewTestRequestFormInput input)
+    {
+        // 1. Check if template exists
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
+        if (!File.Exists(templatePath))
+        {
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM05);
+        }
+
+        // 2. Create temp directory if not exists
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        // 3. Generate unique filename - keep original extension
+        var safeContractNumber = input.ContractNumber?.Replace("/", "-") ?? "preview";
+        var templateExtension = Path.GetExtension(TemplateConstants.TemplateBM05);
+        var fileName = $"{Guid.NewGuid():N}_BM05_Preview_{safeContractNumber}{templateExtension}";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        // 4. Copy template to temp
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await sourceStream.CopyToAsync(destStream);
+        }
+
+        // 5. Process document - replace placeholders
+        if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            var placeholders = BuildPreviewFormPlaceholders(input);
+            var sampleTableData = BuildPreviewSampleTableData(input.Samples);
+            ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
+        }
+
+        // 6. Convert DOCX to PDF using LibreOffice
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            // 7. Delete the DOCX file after successful PDF conversion
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
+            pdfFileName = fileName;
+        }
+
+        return new GenerateTestRequestFormOutput
+        {
+            FileName = pdfFileName,
+            RequestNumber = "Preview",
+            ContractNumber = input.ContractNumber ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Build placeholders for preview form (from input DTO, not from DB entity)
+    /// </summary>
+    private Dictionary<string, string> BuildPreviewFormPlaceholders(PreviewTestRequestFormInput input)
+    {
+        var address = input.Address ?? "";
+        var wardText = !string.IsNullOrWhiteSpace(input.Ward) ? input.Ward : "";
+        var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
+        var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
+        var resultCopies = input.ResultCopyCount ?? "";
+        var customerTestMethod = input.MethodCustomerDetail ?? "";
+        var compareStandard = input.ConformityDeclaration ?? "";
+        var otherRequirements = input.OtherRequirements ?? "";
+        var subContractInfo = input.SubContract ?? "";
+        var currentDate = DateTime.Now;
+        var dateReceiving = input.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        var totalAmount = input.TotalCost.ToString("N0");
+        var totalByText = input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost);
+        var receiptNumber = input.ReceiptNumber ?? "";
+        var currentDateText = currentDate.ToString("dd/MM/yyyy");
+
+        var placeholders = new Dictionary<string, string>
+        {
+            { "{{ContractNo}}", input.ContractNumber ?? "" },
+            { "{{Customer}}", input.CustomerName },
+            { "{{Adress}}", address },
+            { "{{Address}}", address },
+            { "{{Ward}}", wardText },
+            { "{{District}}", districtText },
+            { "{{Province}}", provinceText },
+            { "{{TaxNo}}", input.TaxCode ?? "" },
+            { "{{ContactPerson}}", input.ContactPerson ?? "" },
+            { "{{PhoneNumber}}", input.Phone ?? "" },
+            { "{{SampleTotal}}", input.TotalSampleCount.ToString() },
+            { "{{ResultCopies}}", resultCopies },
+            { "{{CertifiedCopies}}", resultCopies },
+            { "{{CustomerTestMethod}}", customerTestMethod },
+            { "{{CompareStandard}}", compareStandard },
+            { "{{OtherRequirements}}", otherRequirements },
+            { "{{SubContractInfo}}", subContractInfo },
+            { "{{DateReceiving}}", dateReceiving },
+            { "{{TotalAmount}}", totalAmount },
+            { "{{TotalByText}}", totalByText },
+            { "{{ReceiptNumberTTDV}}", receiptNumber },
+            { "{{CurrentDate}}", currentDateText },
+
+            // Checkbox - Test Method
+            { "{{CB_TestMethod_Center}}", input.MethodWestHighlandInstitute ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_TestMethod_Customer}}", input.MethodCustomer ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Report Language
+            { "{{CB_Report_VN}}", input.ResultLanguage == ResultLanguage.Vietnamese ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_EN}}", input.ResultLanguage == ResultLanguage.English ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_Both}}", input.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Separate Results
+            { "{{CB_SeparateResult}}", input.SeparatePassedResults ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sampling Requirement
+            { "{{CB_Sampling_Center}}", input.SamplingRequirement == SamplingRequirement.LabSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Sampling_Customer}}", input.SamplingRequirement == SamplingRequirement.CustomerSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Delivery Method
+            { "{{CB_Delivery_Direct}}", input.DeliveryDirectPickup ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Delivery_Post}}", input.DeliveryPostal ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Return Sample
+            { "{{CB_ReturnSample}}", input.ReturnStoredSample ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Agree Terms
+            { "{{CB_AgreeTerms}}", input.AgreeTerms ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sample Type
+            { "{{CB_Service}}", input.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Contract}}", input.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_QLNN}}", input.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_SubContract}}", input.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sample Storage
+            { "{{CB_Save_No}}", input.SampleStorage == SampleStorageOption.No ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Save_Yes}}", input.SampleStorage == SampleStorageOption.Yes ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Payment Method (disabled)
+            { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+        };
+
+        return placeholders;
+    }
+
+    /// <summary>
+    /// Build sample table data from preview DTO (no DB lookup)
+    /// </summary>
+    private List<TestRequestSampleTableRow> BuildPreviewSampleTableData(List<PreviewTestRequestSampleDto> samples)
+    {
+        var tableData = new List<TestRequestSampleTableRow>();
+        int rowIndex = 1;
+
+        foreach (var sample in samples.OrderBy(s => s.SortOrder))
+        {
+            var indicatorDetails = new List<IndicatorSubTableRow>();
+            int subRowIndex = 1;
+
+            foreach (var indicator in sample.Indicators)
+            {
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = indicator.IndicatorName,
+                    UnitPrice = indicator.UnitPrice.ToString("N0")
+                });
+            }
+
+            var indicatorNames = sample.Indicators
+                .Select(i => i.IndicatorName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .ToList();
+            var indicatorsText = indicatorNames.Count > 0
+                ? string.Join("\n", indicatorNames.Select(name => $"- {name}"))
+                : "";
+
+            tableData.Add(new TestRequestSampleTableRow
+            {
+                No = rowIndex++,
+                SampleName = sample.SampleName ?? "",
+                Quantity = sample.SampleQuantity ?? "",
+                SampleInfo = sample.StatusText ?? "",
+                Indicators = indicatorsText,
+                IndicatorDetails = indicatorDetails
+            });
+        }
+
+        return tableData;
+    }
+
+    /// <summary>
     /// Build sample table data for test request form
     /// </summary>
     private async Task<List<TestRequestSampleTableRow>> BuildSampleTableDataAsync(List<TestRequestSample> samples)

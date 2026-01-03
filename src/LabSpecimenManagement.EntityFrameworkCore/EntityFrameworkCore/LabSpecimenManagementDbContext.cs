@@ -97,6 +97,9 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Quotation> Quotations { get; set; }
     public DbSet<QuotationItem> QuotationItems { get; set; }
 
+    // Test Result Values (Master Data)
+    public DbSet<TestResultValue> TestResultValues { get; set; }
+
     #region Entities from the modules
 
     /* Notice: We only implemented IIdentityDbContext and ITenantManagementDbContext
@@ -432,6 +435,19 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Address).HasMaxLength(512);
             b.Property(x => x.TaxCode).HasMaxLength(50);
             b.Property(x => x.ContactPerson).HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // TestResultValue configuration
+        builder.Entity<TestResultValue>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestResultValues", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            b.Property(x => x.Description).HasMaxLength(500);
 
             b.HasIndex(x => x.Code).IsUnique();
         });
