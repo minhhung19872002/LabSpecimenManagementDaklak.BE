@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.Testing;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -273,6 +274,11 @@ public class LaboratoryTaskIndicatorDto
     /// Giới hạn cho phép - Allowed Limit
     /// </summary>
     public string? AllowedLimit { get; set; }
+
+    /// <summary>
+    /// Danh sách hình ảnh của chỉ tiêu (max 5)
+    /// </summary>
+    public List<IndicatorImageDto> Images { get; set; } = new();
 }
 
 /// <summary>

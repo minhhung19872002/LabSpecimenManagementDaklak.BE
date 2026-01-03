@@ -212,4 +212,9 @@ public class TestRequestSampleIndicatorDto
     /// null nếu chưa bắt đầu thử nghiệm
     /// </summary>
     public DateTime? TestDate { get; set; }
+
+    /// <summary>
+    /// Hình ảnh của chỉ tiêu (từ IndicatorImage)
+    /// </summary>
+    public List<Testing.IndicatorImageDto>? Images { get; set; }
 }

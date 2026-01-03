@@ -9,6 +9,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.Testing;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -41,6 +42,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly INotificationCreator _notificationCreator;
     private readonly IResultFormAppService _resultFormAppService;
+    private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -63,7 +65,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         ITestRequestAppService testRequestAppService,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         INotificationCreator notificationCreator,
-        IResultFormAppService resultFormAppService)
+        IResultFormAppService resultFormAppService,
+        IRepository<IndicatorImage, Guid> indicatorImageRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -86,6 +89,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _specimenTypeRepository = specimenTypeRepository;
         _notificationCreator = notificationCreator;
         _resultFormAppService = resultFormAppService;
+        _indicatorImageRepository = indicatorImageRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -1183,6 +1187,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             specimenTypeName = specimenType?.Name;
         }
 
+        // Get indicator images
+        var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == indicator.LaboratoryTaskIndicatorId);
+
         return new QualityManagementIndicatorDto
         {
             Id = indicator.Id,
@@ -1210,7 +1218,18 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IsResultSent = indicator.IsResultSent,
             QualityResultSentDate = indicator.ResultSentDate,
             ApprovedById = indicator.ApprovedById,
-            ApprovedByName = approvedByName
+            ApprovedByName = approvedByName,
+            Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList()
         };
     }
 

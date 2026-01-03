@@ -49,6 +49,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
+    private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly INotificationAppService _notificationAppService;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
@@ -73,6 +74,7 @@ public partial class TestRequestAppService :
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
+        IRepository<IndicatorImage, Guid> indicatorImageRepository,
         INotificationAppService notificationAppService,
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
@@ -97,6 +99,7 @@ public partial class TestRequestAppService :
         _attachmentRepository = attachmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
+        _indicatorImageRepository = indicatorImageRepository;
         _notificationAppService = notificationAppService;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
@@ -178,6 +181,7 @@ public partial class TestRequestAppService :
                 // Get approval status and test date from LaboratoryTaskIndicator if exists
                 IndicatorApprovalStatus? approvalStatus = null;
                 DateTime? testDate = null;
+                Guid? labTaskIndicatorId = null;
                 var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
                     lti => lti.TestRequestSampleIndicatorId == indicator.Id
                 );
@@ -185,6 +189,26 @@ public partial class TestRequestAppService :
                 {
                     approvalStatus = labTaskIndicator.ApprovalStatus;
                     testDate = labTaskIndicator.TestDate;
+                    labTaskIndicatorId = labTaskIndicator.Id;
+                }
+
+                // Get indicator images from LaboratoryTaskIndicator
+                List<Testing.IndicatorImageDto> indicatorImages = new();
+                if (labTaskIndicatorId.HasValue)
+                {
+                    var images = await _indicatorImageRepository.GetListAsync(
+                        x => x.LaboratoryTaskIndicatorId == labTaskIndicatorId.Value);
+                    indicatorImages = images.OrderBy(x => x.CreationTime).Select(x => new Testing.IndicatorImageDto
+                    {
+                        Id = x.Id,
+                        LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                        FileId = x.FileId,
+                        FileName = x.FileName,
+                        FileSize = x.FileSize,
+                        Url = $"/api/v1/files/{x.FileId}",
+                        CreationTime = x.CreationTime,
+                        CreatorId = x.CreatorId
+                    }).ToList();
                 }
 
                 sampleDto.Indicators.Add(new TestRequestSampleIndicatorDto
@@ -205,7 +229,8 @@ public partial class TestRequestAppService :
                     RequestDate = indicator.RequestDate,
                     SentToDepartment = indicator.SentToDepartment,
                     ApprovalStatus = approvalStatus,
-                    TestDate = testDate
+                    TestDate = testDate,
+                    Images = indicatorImages
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }

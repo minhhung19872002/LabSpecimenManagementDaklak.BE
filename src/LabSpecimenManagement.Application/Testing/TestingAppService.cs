@@ -35,6 +35,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
+    private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -52,6 +53,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
+        IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -68,6 +70,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
+        _indicatorImageRepository = indicatorImageRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -748,6 +751,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             // Calculate indicator testing status
             var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
 
+            // Get indicator images
+            var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+                x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
             sampleGroups[sampleId].Indicators.Add(new TestingIndicatorDto
             {
                 Id = taskIndicator.Id,
@@ -772,7 +779,18 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 TechnicianName = technicianName,
                 CanEdit = canEdit,
                 CanCheckIn = canCheckIn,
-                CanSubmit = canSubmit
+                CanSubmit = canSubmit,
+                Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+                {
+                    Id = x.Id,
+                    LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                    FileId = x.FileId,
+                    FileName = x.FileName,
+                    FileSize = x.FileSize,
+                    Url = $"/api/v1/files/{x.FileId}",
+                    CreationTime = x.CreationTime,
+                    CreatorId = x.CreatorId
+                }).ToList()
             });
         }
 
@@ -1207,6 +1225,125 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             FilePath = x.FilePath,
             FileSize = x.FileSize,
             ImageType = x.ImageType,
+            CreationTime = x.CreationTime,
+            CreatorId = x.CreatorId
+        }).ToList();
+    }
+
+    #endregion
+
+    #region Indicator Image APIs
+
+    /// <summary>
+    /// Upload indicator image (single)
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<IndicatorImageDto> UploadIndicatorImageAsync(
+        Guid laboratoryTaskId,
+        Guid indicatorId,
+        string fileId,
+        string fileName,
+        string filePath,
+        long fileSize)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        var currentUserId = CurrentUser.Id;
+
+        // Get indicator
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        if (indicator.LaboratoryTaskId != laboratoryTaskId)
+        {
+            throw new ValidationException("indicatorId", "Chỉ tiêu không thuộc công việc này");
+        }
+
+        // Validate: Chỉ KTV được assign cho indicator này hoặc QLKT mới được upload
+        var hasPermission = task.TechnicalManagerId == currentUserId ||
+                           indicator.TechnicianId == currentUserId;
+
+        if (!hasPermission)
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền upload hình ảnh cho chỉ tiêu này");
+        }
+
+        // Validate: Chỉ được upload khi indicator đang ở trạng thái Testing (Entered = Đang thử nghiệm)
+        // Hoặc Pending (chưa nhập kết quả) với test date đã được set (đã check-in)
+        var canUpload = indicator.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+                       (indicator.ApprovalStatus == IndicatorApprovalStatus.Pending && indicator.TestDate.HasValue);
+        if (!canUpload)
+        {
+            throw new ValidationException("status", "Chỉ được upload hình ảnh khi chỉ tiêu đang ở trạng thái thử nghiệm");
+        }
+
+        // Validate: Max 5 images per indicator
+        var existingImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == indicatorId);
+
+        if (existingImages.Count >= 5)
+        {
+            throw new ValidationException("images", "Đã đạt tối đa 5 hình ảnh cho chỉ tiêu này");
+        }
+
+        // Create new image
+        var image = new IndicatorImage(
+            _guidGenerator.Create(),
+            indicatorId,
+            fileId,
+            fileName,
+            filePath,
+            fileSize);
+
+        await _indicatorImageRepository.InsertAsync(image);
+
+        return new IndicatorImageDto
+        {
+            Id = image.Id,
+            LaboratoryTaskIndicatorId = image.LaboratoryTaskIndicatorId,
+            FileId = image.FileId,
+            FileName = image.FileName,
+            FileSize = image.FileSize,
+            Url = $"/api/v1/files/{image.FileId}",
+            CreationTime = image.CreationTime,
+            CreatorId = image.CreatorId
+        };
+    }
+
+    /// <summary>
+    /// Delete indicator image
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task DeleteIndicatorImageAsync(Guid imageId)
+    {
+        var image = await _indicatorImageRepository.GetAsync(imageId);
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(image.LaboratoryTaskIndicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(indicator.LaboratoryTaskId);
+        var currentUserId = CurrentUser.Id;
+
+        // Validate: Chỉ người tạo hoặc QLKT mới được xóa
+        var canDelete = image.CreatorId == currentUserId || task.TechnicalManagerId == currentUserId;
+        if (!canDelete)
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền xóa hình ảnh này");
+        }
+
+        await _indicatorImageRepository.DeleteAsync(image);
+    }
+
+    /// <summary>
+    /// Get indicator images
+    /// </summary>
+    public async Task<List<IndicatorImageDto>> GetIndicatorImagesAsync(Guid indicatorId)
+    {
+        var images = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == indicatorId);
+
+        return images.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+        {
+            Id = x.Id,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            FileId = x.FileId,
+            FileName = x.FileName,
+            FileSize = x.FileSize,
+            Url = $"/api/v1/files/{x.FileId}",
             CreationTime = x.CreationTime,
             CreatorId = x.CreatorId
         }).ToList();

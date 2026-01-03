@@ -24,6 +24,47 @@ namespace LabSpecimenManagement.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("FileId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("LaboratoryTaskIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LaboratoryTaskIndicatorId");
+
+                    b.ToTable("AppIndicatorImages", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5005,6 +5046,17 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AbpTenantConnectionStrings", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorImage", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "LaboratoryTaskIndicator")
+                        .WithMany("Images")
+                        .HasForeignKey("LaboratoryTaskIndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LaboratoryTaskIndicator");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "Indicator")
@@ -5458,6 +5510,8 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
                 {
+                    b.Navigation("Images");
+
                     b.Navigation("RejectionHistories");
                 });
 

@@ -118,6 +118,11 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// </summary>
     public virtual ICollection<IndicatorRejectionHistory> RejectionHistories { get; set; } = new List<IndicatorRejectionHistory>();
 
+    /// <summary>
+    /// Hình ảnh của chỉ tiêu - Indicator Images
+    /// </summary>
+    public virtual ICollection<IndicatorImage> Images { get; set; } = new List<IndicatorImage>();
+
     protected LaboratoryTaskIndicator()
     {
     }

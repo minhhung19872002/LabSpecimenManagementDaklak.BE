@@ -24,6 +24,7 @@ public class TestRequestDtoEnricher : ITransientDependency
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IObjectMapper _objectMapper;
 
@@ -35,6 +36,7 @@ public class TestRequestDtoEnricher : ITransientDependency
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IUserNameProvider userNameProvider,
         IObjectMapper objectMapper)
     {
@@ -45,6 +47,7 @@ public class TestRequestDtoEnricher : ITransientDependency
         _testMethodRepository = testMethodRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _indicatorImageRepository = indicatorImageRepository;
         _userNameProvider = userNameProvider;
         _objectMapper = objectMapper;
     }
@@ -93,6 +96,10 @@ public class TestRequestDtoEnricher : ITransientDependency
         var indicatorLinkIds = allIndicatorLinks.Select(i => i.Id).ToList();
         var labTaskIndicators = await LoadLabTaskIndicatorsAsync(indicatorLinkIds);
 
+        // Load indicator images (batch load for all lab task indicators)
+        var labTaskIndicatorIds = labTaskIndicators.Values.Select(x => x.Id).ToList();
+        var indicatorImages = await LoadIndicatorImagesAsync(labTaskIndicatorIds);
+
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
             var sampleDto = _objectMapper.Map<TestRequestSample, TestRequestSampleDto>(sample);
@@ -109,12 +116,18 @@ public class TestRequestDtoEnricher : ITransientDependency
 
             foreach (var indicatorLink in sampleIndicatorLinks)
             {
+                var labTaskIndicator = labTaskIndicators.GetValueOrDefault(indicatorLink.Id);
+                var images = labTaskIndicator != null
+                    ? indicatorImages.GetValueOrDefault(labTaskIndicator.Id, new List<IndicatorImage>())
+                    : new List<IndicatorImage>();
+
                 var indicatorDto = CreateIndicatorDto(
                     indicatorLink,
                     indicators.GetValueOrDefault(indicatorLink.IndicatorId),
                     indicatorLink.LaboratoryId.HasValue ? laboratories.GetValueOrDefault(indicatorLink.LaboratoryId.Value) : null,
                     indicatorLink.TestMethodId.HasValue ? testMethods.GetValueOrDefault(indicatorLink.TestMethodId.Value) : null,
-                    labTaskIndicators.GetValueOrDefault(indicatorLink.Id)
+                    labTaskIndicator,
+                    images
                 );
                 sampleDto.Indicators.Add(indicatorDto);
             }
@@ -189,12 +202,22 @@ public class TestRequestDtoEnricher : ITransientDependency
         return items.ToDictionary(x => x.TestRequestSampleIndicatorId);
     }
 
+    private async Task<Dictionary<Guid, List<IndicatorImage>>> LoadIndicatorImagesAsync(List<Guid> labTaskIndicatorIds)
+    {
+        if (labTaskIndicatorIds.Count == 0) return new Dictionary<Guid, List<IndicatorImage>>();
+        var images = await _indicatorImageRepository.GetListAsync(x => labTaskIndicatorIds.Contains(x.LaboratoryTaskIndicatorId));
+        return images
+            .GroupBy(x => x.LaboratoryTaskIndicatorId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.CreationTime).ToList());
+    }
+
     private static TestRequestSampleIndicatorDto CreateIndicatorDto(
         TestRequestSampleIndicator indicatorLink,
         Indicator? indicator,
         Laboratory? laboratory,
         TestMethod? testMethod,
-        LaboratoryTaskIndicator? labTaskIndicator)
+        LaboratoryTaskIndicator? labTaskIndicator,
+        List<IndicatorImage> images)
     {
         return new TestRequestSampleIndicatorDto
         {
@@ -214,7 +237,18 @@ public class TestRequestDtoEnricher : ITransientDependency
             RequestDate = indicatorLink.RequestDate,
             SentToDepartment = indicatorLink.SentToDepartment,
             ApprovalStatus = labTaskIndicator?.ApprovalStatus,
-            TestDate = labTaskIndicator?.TestDate
+            TestDate = labTaskIndicator?.TestDate,
+            Images = images.Select(x => new Testing.IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList()
         };
     }
 

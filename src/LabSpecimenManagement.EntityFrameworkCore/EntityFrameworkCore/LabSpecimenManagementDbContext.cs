@@ -83,6 +83,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
+    public DbSet<IndicatorImage> IndicatorImages { get; set; }
 
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
@@ -779,6 +780,26 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.LaboratoryTask)
                 .WithMany()
                 .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ INDICATOR IMAGE CONFIGURATION ============
+
+        builder.Entity<IndicatorImage>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorImages", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(100);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.LaboratoryTaskIndicatorId);
+
+            b.HasOne(x => x.LaboratoryTaskIndicator)
+                .WithMany(x => x.Images)
+                .HasForeignKey(x => x.LaboratoryTaskIndicatorId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
         });

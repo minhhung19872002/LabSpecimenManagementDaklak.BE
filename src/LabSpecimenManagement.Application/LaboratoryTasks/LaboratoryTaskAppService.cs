@@ -9,6 +9,7 @@ using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
@@ -44,6 +45,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly INotificationCreator _notificationCreator;
     private readonly IRepository<Standard, Guid> _standardRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -66,7 +68,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<QualityIndicatorStatusHistory, Guid> qualityIndicatorHistoryRepository,
         INotificationCreator notificationCreator,
         IRepository<Standard, Guid> standardRepository,
-        IRepository<StandardIndicator, Guid> standardIndicatorRepository)
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IRepository<IndicatorImage, Guid> indicatorImageRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -89,6 +92,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _notificationCreator = notificationCreator;
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
+        _indicatorImageRepository = indicatorImageRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -409,6 +413,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 }
             }
 
+            // Get indicator images
+            var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+                x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
             {
                 Id = taskIndicator.Id,
@@ -443,7 +451,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 StandardId = taskIndicator.StandardId,
                 StandardName = standardName,
                 ComparisonOperator = comparisonOperator,
-                AllowedLimit = allowedLimit
+                AllowedLimit = allowedLimit,
+                // Indicator images
+                Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new Testing.IndicatorImageDto
+                {
+                    Id = x.Id,
+                    LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                    FileId = x.FileId,
+                    FileName = x.FileName,
+                    FileSize = x.FileSize,
+                    Url = $"/api/v1/files/{x.FileId}",
+                    CreationTime = x.CreationTime,
+                    CreatorId = x.CreatorId
+                }).ToList()
             });
         }
 
@@ -1233,6 +1253,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
+        // Get indicator images
+        var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
         return new LaboratoryTaskIndicatorDto
         {
             Id = taskIndicator.Id,
@@ -1262,7 +1286,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ApprovedById = taskIndicator.ApprovedById,
             ApprovedByName = approvedByName,
             RejectionReason = taskIndicator.RejectionReason,
-            IsSentToQuality = taskIndicator.IsSentToQuality
+            IsSentToQuality = taskIndicator.IsSentToQuality,
+            Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new Testing.IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList()
         };
     }
 

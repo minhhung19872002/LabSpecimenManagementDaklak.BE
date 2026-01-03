@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using LabSpecimenManagement.Testing;
 
 namespace LabSpecimenManagement.QualityManagement;
 
@@ -136,4 +138,9 @@ public class QualityManagementIndicatorDto
     /// Tên người duyệt - Approved By Name
     /// </summary>
     public string? ApprovedByName { get; set; }
+
+    /// <summary>
+    /// Danh sách hình ảnh của chỉ tiêu (max 5)
+    /// </summary>
+    public List<IndicatorImageDto> Images { get; set; } = new();
 }

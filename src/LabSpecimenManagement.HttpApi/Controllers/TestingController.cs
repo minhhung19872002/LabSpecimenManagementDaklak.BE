@@ -267,4 +267,141 @@ public class TestingController : LabSpecimenManagementController
     {
         return await _testingAppService.GetSampleTestingImagesAsync(id, sampleId, imageType);
     }
+
+    #region Indicator Image Endpoints
+
+    /// <summary>
+    /// Upload indicator image - single file
+    /// </summary>
+    [HttpPost("{id}/indicators/{indicatorId}/images")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<IndicatorImageDto> UploadIndicatorImageAsync(
+        Guid id,
+        Guid indicatorId,
+        IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            throw new ValidationException("file", "Vui lòng chọn file để upload");
+        }
+
+        // Validate file type (only images)
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
+        var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!allowedExtensions.Contains(fileExtension))
+        {
+            throw new ValidationException("file", "Chỉ chấp nhận file hình ảnh (jpg, jpeg, png, gif, bmp, webp)");
+        }
+
+        // Generate unique file ID and path
+        var fileId = Guid.NewGuid().ToString("N");
+        var webRootPath = _webHostEnvironment.WebRootPath ?? _webHostEnvironment.ContentRootPath;
+        var uploadsFolder = Path.Combine(webRootPath, "uploads", "indicator-images", id.ToString());
+
+        // Ensure directory exists
+        Directory.CreateDirectory(uploadsFolder);
+
+        var fileName = $"{fileId}{fileExtension}";
+        var filePath = Path.Combine(uploadsFolder, fileName);
+        var relativePath = $"uploads/indicator-images/{id}/{fileName}";
+
+        // Save file to disk
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        // Save to database
+        return await _testingAppService.UploadIndicatorImageAsync(
+            id,
+            indicatorId,
+            fileId,
+            file.FileName,
+            relativePath,
+            file.Length);
+    }
+
+    /// <summary>
+    /// Upload multiple indicator images - batch upload
+    /// </summary>
+    [HttpPost("{id}/indicators/{indicatorId}/images/batch")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<List<IndicatorImageDto>> UploadIndicatorImagesAsync(
+        Guid id,
+        Guid indicatorId,
+        List<IFormFile> files)
+    {
+        if (files == null || !files.Any())
+        {
+            throw new ValidationException("files", "Vui lòng chọn ít nhất 1 file để upload");
+        }
+
+        var allowedExtensions = new[] { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
+        var results = new List<IndicatorImageDto>();
+        var webRootPath = _webHostEnvironment.WebRootPath ?? _webHostEnvironment.ContentRootPath;
+        var uploadsFolder = Path.Combine(webRootPath, "uploads", "indicator-images", id.ToString());
+
+        // Ensure directory exists
+        Directory.CreateDirectory(uploadsFolder);
+
+        foreach (var file in files)
+        {
+            if (file == null || file.Length == 0)
+            {
+                continue;
+            }
+
+            var fileExtension = Path.GetExtension(file.FileName).ToLowerInvariant();
+            if (!allowedExtensions.Contains(fileExtension))
+            {
+                continue; // Skip invalid files
+            }
+
+            // Generate unique file ID and path
+            var fileId = Guid.NewGuid().ToString("N");
+            var fileName = $"{fileId}{fileExtension}";
+            var filePath = Path.Combine(uploadsFolder, fileName);
+            var relativePath = $"uploads/indicator-images/{id}/{fileName}";
+
+            // Save file to disk
+            using (var stream = new FileStream(filePath, FileMode.Create))
+            {
+                await file.CopyToAsync(stream);
+            }
+
+            // Save to database
+            var result = await _testingAppService.UploadIndicatorImageAsync(
+                id,
+                indicatorId,
+                fileId,
+                file.FileName,
+                relativePath,
+                file.Length);
+
+            results.Add(result);
+        }
+
+        return results;
+    }
+
+    /// <summary>
+    /// Delete indicator image
+    /// </summary>
+    [HttpDelete("indicators/images/{imageId}")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task DeleteIndicatorImageAsync(Guid imageId)
+    {
+        await _testingAppService.DeleteIndicatorImageAsync(imageId);
+    }
+
+    /// <summary>
+    /// Get indicator images
+    /// </summary>
+    [HttpGet("indicators/{indicatorId}/images")]
+    public virtual async Task<List<IndicatorImageDto>> GetIndicatorImagesAsync(Guid indicatorId)
+    {
+        return await _testingAppService.GetIndicatorImagesAsync(indicatorId);
+    }
+
+    #endregion
 }

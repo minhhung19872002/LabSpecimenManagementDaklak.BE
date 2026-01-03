@@ -269,4 +269,9 @@ public class TestingIndicatorDto
     /// Có thể gửi kết quả hay không
     /// </summary>
     public bool CanSubmit { get; set; }
+
+    /// <summary>
+    /// Danh sách hình ảnh của chỉ tiêu (max 5)
+    /// </summary>
+    public List<IndicatorImageDto> Images { get; set; } = new();
 }
