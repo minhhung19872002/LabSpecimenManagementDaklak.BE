@@ -105,6 +105,9 @@ public class LabSpecimenManagementDbContext :
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
 
+    // Notes (Master Data)
+    public DbSet<Note> Notes { get; set; }
+
     #region Entities from the modules
 
     /* Notice: We only implemented IIdentityDbContext and ITenantManagementDbContext
@@ -455,6 +458,19 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Description).HasMaxLength(500);
 
             b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // Note configuration
+        builder.Entity<Note>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Notes", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Content).IsRequired().HasMaxLength(1000);
+
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.IsActive);
         });
 
         // IndicatorGroup configuration

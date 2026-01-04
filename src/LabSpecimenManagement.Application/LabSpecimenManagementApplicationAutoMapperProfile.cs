@@ -98,6 +98,9 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<TestResultValue, TestResultValueDto>();
         CreateMap<CreateUpdateTestResultValueDto, TestResultValue>();
 
+        // Note mappings
+        CreateMap<Note, MasterData.Notes.NoteDto>();
+
         // NCR mappings
         CreateMap<NCR, NCRDto>();
         CreateMap<CreateNCRDto, NCR>();

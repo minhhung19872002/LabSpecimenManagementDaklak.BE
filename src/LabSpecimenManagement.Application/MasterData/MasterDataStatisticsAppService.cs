@@ -22,6 +22,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     private readonly IRepository<Customer, Guid> _customerRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IWebHostEnvironment _environment;
 
     public MasterDataStatisticsAppService(
@@ -34,6 +36,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         IRepository<Customer, Guid> customerRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<TestResultValue, Guid> testResultValueRepository,
+        IRepository<Note, Guid> noteRepository,
         IWebHostEnvironment environment)
     {
         _departmentRepository = departmentRepository;
@@ -45,6 +49,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         _customerRepository = customerRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _indicatorRepository = indicatorRepository;
+        _testResultValueRepository = testResultValueRepository;
+        _noteRepository = noteRepository;
         _environment = environment;
     }
 
@@ -59,6 +65,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         var customerCount = await _customerRepository.CountAsync();
         var indicatorGroupCount = await _indicatorGroupRepository.CountAsync();
         var indicatorCount = await _indicatorRepository.CountAsync();
+        var testResultValueCount = await _testResultValueRepository.CountAsync();
+        var noteCount = await _noteRepository.CountAsync();
 
         // Count form templates from file system
         var formTemplateCount = 0;
@@ -80,7 +88,9 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
             CustomerCount = (int)customerCount,
             IndicatorGroupCount = (int)indicatorGroupCount,
             IndicatorCount = (int)indicatorCount,
-            FormTemplateCount = formTemplateCount
+            FormTemplateCount = formTemplateCount,
+            TestResultValueCount = (int)testResultValueCount,
+            NoteCount = (int)noteCount
         };
     }
 }
