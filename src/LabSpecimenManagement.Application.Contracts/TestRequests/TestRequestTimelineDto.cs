@@ -37,6 +37,11 @@ public class TimelineStepDto
     /// Additional information (e.g., laboratory names for SampleSent step)
     /// </summary>
     public List<string>? ExtraInfo { get; set; }
+
+    /// <summary>
+    /// Note/Reason (e.g., cancellation reason)
+    /// </summary>
+    public string? Note { get; set; }
 }
 
 /// <summary>

@@ -235,12 +235,12 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Hủy yêu cầu khi đang chờ thanh toán
+    /// Hủy yêu cầu thử nghiệm
     /// </summary>
     [HttpPost("{id}/cancel-request")]
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
-    public virtual Task CancelRequestAsync(Guid id)
+    public virtual Task CancelRequestAsync(Guid id, [FromBody] CancelTestRequestDto input)
     {
-        return _testRequestAppService.CancelRequestAsync(id);
+        return _testRequestAppService.CancelRequestAsync(id, input);
     }
 }

@@ -2752,6 +2752,18 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("ApprovedDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CancelledByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CancelledByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CancelledDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ChangeRequest")
                         .HasColumnType("text");
 

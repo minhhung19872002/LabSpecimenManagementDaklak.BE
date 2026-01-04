@@ -126,9 +126,11 @@ public interface ITestRequestAppService :
     Task<Guid> SendToAccountingAsync(Guid id);
 
     /// <summary>
-    /// Hủy yêu cầu khi đang chờ thanh toán
+    /// Hủy yêu cầu thử nghiệm
     /// </summary>
-    Task CancelRequestAsync(Guid id);
+    /// <param name="id">ID của yêu cầu</param>
+    /// <param name="input">Thông tin hủy (bao gồm lý do)</param>
+    Task CancelRequestAsync(Guid id, CancelTestRequestDto input);
 
     /// <summary>
     /// Sinh số hợp đồng tự động với format HDYYYYMMDD###

@@ -402,6 +402,26 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? PostalDeliveryImageFileIds { get; set; }
 
+    /// <summary>
+    /// Ngày hủy yêu cầu (Cancelled)
+    /// </summary>
+    public DateTime? CancelledDate { get; set; }
+
+    /// <summary>
+    /// User ID hủy yêu cầu
+    /// </summary>
+    public Guid? CancelledByUserId { get; set; }
+
+    /// <summary>
+    /// User name hủy yêu cầu
+    /// </summary>
+    public string? CancelledByUserName { get; set; }
+
+    /// <summary>
+    /// Lý do hủy yêu cầu
+    /// </summary>
+    public string? CancellationReason { get; set; }
+
     #endregion
 
     #region Collections
