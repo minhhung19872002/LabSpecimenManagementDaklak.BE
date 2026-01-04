@@ -2006,10 +2006,6 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("TestRequestId")
                         .HasColumnType("uuid");
 
-                    b.Property<string>("VoucherCode")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
                     b.HasKey("Id");
 
                     b.HasIndex("ReceiptNumber");
@@ -2018,8 +2014,6 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("TestRequestId")
                         .IsUnique();
-
-                    b.HasIndex("VoucherCode");
 
                     b.ToTable("AppReceipts", (string)null);
                 });

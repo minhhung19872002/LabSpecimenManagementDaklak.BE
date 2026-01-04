@@ -19,11 +19,6 @@ public class ReceiptDto : FullAuditedEntityDto<Guid>
     public string? ReceiptNumber { get; set; }
 
     /// <summary>
-    /// Mã số biên lai (kế toán nhập thủ công)
-    /// </summary>
-    public string? VoucherCode { get; set; }
-
-    /// <summary>
     /// Trạng thái phiếu thu
     /// </summary>
     public ReceiptStatus Status { get; set; }

@@ -994,13 +994,11 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.ReceiptNumber).HasMaxLength(50);
-            b.Property(x => x.VoucherCode).HasMaxLength(50);
             b.Property(x => x.Notes).HasMaxLength(2000);
 
             b.HasIndex(x => x.TestRequestId).IsUnique();
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.ReceiptNumber);
-            b.HasIndex(x => x.VoucherCode);
 
             b.HasOne(x => x.TestRequest)
                 .WithMany()

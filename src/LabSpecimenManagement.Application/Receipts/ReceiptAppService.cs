@@ -110,7 +110,6 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             Id = receipt.Id,
             TestRequestId = receipt.TestRequestId,
             ReceiptNumber = receipt.ReceiptNumber,
-            VoucherCode = receipt.VoucherCode,
             Status = receipt.Status,
             Notes = receipt.Notes,
             PaidDate = receipt.PaidDate,
@@ -132,7 +131,7 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
     }
 
     /// <summary>
-    /// Cập nhật thông tin phiếu thu (số phiếu thu, mã số biên lai)
+    /// Cập nhật thông tin phiếu thu (số phiếu thu)
     /// </summary>
     public async Task UpdateReceiptInfoAsync(Guid id, UpdateReceiptDto input)
     {
@@ -144,7 +143,6 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
         }
 
         receipt.ReceiptNumber = input.ReceiptNumber;
-        receipt.VoucherCode = input.VoucherCode;
 
         await _receiptRepository.UpdateAsync(receipt);
     }
@@ -216,7 +214,6 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             Id = receipt.Id,
             TestRequestId = receipt.TestRequestId,
             ReceiptNumber = receipt.ReceiptNumber,
-            VoucherCode = receipt.VoucherCode,
             Status = receipt.Status,
             Notes = receipt.Notes,
             PaidDate = receipt.PaidDate,
