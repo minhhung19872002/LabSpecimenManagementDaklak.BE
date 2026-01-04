@@ -2510,13 +2510,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
             }
 
-            // Build Result with Note (format: Result + newline + Note)
             // Apply superscript conversion for formulas like 2^2 → 2²
             var resultText = ConvertToSuperscriptDisplay(labTaskIndicator.Result);
-            if (!string.IsNullOrWhiteSpace(labTaskIndicator.Note))
-            {
-                resultText = $"{resultText}\n{labTaskIndicator.Note}";
-            }
 
             tableData.Add(new ResultFormTableRow
             {

@@ -204,6 +204,11 @@ public class LaboratoryTaskIndicatorDto
     public string? Result { get; set; }
 
     /// <summary>
+    /// Ghi chú từ KTV - Note
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
     /// Đơn vị tính - Unit
     /// </summary>
     public string? Unit { get; set; }

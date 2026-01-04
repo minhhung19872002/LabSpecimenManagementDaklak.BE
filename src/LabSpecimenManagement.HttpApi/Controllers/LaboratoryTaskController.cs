@@ -152,6 +152,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật ghi chú cho chỉ tiêu
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/note")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(
+        Guid indicatorId,
+        [FromBody] string? note)
+    {
+        return _laboratoryTaskAppService.UpdateIndicatorNoteAsync(indicatorId, note);
+    }
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]

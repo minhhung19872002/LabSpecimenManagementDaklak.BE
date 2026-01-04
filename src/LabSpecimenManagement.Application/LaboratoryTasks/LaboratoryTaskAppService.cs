@@ -437,6 +437,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 AssignedDate = taskIndicator.AssignedDate,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
+                Note = taskIndicator.Note,
                 Unit = unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
@@ -800,6 +801,33 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
 
         taskIndicator.StandardId = standardId;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
+    /// Cập nhật ghi chú cho chỉ tiêu
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can update note
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật ghi chú");
+        }
+
+        // Validate: Cannot update when indicator is Approved
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật ghi chú cho chỉ tiêu đã duyệt", "indicator");
+        }
+
+        taskIndicator.Note = note;
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         return await MapToIndicatorDtoAsync(taskIndicator);
@@ -1277,6 +1305,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             AssignedDate = taskIndicator.AssignedDate,
             TestDate = taskIndicator.TestDate,
             Result = taskIndicator.Result,
+            Note = taskIndicator.Note,
             Unit = unit,
             EntryDate = taskIndicator.EntryDate,
             EnteredById = taskIndicator.EnteredById,
