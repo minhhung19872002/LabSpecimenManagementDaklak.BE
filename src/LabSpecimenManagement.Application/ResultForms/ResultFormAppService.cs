@@ -1178,8 +1178,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Generate test request form document (BM05 - phiếu yêu cầu XN)
     /// This creates a copy of the template for user to edit and print
-    /// When printing, status changes from New to Pending (Chờ xử lý)
-    /// If already Pending, status remains unchanged (allow reprint)
+    /// In new flow: printing is available when status = Paid
     /// </summary>
     public async Task<GenerateTestRequestFormOutput> GenerateTestRequestFormAsync(GenerateTestRequestFormInput input)
     {
@@ -1187,29 +1186,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var testRequest = await _testRequestRepository.GetAsync(input.TestRequestId);
         var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == input.TestRequestId);
 
-        // 2. Update status to Pending if currently New
-        // If already Pending or higher, don't change status (allow reprint)
-        if (testRequest.Status == TestRequestStatus.New)
-        {
-            testRequest.Status = TestRequestStatus.Pending;
-            testRequest.PendingDate = Clock.Now;
-            testRequest.PendingByUserId = _currentUser.Id;
-            testRequest.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
-            await _testRequestRepository.UpdateAsync(testRequest);
-
-            // Send notification to the test request creator
-            if (testRequest.CreatorId.HasValue)
-            {
-                var sampleCount = samples.Count;
-                await _notificationCreator.NotifyNewTestRequestPendingAsync(
-                    testRequest.CreatorId.Value,
-                    testRequest.ContractNumber ?? "",
-                    testRequest.Id,
-                    sampleCount);
-            }
-        }
-
-        // 3. Check if template exists
+        // 2. Check if template exists
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
         if (!File.Exists(templatePath))
         {

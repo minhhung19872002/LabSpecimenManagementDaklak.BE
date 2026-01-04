@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
+using LabSpecimenManagement.Receipts;
 using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
@@ -56,6 +57,7 @@ public partial class TestRequestAppService :
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IResultFormAppService _resultFormAppService;
+    private readonly IRepository<Receipt, Guid> _receiptRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -80,7 +82,8 @@ public partial class TestRequestAppService :
         ICurrentUser currentUser,
         ICodeGeneratorService codeGenerator,
         IUserNameProvider userNameProvider,
-        IResultFormAppService resultFormAppService)
+        IResultFormAppService resultFormAppService,
+        IRepository<Receipt, Guid> receiptRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -106,6 +109,7 @@ public partial class TestRequestAppService :
         _codeGenerator = codeGenerator;
         _userNameProvider = userNameProvider;
         _resultFormAppService = resultFormAppService;
+        _receiptRepository = receiptRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -1104,10 +1108,13 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Check if full edit is allowed (all fields)
+    /// New, PendingPayment, Paid can be fully edited
     /// </summary>
     private bool CanEditFullInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.New || status == TestRequestStatus.Pending;
+        return status == TestRequestStatus.New ||
+               status == TestRequestStatus.PendingPayment ||
+               status == TestRequestStatus.Paid;
     }
 
     /// <summary>
@@ -1121,10 +1128,13 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Check if delete is allowed
+    /// New, PendingPayment, Paid can be deleted
     /// </summary>
     private bool CanDelete(TestRequestStatus status)
     {
-        return status == TestRequestStatus.New || status == TestRequestStatus.Pending;
+        return status == TestRequestStatus.New ||
+               status == TestRequestStatus.PendingPayment ||
+               status == TestRequestStatus.Paid;
     }
 
     /// <summary>
@@ -1135,7 +1145,8 @@ public partial class TestRequestAppService :
         return status switch
         {
             TestRequestStatus.New => "Mới",
-            TestRequestStatus.Pending => "Chờ xử lý",
+            TestRequestStatus.PendingPayment => "Chờ thanh toán",
+            TestRequestStatus.Paid => "Đã thanh toán",
             TestRequestStatus.SampleSent => "Đã gửi mẫu",
             TestRequestStatus.InProgress => "Đang thử nghiệm",
             TestRequestStatus.PendingChangeApproval => "Chờ phê duyệt thay đổi",
@@ -1143,6 +1154,7 @@ public partial class TestRequestAppService :
             TestRequestStatus.Approved => "Đã phê duyệt",
             TestRequestStatus.ResultSent => "Gửi khách hàng",
             TestRequestStatus.Completed => "Hoàn thành",
+            TestRequestStatus.Cancelled => "Hủy phiếu yêu cầu",
             _ => status.ToString()
         };
     }
@@ -1347,7 +1359,8 @@ public partial class TestRequestAppService :
     #region Status Transition Methods
 
     /// <summary>
-    /// When printing test request form - update status from New to Pending
+    /// When printing test request form - log and verify status
+    /// In new flow: print is allowed when status = Paid
     /// </summary>
     public async Task PrintTestRequestAsync(Guid id)
     {
@@ -1356,49 +1369,23 @@ public partial class TestRequestAppService :
         Logger.LogInformation("PrintTestRequestAsync: TestRequest {Id}, Status = {Status}, CreatorId = {CreatorId}",
             id, entity.Status, entity.CreatorId);
 
-        if (entity.Status == TestRequestStatus.New)
-        {
-            entity.Status = TestRequestStatus.Pending;
-            entity.PendingDate = Clock.Now;
-            entity.PendingByUserId = _currentUser.Id;
-            entity.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
-            await Repository.UpdateAsync(entity);
-
-            // Notify the test request creator - Case 3 SampleReceiver
-            if (entity.CreatorId.HasValue)
-            {
-                var sampleCount = await _sampleRepository.CountAsync(s => s.TestRequestId == entity.Id);
-                Logger.LogInformation("Sending NewTestRequestPending notification to CreatorId = {CreatorId}, SampleCount = {SampleCount}",
-                    entity.CreatorId.Value, sampleCount);
-                await _notificationCreator.NotifyNewTestRequestPendingAsync(
-                    entity.CreatorId.Value,
-                    entity.ContractNumber ?? "",
-                    entity.Id,
-                    sampleCount);
-            }
-            else
-            {
-                Logger.LogWarning("PrintTestRequestAsync: CreatorId is null, skipping notification");
-            }
-        }
-        else
-        {
-            Logger.LogInformation("PrintTestRequestAsync: Status is not New ({Status}), skipping status change", entity.Status);
-        }
-        // If already Pending, don't change status (allow re-print)
+        // In new flow, printing is available when Paid
+        // We don't change status here, just log that printing occurred
+        // Status changes: Paid → (gửi mẫu) → SampleSent
     }
 
     /// <summary>
-    /// When user confirms sample sent - update status from Pending to SampleSent
+    /// When user confirms sample sent - update status from Paid to SampleSent
     /// Also creates LaboratoryTasks for all samples grouped by Laboratory
     /// </summary>
     public async Task SendSampleAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        if (entity.Status != TestRequestStatus.Pending)
+        // Kiểm tra trạng thái: Paid (đã thanh toán)
+        if (entity.Status != TestRequestStatus.Paid)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi mẫu khi trạng thái là 'Chờ xử lý'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi mẫu khi trạng thái là 'Đã thanh toán'", "status");
         }
 
         entity.Status = TestRequestStatus.SampleSent;
@@ -2754,25 +2741,36 @@ public partial class TestRequestAppService :
             ExtraInfo = isSampleSent && laboratories.Count > 0 ? laboratories : null
         });
 
-        // Get creator name for fallback (used in New and Pending steps if no specific data)
+        // Get creator name for fallback (used in New step if no specific data)
         var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
 
-        // Step 7: Chờ xử lý (Pending)
-        var isPending = currentStatus >= TestRequestStatus.Pending;
+        // Step 7: Đã thanh toán (Paid)
+        var isPaid = currentStatus >= TestRequestStatus.Paid;
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Chờ xử lý",
-            Status = isPending
-                ? (currentStatus == TestRequestStatus.Pending ? "current" : "completed")
+            Title = "Đã thanh toán",
+            Status = isPaid
+                ? (currentStatus == TestRequestStatus.Paid ? "current" : "completed")
                 : "pending",
-            // Fallback to CreationTime if PendingDate is null (old data)
-            Date = testRequest.PendingDate ?? (isPending ? testRequest.CreationTime : null),
-            UserId = testRequest.PendingByUserId ?? (isPending ? testRequest.CreatorId : null),
-            // Fallback to creatorName if PendingByUserName is null (old data)
-            UserName = testRequest.PendingByUserName ?? (isPending ? creatorName : null)
+            Date = testRequest.PaymentReceived ? testRequest.PendingDate : null, // PendingDate used for payment confirmation
+            UserId = testRequest.PaymentReceived ? testRequest.PendingByUserId : null,
+            UserName = testRequest.PaymentReceived ? testRequest.PendingByUserName : null
         });
 
-        // Step 8: Mới (New) - luôn completed vì đây là bước đầu
+        // Step 8: Chờ thanh toán (PendingPayment)
+        var isPendingPayment = currentStatus >= TestRequestStatus.PendingPayment;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = "Chờ thanh toán",
+            Status = isPendingPayment
+                ? (currentStatus == TestRequestStatus.PendingPayment ? "current" : "completed")
+                : "pending",
+            Date = testRequest.SentToAccounting ? testRequest.CreationTime : null, // Use creation time as approximate
+            UserId = testRequest.SentToAccounting ? testRequest.CreatorId : null,
+            UserName = testRequest.SentToAccounting ? creatorName : null
+        });
+
+        // Step 9: Mới (New) - luôn completed vì đây là bước đầu
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Mới",
@@ -2798,19 +2796,19 @@ public partial class TestRequestAppService :
         }
 
         // Query TestRequest do SampleReceiver hiện tại tạo (CreatorId = currentUserId)
-        // với status = Pending hoặc ResultSent
+        // với status = Paid (cần gửi mẫu) hoặc ResultSent (cần trả kết quả)
         var query = await Repository.GetQueryableAsync();
         var testRequests = await AsyncExecuter.ToListAsync(
             query.Where(x =>
                 x.CreatorId == currentUserId.Value &&
-                (x.Status == TestRequestStatus.Pending || x.Status == TestRequestStatus.ResultSent))
+                (x.Status == TestRequestStatus.Paid || x.Status == TestRequestStatus.ResultSent))
         );
 
         return testRequests.Select(tr => new SampleReceiverPendingTaskDto
         {
             Id = tr.Id,
             ContractNumber = tr.ContractNumber ?? tr.RequestNumber,
-            TaskName = tr.Status == TestRequestStatus.Pending
+            TaskName = tr.Status == TestRequestStatus.Paid
                 ? "Cần chuyển mẫu thử nghiệm"
                 : "Cần trả kết quả cho khách hàng",
             PendingDate = tr.PendingDate,
@@ -2978,6 +2976,69 @@ public partial class TestRequestAppService :
         {
             FileName = result.FileName
         };
+    }
+
+    #endregion
+
+    #region Payment Flow Methods
+
+    /// <summary>
+    /// Gửi kế toán - Tạo Receipt tự động và chuyển status sang PendingPayment
+    /// </summary>
+    public async Task<Guid> SendToAccountingAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.New)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kế toán khi trạng thái là 'Mới'", "status");
+        }
+
+        // Check if Receipt already exists (shouldn't happen, but safety check)
+        var existingReceipt = await _receiptRepository.FirstOrDefaultAsync(r => r.TestRequestId == id);
+        if (existingReceipt != null)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Phiếu thu đã tồn tại cho phiếu yêu cầu này", "receipt");
+        }
+
+        // Create Receipt with PendingPayment status
+        var receipt = new Receipt(GuidGenerator.Create(), id);
+        await _receiptRepository.InsertAsync(receipt);
+
+        // Update TestRequest status to PendingPayment
+        entity.Status = TestRequestStatus.PendingPayment;
+        entity.SentToAccounting = true;
+        await Repository.UpdateAsync(entity);
+
+        // TODO: Send notification to Accounting department
+
+        return receipt.Id;
+    }
+
+    /// <summary>
+    /// Hủy yêu cầu - Chỉ cho phép khi status = New hoặc PendingPayment
+    /// </summary>
+    public async Task CancelRequestAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        // Chỉ cho phép hủy khi đang ở trạng thái New hoặc PendingPayment
+        if (entity.Status != TestRequestStatus.New && entity.Status != TestRequestStatus.PendingPayment)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể hủy yêu cầu khi trạng thái là 'Mới' hoặc 'Chờ thanh toán'", "status");
+        }
+
+        // Cancel associated Receipt nếu có (cả khi New đã gửi kế toán hoặc PendingPayment)
+        var receipt = await _receiptRepository.FirstOrDefaultAsync(r => r.TestRequestId == id);
+        if (receipt != null && receipt.Status != ReceiptStatus.Paid)
+        {
+            receipt.Cancel("Hủy bởi BP Giao nhận");
+            await _receiptRepository.UpdateAsync(receipt);
+        }
+
+        // Update TestRequest status to Cancelled
+        entity.Status = TestRequestStatus.Cancelled;
+        await Repository.UpdateAsync(entity);
     }
 
     #endregion

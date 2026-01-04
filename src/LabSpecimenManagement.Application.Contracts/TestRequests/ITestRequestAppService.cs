@@ -119,4 +119,14 @@ public interface ITestRequestAppService :
     /// In kết quả hỗn hợp (nhiều chỉ tiêu)
     /// </summary>
     Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+
+    /// <summary>
+    /// Gửi kế toán - Tạo Receipt tự động và cập nhật SentToAccounting = true
+    /// </summary>
+    Task<Guid> SendToAccountingAsync(Guid id);
+
+    /// <summary>
+    /// Hủy yêu cầu khi đang chờ thanh toán
+    /// </summary>
+    Task CancelRequestAsync(Guid id);
 }

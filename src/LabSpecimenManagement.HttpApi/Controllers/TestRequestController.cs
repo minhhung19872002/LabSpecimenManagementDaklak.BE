@@ -214,4 +214,24 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.PrintMixedResultAsync(id, input.IndicatorIds, input.Note, input.TemplateName);
     }
+
+    /// <summary>
+    /// Gửi kế toán - Tạo Receipt tự động
+    /// </summary>
+    [HttpPost("{id}/send-to-accounting")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<Guid> SendToAccountingAsync(Guid id)
+    {
+        return _testRequestAppService.SendToAccountingAsync(id);
+    }
+
+    /// <summary>
+    /// Hủy yêu cầu khi đang chờ thanh toán
+    /// </summary>
+    [HttpPost("{id}/cancel-request")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task CancelRequestAsync(Guid id)
+    {
+        return _testRequestAppService.CancelRequestAsync(id);
+    }
 }

@@ -173,6 +173,12 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
 
         receipt.MarkAsPaid();
         await _receiptRepository.UpdateAsync(receipt);
+
+        // Cập nhật TestRequest: PaymentReceived = true và Status = Paid
+        var testRequest = await _testRequestRepository.GetAsync(receipt.TestRequestId);
+        testRequest.PaymentReceived = true;
+        testRequest.Status = TestRequestStatus.Paid;
+        await _testRequestRepository.UpdateAsync(testRequest);
     }
 
     /// <summary>
