@@ -133,9 +133,11 @@ jobs:
             echo "Waiting for Gotenberg to be ready..."
             sleep 15
 
-            echo "Skipping database migrations (handled manually)..."
-            echo "Note: Database schema updates should be applied manually or via separate migration script"
-            echo "The backend will connect to the existing database schema"
+            echo "Running database migrations..."
+            docker-compose up -d db-migrator
+            sleep 30
+            echo "Database migration logs:"
+            docker-compose logs db-migrator
 
             echo "Rebuilding and starting backend..."
             docker-compose build --no-cache backend
