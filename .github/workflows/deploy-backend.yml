@@ -124,8 +124,16 @@ jobs:
             EOF
 
             echo "Stopping old containers..."
-            docker-compose stop backend gotenberg db-migrator || true
-            docker-compose rm -f backend gotenberg db-migrator || true
+            docker-compose stop backend gotenberg db-migrator postgres || true
+            docker-compose rm -f backend gotenberg db-migrator postgres || true
+
+            echo "Removing PostgreSQL data volume to recreate database..."
+            docker volume rm lab-specimen-management_postgres_data || true
+
+            echo "Starting PostgreSQL..."
+            docker-compose up -d postgres
+            echo "Waiting for PostgreSQL to be healthy..."
+            sleep 20
 
             echo "Starting Gotenberg (PDF service) - using official image..."
             docker-compose up -d gotenberg
@@ -133,11 +141,10 @@ jobs:
             echo "Waiting for Gotenberg to be ready..."
             sleep 15
 
-            echo "Running database migrations..."
-            docker-compose up -d db-migrator
-            sleep 30
-            echo "Database migration logs:"
-            docker-compose logs db-migrator
+            echo "Building and running database migrations..."
+            docker-compose build db-migrator
+            docker-compose run --rm db-migrator
+            echo "Database migrations completed."
 
             echo "Rebuilding and starting backend..."
             docker-compose build --no-cache backend
