@@ -155,7 +155,8 @@ public class OrphanedFileCleanupJob : ITransientDependency
 
         _logger.LogInformation("Scanning folder: {FolderPath}", folderPath);
 
-        var files = Directory.GetFiles(folderPath);
+        // Scan recursive để tìm files trong subfolders (testing-images, indicator-images lưu theo taskId/indicatorId)
+        var files = Directory.GetFiles(folderPath, "*.*", SearchOption.AllDirectories);
         var processedCount = 0;
 
         foreach (var filePath in files)
