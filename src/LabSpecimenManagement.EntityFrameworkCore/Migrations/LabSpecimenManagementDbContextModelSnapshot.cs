@@ -2906,6 +2906,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("ProvinceCode")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("QuotationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ReceiptNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

@@ -8,6 +8,15 @@ namespace LabSpecimenManagement.TestRequests;
 
 public class TestRequestDto : FullAuditedEntityDto<Guid>
 {
+    #region Liên kết báo giá
+
+    /// <summary>
+    /// Mã báo giá (nếu tạo từ báo giá)
+    /// </summary>
+    public Guid? QuotationId { get; set; }
+
+    #endregion
+
     #region Thông tin hợp đồng
 
     public string? ContractNumber { get; set; }

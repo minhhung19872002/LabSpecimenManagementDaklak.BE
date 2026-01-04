@@ -407,6 +407,9 @@ public partial class TestRequestAppService :
             createInput.CustomerName
         );
 
+        // Quotation reference (when created from quotation)
+        entity.QuotationId = createInput.QuotationId;
+
         // Contract info
         entity.ContractNumber = createInput.ContractNumber;
         entity.ContractDate = createInput.ContractDate;

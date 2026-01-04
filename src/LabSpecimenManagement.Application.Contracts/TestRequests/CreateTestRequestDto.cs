@@ -7,6 +7,15 @@ namespace LabSpecimenManagement.TestRequests;
 
 public class CreateTestRequestDto
 {
+    #region Liên kết báo giá
+
+    /// <summary>
+    /// Mã báo giá (nếu tạo từ báo giá)
+    /// </summary>
+    public Guid? QuotationId { get; set; }
+
+    #endregion
+
     #region Thông tin hợp đồng
 
     [StringLength(100)]
