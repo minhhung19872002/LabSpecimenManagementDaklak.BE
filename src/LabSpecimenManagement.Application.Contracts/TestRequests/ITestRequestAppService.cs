@@ -129,4 +129,9 @@ public interface ITestRequestAppService :
     /// Hủy yêu cầu khi đang chờ thanh toán
     /// </summary>
     Task CancelRequestAsync(Guid id);
+
+    /// <summary>
+    /// Sinh số hợp đồng tự động với format HDYYYYMMDD###
+    /// </summary>
+    Task<string> GenerateContractNumberAsync();
 }

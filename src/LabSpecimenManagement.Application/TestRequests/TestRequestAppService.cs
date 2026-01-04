@@ -464,13 +464,24 @@ public partial class TestRequestAppService :
 
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
-        // Validate contract number is unique
+        // Handle contract number - auto-regenerate if conflict with auto-generated format
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
         {
             var contractExists = await CheckContractNumberExistsAsync(input.ContractNumber);
             if (contractExists)
             {
-                throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+                // Check if it's an auto-generated contract number (format: HDYYYYMMDD###)
+                var todayPrefix = $"HD{DateTime.Now:yyyyMMdd}";
+                if (input.ContractNumber.StartsWith(todayPrefix))
+                {
+                    // Auto-regenerate a new contract number
+                    input.ContractNumber = await GenerateContractNumberAsync();
+                }
+                else
+                {
+                    // User manually entered a duplicate number - throw error
+                    throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+                }
             }
         }
 
@@ -926,6 +937,49 @@ public partial class TestRequestAppService :
         var prefix = _codeGenerator.GetTodayPrefix("REQ");
         var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
         return _codeGenerator.GenerateCodeWithDate("REQ", count);
+    }
+
+    /// <summary>
+    /// Generate next contract number with format HDYYYYMMDD###
+    /// Finds the smallest available number (fills gaps if any)
+    /// </summary>
+    public async Task<string> GenerateContractNumberAsync()
+    {
+        var today = DateTime.Now;
+        var dateStr = today.ToString("yyyyMMdd");
+        var prefix = $"HD{dateStr}";
+
+        // Get all existing contract numbers with today's prefix
+        var query = await Repository.GetQueryableAsync();
+        var existingNumbers = await AsyncExecuter.ToListAsync(
+            query.Where(x => x.ContractNumber != null && x.ContractNumber.StartsWith(prefix))
+                 .Select(x => x.ContractNumber));
+
+        // Parse all sequence numbers into a HashSet for O(1) lookup
+        var usedNumbers = new HashSet<int>();
+        foreach (var contractNumber in existingNumbers)
+        {
+            if (contractNumber != null && contractNumber.Length > prefix.Length)
+            {
+                var sequenceStr = contractNumber.Substring(prefix.Length);
+                if (int.TryParse(sequenceStr, out int num) && num >= 1 && num <= 999)
+                {
+                    usedNumbers.Add(num);
+                }
+            }
+        }
+
+        // Find the smallest available number from 1 to 999
+        for (int i = 1; i <= 999; i++)
+        {
+            if (!usedNumbers.Contains(i))
+            {
+                return $"{prefix}{i:D3}";
+            }
+        }
+
+        // All 999 numbers are used - throw error
+        throw new UserFriendlyException("Đã đạt giới hạn 999 hợp đồng trong ngày. Không thể tạo thêm số hợp đồng mới.");
     }
 
     /// <summary>

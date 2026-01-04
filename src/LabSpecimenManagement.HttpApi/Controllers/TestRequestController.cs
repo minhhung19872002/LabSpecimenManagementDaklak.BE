@@ -58,6 +58,15 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Generate next contract number with format HDYYYYMMDD###
+    /// </summary>
+    [HttpGet("generate-contract-number")]
+    public Task<string> GenerateContractNumberAsync()
+    {
+        return _testRequestAppService.GenerateContractNumberAsync();
+    }
+
+    /// <summary>
     /// Print test request form - update status from New to Pending
     /// </summary>
     [HttpPost("{id}/print")]
