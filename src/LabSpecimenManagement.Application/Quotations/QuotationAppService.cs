@@ -44,7 +44,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
             var filter = input.Filter.ToLower();
             query = query.Where(x =>
                 x.QuotationNumber.ToLower().Contains(filter) ||
-                x.CustomerName.ToLower().Contains(filter));
+                (x.CustomerName != null && x.CustomerName.ToLower().Contains(filter)));
         }
 
         if (input.Status.HasValue)

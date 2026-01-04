@@ -13,9 +13,8 @@ public class CreateUpdateQuotationDto
 
     public Guid? OrganizationId { get; set; }
 
-    [Required]
     [StringLength(256)]
-    public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerName { get; set; }
 
     [StringLength(10)]
     public string? ProvinceCode { get; set; }

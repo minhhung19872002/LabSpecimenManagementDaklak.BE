@@ -28,7 +28,7 @@ public class Quotation : FullAuditedAggregateRoot<Guid>
     /// <summary>
     /// Tên khách hàng
     /// </summary>
-    public string CustomerName { get; set; } = string.Empty;
+    public string? CustomerName { get; set; }
 
     /// <summary>
     /// Mã tỉnh thành
@@ -95,7 +95,7 @@ public class Quotation : FullAuditedAggregateRoot<Guid>
         Items = new List<QuotationItem>();
     }
 
-    public Quotation(Guid id, string quotationNumber, DateTime quotationDate, string customerName) : base(id)
+    public Quotation(Guid id, string quotationNumber, DateTime quotationDate, string? customerName = null) : base(id)
     {
         QuotationNumber = quotationNumber;
         QuotationDate = quotationDate;
