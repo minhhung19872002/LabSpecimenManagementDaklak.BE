@@ -158,7 +158,7 @@ public class LabSpecimenManagementTestDataSeedContributor : IDataSeedContributor
             "Công ty CP XYZ"
         );
         testRequest2.Phone = "0902345678";
-        testRequest2.Status = TestRequestStatus.Pending;
+        testRequest2.Status = TestRequestStatus.Paid;
         testRequest2.Notes = "Yêu cầu thử nghiệm mẫu đất";
         await _testRequestRepository.InsertAsync(testRequest2);
 
