@@ -434,5 +434,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Orphaned File Cleanup: Dọn dẹp file rác không được tham chiếu trong DB
+        // File >= 2 ngày tuổi và không có reference trong DB sẽ bị xóa
+        // CRON: "0 2 * * *" = At 02:00 every day
+        RecurringJob.AddOrUpdate<OrphanedFileCleanupJob>(
+            "orphaned-file-cleanup-job",
+            job => job.ExecuteAsync(),
+            "0 2 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }
