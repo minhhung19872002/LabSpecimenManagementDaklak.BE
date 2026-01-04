@@ -24,6 +24,7 @@ using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
+using LabSpecimenManagement.Receipts;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -97,6 +98,9 @@ public class LabSpecimenManagementDbContext :
     // Quotation Entities
     public DbSet<Quotation> Quotations { get; set; }
     public DbSet<QuotationItem> QuotationItems { get; set; }
+
+    // Receipt Entities
+    public DbSet<Receipt> Receipts { get; set; }
 
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
@@ -964,6 +968,29 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestMethodId)
                 .IsRequired();
+        });
+
+        // ============ RECEIPT CONFIGURATION ============
+
+        builder.Entity<Receipt>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Receipts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ReceiptNumber).HasMaxLength(50);
+            b.Property(x => x.VoucherCode).HasMaxLength(50);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.TestRequestId).IsUnique();
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.ReceiptNumber);
+            b.HasIndex(x => x.VoucherCode);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Restrict);
         });
     }
 }

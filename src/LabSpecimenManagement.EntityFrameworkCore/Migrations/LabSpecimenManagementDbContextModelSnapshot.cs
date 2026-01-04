@@ -1869,6 +1869,88 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppQuotationItems", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("PaidDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ReceiptNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VoucherCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceiptNumber");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TestRequestId")
+                        .IsUnique();
+
+                    b.HasIndex("VoucherCode");
+
+                    b.ToTable("AppReceipts", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Reports.Report", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5203,6 +5285,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("Quotation");
 
                     b.Navigation("TestMethod");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("TestRequest");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Reports.ReportTestResult", b =>
