@@ -115,14 +115,16 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
     {
         // Assert enum values match expected
         ((int)TestRequestStatus.New).ShouldBe(0);
-        ((int)TestRequestStatus.Pending).ShouldBe(1);
-        ((int)TestRequestStatus.SampleSent).ShouldBe(2);
-        ((int)TestRequestStatus.InProgress).ShouldBe(3);
-        ((int)TestRequestStatus.PendingChangeApproval).ShouldBe(4);
-        ((int)TestRequestStatus.PendingApproval).ShouldBe(5);
-        ((int)TestRequestStatus.Approved).ShouldBe(6);
-        ((int)TestRequestStatus.ResultSent).ShouldBe(7);
-        ((int)TestRequestStatus.Completed).ShouldBe(8);
+        ((int)TestRequestStatus.PendingPayment).ShouldBe(1);
+        ((int)TestRequestStatus.Paid).ShouldBe(2);
+        ((int)TestRequestStatus.SampleSent).ShouldBe(3);
+        ((int)TestRequestStatus.InProgress).ShouldBe(4);
+        ((int)TestRequestStatus.PendingChangeApproval).ShouldBe(5);
+        ((int)TestRequestStatus.PendingApproval).ShouldBe(6);
+        ((int)TestRequestStatus.Approved).ShouldBe(7);
+        ((int)TestRequestStatus.ResultSent).ShouldBe(8);
+        ((int)TestRequestStatus.Completed).ShouldBe(9);
+        ((int)TestRequestStatus.Cancelled).ShouldBe(10);
     }
 
     /// <summary>
