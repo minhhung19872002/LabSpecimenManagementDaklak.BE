@@ -124,6 +124,26 @@ public interface INotificationCreator
         Guid testRequestId,
         DateTime approvedDate);
 
+    /// <summary>
+    /// QLCL: Phiếu yêu cầu có thay đổi cần phê duyệt
+    /// </summary>
+    Task NotifyTestRequestChangePendingApprovalAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId);
+
+    #endregion
+
+    #region Notifications for QLKT - CC (Thông báo CC cho QLKT)
+
+    /// <summary>
+    /// CC QLKT: Phiếu yêu cầu đang có điều chỉnh
+    /// </summary>
+    Task NotifyTestRequestChangeRequestedAsync(
+        Guid technicalManagerId,
+        string contractNumber,
+        Guid testRequestId);
+
     #endregion
 
     #region Notifications for SampleReceiver (Bộ phận Giao nhận mẫu)
@@ -160,6 +180,18 @@ public interface INotificationCreator
         Guid creatorId,
         string contractNumber,
         Guid testRequestId);
+
+    /// <summary>
+    /// CC SampleReceiver: QLCL đã phê duyệt kết quả chỉ tiêu
+    /// </summary>
+    Task NotifyResultApprovedToSampleReceiverAsync(
+        Guid sampleReceiverId,
+        string contractNumber,
+        Guid testRequestId,
+        string qualityManagerName,
+        string? sampleName = null,
+        string? indicatorName = null,
+        string? methodName = null);
 
     #endregion
 

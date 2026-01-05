@@ -78,6 +78,20 @@ public enum NotificationType
 
     #endregion
 
+    /// <summary>
+    /// Phiếu yêu cầu có thay đổi cần phê duyệt (CC cho QLKT)
+    /// </summary>
+    TestRequestChangeRequested = 9,
+
+    #region Notification Types for QLCL (QualityManager) - ChangeApproval
+
+    /// <summary>
+    /// Phiếu yêu cầu có thay đổi cần QLCL phê duyệt
+    /// </summary>
+    TestRequestChangePendingApproval = 14,
+
+    #endregion
+
     #region Notification Types for SampleReceiver (Bộ phận Giao nhận mẫu)
 
     /// <summary>
@@ -99,6 +113,11 @@ public enum NotificationType
     /// Nhắc nhở trả mẫu cho khách hàng (Status = ResultSent)
     /// </summary>
     SampleReturnReminder = 23,
+
+    /// <summary>
+    /// CC: QLCL đã phê duyệt kết quả chỉ tiêu (gửi cho SampleReceiver)
+    /// </summary>
+    ResultApprovedNotification = 24,
 
     #endregion
 

@@ -216,18 +216,31 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         // Notify QLKT about result approved (Case 7)
         var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+        var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+        var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+        var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+        var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+        var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
         if (labTask.TechnicalManagerId.HasValue)
         {
-            var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
-            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
-            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
-            var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
-            var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
-
-            var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
-
             await _notificationCreator.NotifyResultApprovedByQualityManagerAsync(
                 labTask.TechnicalManagerId.Value,
+                testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                labTask.TestRequestId,
+                qualityManagerName,
+                sample?.SampleName,
+                masterIndicator?.Name,
+                method?.Name
+            );
+        }
+
+        // CC: Notify SampleReceiver (test request creator)
+        if (testRequest.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifyResultApprovedToSampleReceiverAsync(
+                testRequest.CreatorId.Value,
                 testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
                 labTask.TestRequestId,
                 qualityManagerName,
@@ -369,18 +382,31 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 // Notify QLKT about result approved (Case 7)
                 var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
                 var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
+                var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
+                var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+                var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
+                var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
+
                 if (labTask.TechnicalManagerId.HasValue)
                 {
-                    var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
-                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
-                    var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
-                    var masterIndicator = sampleIndicator != null ? await _masterIndicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
-                    var method = labIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(labIndicator.MethodId.Value) : null;
-
-                    var qualityManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý chất lượng";
-
                     await _notificationCreator.NotifyResultApprovedByQualityManagerAsync(
                         labTask.TechnicalManagerId.Value,
+                        testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
+                        labTask.TestRequestId,
+                        qualityManagerName,
+                        sample?.SampleName,
+                        masterIndicator?.Name,
+                        method?.Name
+                    );
+                }
+
+                // CC: Notify SampleReceiver (test request creator)
+                if (testRequest.CreatorId.HasValue)
+                {
+                    await _notificationCreator.NotifyResultApprovedToSampleReceiverAsync(
+                        testRequest.CreatorId.Value,
                         testRequest.ContractNumber ?? labTask.ContractNumber ?? "",
                         labTask.TestRequestId,
                         qualityManagerName,
@@ -971,6 +997,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 testRequest.ContractNumber ?? "",
                 testRequest.Id);
         }
+
+        // CC: Notify all technical managers (QLKT) cho các khoa phòng được gán ở phiếu yêu cầu
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
+        var technicalManagerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        foreach (var managerId in technicalManagerIds)
+        {
+            await _notificationCreator.NotifyChangeApprovedAsync(
+                managerId,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
     }
 
     public async Task RejectChangesAsync(Guid taskId, string reason)
@@ -1000,6 +1042,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             await _notificationCreator.NotifyChangeRejectedAsync(
                 testRequest.CreatorId.Value,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
+
+        // CC: Notify all technical managers (QLKT) cho các khoa phòng được gán ở phiếu yêu cầu
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
+        var technicalManagerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        foreach (var managerId in technicalManagerIds)
+        {
+            await _notificationCreator.NotifyChangeRejectedAsync(
+                managerId,
                 testRequest.ContractNumber ?? "",
                 testRequest.Id);
         }

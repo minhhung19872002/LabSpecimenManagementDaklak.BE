@@ -2512,6 +2512,48 @@ public partial class TestRequestAppService :
 
             await _qualityTaskRepository.InsertAsync(task);
         }
+
+        // Send notifications to QLKT (CC) - notify all technical managers
+        var technicalManagerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        foreach (var managerId in technicalManagerIds)
+        {
+            await _notificationCreator.NotifyTestRequestChangeRequestedAsync(
+                managerId,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
+
+        // Send notification to QLCL - get all quality managers who have tasks for this test request
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == testRequest.Id && t.AssignedQualityManagerId.HasValue);
+
+        var qualityManagerIds = qualityTasks
+            .Select(t => t.AssignedQualityManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        foreach (var qmId in qualityManagerIds)
+        {
+            await _notificationCreator.NotifyTestRequestChangePendingApprovalAsync(
+                qmId,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
+
+        // Send notification to BP Giao nhận (SampleReceiver) - test request creator
+        // Chỉ gửi nếu creator khác với người đang chỉnh sửa (current user)
+        if (testRequest.CreatorId.HasValue && testRequest.CreatorId.Value != CurrentUser.Id)
+        {
+            await _notificationCreator.NotifyTestRequestChangeRequestedAsync(
+                testRequest.CreatorId.Value,
+                testRequest.ContractNumber ?? "",
+                testRequest.Id);
+        }
     }
 
     /// <summary>
