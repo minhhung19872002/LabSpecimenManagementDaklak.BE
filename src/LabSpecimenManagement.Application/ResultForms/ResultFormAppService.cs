@@ -2479,6 +2479,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of all selected indicators
         var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
 
+        // Merge notes from QLKT (lab) and QLCL (quality) for multiple indicators
+        var mergedNote = await GetMergedNotesForMultipleIndicatorsAsync(sampleIndicatorIds, input.Note);
+
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var now = DateTime.Now;
@@ -2496,7 +2499,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" },
+            { "{{Note}}", mergedNote },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
             { "{{Date}}", now.Day.ToString() },
@@ -2955,6 +2958,90 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // 3. Merge: Nối đuôi nhưng tách biệt 2 đoạn ra
+        return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    /// <summary>
+    /// Merge ghi chú từ nhiều chỉ tiêu (QLKT) với ghi chú từ QLCL cho In KQ Hỗn Hợp
+    /// Logic:
+    /// - Gộp tất cả NoteContent từ các chỉ tiêu (mỗi note 1 dòng với dấu -)
+    /// - Gộp tất cả Master Note Items và loại bỏ trùng lặp
+    /// - Thêm ghi chú từ QLCL ở cuối
+    /// Format: QLKT note contents + Master notes + QLCL note
+    /// </summary>
+    private async Task<string> GetMergedNotesForMultipleIndicatorsAsync(List<Guid> testRequestSampleIndicatorIds, string? qualityNote)
+    {
+        var parts = new List<string>();
+
+        // 1. Lấy tất cả ghi chú từ QLKT (SampleIndicatorNote)
+        var sampleIndicatorNotes = await _sampleIndicatorNoteRepository.GetListAsync(
+            x => testRequestSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId)
+        );
+
+        if (sampleIndicatorNotes.Any())
+        {
+            var allNoteContents = new HashSet<string>(); // Use HashSet to avoid duplicates
+            var allMasterNoteIds = new HashSet<Guid>(); // Use HashSet to avoid duplicates
+
+            // Collect all note contents and master note IDs
+            foreach (var note in sampleIndicatorNotes)
+            {
+                // Add NoteContent if exists (HashSet automatically handles duplicates)
+                if (!string.IsNullOrWhiteSpace(note.NoteContent))
+                {
+                    allNoteContents.Add(note.NoteContent.Trim());
+                }
+
+                // Collect master note IDs
+                if (!string.IsNullOrWhiteSpace(note.SelectedNoteIds))
+                {
+                    try
+                    {
+                        var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(note.SelectedNoteIds);
+                        if (noteIds != null && noteIds.Any())
+                        {
+                            foreach (var id in noteIds)
+                            {
+                                allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
+                            }
+                        }
+                    }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", note.Id);
+                    }
+                }
+            }
+
+            // Add all note contents
+            if (allNoteContents.Any())
+            {
+                parts.Add(string.Join("\n", allNoteContents));
+            }
+
+            // Fetch and add master notes (distinct)
+            if (allMasterNoteIds.Any())
+            {
+                var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
+                var masterNoteLines = masterNotes
+                    .OrderBy(x => x.SortOrder)
+                    .Select(x => x.Content)
+                    .ToList();
+
+                if (masterNoteLines.Any())
+                {
+                    parts.Add(string.Join("\n", masterNoteLines));
+                }
+            }
+        }
+
+        // 2. Add ghi chú từ QLCL
+        if (!string.IsNullOrWhiteSpace(qualityNote))
+        {
+            parts.Add(qualityNote.Trim());
+        }
+
+        // 3. Merge: Nối đuôi nhưng tách biệt các đoạn ra
         return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
     }
 

@@ -1512,23 +1512,43 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi", "indicator");
         }
 
-        // Mark selected indicators as sent to quality and save notes
+        // Mark selected indicators as sent to quality and save/update notes
         foreach (var indicator in selectedIndicators)
         {
             indicator.IsSentToQuality = true;
 
-            // Save SampleIndicatorNote for each indicator
-            var sampleIndicatorNote = new SampleIndicatorNote(
-                GuidGenerator.Create(),
-                indicator.TestRequestSampleIndicatorId,
-                input.NoteContent,
-                input.SelectedNoteIds != null && input.SelectedNoteIds.Any()
-                    ? System.Text.Json.JsonSerializer.Serialize(input.SelectedNoteIds)
-                    : null,
-                Clock.Now,
-                CurrentUser.Id.Value
+            // Check if note already exists for this TestRequestSampleIndicatorId
+            var existingNote = await _sampleIndicatorNoteRepository.FirstOrDefaultAsync(
+                x => x.TestRequestSampleIndicatorId == indicator.TestRequestSampleIndicatorId
             );
-            await _sampleIndicatorNoteRepository.InsertAsync(sampleIndicatorNote);
+
+            if (existingNote != null)
+            {
+                // Update existing note
+                existingNote.NoteContent = input.NoteContent;
+                existingNote.SelectedNoteIds = input.SelectedNoteIds != null && input.SelectedNoteIds.Any()
+                    ? System.Text.Json.JsonSerializer.Serialize(input.SelectedNoteIds)
+                    : null;
+                existingNote.CreatedDate = Clock.Now;
+                existingNote.CreatedBy = CurrentUser.Id.Value;
+
+                await _sampleIndicatorNoteRepository.UpdateAsync(existingNote);
+            }
+            else
+            {
+                // Create new note
+                var sampleIndicatorNote = new SampleIndicatorNote(
+                    GuidGenerator.Create(),
+                    indicator.TestRequestSampleIndicatorId,
+                    input.NoteContent,
+                    input.SelectedNoteIds != null && input.SelectedNoteIds.Any()
+                        ? System.Text.Json.JsonSerializer.Serialize(input.SelectedNoteIds)
+                        : null,
+                    Clock.Now,
+                    CurrentUser.Id.Value
+                );
+                await _sampleIndicatorNoteRepository.InsertAsync(sampleIndicatorNote);
+            }
         }
         await _laboratoryTaskIndicatorRepository.UpdateManyAsync(selectedIndicators);
 
