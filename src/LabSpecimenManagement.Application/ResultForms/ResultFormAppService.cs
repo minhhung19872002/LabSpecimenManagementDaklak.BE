@@ -366,6 +366,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                             SetNoteFontSize(text, 11);
+                            NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
 
                             // Handle newlines in Note placeholder
                             if (placeholder.Value.Contains("\n"))
@@ -444,6 +445,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Set new font size (11pt = 22 half-points)
         runProps.Append(new FontSize { Val = halfPoints });
         runProps.Append(new FontSizeComplexScript { Val = halfPoints });
+    }
+
+    /// <summary>
+    /// Normalize paragraph indentation - convert first line indent to left indent
+    /// This ensures all lines in Note are indented uniformly (not just the first line)
+    /// </summary>
+    private void NormalizeParagraphIndentation(Text textElement)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null) return;
+
+        var paragraph = parentRun.Ancestors<Paragraph>().FirstOrDefault();
+        if (paragraph == null) return;
+
+        var pPr = paragraph.GetFirstChild<ParagraphProperties>();
+        if (pPr == null)
+        {
+            pPr = new ParagraphProperties();
+            paragraph.InsertAt(pPr, 0);
+        }
+
+        var indentation = pPr.GetFirstChild<Indentation>();
+        if (indentation != null)
+        {
+            // Get first line indent value and convert to left indent for all lines
+            var firstLineValue = indentation.FirstLine?.Value;
+            if (!string.IsNullOrEmpty(firstLineValue))
+            {
+                // Remove first line indent and set left indent instead
+                indentation.FirstLine = null;
+                indentation.Left = new StringValue(firstLineValue);
+            }
+        }
     }
 
     /// <summary>
