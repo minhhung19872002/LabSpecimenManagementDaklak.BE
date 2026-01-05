@@ -2468,6 +2468,35 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTaskAssignments", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("NoteContent")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("SelectedNoteIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TestRequestSampleIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestRequestSampleIndicatorId");
+
+                    b.ToTable("SampleIndicatorNotes");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5415,6 +5444,17 @@ namespace LabSpecimenManagement.Migrations
                         .HasConstraintName("FK_AppSubcontractorCertifications_AppSubcontractors_Subcontra~1");
 
                     b.Navigation("Subcontractor");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSampleIndicator", "TestRequestSampleIndicator")
+                        .WithMany()
+                        .HasForeignKey("TestRequestSampleIndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestRequestSampleIndicator");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>

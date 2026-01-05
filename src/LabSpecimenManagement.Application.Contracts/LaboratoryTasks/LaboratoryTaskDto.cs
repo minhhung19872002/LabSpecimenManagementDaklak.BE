@@ -379,4 +379,14 @@ public class SendToQualityDto
     /// Quality Manager User ID (QLCL user to receive results)
     /// </summary>
     public Guid QualityManagerId { get; set; }
+
+    /// <summary>
+    /// Nội dung ghi chú đã edit (bao gồm ghi chú từ các chỉ tiêu)
+    /// </summary>
+    public string? NoteContent { get; set; }
+
+    /// <summary>
+    /// Danh sách Note IDs từ Master Data
+    /// </summary>
+    public List<Guid>? SelectedNoteIds { get; set; }
 }

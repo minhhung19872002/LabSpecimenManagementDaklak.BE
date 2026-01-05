@@ -46,6 +46,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<Standard, Guid> _standardRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
+    private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -69,7 +70,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         INotificationCreator notificationCreator,
         IRepository<Standard, Guid> standardRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
-        IRepository<IndicatorImage, Guid> indicatorImageRepository)
+        IRepository<IndicatorImage, Guid> indicatorImageRepository,
+        IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -93,6 +95,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
         _indicatorImageRepository = indicatorImageRepository;
+        _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -1509,10 +1512,23 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new Common.Exceptions.InvalidOperationException("Tất cả chỉ tiêu được chọn phải được duyệt trước khi gửi", "indicator");
         }
 
-        // Mark selected indicators as sent to quality
+        // Mark selected indicators as sent to quality and save notes
         foreach (var indicator in selectedIndicators)
         {
             indicator.IsSentToQuality = true;
+
+            // Save SampleIndicatorNote for each indicator
+            var sampleIndicatorNote = new SampleIndicatorNote(
+                GuidGenerator.Create(),
+                indicator.TestRequestSampleIndicatorId,
+                input.NoteContent,
+                input.SelectedNoteIds != null && input.SelectedNoteIds.Any()
+                    ? System.Text.Json.JsonSerializer.Serialize(input.SelectedNoteIds)
+                    : null,
+                Clock.Now,
+                CurrentUser.Id.Value
+            );
+            await _sampleIndicatorNoteRepository.InsertAsync(sampleIndicatorNote);
         }
         await _laboratoryTaskIndicatorRepository.UpdateManyAsync(selectedIndicators);
 

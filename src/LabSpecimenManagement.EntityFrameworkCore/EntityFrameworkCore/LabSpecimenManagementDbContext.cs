@@ -44,6 +44,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TestRequestSample> TestRequestSamples { get; set; }
     public DbSet<TestRequestSampleAttachment> TestRequestSampleAttachments { get; set; }
     public DbSet<TestRequestSampleIndicator> TestRequestSampleIndicators { get; set; }
+    public DbSet<SampleIndicatorNote> SampleIndicatorNotes { get; set; }
     public DbSet<Specimen> Specimens { get; set; }
     public DbSet<SpecimenHistory> SpecimenHistories { get; set; }
     public DbSet<Test> Tests { get; set; }

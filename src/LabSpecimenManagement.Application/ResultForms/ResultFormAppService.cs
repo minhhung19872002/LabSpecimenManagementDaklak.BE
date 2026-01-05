@@ -36,6 +36,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
+    private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
+    private readonly IRepository<MasterData.Note, Guid> _noteRepository;
     private readonly IWebHostEnvironment _environment;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
@@ -55,6 +57,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
+        IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
+        IRepository<MasterData.Note, Guid> noteRepository,
         IWebHostEnvironment environment,
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
@@ -70,6 +74,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _testMethodRepository = testMethodRepository;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
+        _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
+        _noteRepository = noteRepository;
         _environment = environment;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
@@ -360,6 +366,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                             SetNoteFontSize(text, 11);
+
+                            // Handle newlines in Note placeholder
+                            if (placeholder.Value.Contains("\n"))
+                            {
+                                ReplaceTextWithLineBreaks(text, placeholder.Key, placeholder.Value);
+                                continue;
+                            }
                         }
                         // For Address placeholder, remove height constraint to allow long addresses
                         if ((placeholder.Key == "{{Address}}" || placeholder.Key == "{{Adrress}}") && !string.IsNullOrEmpty(placeholder.Value))
@@ -2297,6 +2310,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Calculate TimeOfTesting: TestDate - SubmitDate for single indicator
         var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
 
+        // Merge notes from QLKT (lab) and QLCL (quality)
+        var mergedNote = await GetMergedNoteAsync(labTaskIndicator.TestRequestSampleIndicatorId, input.Note);
+
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var placeholders = new Dictionary<string, string>
@@ -2314,7 +2330,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" },
+            { "{{Note}}", mergedNote },
 
             // Additional placeholders for BM05-QLNN template
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
@@ -2880,6 +2896,66 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         });
 
         return result;
+    }
+
+    /// <summary>
+    /// Merge ghi chú từ QLKT (đã lưu trong SampleIndicatorNote) với ghi chú từ QLCL (input parameter)
+    /// Format: Ghi chú QLKT + newline + Ghi chú QLCL
+    /// </summary>
+    private async Task<string> GetMergedNoteAsync(Guid testRequestSampleIndicatorId, string? qualityNote)
+    {
+        var parts = new List<string>();
+
+        // 1. Lấy ghi chú từ QLKT (SampleIndicatorNote)
+        var sampleIndicatorNote = await _sampleIndicatorNoteRepository.FirstOrDefaultAsync(
+            x => x.TestRequestSampleIndicatorId == testRequestSampleIndicatorId
+        );
+
+        if (sampleIndicatorNote != null)
+        {
+            var labNote = new List<string>();
+
+            // Add NoteContent if exists
+            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.NoteContent))
+            {
+                labNote.Add(sampleIndicatorNote.NoteContent.Trim());
+            }
+
+            // Add master notes if exists
+            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.SelectedNoteIds))
+            {
+                try
+                {
+                    var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(sampleIndicatorNote.SelectedNoteIds);
+                    if (noteIds != null && noteIds.Any())
+                    {
+                        var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
+                        foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
+                        {
+                            labNote.Add($"- {note.Content}");
+                        }
+                    }
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", sampleIndicatorNote.Id);
+                }
+            }
+
+            if (labNote.Any())
+            {
+                parts.Add(string.Join("\n", labNote));
+            }
+        }
+
+        // 2. Add ghi chú từ QLCL
+        if (!string.IsNullOrWhiteSpace(qualityNote))
+        {
+            parts.Add(qualityNote.Trim());
+        }
+
+        // 3. Merge: Nối đuôi nhưng tách biệt 2 đoạn ra
+        return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
     }
 
     #endregion
