@@ -149,14 +149,15 @@ jobs:
             echo "Waiting for Gotenberg to be ready..."
             sleep 15
 
+            echo "Rebuilding db-migrator and backend..."
+            docker-compose build --no-cache db-migrator backend
+
             echo "Running database migrations..."
-            docker-compose up -d db-migrator
-            sleep 30
+            docker-compose up db-migrator
             echo "Database migration logs:"
             docker-compose logs db-migrator
 
-            echo "Rebuilding and starting backend..."
-            docker-compose build --no-cache backend
+            echo "Starting backend..."
             docker-compose up -d backend
 
             echo "Checking db-migrator logs..."
