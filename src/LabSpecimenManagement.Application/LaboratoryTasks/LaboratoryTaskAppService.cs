@@ -112,15 +112,26 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var currentUserId = CurrentUser.Id;
         if (currentUserId.HasValue && !CurrentUser.IsInRole(AppConstants.RoleAdmin))
         {
-            // Get task IDs where current user is a supporter
+            // Get task IDs where current user is a supporter (chỉ cho incomplete tasks)
             var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
-            // Filter: current user is QLKT OR current user is supporter
+            // Lấy danh sách LaboratoryId mà user là QLKT của phòng ban
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            // Check if user is purely a supporter (not QLKT of any lab)
+            var isPureSupporter = managedLaboratoryIds.Count == 0 && supporterTaskIds.Count > 0;
+
+            // Filter: current user is QLKT của phòng ban OR QLKT của task OR supporter
+            // Supporter chỉ thấy task chưa hoàn thành (status != SentToQuality)
             queryable = queryable.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
                 x.TechnicalManagerId == currentUserId.Value ||
-                supporterTaskIds.Contains(x.Id));
+                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality));
         }
 
         // Apply search filter - search by ContractNumber and TechnicalManager name

@@ -36,6 +36,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
+    private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -54,6 +55,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
+        IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -71,6 +73,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _indicatorImageRepository = indicatorImageRepository;
+        _supporterRepository = supporterRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -93,6 +96,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Apply user filter:
         // - Admin: xem tất cả
         // - QLKT: xem được tất cả task của phòng ban họ quản lý (Laboratory.TechnicalManagerId) hoặc task họ được gán làm TechnicalManager
+        // - Người hỗ trợ: xem được task mà họ là supporter
         // - KTV: chỉ xem được task mà họ được assign làm KTV
         var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
         if (currentUserId.HasValue && !isAdmin)
@@ -103,13 +107,21 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 .Select(lab => lab.Id)
                 .ToHashSet();
 
+            // Lấy danh sách TaskId mà user là Supporter
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(
+                s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
             // User có thể xem task nếu:
             // 1. Task thuộc phòng ban mà họ là QLKT (Laboratory.TechnicalManagerId)
             // 2. Họ là TechnicalManager của task cụ thể (LaboratoryTask.TechnicalManagerId)
-            // 3. Họ được assign làm KTV cho ít nhất 1 indicator
+            // 3. Họ là Supporter của task
+            // 4. Họ được assign làm KTV cho ít nhất 1 indicator
             taskQuery = taskQuery.Where(x =>
                 managedLaboratoryIds.Contains(x.Task.LaboratoryId) ||
                 x.Task.TechnicalManagerId == currentUserId.Value ||
+                supporterTaskIds.Contains(x.Task.Id) ||
                 x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
 
@@ -210,8 +222,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         {
             var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(result.IndicatorId);
 
-            // Validate: Only assigned technician or technical manager can edit
-            if (!CanEditIndicator(indicator, task, currentUserId))
+            // Validate: Only assigned technician, technical manager, or supporter can edit
+            if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
             {
                 throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
             }
@@ -256,8 +268,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         {
             var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
 
-            // Validate: Only assigned technician or technical manager can submit
-            if (!CanEditIndicator(indicator, task, currentUserId))
+            // Validate: Only assigned technician, technical manager, or supporter can submit
+            if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
             {
                 throw new ForbiddenAccessException("Bạn không có quyền gửi duyệt chỉ tiêu này");
             }
@@ -379,7 +391,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return TestingStatus.NotStarted;
     }
 
-    private bool CanEditIndicator(LaboratoryTaskIndicator indicator, LaboratoryTask task, Guid? currentUserId)
+    private async Task<bool> CanEditIndicatorAsync(LaboratoryTaskIndicator indicator, LaboratoryTask task, Guid? currentUserId)
     {
         if (!currentUserId.HasValue)
         {
@@ -394,6 +406,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Assigned technician can edit
         if (indicator.TechnicianId == currentUserId.Value)
+        {
+            return true;
+        }
+
+        // Supporter can edit (có quyền giao KTV, duyệt/từ chối, gửi QLCL)
+        var isSupporter = await _supporterRepository.AnyAsync(s =>
+            s.LaboratoryTaskId == task.Id && s.UserId == currentUserId.Value);
+        if (isSupporter)
         {
             return true;
         }
@@ -572,7 +592,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
 
         // Filter indicators based on viewMode
-        // Admin và QLKT: luôn xem tất cả indicators (bỏ qua viewMode = MyAssignments)
+        // Admin, QLKT, và Người hỗ trợ: luôn xem tất cả indicators (bỏ qua viewMode = MyAssignments)
         // KTV với MyAssignments: chỉ xem indicators được assign cho họ
         // All (or null): Show all indicators
         List<LaboratoryTaskIndicator> taskIndicators;
@@ -580,15 +600,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Check nếu user là QLKT của task hoặc QLKT của phòng ban
         var isQLKTOfTask = task.TechnicalManagerId == currentUserId;
         var isQLKTOfLaboratory = false;
+        var isSupporter = false;
         if (currentUserId.HasValue && !isAdmin && !isQLKTOfTask)
         {
             // Check xem user có phải QLKT của phòng ban (Laboratory) không
-            var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-            isQLKTOfLaboratory = laboratory?.TechnicalManagerId == currentUserId;
+            var taskLaboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
+            isQLKTOfLaboratory = taskLaboratory?.TechnicalManagerId == currentUserId;
+
+            // Check xem user có phải Supporter của task không
+            if (!isQLKTOfLaboratory)
+            {
+                isSupporter = await _supporterRepository.AnyAsync(s =>
+                    s.LaboratoryTaskId == task.Id && s.UserId == currentUserId.Value);
+            }
         }
         var isQLKT = isQLKTOfTask || isQLKTOfLaboratory;
 
-        if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue && !isAdmin && !isQLKT)
+        if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue && !isAdmin && !isQLKT && !isSupporter)
         {
             // Chỉ KTV mới filter theo TechnicianId khi viewMode = MyAssignments
             taskIndicators = allTaskIndicators.Where(i => i.TechnicianId == currentUserId.Value).ToList();
@@ -760,7 +788,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             }
 
             // Determine if can edit
-            var hasPermission = CanEditIndicator(taskIndicator, task, CurrentUser.Id);
+            var hasPermission = await CanEditIndicatorAsync(taskIndicator, task, CurrentUser.Id);
             var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
 
             // Determine if can check-in (Thực hiện)
@@ -854,7 +882,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             if (indicator == null) continue;
 
             // Kiểm tra quyền
-            if (!CanEditIndicator(indicator, task, currentUserId))
+            if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
             {
                 continue;
             }
@@ -956,7 +984,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             if (indicator == null) continue;
 
             // Kiểm tra quyền
-            if (!CanEditIndicator(indicator, task, currentUserId))
+            if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
             {
                 continue;
             }

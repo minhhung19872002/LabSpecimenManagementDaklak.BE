@@ -235,6 +235,16 @@ public class LaboratoryTaskController : LabSpecimenManagementController
         return _laboratoryTaskAppService.GetAvailableSupportersAsync(taskId);
     }
 
+    /// <summary>
+    /// Check if current user is a supporter for any incomplete task
+    /// Used for sidebar visibility - "Quản lý công việc" and "Quản lý thử nghiệm"
+    /// </summary>
+    [HttpGet("is-supporter")]
+    public virtual Task<bool> IsCurrentUserSupporterAsync()
+    {
+        return _laboratoryTaskAppService.IsCurrentUserSupporterAsync();
+    }
+
     #endregion
 
     #region Bulk Approval

@@ -118,6 +118,12 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId);
 
+    /// <summary>
+    /// Kiểm tra user hiện tại có phải supporter của bất kỳ task chưa hoàn thành nào không
+    /// Dùng để xác định quyền truy cập sidebar "Quản lý công việc" và "Quản lý thử nghiệm"
+    /// </summary>
+    Task<bool> IsCurrentUserSupporterAsync();
+
     #endregion
 
     #region Bulk Approval
