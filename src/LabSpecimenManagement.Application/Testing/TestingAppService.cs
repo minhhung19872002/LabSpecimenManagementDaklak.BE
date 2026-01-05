@@ -90,12 +90,19 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             Indicators = indicatorQueryable.Where(i => i.LaboratoryTaskId == task.Id).ToList()
         });
 
-        // Apply user filter - both tabs filter tasks where current user is assigned
-        // Tab "MyAssignments": Shows only user's data (samples, indicators, technician name)
-        // Tab "All": Shows full data but still filters tasks where user has assignments
-        if (currentUserId.HasValue)
+        // Apply user filter:
+        // - Admin: xem tất cả
+        // - QLKT: xem được task mà họ là TechnicalManager hoặc là KTV
+        // - KTV: chỉ xem được task mà họ được assign làm KTV
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+        if (currentUserId.HasValue && !isAdmin)
         {
-            taskQuery = taskQuery.Where(x => x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
+            // User có thể xem task nếu:
+            // 1. Họ là TechnicalManager của task (QLKT)
+            // 2. Họ được assign làm KTV cho ít nhất 1 indicator
+            taskQuery = taskQuery.Where(x =>
+                x.Task.TechnicalManagerId == currentUserId.Value ||
+                x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
 
         // Apply technician filter (AND logic with current user if in MyAssignments tab)
@@ -554,13 +561,18 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     {
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
         var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
 
         // Filter indicators based on viewMode
-        // MyAssignments: Only show indicators assigned to current user
+        // Admin và QLKT: luôn xem tất cả indicators (bỏ qua viewMode = MyAssignments)
+        // KTV với MyAssignments: chỉ xem indicators được assign cho họ
         // All (or null): Show all indicators
         List<LaboratoryTaskIndicator> taskIndicators;
-        if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue)
+        var isQLKT = task.TechnicalManagerId == currentUserId;
+
+        if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue && !isAdmin && !isQLKT)
         {
+            // Chỉ KTV mới filter theo TechnicianId khi viewMode = MyAssignments
             taskIndicators = allTaskIndicators.Where(i => i.TechnicianId == currentUserId.Value).ToList();
         }
         else
