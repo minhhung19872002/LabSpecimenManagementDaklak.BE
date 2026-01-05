@@ -92,15 +92,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Apply user filter:
         // - Admin: xem tất cả
-        // - QLKT: xem được task mà họ là TechnicalManager hoặc là KTV
+        // - QLKT: xem được tất cả task của phòng ban họ quản lý (Laboratory.TechnicalManagerId) hoặc task họ được gán làm TechnicalManager
         // - KTV: chỉ xem được task mà họ được assign làm KTV
         var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
         if (currentUserId.HasValue && !isAdmin)
         {
+            // Lấy danh sách LaboratoryId mà user là TechnicalManager (QLKT của phòng ban)
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
             // User có thể xem task nếu:
-            // 1. Họ là TechnicalManager của task (QLKT)
-            // 2. Họ được assign làm KTV cho ít nhất 1 indicator
+            // 1. Task thuộc phòng ban mà họ là QLKT (Laboratory.TechnicalManagerId)
+            // 2. Họ là TechnicalManager của task cụ thể (LaboratoryTask.TechnicalManagerId)
+            // 3. Họ được assign làm KTV cho ít nhất 1 indicator
             taskQuery = taskQuery.Where(x =>
+                managedLaboratoryIds.Contains(x.Task.LaboratoryId) ||
                 x.Task.TechnicalManagerId == currentUserId.Value ||
                 x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
@@ -568,7 +576,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // KTV với MyAssignments: chỉ xem indicators được assign cho họ
         // All (or null): Show all indicators
         List<LaboratoryTaskIndicator> taskIndicators;
-        var isQLKT = task.TechnicalManagerId == currentUserId;
+
+        // Check nếu user là QLKT của task hoặc QLKT của phòng ban
+        var isQLKTOfTask = task.TechnicalManagerId == currentUserId;
+        var isQLKTOfLaboratory = false;
+        if (currentUserId.HasValue && !isAdmin && !isQLKTOfTask)
+        {
+            // Check xem user có phải QLKT của phòng ban (Laboratory) không
+            var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
+            isQLKTOfLaboratory = laboratory?.TechnicalManagerId == currentUserId;
+        }
+        var isQLKT = isQLKTOfTask || isQLKTOfLaboratory;
 
         if (viewMode == TestingTabType.MyAssignments && currentUserId.HasValue && !isAdmin && !isQLKT)
         {
