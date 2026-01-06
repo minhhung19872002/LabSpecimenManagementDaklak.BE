@@ -6,7 +6,7 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 public enum IndicatorApprovalStatus
 {
     /// <summary>
-    /// Chờ nhập kết quả - Pending
+    /// Chờ nhập kết quả / Chờ QLKT đánh giá - Pending
     /// </summary>
     Pending = 0,
 
@@ -16,17 +16,37 @@ public enum IndicatorApprovalStatus
     Entered = 1,
 
     /// <summary>
-    /// Đã duyệt - Approved
+    /// Đã duyệt - Approved (QLKT duyệt kết quả)
     /// </summary>
     Approved = 2,
 
     /// <summary>
-    /// Không duyệt (Từ chối) - Rejected
+    /// Không duyệt (Từ chối kết quả) - Rejected
     /// </summary>
     Rejected = 3,
 
     /// <summary>
     /// Khách hàng hủy - CustomerCancelled
     /// </summary>
-    CustomerCancelled = 4
+    CustomerCancelled = 4,
+
+    /// <summary>
+    /// Yêu cầu đổi phương pháp - QLKT yêu cầu đổi PP, chờ KH xác nhận
+    /// </summary>
+    MethodChangeRequested = 5,
+
+    /// <summary>
+    /// Đã đổi phương pháp - KH đã xác nhận đổi PP
+    /// </summary>
+    MethodChanged = 6,
+
+    /// <summary>
+    /// Từ chối thử nghiệm - QLKT từ chối TN, KH đã xác nhận
+    /// </summary>
+    TestingRejected = 7,
+
+    /// <summary>
+    /// Chấp nhận thử nghiệm - QLKT chấp nhận chỉ tiêu này để TN
+    /// </summary>
+    AcceptedForTesting = 8
 }

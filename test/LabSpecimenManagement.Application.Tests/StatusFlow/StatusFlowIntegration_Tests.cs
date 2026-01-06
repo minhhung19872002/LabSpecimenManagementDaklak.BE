@@ -61,7 +61,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         var activeIndicators = indicators.Where(i => i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
         if (!activeIndicators.Any())
-            return LaboratoryTaskStatus.NotAssigned;
+            return LaboratoryTaskStatus.UnderEvaluation;
 
         // Optimistic: Trả về trạng thái CAO nhất (ưu tiên số lớn hơn)
         if (activeIndicators.Any(i => i.ApprovalStatus == IndicatorApprovalStatus.Approved && i.IsSentToQuality))
@@ -71,15 +71,15 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
             return LaboratoryTaskStatus.Approved;
 
         if (activeIndicators.Any(i => i.ApprovalStatus == IndicatorApprovalStatus.Entered))
-            return LaboratoryTaskStatus.PendingApproval;
+            return LaboratoryTaskStatus.WaitingApproval;
 
         if (activeIndicators.Any(i => i.TestDate.HasValue))
-            return LaboratoryTaskStatus.Testing;
+            return LaboratoryTaskStatus.InProgress;
 
         if (activeIndicators.Any(i => i.MethodId.HasValue && i.TechnicianId.HasValue))
             return LaboratoryTaskStatus.Assigned;
 
-        return LaboratoryTaskStatus.NotAssigned;
+        return LaboratoryTaskStatus.UnderEvaluation;
     }
 
     /// <summary>
@@ -133,10 +133,10 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
     [Fact]
     public void TC1_2_LaboratoryTaskStatus_Enum_Values_Should_Be_Correct()
     {
-        ((int)LaboratoryTaskStatus.NotAssigned).ShouldBe(0);
+        ((int)LaboratoryTaskStatus.UnderEvaluation).ShouldBe(0);
         ((int)LaboratoryTaskStatus.Assigned).ShouldBe(1);
-        ((int)LaboratoryTaskStatus.Testing).ShouldBe(2);
-        ((int)LaboratoryTaskStatus.PendingApproval).ShouldBe(3);
+        ((int)LaboratoryTaskStatus.InProgress).ShouldBe(2);
+        ((int)LaboratoryTaskStatus.WaitingApproval).ShouldBe(3);
         ((int)LaboratoryTaskStatus.Approved).ShouldBe(4);
         ((int)LaboratoryTaskStatus.SentToQuality).ShouldBe(5);
     }
@@ -172,7 +172,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.NotAssigned);
+        status.ShouldBe(LaboratoryTaskStatus.UnderEvaluation);
     }
 
     /// <summary>
@@ -206,7 +206,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.Testing);
+        status.ShouldBe(LaboratoryTaskStatus.InProgress);
     }
 
     /// <summary>
@@ -228,7 +228,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.PendingApproval);
+        status.ShouldBe(LaboratoryTaskStatus.WaitingApproval);
     }
 
     /// <summary>
@@ -336,7 +336,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
                 approvalStatus: IndicatorApprovalStatus.Pending)
         };
 
-        CalculateOptimisticTaskStatus(indicators).ShouldBe(LaboratoryTaskStatus.PendingApproval);
+        CalculateOptimisticTaskStatus(indicators).ShouldBe(LaboratoryTaskStatus.WaitingApproval);
     }
 
     /// <summary>
@@ -351,7 +351,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
             CreateIndicator(methodId: TestMethodId, technicianId: TechnicianId)
         };
 
-        CalculateOptimisticTaskStatus(indicators).ShouldBe(LaboratoryTaskStatus.Testing);
+        CalculateOptimisticTaskStatus(indicators).ShouldBe(LaboratoryTaskStatus.InProgress);
     }
 
     /// <summary>
@@ -390,7 +390,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.Testing); // Not Approved because CustomerCancelled is excluded
+        status.ShouldBe(LaboratoryTaskStatus.InProgress); // Not Approved because CustomerCancelled is excluded
     }
 
     /// <summary>
@@ -406,7 +406,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.NotAssigned);
+        status.ShouldBe(LaboratoryTaskStatus.UnderEvaluation);
     }
 
     /// <summary>
@@ -417,7 +417,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
     {
         var indicators = new List<LaboratoryTaskIndicator>();
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.NotAssigned);
+        status.ShouldBe(LaboratoryTaskStatus.UnderEvaluation);
     }
 
     #endregion
@@ -454,7 +454,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.Testing);
+        status.ShouldBe(LaboratoryTaskStatus.InProgress);
     }
 
     /// <summary>
@@ -474,7 +474,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.PendingApproval);
+        status.ShouldBe(LaboratoryTaskStatus.WaitingApproval);
     }
 
     #endregion
@@ -522,7 +522,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.Testing); // Has TestDate
+        status.ShouldBe(LaboratoryTaskStatus.InProgress); // Has TestDate
     }
 
     #endregion
@@ -644,7 +644,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.NotAssigned);
+        status.ShouldBe(LaboratoryTaskStatus.UnderEvaluation);
     }
 
     /// <summary>
@@ -659,7 +659,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.NotAssigned);
+        status.ShouldBe(LaboratoryTaskStatus.UnderEvaluation);
     }
 
     /// <summary>
@@ -676,7 +676,7 @@ public abstract class StatusFlowIntegration_Tests<TStartupModule> : LabSpecimenM
         };
 
         var status = CalculateOptimisticTaskStatus(indicators);
-        status.ShouldBe(LaboratoryTaskStatus.PendingApproval); // Not SentToQuality because not Approved
+        status.ShouldBe(LaboratoryTaskStatus.WaitingApproval); // Not SentToQuality because not Approved
     }
 
     #endregion

@@ -303,7 +303,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         // Update LaboratoryTask status to PendingApproval (QLCL từ chối → chờ QLKT xử lý)
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-        labTask.Status = LaboratoryTaskStatus.PendingApproval;
+        labTask.Status = LaboratoryTaskStatus.WaitingApproval;
         labTask.ResultRejectionReason = reason;
         await _laboratoryTaskRepository.UpdateAsync(labTask);
 
@@ -493,7 +493,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
                 // Update LaboratoryTask status to PendingApproval (QLCL từ chối → chờ QLKT xử lý)
                 var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-                labTask.Status = LaboratoryTaskStatus.PendingApproval;
+                labTask.Status = LaboratoryTaskStatus.WaitingApproval;
                 labTask.ResultRejectionReason = reason;
                 await _laboratoryTaskRepository.UpdateAsync(labTask);
 

@@ -253,4 +253,42 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.CancelRequestAsync(id, input);
     }
+
+    #region Workflow Redesign - BPGN Confirmation (Per-Indicator)
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu chờ KH xác nhận
+    /// </summary>
+    [HttpGet("{id}/indicators-pending-confirmation")]
+    public virtual Task<List<IndicatorPendingConfirmationDto>> GetIndicatorsPendingConfirmationAsync(Guid id)
+    {
+        return _testRequestAppService.GetIndicatorsPendingConfirmationAsync(id);
+    }
+
+    /// <summary>
+    /// BPGN xác nhận từng chỉ tiêu (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    [HttpPost("{id}/indicators/{indicatorId}/confirm")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<IndicatorPendingConfirmationDto> ConfirmIndicatorAsync(
+        Guid id,
+        Guid indicatorId,
+        [FromBody] ConfirmIndicatorDto input)
+    {
+        return _testRequestAppService.ConfirmIndicatorAsync(id, indicatorId, input);
+    }
+
+    /// <summary>
+    /// BPGN xác nhận nhiều chỉ tiêu cùng lúc (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    [HttpPost("{id}/bulk-confirm-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<List<IndicatorPendingConfirmationDto>> BulkConfirmIndicatorsAsync(
+        Guid id,
+        [FromBody] BulkConfirmIndicatorsDto input)
+    {
+        return _testRequestAppService.BulkConfirmIndicatorsAsync(id, input);
+    }
+
+    #endregion
 }

@@ -84,6 +84,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+    public DbSet<MethodChangeHistory> MethodChangeHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
     public DbSet<IndicatorImage> IndicatorImages { get; set; }
 
@@ -779,6 +780,29 @@ public class LabSpecimenManagementDbContext :
 
             b.HasOne(x => x.Indicator)
                 .WithMany(x => x.RejectionHistories)
+                .HasForeignKey(x => x.IndicatorId)
+                .IsRequired();
+        });
+
+        // ============ METHOD CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<MethodChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MethodChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.OldMethodName).HasMaxLength(500);
+            b.Property(x => x.NewMethodName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.Reason).IsRequired().HasMaxLength(2000);
+            b.Property(x => x.RequestedByUserName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.ConfirmedByUserName).HasMaxLength(256);
+
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.RequestedDate);
+            b.HasIndex(x => x.IsApproved);
+
+            b.HasOne(x => x.Indicator)
+                .WithMany(x => x.MethodChangeHistories)
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
         });

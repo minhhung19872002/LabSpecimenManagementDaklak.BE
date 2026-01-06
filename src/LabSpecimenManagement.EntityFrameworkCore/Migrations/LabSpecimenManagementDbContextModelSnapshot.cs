@@ -217,6 +217,16 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("AssignedDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("CustomerConfirmationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("CustomerConfirmedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomerConfirmedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<Guid?>("EnteredById")
                         .HasColumnType("uuid");
 
@@ -258,6 +268,20 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid>("TestRequestSampleIndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TestingRejectedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TestingRejectedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("TestingRejectionDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("TestingRejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<string>("Unit")
                         .HasMaxLength(50)
@@ -307,6 +331,99 @@ namespace LabSpecimenManagement.Migrations
                         .IsUnique();
 
                     b.ToTable("AppLaboratoryTaskSupporters", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.MethodChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ConfirmedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConfirmedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("ConfirmedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool?>("IsApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<Guid>("NewMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NewMethodName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("OldMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OldMethodName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestedByUserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("RequestedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("IsApproved");
+
+                    b.HasIndex("RequestedDate");
+
+                    b.ToTable("AppMethodChangeHistories", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
@@ -5319,6 +5436,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("LaboratoryTask");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.MethodChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "Indicator")
+                        .WithMany("MethodChangeHistories")
+                        .HasForeignKey("IndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Indicator");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
@@ -5735,6 +5863,8 @@ namespace LabSpecimenManagement.Migrations
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
                 {
                     b.Navigation("Images");
+
+                    b.Navigation("MethodChangeHistories");
 
                     b.Navigation("RejectionHistories");
                 });

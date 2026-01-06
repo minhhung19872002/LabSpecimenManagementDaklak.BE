@@ -284,6 +284,50 @@ public class LaboratoryTaskIndicatorDto
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
     /// </summary>
     public List<IndicatorImageDto> Images { get; set; } = new();
+
+    // ====== Workflow Redesign - Testing Rejection Fields ======
+
+    /// <summary>
+    /// Lý do từ chối thử nghiệm (QLKT từ chối)
+    /// </summary>
+    public string? TestingRejectionReason { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT từ chối thử nghiệm
+    /// </summary>
+    public DateTime? TestingRejectionDate { get; set; }
+
+    /// <summary>
+    /// Người từ chối thử nghiệm - QLKT User ID
+    /// </summary>
+    public Guid? TestingRejectedById { get; set; }
+
+    /// <summary>
+    /// Tên người từ chối thử nghiệm
+    /// </summary>
+    public string? TestingRejectedByName { get; set; }
+
+    // ====== Workflow Redesign - Customer Confirmation Fields ======
+
+    /// <summary>
+    /// Ngày KH xác nhận
+    /// </summary>
+    public DateTime? CustomerConfirmationDate { get; set; }
+
+    /// <summary>
+    /// Người xác nhận KH - BPGN User ID
+    /// </summary>
+    public Guid? CustomerConfirmedById { get; set; }
+
+    /// <summary>
+    /// Tên người xác nhận KH
+    /// </summary>
+    public string? CustomerConfirmedByName { get; set; }
+
+    /// <summary>
+    /// Lịch sử yêu cầu đổi phương pháp
+    /// </summary>
+    public List<MethodChangeHistoryDto> MethodChangeHistories { get; set; } = new();
 }
 
 /// <summary>
@@ -389,4 +433,117 @@ public class SendToQualityDto
     /// Danh sách Note IDs từ Master Data
     /// </summary>
     public List<Guid>? SelectedNoteIds { get; set; }
+}
+
+// ============= Workflow Redesign - QLKT Evaluation DTOs =============
+
+/// <summary>
+/// DTO for QLKT to evaluate a single indicator
+/// </summary>
+public class EvaluateIndicatorDto
+{
+    /// <summary>
+    /// Hành động đánh giá: Accept, RequestMethodChange, Reject
+    /// </summary>
+    public IndicatorEvaluationAction Action { get; set; }
+
+    /// <summary>
+    /// Phương pháp mới (bắt buộc khi Action = RequestMethodChange)
+    /// </summary>
+    public Guid? NewMethodId { get; set; }
+
+    /// <summary>
+    /// Lý do (bắt buộc khi Action = RequestMethodChange hoặc Reject)
+    /// </summary>
+    public string? Reason { get; set; }
+}
+
+/// <summary>
+/// Enum for indicator evaluation actions
+/// </summary>
+public enum IndicatorEvaluationAction
+{
+    /// <summary>
+    /// Chấp nhận thử nghiệm
+    /// </summary>
+    Accept = 0,
+
+    /// <summary>
+    /// Yêu cầu đổi phương pháp
+    /// </summary>
+    RequestMethodChange = 1,
+
+    /// <summary>
+    /// Từ chối thử nghiệm
+    /// </summary>
+    Reject = 2
+}
+
+/// <summary>
+/// DTO for QLKT to request method change for multiple indicators
+/// </summary>
+public class RequestMethodChangeDto
+{
+    /// <summary>
+    /// Danh sách các yêu cầu đổi phương pháp
+    /// </summary>
+    public List<MethodChangeRequestItem> Items { get; set; } = new();
+
+    /// <summary>
+    /// Lý do đổi phương pháp (áp dụng cho tất cả chỉ tiêu)
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Item in method change request
+/// </summary>
+public class MethodChangeRequestItem
+{
+    /// <summary>
+    /// LaboratoryTaskIndicator ID
+    /// </summary>
+    public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// ID phương pháp mới
+    /// </summary>
+    public Guid NewMethodId { get; set; }
+}
+
+/// <summary>
+/// DTO for QLKT to reject indicators for testing
+/// </summary>
+public class RejectIndicatorsForTestingDto
+{
+    /// <summary>
+    /// Danh sách LaboratoryTaskIndicator IDs
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// Lý do từ chối
+    /// </summary>
+    public string Reason { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// DTO for method change history
+/// </summary>
+public class MethodChangeHistoryDto
+{
+    public Guid Id { get; set; }
+    public Guid IndicatorId { get; set; }
+    public Guid? OldMethodId { get; set; }
+    public string? OldMethodName { get; set; }
+    public Guid NewMethodId { get; set; }
+    public string NewMethodName { get; set; } = string.Empty;
+    public string Reason { get; set; } = string.Empty;
+    public DateTime RequestedDate { get; set; }
+    public Guid RequestedByUserId { get; set; }
+    public string RequestedByUserName { get; set; } = string.Empty;
+    public DateTime? ConfirmedDate { get; set; }
+    public Guid? ConfirmedByUserId { get; set; }
+    public string? ConfirmedByUserName { get; set; }
+    public bool? IsApproved { get; set; }
 }

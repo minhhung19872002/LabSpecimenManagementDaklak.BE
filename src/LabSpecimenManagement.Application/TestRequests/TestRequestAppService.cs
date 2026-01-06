@@ -58,6 +58,7 @@ public partial class TestRequestAppService :
     private readonly IUserNameProvider _userNameProvider;
     private readonly IResultFormAppService _resultFormAppService;
     private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -83,7 +84,8 @@ public partial class TestRequestAppService :
         ICodeGeneratorService codeGenerator,
         IUserNameProvider userNameProvider,
         IResultFormAppService resultFormAppService,
-        IRepository<Receipt, Guid> receiptRepository)
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -110,6 +112,7 @@ public partial class TestRequestAppService :
         _userNameProvider = userNameProvider;
         _resultFormAppService = resultFormAppService;
         _receiptRepository = receiptRepository;
+        _methodChangeHistoryRepository = methodChangeHistoryRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)

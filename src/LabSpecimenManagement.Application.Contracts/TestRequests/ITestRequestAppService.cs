@@ -141,4 +141,28 @@ public interface ITestRequestAppService :
     /// Sinh số hợp đồng tự động với format HDYYYYMMDD###
     /// </summary>
     Task<string> GenerateContractNumberAsync();
+
+    #region Workflow Redesign - BPGN Confirmation (Per-Indicator)
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu chờ KH xác nhận
+    /// </summary>
+    Task<List<IndicatorPendingConfirmationDto>> GetIndicatorsPendingConfirmationAsync(Guid id);
+
+    /// <summary>
+    /// BPGN xác nhận từng chỉ tiêu (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="indicatorId">LaboratoryTaskIndicator ID</param>
+    /// <param name="input">Thông tin xác nhận</param>
+    Task<IndicatorPendingConfirmationDto> ConfirmIndicatorAsync(Guid id, Guid indicatorId, ConfirmIndicatorDto input);
+
+    /// <summary>
+    /// BPGN xác nhận nhiều chỉ tiêu cùng lúc (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Thông tin xác nhận</param>
+    Task<List<IndicatorPendingConfirmationDto>> BulkConfirmIndicatorsAsync(Guid id, BulkConfirmIndicatorsDto input);
+
+    #endregion
 }

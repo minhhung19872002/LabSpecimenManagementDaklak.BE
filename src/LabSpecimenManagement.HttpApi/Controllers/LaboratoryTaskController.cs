@@ -309,4 +309,54 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Workflow Redesign - QLKT Evaluation (Per-Indicator)
+
+    /// <summary>
+    /// QLKT đánh giá từng chỉ tiêu (Accept/RequestMethodChange/Reject)
+    /// </summary>
+    [HttpPost("indicators/{indicatorId}/evaluate")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskIndicatorDto> EvaluateIndicatorAsync(
+        Guid indicatorId,
+        [FromBody] EvaluateIndicatorDto input)
+    {
+        return _laboratoryTaskAppService.EvaluateIndicatorAsync(indicatorId, input);
+    }
+
+    /// <summary>
+    /// QLKT yêu cầu đổi phương pháp cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [HttpPost("{taskId}/request-method-change")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<List<LaboratoryTaskIndicatorDto>> RequestMethodChangeAsync(
+        Guid taskId,
+        [FromBody] RequestMethodChangeDto input)
+    {
+        return _laboratoryTaskAppService.RequestMethodChangeAsync(taskId, input);
+    }
+
+    /// <summary>
+    /// QLKT từ chối thử nghiệm cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [HttpPost("{taskId}/reject-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<List<LaboratoryTaskIndicatorDto>> RejectIndicatorsForTestingAsync(
+        Guid taskId,
+        [FromBody] RejectIndicatorsForTestingDto input)
+    {
+        return _laboratoryTaskAppService.RejectIndicatorsForTestingAsync(taskId, input);
+    }
+
+    /// <summary>
+    /// QLKT duyệt tất cả chỉ tiêu còn lại (status = Pending) của task
+    /// </summary>
+    [HttpPost("{taskId}/approve-all-remaining")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.ApproveAllRemainingIndicatorsAsync(taskId);
+    }
+
+    #endregion
 }

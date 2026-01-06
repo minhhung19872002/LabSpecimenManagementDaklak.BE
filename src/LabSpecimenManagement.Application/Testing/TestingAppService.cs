@@ -471,7 +471,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
-            newStatus = LaboratoryTaskStatus.PendingApproval;
+            newStatus = LaboratoryTaskStatus.WaitingApproval;
         }
         else if (allSentToQuality)
         {
@@ -486,7 +486,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         else if (allAssigned && anyTesting)
         {
             // TẤT CẢ chỉ tiêu đã được giao việc VÀ có ≥1 đang thử nghiệm
-            newStatus = LaboratoryTaskStatus.Testing;
+            newStatus = LaboratoryTaskStatus.InProgress;
         }
         else if (allAssigned)
         {
@@ -496,7 +496,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         else
         {
             // Còn chỉ tiêu chưa được giao việc
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
 
         if (task.Status != newStatus)

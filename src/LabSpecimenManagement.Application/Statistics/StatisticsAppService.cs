@@ -176,8 +176,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             {
                 Department = labDict.ContainsKey(g.Key) ? labDict[g.Key] : "Không xác định",
                 TotalTasks = g.Count(),
-                PendingTasks = g.Count(t => t.Status == LaboratoryTaskStatus.NotAssigned || t.Status == LaboratoryTaskStatus.Assigned),
-                InProgressTasks = g.Count(t => t.Status == LaboratoryTaskStatus.Testing || t.Status == LaboratoryTaskStatus.PendingApproval),
+                PendingTasks = g.Count(t => t.Status == LaboratoryTaskStatus.UnderEvaluation || t.Status == LaboratoryTaskStatus.Assigned),
+                InProgressTasks = g.Count(t => t.Status == LaboratoryTaskStatus.InProgress || t.Status == LaboratoryTaskStatus.WaitingApproval),
                 CompletedTasks = g.Count(t => t.Status == LaboratoryTaskStatus.Approved || t.Status == LaboratoryTaskStatus.SentToQuality),
                 CompletionRate = g.Count() > 0
                     ? Math.Round((decimal)g.Count(t => t.Status == LaboratoryTaskStatus.Approved || t.Status == LaboratoryTaskStatus.SentToQuality) / g.Count() * 100, 1)
