@@ -3099,15 +3099,18 @@ public partial class TestRequestAppService :
     #region Payment Flow Methods
 
     /// <summary>
-    /// Gửi kế toán - Tạo Receipt tự động và chuyển status sang PendingPayment
+    /// Gửi kế toán - Tạo Receipt và xử lý theo loại mẫu
+    /// - Mẫu nhiệm vụ (SampleTypeTask): Receipt = NoPaymentRequired, TestRequest -> UnderReview
+    /// - Mẫu thường: Receipt = PendingPayment, chờ kế toán xác nhận thanh toán
     /// </summary>
     public async Task<Guid> SendToAccountingAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        if (entity.Status != TestRequestStatus.New)
+        // Cho phép gửi kế toán khi status là PendingPayment (sau khi In phiếu XN)
+        if (entity.Status != TestRequestStatus.PendingPayment)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kế toán khi trạng thái là 'Mới'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kế toán khi trạng thái là 'Chờ thanh toán'", "status");
         }
 
         // Check if Receipt already exists (shouldn't happen, but safety check)
@@ -3117,18 +3120,57 @@ public partial class TestRequestAppService :
             throw new Common.Exceptions.InvalidOperationException("Phiếu thu đã tồn tại cho phiếu yêu cầu này", "receipt");
         }
 
-        // Create Receipt with PendingPayment status
-        var receipt = new Receipt(GuidGenerator.Create(), id);
-        await _receiptRepository.InsertAsync(receipt);
+        // Xử lý theo loại mẫu
+        if (entity.SampleTypeTask)
+        {
+            // Mẫu nhiệm vụ: Không cần thanh toán -> tự động chuyển sang UnderReview
+            var receipt = new Receipt(GuidGenerator.Create(), id, ReceiptStatus.NoPaymentRequired);
+            await _receiptRepository.InsertAsync(receipt);
 
-        // Update TestRequest status to PendingPayment
-        entity.Status = TestRequestStatus.PendingPayment;
-        entity.SentToAccounting = true;
+            entity.Status = TestRequestStatus.UnderReview;
+            entity.SentToAccounting = true;
+            entity.UnderReviewDate = Clock.Now;
+            entity.UnderReviewByUserId = _currentUser.Id;
+            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            await Repository.UpdateAsync(entity);
+
+            return receipt.Id;
+        }
+        else
+        {
+            // Mẫu thường: Chờ kế toán xác nhận thanh toán
+            var receipt = new Receipt(GuidGenerator.Create(), id, ReceiptStatus.PendingPayment);
+            await _receiptRepository.InsertAsync(receipt);
+
+            // Giữ nguyên status PendingPayment, chờ kế toán xác nhận
+            entity.SentToAccounting = true;
+            await Repository.UpdateAsync(entity);
+
+            // TODO: Send notification to Accounting department
+
+            return receipt.Id;
+        }
+    }
+
+    /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// Chỉ áp dụng cho mẫu thường (không phải mẫu nhiệm vụ)
+    /// </summary>
+    public async Task SendToQLKTAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.Paid)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Đã thanh toán'", "status");
+        }
+
+        entity.Status = TestRequestStatus.UnderReview;
+        entity.UnderReviewDate = Clock.Now;
+        entity.UnderReviewByUserId = _currentUser.Id;
+        entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+
         await Repository.UpdateAsync(entity);
-
-        // TODO: Send notification to Accounting department
-
-        return receipt.Id;
     }
 
     /// <summary>

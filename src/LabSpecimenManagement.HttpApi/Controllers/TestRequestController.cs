@@ -235,6 +235,16 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// </summary>
+    [HttpPost("{id}/send-to-qlkt")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task SendToQLKTAsync(Guid id)
+    {
+        return _testRequestAppService.SendToQLKTAsync(id);
+    }
+
+    /// <summary>
     /// Hủy yêu cầu thử nghiệm
     /// </summary>
     [HttpPost("{id}/cancel-request")]

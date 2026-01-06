@@ -1307,6 +1307,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             pdfFileName = fileName;
         }
 
+        // 10. Update TestRequest status: New -> PendingPayment when printing
+        if (testRequest.Status == TestRequestStatus.New)
+        {
+            testRequest.Status = TestRequestStatus.PendingPayment;
+            await _testRequestRepository.UpdateAsync(testRequest);
+            _logger.LogInformation("TestRequest {Id} status changed from New to PendingPayment after printing", input.TestRequestId);
+        }
+
         return new GenerateTestRequestFormOutput
         {
             FileName = pdfFileName,

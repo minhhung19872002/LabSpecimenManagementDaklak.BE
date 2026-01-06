@@ -3049,6 +3049,15 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("TotalSampleCount")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("UnderReviewByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UnderReviewByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UnderReviewDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("Ward")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");

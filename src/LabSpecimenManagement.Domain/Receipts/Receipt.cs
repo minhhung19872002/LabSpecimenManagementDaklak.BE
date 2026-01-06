@@ -43,10 +43,10 @@ public class Receipt : FullAuditedAggregateRoot<Guid>
     {
     }
 
-    public Receipt(Guid id, Guid testRequestId) : base(id)
+    public Receipt(Guid id, Guid testRequestId, ReceiptStatus status = ReceiptStatus.PendingPayment) : base(id)
     {
         TestRequestId = testRequestId;
-        Status = ReceiptStatus.PendingPayment;
+        Status = status;
     }
 
     /// <summary>

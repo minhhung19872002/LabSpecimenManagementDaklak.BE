@@ -12,5 +12,6 @@ public enum TestRequestStatus
     Approved = 7,                 // Đã phê duyệt - QLCL đã duyệt KQ
     ResultSent = 8,               // Gửi khách hàng - đã nhấn gửi KQ
     Completed = 9,                // Hoàn thành - bộ phận giao trả xác nhận
-    Cancelled = 10                // Hủy phiếu yêu cầu - BP Giao nhận hủy
+    Cancelled = 10,               // Hủy phiếu yêu cầu - BP Giao nhận hủy
+    UnderReview = 11              // Đang xem xét YC - đã gửi QLKT xem xét
 }

@@ -23,5 +23,10 @@ public enum ReceiptStatus
     /// <summary>
     /// Hủy yêu cầu - BP Giao nhận hủy yêu cầu
     /// </summary>
-    Cancelled = 3
+    Cancelled = 3,
+
+    /// <summary>
+    /// Không cần thanh toán - Mẫu nhiệm vụ, miễn phí
+    /// </summary>
+    NoPaymentRequired = 4
 }

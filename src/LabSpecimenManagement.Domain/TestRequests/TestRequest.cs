@@ -422,6 +422,21 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? CancellationReason { get; set; }
 
+    /// <summary>
+    /// Ngày chuyển sang trạng thái UnderReview (Đang xem xét YC)
+    /// </summary>
+    public DateTime? UnderReviewDate { get; set; }
+
+    /// <summary>
+    /// User ID chuyển sang trạng thái UnderReview
+    /// </summary>
+    public Guid? UnderReviewByUserId { get; set; }
+
+    /// <summary>
+    /// User name chuyển sang trạng thái UnderReview
+    /// </summary>
+    public string? UnderReviewByUserName { get; set; }
+
     #endregion
 
     #region Collections

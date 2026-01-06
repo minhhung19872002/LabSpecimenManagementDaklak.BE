@@ -126,6 +126,11 @@ public interface ITestRequestAppService :
     Task<Guid> SendToAccountingAsync(Guid id);
 
     /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// </summary>
+    Task SendToQLKTAsync(Guid id);
+
+    /// <summary>
     /// Hủy yêu cầu thử nghiệm
     /// </summary>
     /// <param name="id">ID của yêu cầu</param>
