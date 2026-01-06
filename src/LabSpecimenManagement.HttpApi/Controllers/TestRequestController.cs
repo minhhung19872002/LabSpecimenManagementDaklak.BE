@@ -1,5 +1,6 @@
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
@@ -288,6 +289,32 @@ public class TestRequestController : LabSpecimenManagementController
         [FromBody] BulkConfirmIndicatorsDto input)
     {
         return _testRequestAppService.BulkConfirmIndicatorsAsync(id, input);
+    }
+
+    #endregion
+
+    #region BPGN - Confirm Delivery to Customer
+
+    /// <summary>
+    /// BPGN xác nhận đã bàn giao kết quả cho khách hàng
+    /// Status tự động tính dựa trên chỉ tiêu đã xuất bên QLCL
+    /// </summary>
+    [HttpPost("{id}/confirm-delivery")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task ConfirmDeliveryToCustomerAsync(
+        Guid id,
+        [FromBody] ConfirmDeliveryInput? input = null)
+    {
+        return _testRequestAppService.ConfirmDeliveryToCustomerAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lấy danh sách báo cáo đã xuất của TestRequest (để xem lịch sử)
+    /// </summary>
+    [HttpGet("{id}/published-reports")]
+    public virtual Task<List<PublishedReportDto>> GetPublishedReportsAsync(Guid id)
+    {
+        return _testRequestAppService.GetPublishedReportsAsync(id);
     }
 
     #endregion

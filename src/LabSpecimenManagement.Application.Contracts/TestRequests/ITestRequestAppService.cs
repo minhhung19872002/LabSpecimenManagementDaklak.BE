@@ -165,4 +165,23 @@ public interface ITestRequestAppService :
     Task<List<IndicatorPendingConfirmationDto>> BulkConfirmIndicatorsAsync(Guid id, BulkConfirmIndicatorsDto input);
 
     #endregion
+
+    #region BPGN - Confirm Delivery to Customer
+
+    /// <summary>
+    /// BPGN xác nhận đã bàn giao kết quả cho khách hàng
+    /// Status tự động tính dựa trên chỉ tiêu đã xuất bên QLCL:
+    /// - Còn chỉ tiêu chưa xuất → PartialResultSent
+    /// - Xuất hết → Completed
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Optional note when confirming</param>
+    Task ConfirmDeliveryToCustomerAsync(Guid id, ConfirmDeliveryInput? input = null);
+
+    /// <summary>
+    /// Lấy danh sách báo cáo đã xuất của TestRequest (để xem lịch sử)
+    /// </summary>
+    Task<List<PublishedReports.PublishedReportDto>> GetPublishedReportsAsync(Guid id);
+
+    #endregion
 }

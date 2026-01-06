@@ -47,14 +47,29 @@ public class QualityManagementTask : FullAuditedAggregateRoot<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày gửi KQ - Result Sent Date
-    /// </summary>
-    public DateTime? ResultSentDate { get; set; }
-
-    /// <summary>
     /// Trạng thái - Status
     /// </summary>
     public QualityManagementStatus Status { get; set; }
+
+    /// <summary>
+    /// Ngày giao BPGN - Handover Date
+    /// </summary>
+    public DateTime? HandoverDate { get; set; }
+
+    /// <summary>
+    /// User QLCL giao BPGN
+    /// </summary>
+    public Guid? HandoverByUserId { get; set; }
+
+    /// <summary>
+    /// Tên user QLCL giao BPGN
+    /// </summary>
+    public string? HandoverByUserName { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi giao BPGN
+    /// </summary>
+    public string? HandoverNote { get; set; }
 
     /// <summary>
     /// Link đến TestRequestChangeHistory nếu là ChangeApproval

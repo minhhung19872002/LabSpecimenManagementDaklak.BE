@@ -25,6 +25,7 @@ using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
+using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -103,6 +104,9 @@ public class LabSpecimenManagementDbContext :
 
     // Receipt Entities
     public DbSet<Receipt> Receipts { get; set; }
+
+    // Published Report Entities
+    public DbSet<PublishedReport> PublishedReports { get; set; }
 
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
@@ -1030,6 +1034,35 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ============ PUBLISHED REPORT CONFIGURATION ============
+
+        builder.Entity<PublishedReport>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PublishedReports", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.ReportType).IsRequired().HasMaxLength(20);
+            b.Property(x => x.PrintNote).HasMaxLength(1000);
+            b.Property(x => x.IndicatorIds).IsRequired();
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.QualityManagementTaskId);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.QualityManagementTask)
+                .WithMany()
+                .HasForeignKey(x => x.QualityManagementTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

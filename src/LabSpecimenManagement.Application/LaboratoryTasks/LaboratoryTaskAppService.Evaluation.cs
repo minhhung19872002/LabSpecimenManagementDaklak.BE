@@ -32,10 +32,13 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền đánh giá chỉ tiêu");
         }
 
-        // Validate: Task must be in UnderEvaluation status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation)
+        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
+        // (WaitingCustomerResponse cho phép QLKT tiếp tục đánh giá các chỉ tiêu Pending còn lại)
+        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
+            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái 'Đang đánh giá'", "task");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
         // Validate: Indicator must be in Pending status
@@ -96,10 +99,12 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền yêu cầu đổi phương pháp");
         }
 
-        // Validate: Task must be in UnderEvaluation status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation)
+        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
+        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
+            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể yêu cầu đổi phương pháp khi task đang ở trạng thái 'Đang đánh giá'", "task");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể yêu cầu đổi phương pháp khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
         if (!input.Items.Any())
@@ -153,10 +158,12 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền từ chối thử nghiệm");
         }
 
-        // Validate: Task must be in UnderEvaluation status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation)
+        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
+        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
+            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể từ chối thử nghiệm khi task đang ở trạng thái 'Đang đánh giá'", "task");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể từ chối thử nghiệm khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
         if (!input.IndicatorIds.Any())
@@ -210,10 +217,12 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền duyệt yêu cầu");
         }
 
-        // Validate: Task must be in UnderEvaluation status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation)
+        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
+        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
+            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể duyệt yêu cầu khi task đang ở trạng thái 'Đang đánh giá'", "task");
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể duyệt yêu cầu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
         // Get all indicators with Pending status
@@ -308,9 +317,11 @@ public partial class LaboratoryTaskAppService
 
     /// <summary>
     /// Cập nhật trạng thái Task và TestRequest sau khi QLKT đánh giá
-    /// Logic: Kiểm tra xem còn chỉ tiêu Pending không
-    /// - Nếu còn: giữ nguyên UnderEvaluation
-    /// - Nếu hết: kiểm tra để chuyển sang WaitingCustomerResponse hoặc FullyAccepted
+    /// Logic:
+    /// - Nếu có chỉ tiêu cần KH xác nhận (MethodChangeRequested/TestingRejected) → WaitingCustomerResponse
+    /// - Nếu tất cả đã được xử lý và accepted → FullyAccepted
+    /// - Nếu một phần accepted → PartialAccepted
+    /// - Nếu còn Pending → giữ UnderEvaluation (chỉ khi không có chỉ tiêu cần KH xác nhận)
     /// </summary>
     private async Task UpdateTaskAndTestRequestStatusAfterEvaluationAsync(LaboratoryTask task)
     {
@@ -326,28 +337,13 @@ public partial class LaboratoryTaskAppService
             return;
         }
 
-        // Kiểm tra còn chỉ tiêu Pending không
-        var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
-
-        if (hasPending)
-        {
-            // Còn chỉ tiêu chờ đánh giá - giữ nguyên status
-            return;
-        }
-
-        // Tất cả chỉ tiêu đã được xử lý - kiểm tra để chuyển trạng thái
+        // Kiểm tra có chỉ tiêu cần KH xác nhận không (ưu tiên cao nhất)
         var hasMethodChangeRequested = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
         var hasTestingRejected = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
-        var hasAccepted = activeIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
-        var allAccepted = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
 
-        // Có chỉ tiêu cần KH xác nhận (đổi PP hoặc từ chối)
+        // Có chỉ tiêu cần KH xác nhận (đổi PP hoặc từ chối) → chuyển ngay sang WaitingCustomerResponse
         if (hasMethodChangeRequested || hasTestingRejected)
         {
             task.Status = LaboratoryTaskStatus.WaitingCustomerResponse;
@@ -357,6 +353,23 @@ public partial class LaboratoryTaskAppService
             await UpdateTestRequestToWaitingCustomerConfirmAsync(task.TestRequestId);
             return;
         }
+
+        // Kiểm tra còn chỉ tiêu Pending không
+        var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+
+        if (hasPending)
+        {
+            // Còn chỉ tiêu chờ đánh giá và không có chỉ tiêu cần KH xác nhận - giữ nguyên UnderEvaluation
+            return;
+        }
+
+        // Tất cả chỉ tiêu đã được xử lý - kiểm tra để chuyển trạng thái
+        var hasAccepted = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+        var allAccepted = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
 
         // Tất cả chỉ tiêu được chấp nhận
         if (allAccepted)
@@ -411,6 +424,20 @@ public partial class LaboratoryTaskAppService
 
         // Lấy tất cả tasks của TestRequest này
         var tasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+
+        // Kiểm tra còn task nào đang chờ KH xác nhận không
+        var hasWaitingCustomerResponse = tasks.Any(t => t.Status == LaboratoryTaskStatus.WaitingCustomerResponse);
+        if (hasWaitingCustomerResponse)
+        {
+            // Còn task chờ KH xác nhận - không được chuyển sang RequestApproved
+            // Giữ nguyên WaitingCustomerConfirm
+            if (testRequest.Status != TestRequestStatus.WaitingCustomerConfirm)
+            {
+                testRequest.Status = TestRequestStatus.WaitingCustomerConfirm;
+                await _testRequestRepository.UpdateAsync(testRequest);
+            }
+            return;
+        }
 
         // Kiểm tra tất cả phòng đã xử lý xong chưa
         // Phòng "đã xử lý xong" = FullyAccepted, PartialAccepted, hoặc TestingRejected

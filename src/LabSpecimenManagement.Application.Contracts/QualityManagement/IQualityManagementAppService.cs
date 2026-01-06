@@ -73,8 +73,15 @@ public interface IQualityManagementAppService : IApplicationService
 
     /// <summary>
     /// Send result to customer (Gửi kết quả) - Updates status to ResultSent
+    /// [DEPRECATED] Sử dụng ConfirmHandoverAsync thay thế
     /// </summary>
     Task SendResultAsync(Guid taskId);
+
+    /// <summary>
+    /// Xác nhận đã giao kết quả cho BPGN - Cập nhật status thành HandedOver
+    /// Khi tất cả quality tasks đã HandedOver → TestRequest chuyển sang ReportPublished
+    /// </summary>
+    Task ConfirmHandoverAsync(Guid taskId, ConfirmHandoverInput? input);
 
     /// <summary>
     /// Get standards lookup for dropdown
@@ -150,4 +157,15 @@ public class BulkRejectIndicatorsResultDto
     public int FailedCount { get; set; }
     public List<string> FailedIndicators { get; set; } = new();
     public List<QualityManagementIndicatorDto> RejectedIndicators { get; set; } = new();
+}
+
+/// <summary>
+/// Input DTO for confirm handover to BPGN
+/// </summary>
+public class ConfirmHandoverInput
+{
+    /// <summary>
+    /// Ghi chú khi giao BPGN
+    /// </summary>
+    public string? Note { get; set; }
 }

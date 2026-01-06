@@ -6,32 +6,32 @@ namespace LabSpecimenManagement.QualityManagement;
 public enum QualityManagementStatus
 {
     /// <summary>
-    /// Chờ phê duyệt
+    /// Chờ phê duyệt (trạng thái ban đầu)
     /// </summary>
     PendingApproval = 0,
 
     /// <summary>
-    /// Đang thử nghiệm (còn chỉ tiêu chưa gửi KQ)
+    /// Từ chối phê duyệt (có chỉ tiêu bị từ chối)
     /// </summary>
-    Testing = 1,
+    Rejected = 1,
 
     /// <summary>
-    /// Đã duyệt (tất cả chỉ tiêu đã duyệt)
+    /// Chờ phát hành (tất cả chỉ tiêu đã duyệt, chờ in KQ)
     /// </summary>
-    Approved = 2,
+    PendingPublish = 2,
 
     /// <summary>
-    /// Từ chối phê duyệt (có chỉ tiêu bị từ chối chưa gửi lại)
+    /// Đã phát hành 1 phần (đã in một phần chỉ tiêu)
     /// </summary>
-    Rejected = 3,
+    PartialPublished = 3,
 
     /// <summary>
-    /// Chờ ký (sau khi In KQ)
+    /// Đã phát hành (đã in tất cả chỉ tiêu)
     /// </summary>
-    PendingSignature = 4,
+    FullyPublished = 4,
 
     /// <summary>
-    /// Đã trả KQ
+    /// Đã giao BPGN (QLCL đã xác nhận giao cho Bộ phận giao nhận)
     /// </summary>
-    ResultSent = 5
+    HandedOver = 5
 }

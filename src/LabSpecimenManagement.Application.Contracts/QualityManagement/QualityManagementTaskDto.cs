@@ -50,14 +50,24 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày gửi KQ - Result Sent Date
-    /// </summary>
-    public DateTime? ResultSentDate { get; set; }
-
-    /// <summary>
     /// Trạng thái - Status
     /// </summary>
     public QualityManagementStatus Status { get; set; }
+
+    /// <summary>
+    /// Ngày giao BPGN - Handover Date
+    /// </summary>
+    public DateTime? HandoverDate { get; set; }
+
+    /// <summary>
+    /// Tên user QLCL giao BPGN
+    /// </summary>
+    public string? HandoverByUserName { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi giao BPGN
+    /// </summary>
+    public string? HandoverNote { get; set; }
 
     /// <summary>
     /// Tên khách hàng - Customer Name (from TestRequest)
@@ -127,9 +137,14 @@ public class QualityManagementStatisticsDto
     public int OverdueCount { get; set; }
 
     /// <summary>
-    /// Số hợp đồng chờ ký
+    /// Số hợp đồng chờ phát hành (đã duyệt, chờ in)
     /// </summary>
-    public int PendingSignatureCount { get; set; }
+    public int PendingPublishCount { get; set; }
+
+    /// <summary>
+    /// Số hợp đồng đã phát hành (1 phần hoặc toàn bộ)
+    /// </summary>
+    public int PublishedCount { get; set; }
 }
 
 /// <summary>

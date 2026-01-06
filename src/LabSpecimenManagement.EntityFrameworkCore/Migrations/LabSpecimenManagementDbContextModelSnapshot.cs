@@ -1706,6 +1706,76 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppNotifications", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("IndicatorIds")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("PrintNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("QualityManagementTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("QualityManagementTaskId");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppPublishedReports", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityIndicatorStatusHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1755,11 +1825,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("ApprovedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsPrinted")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsResultSent")
                         .HasColumnType("boolean");
 
                     b.Property<Guid>("LaboratoryTaskIndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("PrintedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid>("QualityManagementTaskId")
                         .HasColumnType("uuid");
@@ -1835,6 +1911,18 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<Guid?>("HandoverByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HandoverByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("HandoverDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("HandoverNote")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1850,9 +1938,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnName("LastModifierId");
 
                     b.Property<DateTime?>("RequestCompletionDate")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<DateTime?>("ResultSentDate")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("Status")
@@ -2959,8 +3044,20 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<Guid?>("DeliveredToCustomerByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DeliveredToCustomerByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeliveredToCustomerDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<bool>("DeliveryDirectPickup")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("DeliveryNote")
+                        .HasColumnType("text");
 
                     b.Property<bool>("DeliveryPostal")
                         .HasColumnType("boolean");
@@ -3064,6 +3161,15 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("ReceiptNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ReportPublishedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportPublishedByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReportPublishedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<DateTime>("RequestDate")
                         .HasColumnType("timestamp without time zone");
@@ -5456,6 +5562,25 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("LaboratoryTask");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.QualityManagement.QualityManagementTask", "QualityManagementTask")
+                        .WithMany()
+                        .HasForeignKey("QualityManagementTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("QualityManagementTask");
+
+                    b.Navigation("TestRequest");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityIndicatorStatusHistory", b =>
