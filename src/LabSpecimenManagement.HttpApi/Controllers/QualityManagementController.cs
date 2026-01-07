@@ -131,6 +131,15 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Print multiple single results (In KQ Đơn batch) - generates (labs × templates) PDFs
+    /// </summary>
+    [HttpPost("{taskId}/print-multi-single")]
+    public virtual Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, [FromBody] PrintMultiSingleDto input)
+    {
+        return _qualityManagementAppService.PrintMultiSingleResultAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Send result to customer (Gửi kết quả)
     /// </summary>
     [HttpPost("{taskId}/send-result")]

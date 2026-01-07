@@ -902,6 +902,100 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
+    public async Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input)
+    {
+        var task = await _taskRepository.GetAsync(taskId);
+
+        // Get all selected indicators
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _indicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            }
+            indicatorsToPrint.Add(indicator);
+        }
+
+        // Group indicators by laboratory
+        var labIndicatorGroups = new Dictionary<Guid, List<Guid>>();
+        var labNames = new Dictionary<Guid, string>();
+
+        foreach (var indicator in indicatorsToPrint)
+        {
+            // Get laboratory from LaboratoryTaskIndicator
+            var labTaskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+            var labTask = await _laboratoryTaskRepository.GetAsync(labTaskIndicator.LaboratoryTaskId);
+            var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+
+            if (!labIndicatorGroups.ContainsKey(laboratory.Id))
+            {
+                labIndicatorGroups[laboratory.Id] = new List<Guid>();
+                labNames[laboratory.Id] = laboratory.Name;
+            }
+            labIndicatorGroups[laboratory.Id].Add(indicator.Id);
+        }
+
+        // Generate PDFs for each lab × template combination
+        var results = new List<PrintResultItemDto>();
+
+        foreach (var labGroup in labIndicatorGroups)
+        {
+            var labId = labGroup.Key;
+            var labIndicatorIds = labGroup.Value;
+            var labName = labNames[labId];
+
+            foreach (var templateName in input.TemplateNames)
+            {
+                // Generate PDF for this lab + template
+                var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+                {
+                    TaskId = taskId,
+                    IndicatorIds = labIndicatorIds,
+                    Note = input.Note,
+                    TemplateName = templateName
+                });
+
+                results.Add(new PrintResultItemDto
+                {
+                    FileName = result.FileName,
+                    LaboratoryId = labId,
+                    LaboratoryName = labName,
+                    TemplateName = templateName
+                });
+
+                // Tạo record PublishedReport (log lịch sử in)
+                var publishedReport = new PublishedReport(
+                    GuidGenerator.Create(),
+                    task.TestRequestId,
+                    task.Id,
+                    result.FileName,
+                    "Single",
+                    input.Note,
+                    JsonSerializer.Serialize(labIndicatorIds)
+                );
+                await _publishedReportRepository.InsertAsync(publishedReport);
+            }
+        }
+
+        // Đánh dấu tất cả indicators đã in (phát hành)
+        foreach (var indicator in indicatorsToPrint)
+        {
+            indicator.IsPrinted = true;
+            indicator.PrintedDate = DateTime.Now;
+            await _indicatorRepository.UpdateAsync(indicator);
+        }
+
+        // Cập nhật task status dựa vào số chỉ tiêu đã in
+        await UpdateTaskStatusAfterPrintAsync(task);
+
+        return new PrintMultiResultOutputDto
+        {
+            Results = results
+        };
+    }
+
     /// <summary>
     /// [DEPRECATED] Sử dụng ConfirmHandoverAsync thay thế
     /// Method này được giữ lại để backward compatibility

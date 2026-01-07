@@ -72,6 +72,11 @@ public interface IQualityManagementAppService : IApplicationService
     Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null);
 
     /// <summary>
+    /// Print multiple single results (In KQ Đơn batch) - Generates (labs × templates) PDFs
+    /// </summary>
+    Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input);
+
+    /// <summary>
     /// Send result to customer (Gửi kết quả) - Updates status to ResultSent
     /// [DEPRECATED] Sử dụng ConfirmHandoverAsync thay thế
     /// </summary>
