@@ -140,6 +140,15 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Xác nhận đã giao kết quả cho BPGN
+    /// </summary>
+    [HttpPost("{taskId}/confirm-handover")]
+    public virtual Task ConfirmHandoverAsync(Guid taskId, [FromBody] ConfirmHandoverInput? input = null)
+    {
+        return _qualityManagementAppService.ConfirmHandoverAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Get standards lookup for dropdown
     /// </summary>
     [HttpGet("standards-lookup")]

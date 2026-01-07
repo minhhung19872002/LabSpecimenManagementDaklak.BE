@@ -1022,10 +1022,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return maxStatus switch
         {
-            LaboratoryTaskStatus.NotAssigned => "Chưa giao việc",
+            LaboratoryTaskStatus.UnderEvaluation => "Chưa giao việc",
             LaboratoryTaskStatus.Assigned => "Đã giao việc",
-            LaboratoryTaskStatus.Testing => "Đang thử nghiệm",
-            LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
+            LaboratoryTaskStatus.InProgress => "Đang thử nghiệm",
+            LaboratoryTaskStatus.WaitingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
             LaboratoryTaskStatus.SentToQuality => "Đã gửi QLCL",
             _ => "Không xác định"
@@ -1305,6 +1305,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
             // If PDF conversion fails, return the DOCX file as fallback
             pdfFileName = fileName;
+        }
+
+        // 10. Update TestRequest status: New -> PendingPayment when printing
+        if (testRequest.Status == TestRequestStatus.New)
+        {
+            testRequest.Status = TestRequestStatus.PendingPayment;
+            await _testRequestRepository.UpdateAsync(testRequest);
+            _logger.LogInformation("TestRequest {Id} status changed from New to PendingPayment after printing", input.TestRequestId);
         }
 
         return new GenerateTestRequestFormOutput

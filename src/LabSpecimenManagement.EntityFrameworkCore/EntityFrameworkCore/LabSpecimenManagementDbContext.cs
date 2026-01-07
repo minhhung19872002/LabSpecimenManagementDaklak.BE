@@ -25,6 +25,7 @@ using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
+using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -84,11 +85,13 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+    public DbSet<MethodChangeHistory> MethodChangeHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
     public DbSet<IndicatorImage> IndicatorImages { get; set; }
 
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
+    public DbSet<CostChangeHistory> CostChangeHistories { get; set; }
     public DbSet<Notification> Notifications { get; set; }
 
     // Quality Management Entities
@@ -102,6 +105,9 @@ public class LabSpecimenManagementDbContext :
 
     // Receipt Entities
     public DbSet<Receipt> Receipts { get; set; }
+
+    // Published Report Entities
+    public DbSet<PublishedReport> PublishedReports { get; set; }
 
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
@@ -783,6 +789,29 @@ public class LabSpecimenManagementDbContext :
                 .IsRequired();
         });
 
+        // ============ METHOD CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<MethodChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MethodChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.OldMethodName).HasMaxLength(500);
+            b.Property(x => x.NewMethodName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.Reason).IsRequired().HasMaxLength(2000);
+            b.Property(x => x.RequestedByUserName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.ConfirmedByUserName).HasMaxLength(256);
+
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.RequestedDate);
+            b.HasIndex(x => x.IsApproved);
+
+            b.HasOne(x => x.Indicator)
+                .WithMany(x => x.MethodChangeHistories)
+                .HasForeignKey(x => x.IndicatorId)
+                .IsRequired();
+        });
+
         // ============ SAMPLE TESTING IMAGE CONFIGURATION ============
 
         builder.Entity<SampleTestingImage>(b =>
@@ -1006,6 +1035,55 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ============ PUBLISHED REPORT CONFIGURATION ============
+
+        builder.Entity<PublishedReport>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PublishedReports", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.ReportType).IsRequired().HasMaxLength(20);
+            b.Property(x => x.PrintNote).HasMaxLength(1000);
+            b.Property(x => x.IndicatorIds).IsRequired();
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.QualityManagementTaskId);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.QualityManagementTask)
+                .WithMany()
+                .HasForeignKey(x => x.QualityManagementTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ COST CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<CostChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "CostChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.AffectedIndicatorName).HasMaxLength(500);
+            b.Property(x => x.Reason).HasMaxLength(1000);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
     }
 }

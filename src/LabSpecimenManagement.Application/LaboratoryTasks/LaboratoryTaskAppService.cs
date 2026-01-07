@@ -47,6 +47,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
+    private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -71,7 +72,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<Standard, Guid> standardRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
-        IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository)
+        IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
+        IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -96,6 +98,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _standardIndicatorRepository = standardIndicatorRepository;
         _indicatorImageRepository = indicatorImageRepository;
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
+        _methodChangeHistoryRepository = methodChangeHistoryRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -431,6 +434,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
                 x.LaboratoryTaskIndicatorId == taskIndicator.Id);
 
+            // Get method change histories for this indicator
+            var methodChangeHistories = await _methodChangeHistoryRepository.GetListAsync(h => h.IndicatorId == taskIndicator.Id);
+
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
             {
                 Id = taskIndicator.Id,
@@ -478,7 +484,37 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     Url = $"/api/v1/files/{x.FileId}",
                     CreationTime = x.CreationTime,
                     CreatorId = x.CreatorId
-                }).ToList()
+                }).ToList(),
+                // Workflow Redesign - Testing Rejection Fields
+                TestingRejectionReason = taskIndicator.TestingRejectionReason,
+                TestingRejectionDate = taskIndicator.TestingRejectionDate,
+                TestingRejectedById = taskIndicator.TestingRejectedById,
+                TestingRejectedByName = taskIndicator.TestingRejectedByName,
+                // Workflow Redesign - Customer Confirmation Fields
+                CustomerConfirmationDate = taskIndicator.CustomerConfirmationDate,
+                CustomerConfirmedById = taskIndicator.CustomerConfirmedById,
+                CustomerConfirmedByName = taskIndicator.CustomerConfirmedByName,
+                // Workflow Redesign - Method Change Histories
+                MethodChangeHistories = methodChangeHistories
+                    .OrderByDescending(h => h.RequestedDate)
+                    .Select(h => new MethodChangeHistoryDto
+                    {
+                        Id = h.Id,
+                        IndicatorId = h.IndicatorId,
+                        OldMethodId = h.OldMethodId,
+                        OldMethodName = h.OldMethodName,
+                        NewMethodId = h.NewMethodId,
+                        NewMethodName = h.NewMethodName,
+                        Reason = h.Reason,
+                        RequestedDate = h.RequestedDate,
+                        RequestedByUserId = h.RequestedByUserId,
+                        RequestedByUserName = h.RequestedByUserName,
+                        ConfirmedDate = h.ConfirmedDate,
+                        ConfirmedByUserId = h.ConfirmedByUserId,
+                        ConfirmedByUserName = h.ConfirmedByUserName,
+                        IsApproved = h.IsApproved
+                    })
+                    .ToList()
             });
         }
 
@@ -1140,7 +1176,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
-            newStatus = LaboratoryTaskStatus.PendingApproval;
+            newStatus = LaboratoryTaskStatus.WaitingApproval;
         }
         else if (allSentToQuality)
         {
@@ -1155,7 +1191,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         else if (allAssigned && anyTesting)
         {
             // TẤT CẢ chỉ tiêu đã được giao việc VÀ có ≥1 đang thử nghiệm
-            newStatus = LaboratoryTaskStatus.Testing;
+            newStatus = LaboratoryTaskStatus.InProgress;
         }
         else if (allAssigned)
         {
@@ -1165,7 +1201,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         else
         {
             // Còn chỉ tiêu chưa được giao việc
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
 
         if (task.Status != newStatus)
@@ -1226,7 +1262,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// </summary>
     private static bool CanEditTask(LaboratoryTaskStatus status)
     {
-        return status == LaboratoryTaskStatus.NotAssigned ||
+        return status == LaboratoryTaskStatus.UnderEvaluation ||
                status == LaboratoryTaskStatus.Assigned;
     }
 
@@ -1237,10 +1273,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     {
         return status switch
         {
-            LaboratoryTaskStatus.NotAssigned => "Chưa giao việc",
+            LaboratoryTaskStatus.UnderEvaluation => "Chưa giao việc",
             LaboratoryTaskStatus.Assigned => "Đã giao việc",
-            LaboratoryTaskStatus.Testing => "Đang thử nghiệm",
-            LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
+            LaboratoryTaskStatus.InProgress => "Đang thử nghiệm",
+            LaboratoryTaskStatus.WaitingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
             LaboratoryTaskStatus.SentToQuality => "Đã gửi QL Chất lượng",
             _ => status.ToString()
@@ -1713,9 +1749,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .Where(x => x.TechnicalManagerId == currentUserId.Value)
             .Where(x =>
                 // Condition 1: Cần phân công (NotAssigned)
-                x.Status == LaboratoryTaskStatus.NotAssigned ||
+                x.Status == LaboratoryTaskStatus.UnderEvaluation ||
                 // Condition 2: Cần duyệt (PendingApproval)
-                x.Status == LaboratoryTaskStatus.PendingApproval ||
+                x.Status == LaboratoryTaskStatus.WaitingApproval ||
                 // Condition 3: Sắp tới ngày trả kết quả (trong 5 ngày) và chưa hoàn thành
                 (x.RequestCompletionDate != null &&
                  x.Status != LaboratoryTaskStatus.Approved &&
@@ -1738,12 +1774,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string taskName;
             bool shouldInclude = false;
 
-            if (task.Status == LaboratoryTaskStatus.PendingApproval)
+            if (task.Status == LaboratoryTaskStatus.WaitingApproval)
             {
                 taskName = "Cần duyệt kết quả";
                 shouldInclude = true;
             }
-            else if (task.Status == LaboratoryTaskStatus.NotAssigned)
+            else if (task.Status == LaboratoryTaskStatus.UnderEvaluation)
             {
                 taskName = "Cần phân công công việc";
                 shouldInclude = true;
@@ -1777,8 +1813,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         // Sort: PendingApproval first, then NotAssigned, then by deadline
         return result
-            .OrderBy(x => x.Status == LaboratoryTaskStatus.PendingApproval ? 0 :
-                          x.Status == LaboratoryTaskStatus.NotAssigned ? 1 : 2)
+            .OrderBy(x => x.Status == LaboratoryTaskStatus.WaitingApproval ? 0 :
+                          x.Status == LaboratoryTaskStatus.UnderEvaluation ? 1 : 2)
             .ThenBy(x => x.RequestCompletionDate ?? DateTime.MaxValue)
             .ToList();
     }

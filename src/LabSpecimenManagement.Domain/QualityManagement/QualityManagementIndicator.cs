@@ -50,14 +50,24 @@ public class QualityManagementIndicator : Entity<Guid>
     public string? RejectionReason { get; set; }
 
     /// <summary>
-    /// Đã gửi kết quả - Is Result Sent
+    /// Đã gửi kết quả - Is Result Sent (DEPRECATED - sử dụng IsPrinted thay thế)
     /// </summary>
     public bool IsResultSent { get; set; }
 
     /// <summary>
-    /// Ngày gửi kết quả - Result Sent Date
+    /// Ngày gửi kết quả - Result Sent Date (DEPRECATED - sử dụng PrintedDate thay thế)
     /// </summary>
     public DateTime? ResultSentDate { get; set; }
+
+    /// <summary>
+    /// Đã in kết quả - Is Printed (phát hành BC)
+    /// </summary>
+    public bool IsPrinted { get; set; }
+
+    /// <summary>
+    /// Ngày in kết quả - Printed Date
+    /// </summary>
+    public DateTime? PrintedDate { get; set; }
 
     /// <summary>
     /// Navigation property to QualityManagementTask

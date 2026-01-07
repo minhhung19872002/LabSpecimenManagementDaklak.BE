@@ -49,7 +49,7 @@ public class TechnicalManagerReminderJob : ITransientDependency
         {
             // Lấy các LaboratoryTask có status = NotAssigned và TransferDate >= 2 ngày trước
             var pendingTasks = await _laboratoryTaskRepository.GetListAsync(
-                t => t.Status == LaboratoryTaskStatus.NotAssigned &&
+                t => t.Status == LaboratoryTaskStatus.UnderEvaluation &&
                      t.TechnicalManagerId.HasValue &&
                      t.TransferDate.HasValue &&
                      t.TransferDate.Value.Date <= threshold);

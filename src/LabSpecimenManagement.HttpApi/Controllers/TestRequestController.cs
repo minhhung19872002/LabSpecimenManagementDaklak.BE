@@ -1,5 +1,6 @@
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
@@ -235,6 +236,16 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// </summary>
+    [HttpPost("{id}/send-to-qlkt")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task SendToQLKTAsync(Guid id)
+    {
+        return _testRequestAppService.SendToQLKTAsync(id);
+    }
+
+    /// <summary>
     /// Hủy yêu cầu thử nghiệm
     /// </summary>
     [HttpPost("{id}/cancel-request")]
@@ -243,4 +254,81 @@ public class TestRequestController : LabSpecimenManagementController
     {
         return _testRequestAppService.CancelRequestAsync(id, input);
     }
+
+    #region Workflow Redesign - BPGN Confirmation (Per-Indicator)
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu chờ KH xác nhận
+    /// </summary>
+    [HttpGet("{id}/indicators-pending-confirmation")]
+    public virtual Task<List<IndicatorPendingConfirmationDto>> GetIndicatorsPendingConfirmationAsync(Guid id)
+    {
+        return _testRequestAppService.GetIndicatorsPendingConfirmationAsync(id);
+    }
+
+    /// <summary>
+    /// BPGN xác nhận từng chỉ tiêu (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    [HttpPost("{id}/indicators/{indicatorId}/confirm")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<IndicatorPendingConfirmationDto> ConfirmIndicatorAsync(
+        Guid id,
+        Guid indicatorId,
+        [FromBody] ConfirmIndicatorDto input)
+    {
+        return _testRequestAppService.ConfirmIndicatorAsync(id, indicatorId, input);
+    }
+
+    /// <summary>
+    /// BPGN xác nhận nhiều chỉ tiêu cùng lúc (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    [HttpPost("{id}/bulk-confirm-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<List<IndicatorPendingConfirmationDto>> BulkConfirmIndicatorsAsync(
+        Guid id,
+        [FromBody] BulkConfirmIndicatorsDto input)
+    {
+        return _testRequestAppService.BulkConfirmIndicatorsAsync(id, input);
+    }
+
+    #endregion
+
+    #region BPGN - Confirm Delivery to Customer
+
+    /// <summary>
+    /// BPGN xác nhận đã bàn giao kết quả cho khách hàng
+    /// Status tự động tính dựa trên chỉ tiêu đã xuất bên QLCL
+    /// </summary>
+    [HttpPost("{id}/confirm-delivery")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task ConfirmDeliveryToCustomerAsync(
+        Guid id,
+        [FromBody] ConfirmDeliveryInput? input = null)
+    {
+        return _testRequestAppService.ConfirmDeliveryToCustomerAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lấy danh sách báo cáo đã xuất của TestRequest (để xem lịch sử)
+    /// </summary>
+    [HttpGet("{id}/published-reports")]
+    public virtual Task<List<PublishedReportDto>> GetPublishedReportsAsync(Guid id)
+    {
+        return _testRequestAppService.GetPublishedReportsAsync(id);
+    }
+
+    #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    [HttpGet("{id}/cost-history")]
+    public virtual Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id)
+    {
+        return _testRequestAppService.GetCostChangeHistoryAsync(id);
+    }
+
+    #endregion
 }

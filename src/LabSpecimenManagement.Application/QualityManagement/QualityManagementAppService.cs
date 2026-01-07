@@ -1,12 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Testing;
@@ -43,6 +45,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly INotificationCreator _notificationCreator;
     private readonly IResultFormAppService _resultFormAppService;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
+    private readonly IPublishedReportRepository _publishedReportRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -66,7 +69,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         INotificationCreator notificationCreator,
         IResultFormAppService resultFormAppService,
-        IRepository<IndicatorImage, Guid> indicatorImageRepository)
+        IRepository<IndicatorImage, Guid> indicatorImageRepository,
+        IPublishedReportRepository publishedReportRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -90,6 +94,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _notificationCreator = notificationCreator;
         _resultFormAppService = resultFormAppService;
         _indicatorImageRepository = indicatorImageRepository;
+        _publishedReportRepository = publishedReportRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -179,8 +184,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             OverdueCount = tasks.Count(t =>
                 t.RequestCompletionDate.HasValue &&
                 (t.RequestCompletionDate.Value - now).TotalDays <= 2 &&
-                t.Status != QualityManagementStatus.ResultSent),
-            PendingSignatureCount = tasks.Count(t => t.Status == QualityManagementStatus.PendingSignature)
+                t.Status != QualityManagementStatus.HandedOver),
+            PendingPublishCount = tasks.Count(t => t.Status == QualityManagementStatus.PendingPublish),
+            PublishedCount = tasks.Count(t =>
+                t.Status == QualityManagementStatus.PartialPublished ||
+                t.Status == QualityManagementStatus.FullyPublished)
         };
     }
 
@@ -303,7 +311,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         // Update LaboratoryTask status to PendingApproval (QLCL từ chối → chờ QLKT xử lý)
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-        labTask.Status = LaboratoryTaskStatus.PendingApproval;
+        labTask.Status = LaboratoryTaskStatus.WaitingApproval;
         labTask.ResultRejectionReason = reason;
         await _laboratoryTaskRepository.UpdateAsync(labTask);
 
@@ -493,7 +501,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
                 // Update LaboratoryTask status to PendingApproval (QLCL từ chối → chờ QLKT xử lý)
                 var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-                labTask.Status = LaboratoryTaskStatus.PendingApproval;
+                labTask.Status = LaboratoryTaskStatus.WaitingApproval;
                 labTask.ResultRejectionReason = reason;
                 await _laboratoryTaskRepository.UpdateAsync(labTask);
 
@@ -815,12 +823,25 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TemplateName = templateName
         });
 
-        // Update status to PendingSignature (only if not already ResultSent - allow reprinting)
-        if (task.Status != QualityManagementStatus.ResultSent)
-        {
-            task.Status = QualityManagementStatus.PendingSignature;
-            await _taskRepository.UpdateAsync(task);
-        }
+        // Tạo record PublishedReport (log lịch sử in)
+        var publishedReport = new PublishedReport(
+            GuidGenerator.Create(),
+            task.TestRequestId,
+            task.Id,
+            result.FileName,
+            "Single",
+            note,
+            JsonSerializer.Serialize(new[] { indicatorId })
+        );
+        await _publishedReportRepository.InsertAsync(publishedReport);
+
+        // Đánh dấu indicator đã in (phát hành)
+        indicator.IsPrinted = true;
+        indicator.PrintedDate = DateTime.Now;
+        await _indicatorRepository.UpdateAsync(indicator);
+
+        // Cập nhật task status dựa vào số chỉ tiêu đã in
+        await UpdateTaskStatusAfterPrintAsync(task);
 
         return new PrintResultOutputDto
         {
@@ -831,6 +852,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
 
         foreach (var indicatorId in indicatorIds)
         {
@@ -839,6 +861,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             {
                 throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
             }
+            indicatorsToPrint.Add(indicator);
         }
 
         // Generate PDF result form
@@ -850,12 +873,28 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TemplateName = templateName
         });
 
-        // Update status to PendingSignature (only if not already ResultSent - allow reprinting)
-        if (task.Status != QualityManagementStatus.ResultSent)
+        // Tạo record PublishedReport (log lịch sử in)
+        var publishedReport = new PublishedReport(
+            GuidGenerator.Create(),
+            task.TestRequestId,
+            task.Id,
+            result.FileName,
+            "Mixed",
+            note,
+            JsonSerializer.Serialize(indicatorIds)
+        );
+        await _publishedReportRepository.InsertAsync(publishedReport);
+
+        // Đánh dấu tất cả indicators đã in (phát hành)
+        foreach (var indicator in indicatorsToPrint)
         {
-            task.Status = QualityManagementStatus.PendingSignature;
-            await _taskRepository.UpdateAsync(task);
+            indicator.IsPrinted = true;
+            indicator.PrintedDate = DateTime.Now;
+            await _indicatorRepository.UpdateAsync(indicator);
         }
+
+        // Cập nhật task status dựa vào số chỉ tiêu đã in
+        await UpdateTaskStatusAfterPrintAsync(task);
 
         return new PrintResultOutputDto
         {
@@ -863,73 +902,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
+    /// <summary>
+    /// [DEPRECATED] Sử dụng ConfirmHandoverAsync thay thế
+    /// Method này được giữ lại để backward compatibility
+    /// </summary>
     public async Task SendResultAsync(Guid taskId)
     {
-        var task = await _taskRepository.GetAsync(taskId);
-
-        // Allow resending - check if there are approved indicators that haven't been sent yet
-        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == taskId);
-        var approvedNotSentIndicators = indicators
-            .Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved && !i.IsResultSent)
-            .ToList();
-
-        if (!approvedNotSentIndicators.Any())
-        {
-            throw new Common.Exceptions.InvalidOperationException("Không có chỉ tiêu nào đã được duyệt để gửi.", "indicator");
-        }
-
-        // Mark approved indicators as sent
-        var now = DateTime.Now;
-        foreach (var indicator in approvedNotSentIndicators)
-        {
-            indicator.IsResultSent = true;
-            indicator.ResultSentDate = now;
-        }
-        await _indicatorRepository.UpdateManyAsync(approvedNotSentIndicators);
-
-        // Check if all indicators are processed (approved or rejected, no pending)
-        var hasPendingIndicators = indicators.Any(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval);
-
-        // Only update task status to ResultSent when ALL indicators are processed (no pending)
-        if (!hasPendingIndicators)
-        {
-            task.Status = QualityManagementStatus.ResultSent;
-            task.ResultSentDate = now;
-            await _taskRepository.UpdateAsync(task);
-        }
-
-        // Get current user name
-        var currentUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
-
-        // Check if ALL quality tasks for this TestRequest have sent results
-        // Only update TestRequest status when all tasks are ResultSent
-        var allQualityTasks = await _taskRepository.GetListAsync(qt => qt.TestRequestId == task.TestRequestId);
-        var allTasksSentOrNoIndicatorsPending = allQualityTasks.All(qt =>
-            qt.Status == QualityManagementStatus.ResultSent || (qt.Id == taskId && !hasPendingIndicators));
-
-        if (allTasksSentOrNoIndicatorsPending)
-        {
-            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-
-            // Only update if not already ResultSent (avoid overwriting date/user)
-            if (testRequest.Status != TestRequestStatus.ResultSent)
-            {
-                testRequest.Status = TestRequestStatus.ResultSent;
-                testRequest.ResultSentDate = DateTime.Now;
-                testRequest.ResultSentByUserId = CurrentUser.Id;
-                testRequest.ResultSentByUserName = currentUserName;
-                await _testRequestRepository.UpdateAsync(testRequest);
-
-                // Notify the test request creator - Case 4 SampleReceiver (first notification)
-                if (testRequest.CreatorId.HasValue)
-                {
-                    await _notificationCreator.NotifySampleReturnReminderAsync(
-                        testRequest.CreatorId.Value,
-                        testRequest.ContractNumber ?? "",
-                        testRequest.Id);
-                }
-            }
-        }
+        // Chuyển hướng sang ConfirmHandoverAsync
+        await ConfirmHandoverAsync(taskId, null);
     }
 
     public async Task<List<StandardLookupDto>> GetStandardsLookupAsync()
@@ -984,8 +964,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         // Call TestRequestAppService to apply changes and update status
         await _testRequestAppService.ApproveChangesAsync(task.TestRequestId);
 
-        // Update task status
-        task.Status = QualityManagementStatus.Approved;
+        // Update task status - ChangeApproval tasks go directly to HandedOver (xong việc)
+        task.Status = QualityManagementStatus.HandedOver;
+        task.HandoverDate = DateTime.Now;
+        task.HandoverByUserId = CurrentUser.Id;
+        task.HandoverByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
         await _taskRepository.UpdateAsync(task);
 
         // Notify the test request creator (SampleReceiver)
@@ -1073,8 +1056,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             return new List<QualityManagerPendingTaskDto>();
         }
 
+        // Lấy tất cả tasks chưa hoàn thành (chưa HandedOver)
         var tasks = await _taskRepository.GetListAsync(t =>
-            t.Status != QualityManagementStatus.ResultSent);
+            t.Status != QualityManagementStatus.HandedOver);
 
         var result = new List<QualityManagerPendingTaskDto>();
         var now = DateTime.Now;
@@ -1083,7 +1067,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             // Determine task name based on priority:
             // 1. "Có kết quả cần phê duyệt" (PendingApproval)
-            // 2. "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu" (Approved)
+            // 2. "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu" (PendingPublish, PartialPublished, FullyPublished)
             // 3. "Sắp tới ngày trả kết quả thử nghiệm" (deadline <= 5 days)
             string taskName;
             int? daysUntilDeadline = null;
@@ -1097,7 +1081,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             {
                 taskName = "Có kết quả cần phê duyệt";
             }
-            else if (task.Status == QualityManagementStatus.Approved || task.Status == QualityManagementStatus.PendingSignature)
+            else if (task.Status == QualityManagementStatus.PendingPublish ||
+                     task.Status == QualityManagementStatus.PartialPublished ||
+                     task.Status == QualityManagementStatus.FullyPublished)
             {
                 taskName = "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu";
             }
@@ -1124,7 +1110,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             });
         }
 
-        // Sort by priority: PendingApproval > Approved/PendingSignature > Deadline approaching
+        // Sort by priority: PendingApproval > PendingPublish/Published > Deadline approaching
         return result
             .OrderBy(t => t.TaskName == "Có kết quả cần phê duyệt" ? 0 :
                          t.TaskName == "Kết quả cần bàn giao cho bộ phận nhận/ trả mẫu" ? 1 : 2)
@@ -1162,8 +1148,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             LaboratoryNames = labNames,
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
-            ResultSentDate = task.ResultSentDate,
             Status = task.Status,
+            HandoverDate = task.HandoverDate,
+            HandoverByUserName = task.HandoverByUserName,
+            HandoverNote = task.HandoverNote,
             CustomerName = testRequest?.CustomerName,
             TechnicalManagerNames = managerNames,
             ChangeHistoryId = task.ChangeHistoryId,
@@ -1275,6 +1263,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             RejectionReason = indicator.RejectionReason,
             IsResultSent = indicator.IsResultSent,
             QualityResultSentDate = indicator.ResultSentDate,
+            IsPrinted = indicator.IsPrinted,
+            PrintedDate = indicator.PrintedDate,
             ApprovedById = indicator.ApprovedById,
             ApprovedByName = approvedByName,
             Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
@@ -1309,7 +1299,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         if (allApproved)
         {
-            task.Status = QualityManagementStatus.Approved;
+            // Tất cả APPROVED → Chờ phát hành (PendingPublish)
+            task.Status = QualityManagementStatus.PendingPublish;
         }
         else if (anyRejected && !anyPending)
         {
@@ -1322,8 +1313,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         await _taskRepository.UpdateAsync(task);
 
-        // Update TestRequest approval info when task becomes Approved
-        if (task.Status == QualityManagementStatus.Approved && previousStatus != QualityManagementStatus.Approved)
+        // Update TestRequest approval info when task becomes PendingPublish (tất cả chỉ tiêu đã duyệt)
+        if (task.Status == QualityManagementStatus.PendingPublish && previousStatus != QualityManagementStatus.PendingPublish)
         {
             var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
 
@@ -1335,8 +1326,91 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 testRequest.ApprovedDate = DateTime.Now;
                 testRequest.ApprovedByUserId = CurrentUser.Id;
                 testRequest.ApprovedByUserName = currentUserName;
-                testRequest.Status = TestRequestStatus.Approved;
+                // Không cập nhật TestRequest.Status ở đây nữa - sẽ cập nhật khi QLCL giao BPGN
                 await _testRequestRepository.UpdateAsync(testRequest);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Cập nhật trạng thái task sau khi in kết quả
+    /// </summary>
+    private async Task UpdateTaskStatusAfterPrintAsync(QualityManagementTask task)
+    {
+        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == task.Id);
+        var approvedIndicators = indicators.Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
+
+        if (!approvedIndicators.Any())
+        {
+            return;
+        }
+
+        var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+        var totalApproved = approvedIndicators.Count;
+
+        if (printedCount == 0)
+        {
+            // Chưa in gì - giữ PendingPublish
+            return;
+        }
+        else if (printedCount < totalApproved)
+        {
+            // In 1 phần
+            task.Status = QualityManagementStatus.PartialPublished;
+        }
+        else
+        {
+            // In tất cả
+            task.Status = QualityManagementStatus.FullyPublished;
+        }
+
+        await _taskRepository.UpdateAsync(task);
+    }
+
+    /// <summary>
+    /// Xác nhận đã giao kết quả cho BPGN
+    /// </summary>
+    public async Task ConfirmHandoverAsync(Guid taskId, ConfirmHandoverInput? input)
+    {
+        var task = await _taskRepository.GetAsync(taskId);
+
+        // Chỉ cho phép khi đã phát hành (1 phần hoặc full)
+        if (task.Status != QualityManagementStatus.PartialPublished &&
+            task.Status != QualityManagementStatus.FullyPublished)
+        {
+            throw new System.InvalidOperationException("Chỉ có thể giao BPGN khi đã phát hành kết quả.");
+        }
+
+        // Cập nhật task
+        task.Status = QualityManagementStatus.HandedOver;
+        task.HandoverDate = DateTime.Now;
+        task.HandoverByUserId = CurrentUser.Id;
+        task.HandoverByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+        task.HandoverNote = input?.Note;
+        await _taskRepository.UpdateAsync(task);
+
+        // Cập nhật TestRequest → ReportPublished
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+
+        // Kiểm tra tất cả quality tasks đã HandedOver chưa
+        var allQualityTasks = await _taskRepository.GetListAsync(qt => qt.TestRequestId == task.TestRequestId);
+        var allHandedOver = allQualityTasks.All(qt => qt.Status == QualityManagementStatus.HandedOver);
+
+        if (allHandedOver && testRequest.Status != TestRequestStatus.ReportPublished)
+        {
+            testRequest.Status = TestRequestStatus.ReportPublished;
+            testRequest.ReportPublishedDate = DateTime.Now;
+            testRequest.ReportPublishedByUserId = CurrentUser.Id;
+            testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+            await _testRequestRepository.UpdateAsync(testRequest);
+
+            // Notify BPGN (SampleReceiver)
+            if (testRequest.CreatorId.HasValue)
+            {
+                await _notificationCreator.NotifySampleReturnReminderAsync(
+                    testRequest.CreatorId.Value,
+                    testRequest.ContractNumber ?? "",
+                    testRequest.Id);
             }
         }
     }

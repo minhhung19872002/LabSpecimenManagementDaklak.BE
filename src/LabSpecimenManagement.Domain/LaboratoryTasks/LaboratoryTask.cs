@@ -112,7 +112,7 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
         TechnicalManagerId = technicalManagerId;
         TransferDate = transferDate;
         RequestCompletionDate = requestCompletionDate;
-        Status = LaboratoryTaskStatus.NotAssigned;
+        Status = LaboratoryTaskStatus.UnderEvaluation;
         Indicators = new List<LaboratoryTaskIndicator>();
     }
 }

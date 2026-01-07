@@ -227,3 +227,103 @@ public class TestRequestSampleIndicatorDto
     /// </summary>
     public List<Testing.IndicatorImageDto>? Images { get; set; }
 }
+
+// ============= Workflow Redesign - BPGN Confirmation DTOs =============
+
+/// <summary>
+/// DTO để lấy danh sách chỉ tiêu chờ KH xác nhận
+/// </summary>
+public class IndicatorPendingConfirmationDto
+{
+    /// <summary>
+    /// LaboratoryTaskIndicator ID
+    /// </summary>
+    public Guid Id { get; set; }
+
+    /// <summary>
+    /// Mã mẫu
+    /// </summary>
+    public string? SampleCode { get; set; }
+
+    /// <summary>
+    /// Tên mẫu
+    /// </summary>
+    public string? SampleName { get; set; }
+
+    /// <summary>
+    /// Mã chỉ tiêu
+    /// </summary>
+    public string? IndicatorCode { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu
+    /// </summary>
+    public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên khoa phòng
+    /// </summary>
+    public string? LaboratoryName { get; set; }
+
+    /// <summary>
+    /// Trạng thái hiện tại
+    /// </summary>
+    public IndicatorApprovalStatus ApprovalStatus { get; set; }
+
+    /// <summary>
+    /// Lý do từ chối thử nghiệm (nếu có)
+    /// </summary>
+    public string? TestingRejectionReason { get; set; }
+
+    /// <summary>
+    /// Phương pháp cũ (nếu yêu cầu đổi PP)
+    /// </summary>
+    public string? OldMethodName { get; set; }
+
+    /// <summary>
+    /// Phương pháp mới được đề xuất (nếu yêu cầu đổi PP)
+    /// </summary>
+    public string? NewMethodName { get; set; }
+
+    /// <summary>
+    /// Lý do yêu cầu đổi PP (nếu có)
+    /// </summary>
+    public string? MethodChangeReason { get; set; }
+
+    /// <summary>
+    /// Người yêu cầu đổi PP / từ chối TN
+    /// </summary>
+    public string? RequestedByName { get; set; }
+
+    /// <summary>
+    /// Ngày yêu cầu
+    /// </summary>
+    public DateTime? RequestedDate { get; set; }
+}
+
+/// <summary>
+/// DTO cho BPGN xác nhận từng chỉ tiêu (KH xác nhận)
+/// </summary>
+public class ConfirmIndicatorDto
+{
+    /// <summary>
+    /// True = KH xác nhận đồng ý, False = KH không đồng ý
+    /// </summary>
+    public bool Confirmed { get; set; }
+}
+
+/// <summary>
+/// DTO cho BPGN xác nhận nhiều chỉ tiêu cùng lúc
+/// </summary>
+public class BulkConfirmIndicatorsDto
+{
+    /// <summary>
+    /// Danh sách LaboratoryTaskIndicator IDs
+    /// </summary>
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// True = KH xác nhận đồng ý, False = KH không đồng ý
+    /// </summary>
+    public bool Confirmed { get; set; }
+}

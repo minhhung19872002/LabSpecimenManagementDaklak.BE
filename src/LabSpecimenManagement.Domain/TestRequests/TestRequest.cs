@@ -383,6 +383,21 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     public string? ResultSentByUserName { get; set; }
 
     /// <summary>
+    /// Ngày phát hành BC (ReportPublished) - QLCL giao BPGN
+    /// </summary>
+    public DateTime? ReportPublishedDate { get; set; }
+
+    /// <summary>
+    /// User ID phát hành BC
+    /// </summary>
+    public Guid? ReportPublishedByUserId { get; set; }
+
+    /// <summary>
+    /// User name phát hành BC
+    /// </summary>
+    public string? ReportPublishedByUserName { get; set; }
+
+    /// <summary>
     /// Ngày hoàn thành (Completed)
     /// </summary>
     public DateTime? CompletedDate { get; set; }
@@ -421,6 +436,41 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// Lý do hủy yêu cầu
     /// </summary>
     public string? CancellationReason { get; set; }
+
+    /// <summary>
+    /// Ngày chuyển sang trạng thái UnderReview (Đang xem xét YC)
+    /// </summary>
+    public DateTime? UnderReviewDate { get; set; }
+
+    /// <summary>
+    /// User ID chuyển sang trạng thái UnderReview
+    /// </summary>
+    public Guid? UnderReviewByUserId { get; set; }
+
+    /// <summary>
+    /// User name chuyển sang trạng thái UnderReview
+    /// </summary>
+    public string? UnderReviewByUserName { get; set; }
+
+    /// <summary>
+    /// Ngày BPGN xác nhận bàn giao cho khách hàng
+    /// </summary>
+    public DateTime? DeliveredToCustomerDate { get; set; }
+
+    /// <summary>
+    /// User ID xác nhận bàn giao cho khách hàng
+    /// </summary>
+    public Guid? DeliveredToCustomerByUserId { get; set; }
+
+    /// <summary>
+    /// User name xác nhận bàn giao cho khách hàng
+    /// </summary>
+    public string? DeliveredToCustomerByUserName { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi bàn giao cho khách hàng
+    /// </summary>
+    public string? DeliveryNote { get; set; }
 
     #endregion
 

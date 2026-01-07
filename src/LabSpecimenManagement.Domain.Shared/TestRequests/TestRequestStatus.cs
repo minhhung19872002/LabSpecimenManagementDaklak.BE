@@ -8,9 +8,17 @@ public enum TestRequestStatus
     SampleSent = 3,               // Đã gửi mẫu - người dùng xác nhận đã gửi mẫu
     InProgress = 4,               // Đang thử nghiệm - QLKT đã gán PP + KTV
     PendingChangeApproval = 5,    // Chờ phê duyệt thay đổi - chỉnh sửa cần QLCL duyệt
-    PendingApproval = 6,          // Chờ phê duyệt KQ - QLKT đã gửi kết quả
-    Approved = 7,                 // Đã phê duyệt - QLCL đã duyệt KQ
-    ResultSent = 8,               // Gửi khách hàng - đã nhấn gửi KQ
+
+    // [DEPRECATED - sẽ bỏ trong phase tiếp theo]
+    PendingApproval = 6,          // [DEPRECATED] Chờ phê duyệt KQ
+    Approved = 7,                 // [DEPRECATED] Đã phê duyệt
+
+    ResultSent = 8,               // [DEPRECATED] Gửi khách hàng - sử dụng ReportPublished thay thế
     Completed = 9,                // Hoàn thành - bộ phận giao trả xác nhận
-    Cancelled = 10                // Hủy phiếu yêu cầu - BP Giao nhận hủy
+    Cancelled = 10,               // Hủy phiếu yêu cầu - BP Giao nhận hủy
+    UnderReview = 11,             // Đang xem xét YC - đã gửi QLKT xem xét
+    WaitingCustomerConfirm = 12,  // Chờ KH xác nhận - QLKT yêu cầu đổi PP hoặc từ chối
+    RequestApproved = 13,         // Đã duyệt yêu cầu - Tất cả phòng LAB đã duyệt
+    PartialResultSent = 14,       // Đã trả 1 phần KQ - đã trả một phần kết quả cho KH
+    ReportPublished = 15          // Đã phát hành BC - (đổi tên từ ResultSent)
 }

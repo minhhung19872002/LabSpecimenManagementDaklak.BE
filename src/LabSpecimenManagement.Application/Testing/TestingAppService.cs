@@ -471,7 +471,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
-            newStatus = LaboratoryTaskStatus.PendingApproval;
+            newStatus = LaboratoryTaskStatus.WaitingApproval;
         }
         else if (allSentToQuality)
         {
@@ -486,7 +486,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         else if (allAssigned && anyTesting)
         {
             // TẤT CẢ chỉ tiêu đã được giao việc VÀ có ≥1 đang thử nghiệm
-            newStatus = LaboratoryTaskStatus.Testing;
+            newStatus = LaboratoryTaskStatus.InProgress;
         }
         else if (allAssigned)
         {
@@ -496,7 +496,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         else
         {
             // Còn chỉ tiêu chưa được giao việc
-            newStatus = LaboratoryTaskStatus.NotAssigned;
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
 
         if (task.Status != newStatus)
@@ -792,10 +792,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
 
             // Determine if can check-in (Thực hiện)
-            // Có thể check-in nếu: có quyền, status = Pending hoặc Rejected, chưa có TestDate
+            // Có thể check-in nếu: có quyền, status phù hợp, chưa có TestDate
+            // Status phù hợp: Pending, Rejected, MethodChanged, AcceptedForTesting
+            var canCheckInStatuses = new[]
+            {
+                IndicatorApprovalStatus.Pending,
+                IndicatorApprovalStatus.Rejected,
+                IndicatorApprovalStatus.MethodChanged,
+                IndicatorApprovalStatus.AcceptedForTesting
+            };
             var canCheckIn = hasPermission &&
-                             (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-                              taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected) &&
+                             canCheckInStatuses.Contains(taskIndicator.ApprovalStatus) &&
                              !taskIndicator.TestDate.HasValue;
 
             // Determine if can submit (Gửi kết quả)
@@ -887,19 +894,37 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Chỉ check-in indicators có status = Pending (Todo) hoặc Rejected
-            if (indicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
-                indicator.ApprovalStatus != IndicatorApprovalStatus.Rejected)
+            // Chỉ check-in indicators có status phù hợp cho thử nghiệm:
+            // - Pending: chưa đánh giá hoặc QLKT đã chấp nhận
+            // - Rejected: QLKT từ chối kết quả, cần thử nghiệm lại
+            // - MethodChanged: KH đã đồng ý đổi PP, sẵn sàng thử nghiệm
+            // - AcceptedForTesting: QLKT đã chấp nhận thử nghiệm
+            var canCheckInStatuses = new[]
+            {
+                IndicatorApprovalStatus.Pending,
+                IndicatorApprovalStatus.Rejected,
+                IndicatorApprovalStatus.MethodChanged,
+                IndicatorApprovalStatus.AcceptedForTesting
+            };
+
+            if (!canCheckInStatuses.Contains(indicator.ApprovalStatus))
             {
                 continue;
             }
 
-            // Nếu đang bị từ chối, reset ApprovalStatus về Pending để thử nghiệm lại
+            // Nếu đang bị từ chối kết quả, reset ApprovalStatus về Pending để thử nghiệm lại
             if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
             {
                 indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
                 // Clear SubmitDate khi thử nghiệm lại
                 indicator.SubmitDate = null;
+            }
+
+            // Nếu là MethodChanged hoặc AcceptedForTesting, chuyển về Pending để bắt đầu TN
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+                indicator.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+            {
+                indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
             }
 
             // Set TestDate = ngày hiện tại (bắt đầu thử nghiệm)
@@ -1113,13 +1138,25 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return IndicatorTestingStatus.PendingApproval;
         }
 
-        // Pending status
-        if (indicator.TestDate.HasValue)
+        // Các trạng thái có thể thử nghiệm: Pending, MethodChanged, AcceptedForTesting
+        var testableStatuses = new[]
         {
-            return IndicatorTestingStatus.Testing; // Đã check-in
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.MethodChanged,
+            IndicatorApprovalStatus.AcceptedForTesting
+        };
+
+        if (testableStatuses.Contains(indicator.ApprovalStatus))
+        {
+            if (indicator.TestDate.HasValue)
+            {
+                return IndicatorTestingStatus.Testing; // Đã check-in
+            }
+            return IndicatorTestingStatus.Todo; // Chưa check-in
         }
 
-        return IndicatorTestingStatus.Todo; // Chưa check-in
+        // Các trạng thái khác (MethodChangeRequested, TestingRejected) - chờ KH xác nhận
+        return IndicatorTestingStatus.Todo;
     }
 
     /// <summary>

@@ -12,6 +12,7 @@ using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Notifications;
+using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.ResultForms;
 using LabSpecimenManagement.Testing;
@@ -58,6 +59,9 @@ public partial class TestRequestAppService :
     private readonly IUserNameProvider _userNameProvider;
     private readonly IResultFormAppService _resultFormAppService;
     private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
+    private readonly IPublishedReportRepository _publishedReportRepository;
+    private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -83,7 +87,10 @@ public partial class TestRequestAppService :
         ICodeGeneratorService codeGenerator,
         IUserNameProvider userNameProvider,
         IResultFormAppService resultFormAppService,
-        IRepository<Receipt, Guid> receiptRepository)
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
+        IPublishedReportRepository publishedReportRepository,
+        IRepository<CostChangeHistory, Guid> costChangeHistoryRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -110,6 +117,9 @@ public partial class TestRequestAppService :
         _userNameProvider = userNameProvider;
         _resultFormAppService = resultFormAppService;
         _receiptRepository = receiptRepository;
+        _methodChangeHistoryRepository = methodChangeHistoryRepository;
+        _publishedReportRepository = publishedReportRepository;
+        _costChangeHistoryRepository = costChangeHistoryRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -3099,15 +3109,18 @@ public partial class TestRequestAppService :
     #region Payment Flow Methods
 
     /// <summary>
-    /// Gửi kế toán - Tạo Receipt tự động và chuyển status sang PendingPayment
+    /// Gửi kế toán - Tạo Receipt và xử lý theo loại mẫu
+    /// - Mẫu nhiệm vụ (SampleTypeTask): Receipt = NoPaymentRequired, TestRequest -> UnderReview
+    /// - Mẫu thường: Receipt = PendingPayment, chờ kế toán xác nhận thanh toán
     /// </summary>
     public async Task<Guid> SendToAccountingAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        if (entity.Status != TestRequestStatus.New)
+        // Cho phép gửi kế toán khi status là PendingPayment (sau khi In phiếu XN)
+        if (entity.Status != TestRequestStatus.PendingPayment)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kế toán khi trạng thái là 'Mới'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi kế toán khi trạng thái là 'Chờ thanh toán'", "status");
         }
 
         // Check if Receipt already exists (shouldn't happen, but safety check)
@@ -3117,18 +3130,70 @@ public partial class TestRequestAppService :
             throw new Common.Exceptions.InvalidOperationException("Phiếu thu đã tồn tại cho phiếu yêu cầu này", "receipt");
         }
 
-        // Create Receipt with PendingPayment status
-        var receipt = new Receipt(GuidGenerator.Create(), id);
-        await _receiptRepository.InsertAsync(receipt);
+        // Xử lý theo loại mẫu
+        if (entity.SampleTypeTask)
+        {
+            // Mẫu nhiệm vụ: Không cần thanh toán -> tự động chuyển sang UnderReview
+            var receipt = new Receipt(GuidGenerator.Create(), id, ReceiptStatus.NoPaymentRequired);
+            await _receiptRepository.InsertAsync(receipt);
 
-        // Update TestRequest status to PendingPayment
-        entity.Status = TestRequestStatus.PendingPayment;
-        entity.SentToAccounting = true;
+            entity.Status = TestRequestStatus.UnderReview;
+            entity.SentToAccounting = true;
+            entity.UnderReviewDate = Clock.Now;
+            entity.UnderReviewByUserId = _currentUser.Id;
+            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            await Repository.UpdateAsync(entity);
+
+            // Tạo LaboratoryTasks grouped by Laboratory để QLKT đánh giá
+            await CreateLaboratoryTasksAsync(entity);
+
+            // Thông báo cho QLKT về yêu cầu mới cần đánh giá
+            await NotifyTechnicalManagersOnSampleSentAsync(entity);
+
+            return receipt.Id;
+        }
+        else
+        {
+            // Mẫu thường: Chờ kế toán xác nhận thanh toán
+            var receipt = new Receipt(GuidGenerator.Create(), id, ReceiptStatus.PendingPayment);
+            await _receiptRepository.InsertAsync(receipt);
+
+            // Giữ nguyên status PendingPayment, chờ kế toán xác nhận
+            entity.SentToAccounting = true;
+            await Repository.UpdateAsync(entity);
+
+            // TODO: Send notification to Accounting department
+
+            return receipt.Id;
+        }
+    }
+
+    /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// Chỉ áp dụng cho mẫu thường (không phải mẫu nhiệm vụ)
+    /// Tạo LaboratoryTasks để QLKT có thể đánh giá các chỉ tiêu
+    /// </summary>
+    public async Task SendToQLKTAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        if (entity.Status != TestRequestStatus.Paid)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Đã thanh toán'", "status");
+        }
+
+        entity.Status = TestRequestStatus.UnderReview;
+        entity.UnderReviewDate = Clock.Now;
+        entity.UnderReviewByUserId = _currentUser.Id;
+        entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+
         await Repository.UpdateAsync(entity);
 
-        // TODO: Send notification to Accounting department
+        // Tạo LaboratoryTasks grouped by Laboratory để QLKT đánh giá
+        await CreateLaboratoryTasksAsync(entity);
 
-        return receipt.Id;
+        // Thông báo cho QLKT về yêu cầu mới cần đánh giá
+        await NotifyTechnicalManagersOnSampleSentAsync(entity);
     }
 
     /// <summary>
@@ -3168,6 +3233,193 @@ public partial class TestRequestAppService :
         entity.CancellationReason = input.Reason;
 
         await Repository.UpdateAsync(entity);
+    }
+
+    #endregion
+
+    #region BPGN - Confirm Delivery to Customer
+
+    /// <summary>
+    /// BPGN xác nhận đã bàn giao kết quả cho khách hàng
+    /// Status tự động tính dựa trên chỉ tiêu đã xuất bên QLCL
+    /// </summary>
+    public async Task ConfirmDeliveryToCustomerAsync(Guid id, ConfirmDeliveryInput? input = null)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        // Validate status - chỉ cho phép khi đang ở ReportPublished hoặc PartialResultSent
+        if (testRequest.Status != TestRequestStatus.ReportPublished &&
+            testRequest.Status != TestRequestStatus.PartialResultSent)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể xác nhận bàn giao ở trạng thái này. Yêu cầu phải ở trạng thái 'Đã phát hành báo cáo'.",
+                "status");
+        }
+
+        // Lấy tất cả quality tasks của test request
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == id);
+
+        // Lấy tất cả chỉ tiêu đã duyệt từ QualityManagementIndicator
+        var allApprovedIndicators = new List<QualityManagementIndicator>();
+        foreach (var task in qualityTasks)
+        {
+            var indicators = await _qualityIndicatorRepository.GetListAsync(i =>
+                i.QualityManagementTaskId == task.Id &&
+                i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved);
+            allApprovedIndicators.AddRange(indicators);
+        }
+
+        var totalApproved = allApprovedIndicators.Count;
+        var printedCount = allApprovedIndicators.Count(i => i.IsPrinted);
+
+        // Validate: phải có ít nhất 1 chỉ tiêu đã xuất
+        if (printedCount == 0)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chưa có chỉ tiêu nào được xuất báo cáo.",
+                "indicators");
+        }
+
+        // Tính status dựa trên chỉ tiêu đã xuất
+        if (printedCount < totalApproved)
+        {
+            // Còn chỉ tiêu chưa xuất → PartialResultSent
+            testRequest.Status = TestRequestStatus.PartialResultSent;
+        }
+        else
+        {
+            // Xuất hết → Completed
+            testRequest.Status = TestRequestStatus.Completed;
+            testRequest.CompletedDate = Clock.Now;
+        }
+
+        // Ghi chú nếu có
+        if (!string.IsNullOrWhiteSpace(input?.Note))
+        {
+            testRequest.DeliveryNote = input.Note;
+        }
+
+        testRequest.DeliveredToCustomerDate = Clock.Now;
+        testRequest.DeliveredToCustomerByUserId = _currentUser.Id;
+        testRequest.DeliveredToCustomerByUserName = await _userNameProvider.GetUserNameAsync(_currentUser.Id);
+
+        await Repository.UpdateAsync(testRequest);
+    }
+
+    /// <summary>
+    /// Lấy danh sách báo cáo đã xuất của TestRequest (để xem lịch sử)
+    /// </summary>
+    public async Task<List<PublishedReportDto>> GetPublishedReportsAsync(Guid id)
+    {
+        var reports = await _publishedReportRepository.GetByTestRequestIdAsync(id);
+        var result = new List<PublishedReportDto>();
+
+        foreach (var report in reports)
+        {
+            var creatorName = await _userNameProvider.GetUserNameAsync(report.CreatorId);
+
+            // Parse indicator IDs from JSON
+            var indicatorIds = new List<Guid>();
+            try
+            {
+                indicatorIds = JsonSerializer.Deserialize<List<Guid>>(report.IndicatorIds) ?? new List<Guid>();
+            }
+            catch
+            {
+                // Ignore parse errors
+            }
+
+            // Get indicator names
+            var indicatorNames = new List<string>();
+            foreach (var indicatorId in indicatorIds)
+            {
+                var qualityIndicator = await _qualityIndicatorRepository.FindAsync(indicatorId);
+                if (qualityIndicator != null)
+                {
+                    var labIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(qualityIndicator.LaboratoryTaskIndicatorId);
+                    if (labIndicator != null)
+                    {
+                        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
+                        if (sampleIndicator != null)
+                        {
+                            var masterIndicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+                            if (masterIndicator != null)
+                            {
+                                indicatorNames.Add(masterIndicator.Name);
+                            }
+                        }
+                    }
+                }
+            }
+
+            result.Add(new PublishedReportDto
+            {
+                Id = report.Id,
+                TestRequestId = report.TestRequestId,
+                QualityManagementTaskId = report.QualityManagementTaskId,
+                FileName = report.FileName,
+                ReportType = report.ReportType,
+                PrintNote = report.PrintNote,
+                IndicatorIds = indicatorIds,
+                IndicatorNames = indicatorNames,
+                CreationTime = report.CreationTime,
+                CreatorName = creatorName
+            });
+        }
+
+        return result;
+    }
+
+    #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    public async Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id)
+    {
+        var histories = await _costChangeHistoryRepository.GetListAsync(h => h.TestRequestId == id);
+        var result = new List<CostChangeHistoryDto>();
+
+        foreach (var history in histories.OrderByDescending(h => h.CreationTime))
+        {
+            var creatorName = await _userNameProvider.GetUserNameAsync(history.CreatorId);
+
+            result.Add(new CostChangeHistoryDto
+            {
+                Id = history.Id,
+                TestRequestId = history.TestRequestId,
+                ChangeType = (int)history.ChangeType,
+                ChangeTypeLabel = GetCostChangeTypeLabel(history.ChangeType),
+                OldTotalCost = history.OldTotalCost,
+                NewTotalCost = history.NewTotalCost,
+                DifferenceAmount = history.DifferenceAmount,
+                AffectedIndicatorId = history.AffectedIndicatorId,
+                AffectedIndicatorName = history.AffectedIndicatorName,
+                IndicatorUnitPrice = history.IndicatorUnitPrice,
+                Reason = history.Reason,
+                CreationTime = history.CreationTime,
+                CreatorName = creatorName
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Get label for CostChangeType enum
+    /// </summary>
+    private static string GetCostChangeTypeLabel(CostChangeType changeType)
+    {
+        return changeType switch
+        {
+            CostChangeType.IndicatorCancelled => "KH hủy chỉ tiêu",
+            CostChangeType.MethodChanged => "Thay đổi phương pháp",
+            CostChangeType.SampleCancelled => "KH hủy mẫu",
+            CostChangeType.ManualAdjustment => "Điều chỉnh thủ công",
+            _ => "Không xác định"
+        };
     }
 
     #endregion
