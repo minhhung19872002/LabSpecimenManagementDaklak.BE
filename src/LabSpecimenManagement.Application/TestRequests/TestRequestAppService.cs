@@ -3100,6 +3100,136 @@ public partial class TestRequestAppService :
         };
     }
 
+    /// <summary>
+    /// In kết quả đơn với nhiều chỉ tiêu và nhiều templates (batch processing)
+    /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
+    /// Indicators của cùng 1 lab sẽ được gộp vào 1 PDF (dùng mixed-style)
+    /// </summary>
+    public async Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid id, PrintMultiSingleDto input)
+    {
+        if (input.IndicatorIds == null || input.IndicatorIds.Count == 0)
+        {
+            throw new Common.Exceptions.ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu");
+        }
+
+        if (input.TemplateNames == null || input.TemplateNames.Count == 0)
+        {
+            throw new Common.Exceptions.ValidationException("templateNames", "Vui lòng chọn ít nhất một biểu mẫu");
+        }
+
+        var testRequest = await Repository.GetAsync(id);
+
+        // Load all selected indicators
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => input.IndicatorIds.Contains(x.Id));
+
+        // Validate all indicators are approved
+        foreach (var indicator in qualityIndicators)
+        {
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            }
+        }
+
+        // Get first indicator to find quality task
+        var firstIndicator = qualityIndicators.First();
+        var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Get LaboratoryTaskIndicators to find LaboratoryId
+        var labTaskIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).ToList();
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => labTaskIndicatorIds.Contains(x.Id));
+        var labTaskIndicatorDict = labTaskIndicators.ToDictionary(lti => lti.Id);
+
+        // Get LaboratoryTasks to find LaboratoryId
+        var labTaskIds = labTaskIndicators.Select(lti => lti.LaboratoryTaskId).Distinct().ToList();
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
+        var labTaskDict = labTasks.ToDictionary(lt => lt.Id);
+
+        // Build mapping: QualityManagementIndicator.Id -> LaboratoryId
+        var indicatorToLabId = new Dictionary<Guid, Guid>();
+        foreach (var qi in qualityIndicators)
+        {
+            if (labTaskIndicatorDict.TryGetValue(qi.LaboratoryTaskIndicatorId, out var lti))
+            {
+                if (labTaskDict.TryGetValue(lti.LaboratoryTaskId, out var lt))
+                {
+                    indicatorToLabId[qi.Id] = lt.LaboratoryId;
+                }
+            }
+        }
+
+        // Group indicators by LaboratoryId
+        var indicatorsByLab = qualityIndicators
+            .Where(qi => indicatorToLabId.ContainsKey(qi.Id))
+            .GroupBy(qi => indicatorToLabId[qi.Id])
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Get laboratory names
+        var labIds = indicatorsByLab.Keys.ToList();
+        var laboratories = await _laboratoryRepository.GetListAsync(x => labIds.Contains(x.Id));
+        var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
+
+        var results = new List<PrintResultItemDto>();
+
+        // Generate (labs × templates) PDFs
+        foreach (var templateName in input.TemplateNames)
+        {
+            foreach (var labGroup in indicatorsByLab)
+            {
+                var labId = labGroup.Key;
+                var labIndicators = labGroup.Value;
+                var labName = labDict.GetValueOrDefault(labId, "Unknown Lab");
+
+                GenerateResultFormOutput result;
+
+                if (labIndicators.Count == 1)
+                {
+                    // Single indicator - use single form
+                    result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
+                    {
+                        TaskId = qualityTask.Id,
+                        IndicatorId = labIndicators[0].Id,
+                        Note = input.Note,
+                        TemplateName = templateName
+                    });
+                }
+                else
+                {
+                    // Multiple indicators - use mixed form
+                    result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+                    {
+                        TaskId = qualityTask.Id,
+                        IndicatorIds = labIndicators.Select(qi => qi.Id).ToList(),
+                        Note = input.Note,
+                        TemplateName = templateName
+                    });
+                }
+
+                results.Add(new PrintResultItemDto
+                {
+                    FileName = result.FileName,
+                    LaboratoryId = labId,
+                    LaboratoryName = labName,
+                    TemplateName = templateName
+                });
+            }
+        }
+
+        // Update TestRequest status to PendingApproval if not already past that
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintMultiResultOutputDto
+        {
+            Results = results
+        };
+    }
+
     #endregion
 
     #region Payment Flow Methods

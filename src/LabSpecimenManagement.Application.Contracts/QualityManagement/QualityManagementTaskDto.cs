@@ -157,3 +157,40 @@ public class PrintResultOutputDto
     /// </summary>
     public string FileName { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Output DTO for batch print result - returns multiple generated PDF file info
+/// </summary>
+public class PrintMultiResultOutputDto
+{
+    /// <summary>
+    /// List of generated PDF results
+    /// </summary>
+    public List<PrintResultItemDto> Results { get; set; } = new();
+}
+
+/// <summary>
+/// Individual print result item with lab and template info
+/// </summary>
+public class PrintResultItemDto
+{
+    /// <summary>
+    /// Generated PDF file name
+    /// </summary>
+    public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Laboratory ID
+    /// </summary>
+    public Guid LaboratoryId { get; set; }
+
+    /// <summary>
+    /// Laboratory name for display
+    /// </summary>
+    public string LaboratoryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Template name used
+    /// </summary>
+    public string TemplateName { get; set; } = string.Empty;
+}

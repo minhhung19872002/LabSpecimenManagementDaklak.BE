@@ -52,6 +52,30 @@ public class PrintMixedDto
     public string? TemplateName { get; set; }
 }
 
+/// <summary>
+/// Input DTO for batch print multiple indicators with multiple templates
+/// Used for "In KQ Đơn" redesign - generates (labs × templates) PDFs
+/// </summary>
+public class PrintMultiSingleDto
+{
+    /// <summary>
+    /// List of QualityManagementIndicator IDs to print
+    /// </summary>
+    [Required]
+    public List<Guid> IndicatorIds { get; set; } = new();
+
+    /// <summary>
+    /// List of template names to use (without .template.docx extension)
+    /// </summary>
+    [Required]
+    public List<string> TemplateNames { get; set; } = new();
+
+    /// <summary>
+    /// Optional note to include in the result forms
+    /// </summary>
+    public string? Note { get; set; }
+}
+
 
 /// <summary>
 /// Input DTO for bulk approve indicators

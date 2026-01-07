@@ -2618,12 +2618,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             });
         }
 
-        // 6. Generate document using fixed BM02 template for mixed indicator result
-        // In KQ Hỗn hợp always uses BM02 template (no dropdown selection)
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM02);
+        // 6. Generate document using selected template (or default BM01)
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM02);
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM01);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");

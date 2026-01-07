@@ -226,6 +226,17 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Print multiple indicators with multiple templates (batch processing)
+    /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
+    /// </summary>
+    [HttpPost("{id}/print-multi-single")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid id, [FromBody] PrintMultiSingleDto input)
+    {
+        return _testRequestAppService.PrintMultiSingleResultAsync(id, input);
+    }
+
+    /// <summary>
     /// Gửi kế toán - Tạo Receipt tự động
     /// </summary>
     [HttpPost("{id}/send-to-accounting")]
