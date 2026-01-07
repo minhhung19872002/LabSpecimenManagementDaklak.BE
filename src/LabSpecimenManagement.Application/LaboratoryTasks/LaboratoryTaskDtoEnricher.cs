@@ -127,6 +127,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 TechnicianId = taskIndicator.TechnicianId,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
+                Note = taskIndicator.Note,
                 Unit = taskIndicator.Unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,

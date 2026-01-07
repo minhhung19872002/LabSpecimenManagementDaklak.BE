@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
@@ -35,6 +36,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
+    private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
+    private readonly IRepository<MasterData.Note, Guid> _noteRepository;
     private readonly IWebHostEnvironment _environment;
     private readonly INotificationCreator _notificationCreator;
     private readonly ICurrentUser _currentUser;
@@ -54,6 +57,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
+        IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
+        IRepository<MasterData.Note, Guid> noteRepository,
         IWebHostEnvironment environment,
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
@@ -69,6 +74,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _testMethodRepository = testMethodRepository;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
+        _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
+        _noteRepository = noteRepository;
         _environment = environment;
         _notificationCreator = notificationCreator;
         _currentUser = currentUser;
@@ -117,8 +124,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Get test date from laboratory task (use the first one that has TestDate)
-        var testDate = laboratoryTasks.Where(t => t.TestDate.HasValue).Select(t => t.TestDate).FirstOrDefault();
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
+        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
+        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -132,7 +141,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Address}}", address },  // Correct spelling
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
-            { "{{TimeOfTesting}}", testDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" }
@@ -159,7 +168,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
                 Proclaim = ""      // TODO: Add Proclaim field to LaboratoryTaskIndicator if needed
@@ -359,6 +368,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                             SetNoteFontSize(text, 11);
+                            NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
+
+                            // Handle newlines in Note placeholder
+                            if (placeholder.Value.Contains("\n"))
+                            {
+                                ReplaceTextWithLineBreaks(text, placeholder.Key, placeholder.Value);
+                                continue;
+                            }
                         }
                         // For Address placeholder, remove height constraint to allow long addresses
                         if ((placeholder.Key == "{{Address}}" || placeholder.Key == "{{Adrress}}") && !string.IsNullOrEmpty(placeholder.Value))
@@ -430,6 +447,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Set new font size (11pt = 22 half-points)
         runProps.Append(new FontSize { Val = halfPoints });
         runProps.Append(new FontSizeComplexScript { Val = halfPoints });
+    }
+
+    /// <summary>
+    /// Normalize paragraph indentation - convert first line indent to left indent
+    /// This ensures all lines in Note are indented uniformly (not just the first line)
+    /// </summary>
+    private void NormalizeParagraphIndentation(Text textElement)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null) return;
+
+        var paragraph = parentRun.Ancestors<Paragraph>().FirstOrDefault();
+        if (paragraph == null) return;
+
+        var pPr = paragraph.GetFirstChild<ParagraphProperties>();
+        if (pPr == null)
+        {
+            pPr = new ParagraphProperties();
+            paragraph.InsertAt(pPr, 0);
+        }
+
+        var indentation = pPr.GetFirstChild<Indentation>();
+        if (indentation != null)
+        {
+            // Get first line indent value and convert to left indent for all lines
+            var firstLineValue = indentation.FirstLine?.Value;
+            if (!string.IsNullOrEmpty(firstLineValue))
+            {
+                // Remove first line indent and set left indent instead
+                indentation.FirstLine = null;
+                indentation.Left = new StringValue(firstLineValue);
+            }
+        }
     }
 
     /// <summary>
@@ -972,10 +1022,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return maxStatus switch
         {
-            LaboratoryTaskStatus.NotAssigned => "Chưa giao việc",
+            LaboratoryTaskStatus.UnderEvaluation => "Chưa giao việc",
             LaboratoryTaskStatus.Assigned => "Đã giao việc",
-            LaboratoryTaskStatus.Testing => "Đang thử nghiệm",
-            LaboratoryTaskStatus.PendingApproval => "Chờ duyệt kết quả",
+            LaboratoryTaskStatus.InProgress => "Đang thử nghiệm",
+            LaboratoryTaskStatus.WaitingApproval => "Chờ duyệt kết quả",
             LaboratoryTaskStatus.Approved => "Đã duyệt",
             LaboratoryTaskStatus.SentToQuality => "Đã gửi QLCL",
             _ => "Không xác định"
@@ -1042,8 +1092,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of indicators in this sample
-        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
+        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
+        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -1092,7 +1144,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
                 // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
                 Standards = "",
@@ -1177,8 +1229,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Generate test request form document (BM05 - phiếu yêu cầu XN)
     /// This creates a copy of the template for user to edit and print
-    /// When printing, status changes from New to Pending (Chờ xử lý)
-    /// If already Pending, status remains unchanged (allow reprint)
+    /// In new flow: printing is available when status = Paid
     /// </summary>
     public async Task<GenerateTestRequestFormOutput> GenerateTestRequestFormAsync(GenerateTestRequestFormInput input)
     {
@@ -1186,29 +1237,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var testRequest = await _testRequestRepository.GetAsync(input.TestRequestId);
         var samples = await _sampleRepository.GetListAsync(x => x.TestRequestId == input.TestRequestId);
 
-        // 2. Update status to Pending if currently New
-        // If already Pending or higher, don't change status (allow reprint)
-        if (testRequest.Status == TestRequestStatus.New)
-        {
-            testRequest.Status = TestRequestStatus.Pending;
-            testRequest.PendingDate = Clock.Now;
-            testRequest.PendingByUserId = _currentUser.Id;
-            testRequest.PendingByUserName = _currentUser.Name ?? _currentUser.UserName;
-            await _testRequestRepository.UpdateAsync(testRequest);
-
-            // Send notification to the test request creator
-            if (testRequest.CreatorId.HasValue)
-            {
-                var sampleCount = samples.Count;
-                await _notificationCreator.NotifyNewTestRequestPendingAsync(
-                    testRequest.CreatorId.Value,
-                    testRequest.ContractNumber ?? "",
-                    testRequest.Id,
-                    sampleCount);
-            }
-        }
-
-        // 3. Check if template exists
+        // 2. Check if template exists
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
         if (!File.Exists(templatePath))
         {
@@ -1238,10 +1267,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 7. Process document - replace placeholders
         // Note: OpenXML only supports .docx format
         // For .doc files, we just copy the template and let user edit in OnlyOffice
+        _logger.LogInformation("Template extension: {Extension}, processing DOCX: {IsDocx}",
+            templateExtension, templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase));
         if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
         {
             var placeholders = BuildTestRequestFormPlaceholders(testRequest, samples);
             var sampleTableData = await BuildSampleTableDataAsync(samples);
+            _logger.LogInformation("Sample table data count: {Count}, first sample indicators: {IndicatorCount}",
+                sampleTableData.Count, sampleTableData.FirstOrDefault()?.IndicatorDetails.Count ?? 0);
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
@@ -1274,12 +1307,235 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             pdfFileName = fileName;
         }
 
+        // 10. Update TestRequest status: New -> PendingPayment when printing
+        if (testRequest.Status == TestRequestStatus.New)
+        {
+            testRequest.Status = TestRequestStatus.PendingPayment;
+            await _testRequestRepository.UpdateAsync(testRequest);
+            _logger.LogInformation("TestRequest {Id} status changed from New to PendingPayment after printing", input.TestRequestId);
+        }
+
         return new GenerateTestRequestFormOutput
         {
             FileName = pdfFileName,
             RequestNumber = testRequest.RequestNumber ?? "",
             ContractNumber = testRequest.ContractNumber ?? ""
         };
+    }
+
+    /// <summary>
+    /// Preview test request form with form data (no DB save required)
+    /// Used when creating new test request or editing unsaved changes
+    /// </summary>
+    public async Task<GenerateTestRequestFormOutput> PreviewTestRequestFormAsync(PreviewTestRequestFormInput input)
+    {
+        // 1. Check if template exists
+        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM05);
+        if (!File.Exists(templatePath))
+        {
+            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM05);
+        }
+
+        // 2. Create temp directory if not exists
+        var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
+        if (!Directory.Exists(tempDir))
+        {
+            Directory.CreateDirectory(tempDir);
+        }
+
+        // 3. Generate unique filename - keep original extension
+        var safeContractNumber = input.ContractNumber?.Replace("/", "-") ?? "preview";
+        var templateExtension = Path.GetExtension(TemplateConstants.TemplateBM05);
+        var fileName = $"{Guid.NewGuid():N}_BM05_Preview_{safeContractNumber}{templateExtension}";
+        var outputPath = Path.Combine(tempDir, fileName);
+
+        // 4. Copy template to temp
+        using (var sourceStream = new FileStream(templatePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+        using (var destStream = new FileStream(outputPath, FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            await sourceStream.CopyToAsync(destStream);
+        }
+
+        // 5. Process document - replace placeholders
+        if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
+        {
+            var placeholders = BuildPreviewFormPlaceholders(input);
+            var sampleTableData = BuildPreviewSampleTableData(input.Samples);
+            ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
+        }
+
+        // 6. Convert DOCX to PDF using LibreOffice
+        string pdfFileName;
+        try
+        {
+            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
+            pdfFileName = Path.GetFileName(pdfPath);
+
+            // 7. Delete the DOCX file after successful PDF conversion
+            try
+            {
+                if (File.Exists(outputPath))
+                {
+                    File.Delete(outputPath);
+                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
+            pdfFileName = fileName;
+        }
+
+        return new GenerateTestRequestFormOutput
+        {
+            FileName = pdfFileName,
+            RequestNumber = "Preview",
+            ContractNumber = input.ContractNumber ?? ""
+        };
+    }
+
+    /// <summary>
+    /// Build placeholders for preview form (from input DTO, not from DB entity)
+    /// </summary>
+    private Dictionary<string, string> BuildPreviewFormPlaceholders(PreviewTestRequestFormInput input)
+    {
+        var address = input.Address ?? "";
+        var wardText = !string.IsNullOrWhiteSpace(input.Ward) ? input.Ward : "";
+        var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
+        var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
+        var resultCopies = input.ResultCopyCount ?? "";
+        var customerTestMethod = input.MethodCustomerDetail ?? "";
+        var compareStandard = input.ConformityDeclaration ?? "";
+        var otherRequirements = input.OtherRequirements ?? "";
+        var subContractInfo = input.SubContract ?? "";
+        var currentDate = DateTime.Now;
+        var dateReceiving = input.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        // Mẫu nhiệm vụ hiển thị 0
+        var actualTotalCost = input.SampleTypeTask ? 0 : input.TotalCost;
+        var totalAmount = actualTotalCost.ToString("N0");
+        var totalByText = input.SampleTypeTask
+            ? "Không đồng"
+            : (input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost));
+        var receiptNumber = input.ReceiptNumber ?? "";
+        var currentDateText = currentDate.ToString("dd/MM/yyyy");
+
+        var placeholders = new Dictionary<string, string>
+        {
+            { "{{ContractNo}}", input.ContractNumber ?? "" },
+            { "{{Customer}}", input.CustomerName },
+            { "{{Adress}}", address },
+            { "{{Address}}", address },
+            { "{{Ward}}", wardText },
+            { "{{District}}", districtText },
+            { "{{Province}}", provinceText },
+            { "{{TaxNo}}", input.TaxCode ?? "" },
+            { "{{ContactPerson}}", input.ContactPerson ?? "" },
+            { "{{PhoneNumber}}", input.Phone ?? "" },
+            { "{{SampleTotal}}", input.TotalSampleCount.ToString() },
+            { "{{ResultCopies}}", resultCopies },
+            { "{{CertifiedCopies}}", resultCopies },
+            { "{{CustomerTestMethod}}", customerTestMethod },
+            { "{{CompareStandard}}", compareStandard },
+            { "{{OtherRequirements}}", otherRequirements },
+            { "{{SubContractInfo}}", subContractInfo },
+            { "{{DateReceiving}}", dateReceiving },
+            { "{{TotalAmount}}", totalAmount },
+            { "{{TotalByText}}", totalByText },
+            { "{{ReceiptNumberTTDV}}", receiptNumber },
+            { "{{CurrentDate}}", currentDateText },
+
+            // Checkbox - Test Method
+            { "{{CB_TestMethod_Center}}", input.MethodWestHighlandInstitute ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_TestMethod_Customer}}", input.MethodCustomer ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Report Language
+            { "{{CB_Report_VN}}", input.ResultLanguage == ResultLanguage.Vietnamese ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_EN}}", input.ResultLanguage == ResultLanguage.English ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Report_Both}}", input.ResultLanguage == ResultLanguage.VietnameseAndEnglish ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Separate Results
+            { "{{CB_SeparateResult}}", input.SeparatePassedResults ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sampling Requirement
+            { "{{CB_Sampling_Center}}", input.SamplingRequirement == SamplingRequirement.LabSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Sampling_Customer}}", input.SamplingRequirement == SamplingRequirement.CustomerSampling ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Delivery Method
+            { "{{CB_Delivery_Direct}}", input.DeliveryDirectPickup ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Delivery_Post}}", input.DeliveryPostal ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Return Sample
+            { "{{CB_ReturnSample}}", input.ReturnStoredSample ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Agree Terms
+            { "{{CB_AgreeTerms}}", input.AgreeTerms ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sample Type
+            { "{{CB_Service}}", input.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Contract}}", input.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_QLNN}}", input.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_SubContract}}", input.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Sample Storage
+            { "{{CB_Save_No}}", input.SampleStorage == SampleStorageOption.No ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_Save_Yes}}", input.SampleStorage == SampleStorageOption.Yes ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+
+            // Checkbox - Payment Method (disabled)
+            { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+        };
+
+        return placeholders;
+    }
+
+    /// <summary>
+    /// Build sample table data from preview DTO (no DB lookup)
+    /// </summary>
+    private List<TestRequestSampleTableRow> BuildPreviewSampleTableData(List<PreviewTestRequestSampleDto> samples)
+    {
+        var tableData = new List<TestRequestSampleTableRow>();
+        int rowIndex = 1;
+
+        foreach (var sample in samples.OrderBy(s => s.SortOrder))
+        {
+            var indicatorDetails = new List<IndicatorSubTableRow>();
+            int subRowIndex = 1;
+
+            foreach (var indicator in sample.Indicators)
+            {
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = indicator.IndicatorName,
+                    UnitPrice = indicator.UnitPrice.ToString("N0")
+                });
+            }
+
+            var indicatorNames = sample.Indicators
+                .Select(i => i.IndicatorName)
+                .Where(name => !string.IsNullOrEmpty(name))
+                .ToList();
+            var indicatorsText = indicatorNames.Count > 0
+                ? string.Join("\n", indicatorNames.Select(name => $"- {name}"))
+                : "";
+
+            tableData.Add(new TestRequestSampleTableRow
+            {
+                No = rowIndex++,
+                SampleName = sample.SampleName ?? "",
+                Quantity = sample.SampleQuantity ?? "",
+                SampleInfo = sample.StatusText ?? "",
+                Indicators = indicatorsText,
+                IndicatorDetails = indicatorDetails
+            });
+        }
+
+        return tableData;
     }
 
     /// <summary>
@@ -1304,15 +1560,31 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
-            // Build indicators text for this sample
-            var sampleIndicatorIds = allSampleIndicators
+            // Get sample indicators for this sample with their prices
+            var sampleIndicatorList = allSampleIndicators
                 .Where(si => si.TestRequestSampleId == sample.Id)
-                .Select(si => si.IndicatorId)
                 .ToList();
 
-            // Format indicators as list with - prefix and newline
-            var indicatorNames = sampleIndicatorIds
-                .Select(id => indicatorDict.GetValueOrDefault(id)?.Name ?? "")
+            // Build indicator details for sub-table
+            var indicatorDetails = new List<IndicatorSubTableRow>();
+            int subRowIndex = 1;
+            foreach (var si in sampleIndicatorList)
+            {
+                var indicator = indicatorDict.GetValueOrDefault(si.IndicatorId);
+                if (indicator != null)
+                {
+                    indicatorDetails.Add(new IndicatorSubTableRow
+                    {
+                        No = subRowIndex++,
+                        IndicatorName = indicator.Name ?? "",
+                        UnitPrice = si.UnitPrice.ToString("N0")
+                    });
+                }
+            }
+
+            // Format indicators as list with - prefix and newline (for fallback/old template)
+            var indicatorNames = sampleIndicatorList
+                .Select(si => indicatorDict.GetValueOrDefault(si.IndicatorId)?.Name ?? "")
                 .Where(name => !string.IsNullOrEmpty(name))
                 .ToList();
             var indicatorsText = indicatorNames.Count > 0
@@ -1325,7 +1597,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
-                Indicators = indicatorsText
+                Indicators = indicatorsText,
+                IndicatorDetails = indicatorDetails
             });
         }
 
@@ -1531,14 +1804,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             var directRows = table.Elements<TableRow>().ToList();
             foreach (var row in directRows)
             {
-                var hasNestedTable = row.Descendants<Table>().Any();
                 var rowText = GetDirectRowText(row);
 
-                // Look for sample table markers
-                if (!hasNestedTable && (rowText.Contains("{{TestRequestTable}}") || rowText.Contains("{{NameOfSample}}")))
+                // Look for sample table markers - allow rows with or without nested tables
+                if (rowText.Contains("{{TestRequestTable}}") || rowText.Contains("{{NameOfSample}}"))
                 {
                     targetTable = table;
                     templateRow = row;
+                    _logger.LogInformation("Found template row with text: {RowText}, has nested table: {HasNested}",
+                        rowText.Substring(0, Math.Min(100, rowText.Length)),
+                        row.Descendants<Table>().Any());
                     break;
                 }
             }
@@ -1604,12 +1879,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeSplitPlaceholders(para);
         }
 
-        // Then replace placeholders
+        // Check if there's a nested sub-table for indicators
+        var nestedTable = newRow.Descendants<Table>().FirstOrDefault();
+        _logger.LogInformation("Looking for nested table in row. Found: {Found}, IndicatorDetails count: {Count}",
+            nestedTable != null, data.IndicatorDetails.Count);
+        if (nestedTable != null && data.IndicatorDetails.Count > 0)
+        {
+            _logger.LogInformation("Processing nested sub-table with {Count} indicators", data.IndicatorDetails.Count);
+            ProcessIndicatorSubTable(nestedTable, data.IndicatorDetails);
+        }
+
+        // Then replace placeholders in the main row (excluding nested table which is already processed)
         foreach (var text in newRow.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // Handle {{SampleIndicators}} separately - need to insert line breaks
+            // Skip if this text is inside a nested table (already processed)
+            if (text.Ancestors<Table>().Count() > 0 && nestedTable != null)
+            {
+                // Check if this text is inside the nested table
+                var parentTable = text.Ancestors<Table>().FirstOrDefault();
+                if (parentTable == nestedTable) continue;
+            }
+
+            // Handle {{SampleIndicators}} separately - need to insert line breaks (fallback for old template)
             if (text.Text.Contains("{{SampleIndicators}}"))
             {
                 ReplaceTextWithLineBreaks(text, "{{SampleIndicators}}", data.Indicators);
@@ -1626,6 +1919,95 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         return newRow;
+    }
+
+    /// <summary>
+    /// Process indicator sub-table inside sample row
+    /// Handles {{SubTable}}{{SubNo}}, {{SubIndicator}}, {{SubPrice}} placeholders
+    /// </summary>
+    private void ProcessIndicatorSubTable(Table subTable, List<IndicatorSubTableRow> indicatorDetails)
+    {
+        // First, merge split placeholders in all paragraphs within the sub-table
+        foreach (var para in subTable.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Find the template row containing {{SubTable}} or {{SubNo}}
+        TableRow? templateRow = null;
+        foreach (var row in subTable.Elements<TableRow>())
+        {
+            var rowText = string.Concat(row.Descendants<Text>().Select(t => t.Text ?? ""));
+            _logger.LogInformation("Sub-table row text: {RowText}", rowText);
+            if (rowText.Contains("{{SubTable}}") || rowText.Contains("{{SubNo}}") || rowText.Contains("{{SubIndicator}}"))
+            {
+                templateRow = row;
+                _logger.LogInformation("Found template row in sub-table");
+                break;
+            }
+        }
+
+        if (templateRow == null)
+        {
+            _logger.LogWarning("No template row found in sub-table. Available rows: {RowCount}", subTable.Elements<TableRow>().Count());
+            return;
+        }
+
+        // Clone template row and remove original
+        var templateClone = (TableRow)templateRow.CloneNode(true);
+        var templateRowParent = templateRow.Parent;
+        var templateRowIndex = templateRowParent?.Elements<TableRow>().ToList().IndexOf(templateRow) ?? 0;
+        templateRow.Remove();
+
+        // Get all rows after removal to determine insert position
+        var allRows = subTable.Elements<TableRow>().ToList();
+        TableRow? insertAfterRow = templateRowIndex > 0 && allRows.Count > 0
+            ? allRows[Math.Min(templateRowIndex - 1, allRows.Count - 1)]
+            : null;
+
+        // Create and insert data rows for each indicator
+        foreach (var indicator in indicatorDetails)
+        {
+            var newRow = (TableRow)templateClone.CloneNode(true);
+
+            // Merge split placeholders
+            foreach (var para in newRow.Descendants<Paragraph>())
+            {
+                MergeSplitPlaceholders(para);
+            }
+
+            // Replace placeholders in the new row
+            foreach (var text in newRow.Descendants<Text>().ToList())
+            {
+                if (string.IsNullOrEmpty(text.Text)) continue;
+
+                text.Text = text.Text
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{SubNo}}", indicator.No.ToString())
+                    .Replace("{{SubIndicator}}", indicator.IndicatorName)
+                    .Replace("{{SubPrice}}", indicator.UnitPrice);
+            }
+
+            // Insert the new row
+            if (insertAfterRow != null)
+            {
+                insertAfterRow.InsertAfterSelf(newRow);
+                insertAfterRow = newRow;
+            }
+            else
+            {
+                var firstRow = subTable.Elements<TableRow>().FirstOrDefault();
+                if (firstRow != null)
+                {
+                    firstRow.InsertBeforeSelf(newRow);
+                }
+                else
+                {
+                    subTable.AppendChild(newRow);
+                }
+                insertAfterRow = newRow;
+            }
+        }
     }
 
     /// <summary>
@@ -1721,6 +2103,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string Quantity { get; set; } = "";
         public string SampleInfo { get; set; } = "";
         public string Indicators { get; set; } = "";
+        public List<IndicatorSubTableRow> IndicatorDetails { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Indicator sub-table row data for nested table in test request form
+    /// </summary>
+    private class IndicatorSubTableRow
+    {
+        public int No { get; set; }
+        public string IndicatorName { get; set; } = "";
+        public string UnitPrice { get; set; } = "";
     }
 
     /// <summary>
@@ -1756,9 +2149,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
         var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
 
-        // Total amount formatting
-        var totalAmount = testRequest.TotalCost.ToString("N0");
-        var totalByText = testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost);
+        // Total amount formatting - Mẫu nhiệm vụ hiển thị 0
+        var actualTotalCost = testRequest.SampleTypeTask ? 0 : testRequest.TotalCost;
+        var totalAmount = actualTotalCost.ToString("N0");
+        var totalByText = testRequest.SampleTypeTask
+            ? "Không đồng"
+            : (testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost));
 
         // Receipt number
         var receiptNumber = testRequest.ReceiptNumber ?? "";
@@ -1964,8 +2360,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
         }
 
-        // Calculate TimeOfTesting: TestDate - SubmitDate for single indicator
-        var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
+        // Not just this single indicator, but all indicators in the contract
+        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
+        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
+        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
+        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+
+        // Merge notes from QLKT (lab) and QLCL (quality)
+        var mergedNote = await GetMergedNoteAsync(labTaskIndicator.TestRequestSampleIndicatorId, input.Note);
 
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -1984,7 +2388,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" },
+            { "{{Note}}", mergedNote },
 
             // Additional placeholders for BM05-QLNN template
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
@@ -1993,7 +2397,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
             { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
             { "{{AttachFile}}", "" }, // TODO: Add attachment info if needed
-            { "{{Result}}", labTaskIndicator.Result ?? "" },
+            { "{{Result}}", ConvertToSuperscriptDisplay(labTaskIndicator.Result) },
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
@@ -2006,7 +2410,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = labTaskIndicator.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
                 Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
@@ -2130,8 +2534,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of all selected indicators
-        var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
+        // Not just the selected indicators, but all indicators in the contract
+        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
+        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
+        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
+        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+
+        // Merge notes from QLKT (lab) and QLCL (quality) for multiple indicators
+        var mergedNote = await GetMergedNotesForMultipleIndicatorsAsync(sampleIndicatorIds, input.Note);
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -2150,7 +2562,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", input.Note ?? "" },
+            { "{{Note}}", mergedNote },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
             { "{{Date}}", now.Day.ToString() },
@@ -2180,12 +2592,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
             }
 
-            // Build Result with Note (format: Result + newline + Note)
-            var resultText = labTaskIndicator.Result ?? "";
-            if (!string.IsNullOrWhiteSpace(labTaskIndicator.Note))
-            {
-                resultText = $"{resultText}\n{labTaskIndicator.Note}";
-            }
+            // Apply superscript conversion for formulas like 2^2 → 2²
+            var resultText = ConvertToSuperscriptDisplay(labTaskIndicator.Result);
 
             tableData.Add(new ResultFormTableRow
             {
@@ -2332,8 +2740,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of all indicators from selected samples
-        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
+        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
+        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
 
         // Use first sample for header info (or combine if needed)
         var firstSample = samples.FirstOrDefault();
@@ -2389,7 +2799,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
-                Result = taskIndicator?.Result ?? "",
+                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",
                 Proclaim = ""
@@ -2509,4 +2919,196 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return Path.Combine(templatesDir, defaultTemplate);
     }
+
+    #region Superscript Helpers
+
+    /// <summary>
+    /// Unicode Superscript character mapping
+    /// </summary>
+    private static readonly Dictionary<char, char> SuperscriptMap = new()
+    {
+        {'0', '⁰'}, {'1', '¹'}, {'2', '²'}, {'3', '³'}, {'4', '⁴'},
+        {'5', '⁵'}, {'6', '⁶'}, {'7', '⁷'}, {'8', '⁸'}, {'9', '⁹'},
+        {'-', '⁻'}, {'+', '⁺'}, {'.', '·'}
+    };
+
+    /// <summary>
+    /// Convert caret notation to Unicode superscript for display in reports
+    /// Examples:
+    /// - 2^2 → 2²
+    /// - 10^-3 → 10⁻³
+    /// - 1.5x10^-6 → 1.5×10⁻⁶
+    /// - 2X10^2 → 2×10²
+    /// Already-unicode superscript text is passed through unchanged
+    /// </summary>
+    private static string ConvertToSuperscriptDisplay(string? text)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return text ?? "";
+
+        var result = text;
+
+        // 1. Convert 'x' or 'X' between numbers to '×' (multiplication sign)
+        // Pattern: number followed by x/X followed by number
+        result = Regex.Replace(result, @"(\d)\s*[xX]\s*(\d)", "$1×$2");
+
+        // 2. Convert caret notation to superscript
+        // Pattern: number^exponent (e.g., 2^2, 10^-3, 5.5^2)
+        var caretPattern = @"(\d+(?:\.\d+)?)\^(-?\d+(?:\.\d+)?)";
+        result = Regex.Replace(result, caretPattern, match =>
+        {
+            var baseNum = match.Groups[1].Value;
+            var exponent = match.Groups[2].Value;
+            var superscriptExponent = new string(exponent.Select(c =>
+                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
+            return baseNum + superscriptExponent;
+        });
+
+        return result;
+    }
+
+    /// <summary>
+    /// Merge ghi chú từ QLKT (đã lưu trong SampleIndicatorNote) với ghi chú từ QLCL (input parameter)
+    /// Format: Ghi chú QLKT + newline + Ghi chú QLCL
+    /// </summary>
+    private async Task<string> GetMergedNoteAsync(Guid testRequestSampleIndicatorId, string? qualityNote)
+    {
+        var parts = new List<string>();
+
+        // 1. Lấy ghi chú từ QLKT (SampleIndicatorNote)
+        var sampleIndicatorNote = await _sampleIndicatorNoteRepository.FirstOrDefaultAsync(
+            x => x.TestRequestSampleIndicatorId == testRequestSampleIndicatorId
+        );
+
+        if (sampleIndicatorNote != null)
+        {
+            var labNote = new List<string>();
+
+            // Add NoteContent if exists
+            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.NoteContent))
+            {
+                labNote.Add(sampleIndicatorNote.NoteContent.Trim());
+            }
+
+            // Add master notes if exists
+            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.SelectedNoteIds))
+            {
+                try
+                {
+                    var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(sampleIndicatorNote.SelectedNoteIds);
+                    if (noteIds != null && noteIds.Any())
+                    {
+                        var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
+                        foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
+                        {
+                            labNote.Add($"- {note.Content}");
+                        }
+                    }
+                }
+                catch (System.Text.Json.JsonException ex)
+                {
+                    _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", sampleIndicatorNote.Id);
+                }
+            }
+
+            if (labNote.Any())
+            {
+                parts.Add(string.Join("\n", labNote));
+            }
+        }
+
+        // 2. Add ghi chú từ QLCL
+        if (!string.IsNullOrWhiteSpace(qualityNote))
+        {
+            parts.Add(qualityNote.Trim());
+        }
+
+        // 3. Merge: Nối đuôi nhưng tách biệt 2 đoạn ra
+        return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    /// <summary>
+    /// Merge ghi chú từ nhiều chỉ tiêu (QLKT) với ghi chú từ QLCL cho In KQ Hỗn Hợp
+    /// Logic:
+    /// - Gộp tất cả NoteContent từ các chỉ tiêu (mỗi note 1 dòng với dấu -)
+    /// - Gộp tất cả Master Note Items và loại bỏ trùng lặp
+    /// - Thêm ghi chú từ QLCL ở cuối
+    /// Format: QLKT note contents + Master notes + QLCL note
+    /// </summary>
+    private async Task<string> GetMergedNotesForMultipleIndicatorsAsync(List<Guid> testRequestSampleIndicatorIds, string? qualityNote)
+    {
+        var parts = new List<string>();
+
+        // 1. Lấy tất cả ghi chú từ QLKT (SampleIndicatorNote)
+        var sampleIndicatorNotes = await _sampleIndicatorNoteRepository.GetListAsync(
+            x => testRequestSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId)
+        );
+
+        if (sampleIndicatorNotes.Any())
+        {
+            var allNoteContents = new HashSet<string>(); // Use HashSet to avoid duplicates
+            var allMasterNoteIds = new HashSet<Guid>(); // Use HashSet to avoid duplicates
+
+            // Collect all note contents and master note IDs
+            foreach (var note in sampleIndicatorNotes)
+            {
+                // Add NoteContent if exists (HashSet automatically handles duplicates)
+                if (!string.IsNullOrWhiteSpace(note.NoteContent))
+                {
+                    allNoteContents.Add(note.NoteContent.Trim());
+                }
+
+                // Collect master note IDs
+                if (!string.IsNullOrWhiteSpace(note.SelectedNoteIds))
+                {
+                    try
+                    {
+                        var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(note.SelectedNoteIds);
+                        if (noteIds != null && noteIds.Any())
+                        {
+                            foreach (var id in noteIds)
+                            {
+                                allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
+                            }
+                        }
+                    }
+                    catch (System.Text.Json.JsonException ex)
+                    {
+                        _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", note.Id);
+                    }
+                }
+            }
+
+            // Add all note contents
+            if (allNoteContents.Any())
+            {
+                parts.Add(string.Join("\n", allNoteContents));
+            }
+
+            // Fetch and add master notes (distinct)
+            if (allMasterNoteIds.Any())
+            {
+                var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
+                var masterNoteLines = masterNotes
+                    .OrderBy(x => x.SortOrder)
+                    .Select(x => x.Content)
+                    .ToList();
+
+                if (masterNoteLines.Any())
+                {
+                    parts.Add(string.Join("\n", masterNoteLines));
+                }
+            }
+        }
+
+        // 2. Add ghi chú từ QLCL
+        if (!string.IsNullOrWhiteSpace(qualityNote))
+        {
+            parts.Add(qualityNote.Trim());
+        }
+
+        // 3. Merge: Nối đuôi nhưng tách biệt các đoạn ra
+        return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    #endregion
 }

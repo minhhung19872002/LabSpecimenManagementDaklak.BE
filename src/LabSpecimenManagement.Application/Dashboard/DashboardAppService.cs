@@ -66,7 +66,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         return new DashboardStatisticsDto
         {
             TotalRequests = testRequests.Count(),
-            PendingRequests = testRequests.Count(x => x.Status == TestRequestStatus.Pending),
+            PendingRequests = testRequests.Count(x => x.Status == TestRequestStatus.PendingPayment || x.Status == TestRequestStatus.Paid),
             InProgressRequests = testRequests.Count(x => x.Status == TestRequestStatus.InProgress),
             CompletedRequests = testRequests.Count(x => x.Status == TestRequestStatus.Completed),
             TotalSpecimens = specimens.Count(),
@@ -140,7 +140,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         return new DashboardSummaryDto
         {
             TotalTestRequests = testRequests.Count(),
-            PendingTestRequests = testRequests.Count(x => x.Status == TestRequestStatus.Pending),
+            PendingTestRequests = testRequests.Count(x => x.Status == TestRequestStatus.PendingPayment || x.Status == TestRequestStatus.Paid),
             TotalSpecimens = specimens.Count(),
             SpecimenInTesting = specimens.Count(x => x.Status == SpecimenStatus.Testing),
             TotalTests = tests.Count(),

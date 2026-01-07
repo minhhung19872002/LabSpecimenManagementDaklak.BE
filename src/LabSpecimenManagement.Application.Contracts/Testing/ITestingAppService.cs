@@ -62,4 +62,29 @@ public interface ITestingAppService : IApplicationService
     /// Get sample testing images
     /// </summary>
     Task<List<SampleTestingImageDto>> GetSampleTestingImagesAsync(Guid laboratoryTaskId, Guid sampleId, SampleTestingImageType? imageType = null);
+
+    /// <summary>
+    /// Upload indicator image
+    /// </summary>
+    Task<IndicatorImageDto> UploadIndicatorImageAsync(Guid laboratoryTaskId, Guid indicatorId, string fileId, string fileName, string filePath, long fileSize);
+
+    /// <summary>
+    /// Delete indicator image
+    /// </summary>
+    Task DeleteIndicatorImageAsync(Guid imageId);
+
+    /// <summary>
+    /// Get indicator images
+    /// </summary>
+    Task<List<IndicatorImageDto>> GetIndicatorImagesAsync(Guid indicatorId);
+
+    /// <summary>
+    /// KTV nhận mẫu - đánh dấu mẫu đã nhận trước khi thực hiện thí nghiệm
+    /// </summary>
+    Task ReceiveSampleAsync(Guid laboratoryTaskId, Guid sampleId);
+
+    /// <summary>
+    /// Kiểm tra mẫu đã được nhận chưa
+    /// </summary>
+    Task<bool> IsSampleReceivedAsync(Guid laboratoryTaskId, Guid sampleId);
 }

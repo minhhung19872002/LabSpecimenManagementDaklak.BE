@@ -29,6 +29,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     public const string RoleSampleReceiver = "SampleReceiver";            // Bộ phận Giao nhận mẫu
     public const string RoleQualityManager = "QualityManager";            // Quản lý chất lượng (QLCL)
     public const string RoleLabTechnician = "LabTechnician";              // Kỹ thuật viên (KTV)
+    public const string RoleAccountant = "Accountant";                    // Kế toán
 
     public LabUsersDataSeedContributor(
         IGuidGenerator guidGenerator,
@@ -64,7 +65,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     private async Task CreateRolesAsync()
     {
         // 1. LabTechnicalManager - Quản lý kỹ thuật Lab (labvisinh, labhoa)
-        // Access: Dashboard, Quản lý công việc, Quản lý xét nghiệm, Quản lý mẫu
+        // Access: Dashboard, Quản lý công việc, Quản lý thử nghiệm, Quản lý mẫu
         await CreateRoleIfNotExistsAsync(RoleLabTechnicalManager, new[]
         {
             // Dashboard
@@ -74,7 +75,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
             LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll,
             LabSpecimenManagementPermissions.LaboratoryTasks.UpdateStatus,
-            // Quản lý xét nghiệm (Tests)
+            // Quản lý thử nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Execute,
             LabSpecimenManagementPermissions.Tests.Review,
@@ -100,7 +101,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         });
 
         // 3. QualityManager - Quản lý chất lượng (quanlychatluong)
-        // Access: Dashboard, Quản lý phiếu yêu cầu, Quản lý chất lượng, Quản lý mẫu, Quản lý xét nghiệm, Quản lý công việc
+        // Access: Dashboard, Quản lý phiếu yêu cầu, Quản lý chất lượng, Quản lý mẫu, Quản lý thử nghiệm, Quản lý công việc
         await CreateRoleIfNotExistsAsync(RoleQualityManager, new[]
         {
             // Dashboard
@@ -113,7 +114,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.LaboratoryTasks.Default,
             LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
             LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll,
-            // Quản lý xét nghiệm (Tests)
+            // Quản lý thử nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Execute,
             LabSpecimenManagementPermissions.Tests.Review,
@@ -133,7 +134,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         });
 
         // 4. LabTechnician - Kỹ thuật viên (kythuatvien1, kythuatvien2)
-        // Access: Dashboard, Quản lý xét nghiệm, Quản lý mẫu, Quản lý công việc (để xem task được giao)
+        // Access: Dashboard, Quản lý thử nghiệm, Quản lý mẫu, Quản lý công việc (để xem task được giao)
         await CreateRoleIfNotExistsAsync(RoleLabTechnician, new[]
         {
             // Dashboard - để xem overview và task được giao
@@ -141,7 +142,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             // Quản lý công việc (LaboratoryTasks) - cần để truy cập trang Testing
             LabSpecimenManagementPermissions.LaboratoryTasks.Default,
             LabSpecimenManagementPermissions.LaboratoryTasks.Edit,
-            // Quản lý xét nghiệm (Tests)
+            // Quản lý thử nghiệm (Tests)
             LabSpecimenManagementPermissions.Tests.Default,
             LabSpecimenManagementPermissions.Tests.Execute,
             // Quản lý mẫu (Specimens)
@@ -151,6 +152,17 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.TestResults.Create,
             LabSpecimenManagementPermissions.TestResults.Edit,
             LabSpecimenManagementPermissions.TestResults.Submit,
+        });
+
+        // 5. Accountant - Kế toán (ketoan)
+        // Access: Báo giá
+        await CreateRoleIfNotExistsAsync(RoleAccountant, new[]
+        {
+            // Báo giá (Quotations)
+            LabSpecimenManagementPermissions.Quotations.Default,
+            LabSpecimenManagementPermissions.Quotations.Create,
+            LabSpecimenManagementPermissions.Quotations.Edit,
+            LabSpecimenManagementPermissions.Quotations.Delete,
         });
     }
 
@@ -235,6 +247,15 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             "Kỹ thuật viên 2",
             defaultPassword,
             new[] { RoleLabTechnician }
+        );
+
+        // 8. Kế toán
+        await CreateUserIfNotExistsAsync(
+            "ketoan",
+            "ketoan@lab.vn",
+            "Kế toán",
+            defaultPassword,
+            new[] { RoleAccountant }
         );
     }
 

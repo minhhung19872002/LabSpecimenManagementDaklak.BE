@@ -71,7 +71,7 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         result.RequestNumber.ShouldStartWith("TR-");
         result.CustomerName.ShouldBe("Công ty Test ABC");
         result.Phone.ShouldBe("0903456789");
-        result.Status.ShouldBe(TestRequestStatus.Pending);
+        result.Status.ShouldBe(TestRequestStatus.New);
     }
 
     [Fact]
@@ -155,7 +155,7 @@ public abstract class TestRequestAppService_Tests<TStartupModule> : LabSpecimenM
         var result = await _testRequestAppService.CreateAsync(input);
 
         // Assert
-        result.Status.ShouldBe(TestRequestStatus.Pending);
+        result.Status.ShouldBe(TestRequestStatus.New);
     }
 
     [Fact]

@@ -75,6 +75,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId);
 
     /// <summary>
+    /// Cập nhật ghi chú cho chỉ tiêu
+    /// </summary>
+    Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note);
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality)
     /// </summary>
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);
@@ -113,6 +118,12 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId);
 
+    /// <summary>
+    /// Kiểm tra user hiện tại có phải supporter của bất kỳ task chưa hoàn thành nào không
+    /// Dùng để xác định quyền truy cập sidebar "Quản lý công việc" và "Quản lý thử nghiệm"
+    /// </summary>
+    Task<bool> IsCurrentUserSupporterAsync();
+
     #endregion
 
     #region Bulk Approval
@@ -149,6 +160,41 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// Lấy danh sách công việc cần làm cho Lab Technician (KTV) (dùng cho popup reminder)
     /// </summary>
     Task<List<LabTechnicianPendingTaskDto>> GetLabTechnicianPendingTasksAsync();
+
+    #endregion
+
+    #region Workflow Redesign - QLKT Evaluation (Per-Indicator)
+
+    /// <summary>
+    /// QLKT đánh giá từng chỉ tiêu (Accept/RequestMethodChange/Reject)
+    /// </summary>
+    /// <param name="indicatorId">LaboratoryTaskIndicator ID</param>
+    /// <param name="input">Thông tin đánh giá</param>
+    /// <returns>DTO chỉ tiêu sau khi đánh giá</returns>
+    Task<LaboratoryTaskIndicatorDto> EvaluateIndicatorAsync(Guid indicatorId, EvaluateIndicatorDto input);
+
+    /// <summary>
+    /// QLKT yêu cầu đổi phương pháp cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    /// <param name="taskId">LaboratoryTask ID</param>
+    /// <param name="input">Danh sách chỉ tiêu và phương pháp mới</param>
+    /// <returns>Danh sách DTO chỉ tiêu sau khi xử lý</returns>
+    Task<List<LaboratoryTaskIndicatorDto>> RequestMethodChangeAsync(Guid taskId, RequestMethodChangeDto input);
+
+    /// <summary>
+    /// QLKT từ chối thử nghiệm cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    /// <param name="taskId">LaboratoryTask ID</param>
+    /// <param name="input">Danh sách chỉ tiêu và lý do từ chối</param>
+    /// <returns>Danh sách DTO chỉ tiêu sau khi xử lý</returns>
+    Task<List<LaboratoryTaskIndicatorDto>> RejectIndicatorsForTestingAsync(Guid taskId, RejectIndicatorsForTestingDto input);
+
+    /// <summary>
+    /// QLKT duyệt tất cả chỉ tiêu còn lại (status = Pending) của task
+    /// </summary>
+    /// <param name="taskId">LaboratoryTask ID</param>
+    /// <returns>DTO task sau khi xử lý</returns>
+    Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId);
 
     #endregion
 }

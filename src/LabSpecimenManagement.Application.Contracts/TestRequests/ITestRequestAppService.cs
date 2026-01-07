@@ -119,4 +119,85 @@ public interface ITestRequestAppService :
     /// In kết quả hỗn hợp (nhiều chỉ tiêu)
     /// </summary>
     Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+
+    /// <summary>
+    /// Gửi kế toán - Tạo Receipt tự động và cập nhật SentToAccounting = true
+    /// </summary>
+    Task<Guid> SendToAccountingAsync(Guid id);
+
+    /// <summary>
+    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
+    /// </summary>
+    Task SendToQLKTAsync(Guid id);
+
+    /// <summary>
+    /// Cập nhật LaboratoryId và RequestDate cho các chỉ tiêu trước khi gửi QLKT
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Danh sách chỉ tiêu cần cập nhật</param>
+    Task UpdateIndicatorsLaboratoryAsync(Guid id, UpdateIndicatorsLaboratoryInput input);
+
+    /// <summary>
+    /// Hủy yêu cầu thử nghiệm
+    /// </summary>
+    /// <param name="id">ID của yêu cầu</param>
+    /// <param name="input">Thông tin hủy (bao gồm lý do)</param>
+    Task CancelRequestAsync(Guid id, CancelTestRequestDto input);
+
+    /// <summary>
+    /// Sinh số hợp đồng tự động với format HDYYYYMMDD###
+    /// </summary>
+    Task<string> GenerateContractNumberAsync();
+
+    #region Workflow Redesign - BPGN Confirmation (Per-Indicator)
+
+    /// <summary>
+    /// Lấy danh sách chỉ tiêu chờ KH xác nhận
+    /// </summary>
+    Task<List<IndicatorPendingConfirmationDto>> GetIndicatorsPendingConfirmationAsync(Guid id);
+
+    /// <summary>
+    /// BPGN xác nhận từng chỉ tiêu (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="indicatorId">LaboratoryTaskIndicator ID</param>
+    /// <param name="input">Thông tin xác nhận</param>
+    Task<IndicatorPendingConfirmationDto> ConfirmIndicatorAsync(Guid id, Guid indicatorId, ConfirmIndicatorDto input);
+
+    /// <summary>
+    /// BPGN xác nhận nhiều chỉ tiêu cùng lúc (KH xác nhận đồng ý/không đồng ý)
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Thông tin xác nhận</param>
+    Task<List<IndicatorPendingConfirmationDto>> BulkConfirmIndicatorsAsync(Guid id, BulkConfirmIndicatorsDto input);
+
+    #endregion
+
+    #region BPGN - Confirm Delivery to Customer
+
+    /// <summary>
+    /// BPGN xác nhận đã bàn giao kết quả cho khách hàng
+    /// Status tự động tính dựa trên chỉ tiêu đã xuất bên QLCL:
+    /// - Còn chỉ tiêu chưa xuất → PartialResultSent
+    /// - Xuất hết → Completed
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Optional note when confirming</param>
+    Task ConfirmDeliveryToCustomerAsync(Guid id, ConfirmDeliveryInput? input = null);
+
+    /// <summary>
+    /// Lấy danh sách báo cáo đã xuất của TestRequest (để xem lịch sử)
+    /// </summary>
+    Task<List<PublishedReports.PublishedReportDto>> GetPublishedReportsAsync(Guid id);
+
+    #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id);
+
+    #endregion
 }

@@ -411,6 +411,62 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         await InsertNotificationAndPushAsync(notification);
     }
 
+    /// <summary>
+    /// QLCL: Phiếu yêu cầu có thay đổi cần phê duyệt
+    /// </summary>
+    public async Task NotifyTestRequestChangePendingApprovalAsync(
+        Guid qualityManagerId,
+        string contractNumber,
+        Guid testRequestId)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Thay đổi cho hợp đồng {contractNumber} cần được phê duyệt";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            qualityManagerId,
+            title,
+            message,
+            NotificationType.TestRequestChangePendingApproval,
+            testRequestId.ToString(),
+            "QualityManagement",
+            null
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    #endregion
+
+    #region Notifications for QLKT - CC (Thông báo CC cho QLKT)
+
+    /// <summary>
+    /// CC QLKT: Phiếu yêu cầu đang có điều chỉnh
+    /// </summary>
+    public async Task NotifyTestRequestChangeRequestedAsync(
+        Guid technicalManagerId,
+        string contractNumber,
+        Guid testRequestId)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Phiếu yêu cầu {contractNumber} đang có điều chỉnh";
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicalManagerId,
+            title,
+            message,
+            NotificationType.TestRequestChangeRequested,
+            testRequestId.ToString(),
+            "TestRequest",
+            null
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
     #endregion
 
     #region Notifications for SampleReceiver (Bộ phận Giao nhận mẫu)
@@ -517,6 +573,48 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             testRequestId.ToString(),
             "TestRequest",
             null
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    /// <summary>
+    /// CC SampleReceiver: QLCL đã phê duyệt kết quả chỉ tiêu
+    /// </summary>
+    public async Task NotifyResultApprovedToSampleReceiverAsync(
+        Guid sampleReceiverId,
+        string contractNumber,
+        Guid testRequestId,
+        string qualityManagerName,
+        string? sampleName = null,
+        string? indicatorName = null,
+        string? methodName = null)
+    {
+        var title = $"Hợp đồng {contractNumber}";
+        string message;
+
+        if (!string.IsNullOrEmpty(sampleName))
+        {
+            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"{sampleName} - {indicatorName} - {methodName}\n" +
+                      $"Kết quả đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+        }
+        else
+        {
+            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
+                      $"Kết quả đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+        }
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            sampleReceiverId,
+            title,
+            message,
+            NotificationType.ResultApprovedNotification,
+            testRequestId.ToString(),
+            "QualityManagement",
+            null,
+            qualityManagerName
         );
 
         await InsertNotificationAndPushAsync(notification);

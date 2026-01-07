@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using LabSpecimenManagement.Testing;
 
 namespace LabSpecimenManagement.QualityManagement;
 
@@ -118,14 +120,24 @@ public class QualityManagementIndicatorDto
     public string? RejectionReason { get; set; }
 
     /// <summary>
-    /// Đã gửi kết quả cho BPGN - Is Result Sent
+    /// Đã gửi kết quả cho BPGN - Is Result Sent (DEPRECATED)
     /// </summary>
     public bool IsResultSent { get; set; }
 
     /// <summary>
-    /// Ngày gửi kết quả cho BPGN - Quality Result Sent Date
+    /// Ngày gửi kết quả cho BPGN - Quality Result Sent Date (DEPRECATED)
     /// </summary>
     public DateTime? QualityResultSentDate { get; set; }
+
+    /// <summary>
+    /// Đã in kết quả (phát hành) - Is Printed
+    /// </summary>
+    public bool IsPrinted { get; set; }
+
+    /// <summary>
+    /// Ngày in kết quả - Printed Date
+    /// </summary>
+    public DateTime? PrintedDate { get; set; }
 
     /// <summary>
     /// ID người duyệt - Approved By ID
@@ -136,4 +148,9 @@ public class QualityManagementIndicatorDto
     /// Tên người duyệt - Approved By Name
     /// </summary>
     public string? ApprovedByName { get; set; }
+
+    /// <summary>
+    /// Danh sách hình ảnh của chỉ tiêu (max 5)
+    /// </summary>
+    public List<IndicatorImageDto> Images { get; set; } = new();
 }

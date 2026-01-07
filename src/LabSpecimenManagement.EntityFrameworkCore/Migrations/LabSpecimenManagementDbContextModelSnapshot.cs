@@ -24,6 +24,47 @@ namespace LabSpecimenManagement.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("FileId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("LaboratoryTaskIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LaboratoryTaskIndicatorId");
+
+                    b.ToTable("AppIndicatorImages", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -176,6 +217,16 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("AssignedDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("CustomerConfirmationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("CustomerConfirmedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CustomerConfirmedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<Guid?>("EnteredById")
                         .HasColumnType("uuid");
 
@@ -218,6 +269,20 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("TestRequestSampleIndicatorId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("TestingRejectedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TestingRejectedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("TestingRejectionDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("TestingRejectionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<string>("Unit")
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
@@ -235,6 +300,39 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("TestRequestSampleIndicatorId");
 
                     b.ToTable("AppLaboratoryTaskIndicators", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSampleReceived", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LaboratoryTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReceivedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReceivedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("ReceivedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("SampleId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LaboratoryTaskId");
+
+                    b.HasIndex("SampleId");
+
+                    b.HasIndex("LaboratoryTaskId", "SampleId")
+                        .IsUnique();
+
+                    b.ToTable("AppLaboratoryTaskSampleReceiveds", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSupporter", b =>
@@ -266,6 +364,99 @@ namespace LabSpecimenManagement.Migrations
                         .IsUnique();
 
                     b.ToTable("AppLaboratoryTaskSupporters", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.MethodChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ConfirmedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConfirmedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime?>("ConfirmedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool?>("IsApproved")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<Guid>("NewMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NewMethodName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("OldMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("OldMethodName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid>("RequestedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("RequestedByUserName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("RequestedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("IsApproved");
+
+                    b.HasIndex("RequestedDate");
+
+                    b.ToTable("AppMethodChangeHistories", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
@@ -705,6 +896,79 @@ namespace LabSpecimenManagement.Migrations
                         .IsUnique();
 
                     b.ToTable("AppLaboratories", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.Note", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("AppNotes", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Organization", b =>
@@ -1198,6 +1462,81 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTestMethodIndicators", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.TestResultValue", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.ToTable("AppTestResultValues", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.NCRs.NCR", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1400,6 +1739,76 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppNotifications", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("IndicatorIds")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("PrintNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("QualityManagementTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("QualityManagementTaskId");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppPublishedReports", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityIndicatorStatusHistory", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1449,11 +1858,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("ApprovedById")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsPrinted")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsResultSent")
                         .HasColumnType("boolean");
 
                     b.Property<Guid>("LaboratoryTaskIndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("PrintedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid>("QualityManagementTaskId")
                         .HasColumnType("uuid");
@@ -1529,6 +1944,18 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<Guid?>("HandoverByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("HandoverByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("HandoverDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("HandoverNote")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -1544,9 +1971,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnName("LastModifierId");
 
                     b.Property<DateTime?>("RequestCompletionDate")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<DateTime?>("ResultSentDate")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("Status")
@@ -1584,6 +2008,249 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("TransferDate");
 
                     b.ToTable("AppQualityManagementTasks", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.Quotation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Address")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<string>("ContactPerson")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("CustomerName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("DistrictCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid?>("OrganizationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Phone")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ProvinceCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.Property<DateTime>("QuotationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("QuotationNumber")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("TaxCode")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<decimal>("TotalCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("WardCode")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CustomerName");
+
+                    b.HasIndex("OrganizationId");
+
+                    b.HasIndex("QuotationDate");
+
+                    b.HasIndex("QuotationNumber")
+                        .IsUnique();
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("AppQuotations", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("IndicatorName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("QuotationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("SampleCount")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TestMethodId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TestMethodName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("QuotationId");
+
+                    b.HasIndex("TestMethodId");
+
+                    b.ToTable("AppQuotationItems", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime?>("PaidDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ReceiptNumber")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReceiptNumber");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("TestRequestId")
+                        .IsUnique();
+
+                    b.ToTable("AppReceipts", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Reports.Report", b =>
@@ -2036,6 +2703,86 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTaskAssignments", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.CostChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AffectedIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AffectedIndicatorName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("ChangeType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<decimal>("DifferenceAmount")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("IndicatorUnitPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("NewTotalCost")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("OldTotalCost")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppCostChangeHistories", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("NoteContent")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("SelectedNoteIds")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid>("TestRequestSampleIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestRequestSampleIndicatorId");
+
+                    b.ToTable("SampleIndicatorNotes");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2314,6 +3061,18 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("ApprovedDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("CancellationReason")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("CancelledByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CancelledByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("CancelledDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ChangeRequest")
                         .HasColumnType("text");
 
@@ -2369,8 +3128,20 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<Guid?>("DeliveredToCustomerByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("DeliveredToCustomerByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("DeliveredToCustomerDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<bool>("DeliveryDirectPickup")
                         .HasColumnType("boolean");
+
+                    b.Property<string>("DeliveryNote")
+                        .HasColumnType("text");
 
                     b.Property<bool>("DeliveryPostal")
                         .HasColumnType("boolean");
@@ -2468,9 +3239,21 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("ProvinceCode")
                         .HasColumnType("text");
 
+                    b.Property<Guid?>("QuotationId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ReceiptNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("ReportPublishedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReportPublishedByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("ReportPublishedDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<DateTime>("RequestDate")
                         .HasColumnType("timestamp without time zone");
@@ -2572,6 +3355,15 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<int>("TotalSampleCount")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("UnderReviewByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UnderReviewByUserName")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("UnderReviewDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Ward")
                         .HasMaxLength(100)
@@ -4763,6 +5555,17 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AbpTenantConnectionStrings", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorImage", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "LaboratoryTaskIndicator")
+                        .WithMany("Images")
+                        .HasForeignKey("LaboratoryTaskIndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LaboratoryTaskIndicator");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "Indicator")
@@ -4812,6 +5615,25 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("TestRequestSampleIndicator");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSampleReceived", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSample", "Sample")
+                        .WithMany()
+                        .HasForeignKey("SampleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LaboratoryTask");
+
+                    b.Navigation("Sample");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSupporter", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
@@ -4823,6 +5645,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("LaboratoryTask");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.MethodChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", "Indicator")
+                        .WithMany("MethodChangeHistories")
+                        .HasForeignKey("IndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Indicator");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
@@ -4832,6 +5665,25 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("LaboratoryTask");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.QualityManagement.QualityManagementTask", "QualityManagementTask")
+                        .WithMany()
+                        .HasForeignKey("QualityManagementTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("QualityManagementTask");
+
+                    b.Navigation("TestRequest");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityIndicatorStatusHistory", b =>
@@ -4875,6 +5727,53 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("TestRequest");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.Quotation", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.Organization", "Organization")
+                        .WithMany()
+                        .HasForeignKey("OrganizationId");
+
+                    b.Navigation("Organization");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationItem", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.Indicator", "Indicator")
+                        .WithMany()
+                        .HasForeignKey("IndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.Quotations.Quotation", "Quotation")
+                        .WithMany("Items")
+                        .HasForeignKey("QuotationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.MasterData.TestMethod", "TestMethod")
+                        .WithMany()
+                        .HasForeignKey("TestMethodId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Indicator");
+
+                    b.Navigation("Quotation");
+
+                    b.Navigation("TestMethod");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("TestRequest");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Reports.ReportTestResult", b =>
                 {
                     b.HasOne("LabSpecimenManagement.Reports.Report", "Report")
@@ -4910,6 +5809,28 @@ namespace LabSpecimenManagement.Migrations
                         .HasConstraintName("FK_AppSubcontractorCertifications_AppSubcontractors_Subcontra~1");
 
                     b.Navigation("Subcontractor");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.CostChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestRequest");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSampleIndicator", "TestRequestSampleIndicator")
+                        .WithMany()
+                        .HasForeignKey("TestRequestSampleIndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestRequestSampleIndicator");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>
@@ -5180,12 +6101,21 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskIndicator", b =>
                 {
+                    b.Navigation("Images");
+
+                    b.Navigation("MethodChangeHistories");
+
                     b.Navigation("RejectionHistories");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityManagementTask", b =>
                 {
                     b.Navigation("Indicators");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.Quotation", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Subcontractors.Subcontractor", b =>

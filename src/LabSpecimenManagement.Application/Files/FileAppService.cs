@@ -135,6 +135,25 @@ public class FileAppService : ApplicationService, IFileAppService
             }
         }
 
+        // Search in wwwroot/uploads/indicator-images/ folder (for indicator images)
+        var indicatorImagesPath = Path.Combine(webRootPath, "uploads", "indicator-images");
+        if (Directory.Exists(indicatorImagesPath))
+        {
+            foreach (var ext in AllowedImageExtensions)
+            {
+                var searchPattern = $"{fileId}{ext}";
+                var files = Directory.GetFiles(indicatorImagesPath, searchPattern, SearchOption.AllDirectories);
+                if (files.Length > 0)
+                {
+                    var filePath = files[0];
+                    var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.Read);
+                    var contentType = GetContentType(ext);
+                    var fileName = Path.GetFileName(filePath);
+                    return Task.FromResult<(Stream?, string, string)>((stream, fileName, contentType));
+                }
+            }
+        }
+
         return Task.FromResult<(Stream?, string, string)>((null, string.Empty, string.Empty));
     }
 

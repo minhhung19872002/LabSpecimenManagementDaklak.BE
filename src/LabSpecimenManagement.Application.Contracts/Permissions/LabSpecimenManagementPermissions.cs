@@ -231,4 +231,13 @@ public static class LabSpecimenManagementPermissions
         public const string Default = GroupName + ".Settings";
         public const string Edit = Default + ".Edit";
     }
+
+    // Quotation Permissions (Báo giá)
+    public static class Quotations
+    {
+        public const string Default = GroupName + ".Quotations";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
 }

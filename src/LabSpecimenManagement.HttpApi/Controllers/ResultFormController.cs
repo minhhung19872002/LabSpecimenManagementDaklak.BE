@@ -74,6 +74,17 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Preview test request form document (BM05) with form data without saving to DB
+    /// Used for previewing unsaved form data in create/edit mode
+    /// </summary>
+    [HttpPost("preview-test-request")]
+    public async Task<ActionResult<GenerateTestRequestFormOutput>> PreviewTestRequestForm([FromBody] PreviewTestRequestFormInput input)
+    {
+        var result = await _resultFormAppService.PreviewTestRequestFormAsync(input);
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
     /// Combines indicators from multiple samples into one PDF
     /// </summary>

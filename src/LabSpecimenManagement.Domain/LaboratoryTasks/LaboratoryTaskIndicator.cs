@@ -83,9 +83,47 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? ApprovedById { get; set; }
 
     /// <summary>
-    /// Lý do từ chối - Rejection Reason
+    /// Lý do từ chối (kết quả không đạt) - Rejection Reason
     /// </summary>
     public string? RejectionReason { get; set; }
+
+    /// <summary>
+    /// Lý do từ chối thử nghiệm (QLKT từ chối trong giai đoạn đánh giá) - Testing Rejection Reason
+    /// </summary>
+    [MaxLength(1000)]
+    public string? TestingRejectionReason { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT từ chối thử nghiệm
+    /// </summary>
+    public DateTime? TestingRejectionDate { get; set; }
+
+    /// <summary>
+    /// Người từ chối thử nghiệm - QLKT User ID
+    /// </summary>
+    public Guid? TestingRejectedById { get; set; }
+
+    /// <summary>
+    /// Tên người từ chối thử nghiệm
+    /// </summary>
+    [MaxLength(256)]
+    public string? TestingRejectedByName { get; set; }
+
+    /// <summary>
+    /// Ngày KH xác nhận (đổi PP hoặc từ chối TN)
+    /// </summary>
+    public DateTime? CustomerConfirmationDate { get; set; }
+
+    /// <summary>
+    /// Người xác nhận KH - BPGN User ID
+    /// </summary>
+    public Guid? CustomerConfirmedById { get; set; }
+
+    /// <summary>
+    /// Tên người xác nhận KH
+    /// </summary>
+    [MaxLength(256)]
+    public string? CustomerConfirmedByName { get; set; }
 
     /// <summary>
     /// Đã gửi cho QLCL chưa - Is Sent To Quality
@@ -117,6 +155,16 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// Lịch sử từ chối - Rejection Histories
     /// </summary>
     public virtual ICollection<IndicatorRejectionHistory> RejectionHistories { get; set; } = new List<IndicatorRejectionHistory>();
+
+    /// <summary>
+    /// Lịch sử yêu cầu đổi phương pháp - Method Change Histories
+    /// </summary>
+    public virtual ICollection<MethodChangeHistory> MethodChangeHistories { get; set; } = new List<MethodChangeHistory>();
+
+    /// <summary>
+    /// Hình ảnh của chỉ tiêu - Indicator Images
+    /// </summary>
+    public virtual ICollection<IndicatorImage> Images { get; set; } = new List<IndicatorImage>();
 
     protected LaboratoryTaskIndicator()
     {

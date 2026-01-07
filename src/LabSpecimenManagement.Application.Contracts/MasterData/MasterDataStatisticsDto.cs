@@ -12,4 +12,6 @@ public class MasterDataStatisticsDto
     public int IndicatorGroupCount { get; set; }
     public int IndicatorCount { get; set; }
     public int FormTemplateCount { get; set; }
+    public int TestResultValueCount { get; set; }
+    public int NoteCount { get; set; }
 }

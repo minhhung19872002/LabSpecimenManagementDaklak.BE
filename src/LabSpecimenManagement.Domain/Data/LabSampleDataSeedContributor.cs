@@ -1180,7 +1180,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         req4.Address = "KCN Hòa Phú, TP. Buôn Ma Thuột, Đắk Lắk";
         req4.Province = "Đắk Lắk";
         req4.District = "TP. Buôn Ma Thuột";
-        req4.Status = TestRequestStatus.Pending;
+        req4.Status = TestRequestStatus.Paid;
         req4.ExpectedCompletionDate = now.AddDays(2);
         req4.TotalSampleCount = 1;
         req4.TotalCost = 380000;
@@ -1237,7 +1237,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         req5.Address = "18 Lê Duẩn, TP. Buôn Ma Thuột, Đắk Lắk";
         req5.Province = "Đắk Lắk";
         req5.District = "TP. Buôn Ma Thuột";
-        req5.Status = TestRequestStatus.Pending;
+        req5.Status = TestRequestStatus.Paid;
         req5.ExpectedCompletionDate = now.AddDays(4);
         req5.Notes = "Yêu cầu quan trắc định kỳ";
         req5.TotalSampleCount = 1;

@@ -41,11 +41,12 @@ public class IndicatorRejectionHistory : CreationAuditedEntity<Guid>
         Guid id,
         Guid indicatorId,
         string rejectionReason,
-        Guid rejectedById) : base(id)
+        Guid rejectedById,
+        DateTime rejectedDate) : base(id)
     {
         IndicatorId = indicatorId;
         RejectionReason = rejectionReason;
         RejectedById = rejectedById;
-        RejectedDate = DateTime.UtcNow;
+        RejectedDate = rejectedDate;
     }
 }

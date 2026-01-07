@@ -188,5 +188,34 @@ public partial class LaboratoryTaskAppService
         return supporters.Any(x => x.UserId == currentUserId.Value);
     }
 
+    /// <summary>
+    /// Kiểm tra user hiện tại có phải supporter của bất kỳ task chưa hoàn thành nào không
+    /// Dùng để xác định quyền truy cập sidebar "Quản lý công việc" và "Quản lý thử nghiệm"
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<bool> IsCurrentUserSupporterAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return false;
+        }
+
+        // Lấy danh sách task IDs mà user là supporter
+        var supporterRecords = await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value);
+        if (!supporterRecords.Any())
+        {
+            return false;
+        }
+
+        var taskIds = supporterRecords.Select(s => s.LaboratoryTaskId).ToList();
+
+        // Kiểm tra xem có task nào chưa hoàn thành không (status != SentToQuality)
+        var incompleteTasks = await _laboratoryTaskRepository.GetListAsync(
+            t => taskIds.Contains(t.Id) && t.Status != LaboratoryTaskStatus.SentToQuality);
+
+        return incompleteTasks.Any();
+    }
+
     #endregion
 }

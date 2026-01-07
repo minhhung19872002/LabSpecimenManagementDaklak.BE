@@ -202,3 +202,195 @@ public class TemplateDto
     /// </summary>
     public string FileName { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Input DTO for previewing test request form with form data (no DB save required)
+/// Used when creating new test request or editing unsaved changes
+/// </summary>
+public class PreviewTestRequestFormInput
+{
+    #region Thông tin hợp đồng
+
+    [StringLength(100)]
+    public string? ContractNumber { get; set; }
+
+    public DateTime? ContractDate { get; set; }
+
+    public bool SentToAccounting { get; set; }
+
+    public bool PaymentReceived { get; set; }
+
+    public bool SentToDepartment { get; set; }
+
+    public bool ResultReturned { get; set; }
+
+    [Required]
+    [StringLength(256)]
+    public string CustomerName { get; set; } = string.Empty;
+
+    [StringLength(20)]
+    public string? ProvinceCode { get; set; }
+
+    [StringLength(100)]
+    public string? Province { get; set; }
+
+    [StringLength(20)]
+    public string? DistrictCode { get; set; }
+
+    [StringLength(100)]
+    public string? District { get; set; }
+
+    [StringLength(20)]
+    public string? WardCode { get; set; }
+
+    [StringLength(100)]
+    public string? Ward { get; set; }
+
+    [StringLength(500)]
+    public string? Address { get; set; }
+
+    [StringLength(50)]
+    public string? TaxCode { get; set; }
+
+    [StringLength(256)]
+    public string? ContactPerson { get; set; }
+
+    [StringLength(50)]
+    public string? Phone { get; set; }
+
+    #endregion
+
+    #region Thông tin còn lại
+
+    public int TotalSampleCount { get; set; }
+
+    #endregion
+
+    #region Phương pháp thử nghiệm
+
+    public bool MethodWestHighlandInstitute { get; set; }
+
+    public bool MethodCustomer { get; set; }
+
+    [StringLength(500)]
+    public string? MethodCustomerDetail { get; set; }
+
+    public TestRequests.ResultLanguage ResultLanguage { get; set; } = TestRequests.ResultLanguage.Vietnamese;
+
+    [StringLength(50)]
+    public string? ResultCopyCount { get; set; }
+
+    public bool SeparatePassedResults { get; set; }
+
+    [StringLength(500)]
+    public string? ConformityDeclaration { get; set; }
+
+    [StringLength(1000)]
+    public string? OtherRequirements { get; set; }
+
+    [StringLength(256)]
+    public string? SubContract { get; set; }
+
+    public TestRequests.SamplingRequirement SamplingRequirement { get; set; } = TestRequests.SamplingRequirement.CustomerSampling;
+
+    public bool DeliveryDirectPickup { get; set; }
+
+    public bool DeliveryPostal { get; set; }
+
+    public bool ReturnStoredSample { get; set; }
+
+    public bool SampleTypeService { get; set; }
+
+    public bool SampleTypeContract { get; set; }
+
+    public bool SampleTypeTask { get; set; }
+
+    public bool SampleTypeSubContract { get; set; }
+
+    public DateTime? ResultDeliveryDate { get; set; }
+
+    public TestRequests.SampleStorageOption SampleStorage { get; set; } = TestRequests.SampleStorageOption.No;
+
+    public decimal TotalCost { get; set; }
+
+    [StringLength(500)]
+    public string? TotalCostInWords { get; set; }
+
+    [StringLength(100)]
+    public string? ReceiptNumber { get; set; }
+
+    public bool AgreeTerms { get; set; }
+
+    #endregion
+
+    #region Legacy fields
+
+    [Required]
+    public DateTime RequestDate { get; set; } = DateTime.Now;
+
+    [StringLength(2000)]
+    public string? Notes { get; set; }
+
+    #endregion
+
+    #region Collections
+
+    public List<PreviewTestRequestSampleDto> Samples { get; set; } = new();
+
+    #endregion
+}
+
+/// <summary>
+/// Sample DTO for preview (contains indicator names directly, no DB lookup needed)
+/// </summary>
+public class PreviewTestRequestSampleDto
+{
+    public int SortOrder { get; set; }
+
+    [Required]
+    [StringLength(50)]
+    public string SampleCode { get; set; } = string.Empty;
+
+    [Required]
+    [StringLength(256)]
+    public string SampleName { get; set; } = string.Empty;
+
+    [StringLength(500)]
+    public string? SamplingAddress { get; set; }
+
+    [StringLength(100)]
+    public string? SampleQuantity { get; set; }
+
+    [StringLength(256)]
+    public string? StatusText { get; set; }
+
+    [StringLength(1000)]
+    public string? Notes { get; set; }
+
+    /// <summary>
+    /// Indicator data for the sample (for preview only)
+    /// </summary>
+    public List<PreviewSampleIndicatorDto> Indicators { get; set; } = new();
+}
+
+/// <summary>
+/// Indicator DTO for preview (contains name and price, no ID lookup needed)
+/// </summary>
+public class PreviewSampleIndicatorDto
+{
+    /// <summary>
+    /// Indicator ID (for price lookup if needed)
+    /// </summary>
+    public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// Indicator name (displayed in form)
+    /// </summary>
+    [StringLength(256)]
+    public string IndicatorName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Unit price
+    /// </summary>
+    public decimal UnitPrice { get; set; }
+}

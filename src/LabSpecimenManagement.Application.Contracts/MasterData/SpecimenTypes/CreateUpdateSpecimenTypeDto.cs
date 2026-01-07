@@ -4,9 +4,8 @@ namespace LabSpecimenManagement.MasterData;
 
 public class CreateUpdateSpecimenTypeDto
 {
-    [Required]
     [StringLength(20)]
-    public string Code { get; set; }
+    public string? Code { get; set; }
 
     [Required]
     [StringLength(100)]

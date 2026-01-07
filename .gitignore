@@ -24,6 +24,8 @@ bld/
 
 # MSTest test Results
 [Tt]est[Rr]esult*/
+# But don't ignore TestResultValue source files
+!**/MasterData/TestResultValues/
 [Bb]uild[Ll]og.*
 
 # .NET Core
