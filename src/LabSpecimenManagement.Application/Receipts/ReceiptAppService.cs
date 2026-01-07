@@ -142,6 +142,18 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             throw new UserFriendlyException("Không tìm thấy phiếu thu");
         }
 
+        // Check trùng số phiếu thu (nếu có nhập số phiếu thu)
+        if (!string.IsNullOrWhiteSpace(input.ReceiptNumber))
+        {
+            var existingReceipt = await _receiptRepository.FirstOrDefaultAsync(r =>
+                r.ReceiptNumber == input.ReceiptNumber && r.Id != id);
+
+            if (existingReceipt != null)
+            {
+                throw new UserFriendlyException($"Số phiếu thu '{input.ReceiptNumber}' đã tồn tại");
+            }
+        }
+
         receipt.ReceiptNumber = input.ReceiptNumber;
 
         await _receiptRepository.UpdateAsync(receipt);
@@ -167,6 +179,18 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
         if (receipt.Status == ReceiptStatus.Cancelled)
         {
             throw new UserFriendlyException("Không thể cập nhật phiếu thu đã hủy");
+        }
+
+        // Check trùng số phiếu thu trước khi đánh dấu thanh toán
+        if (!string.IsNullOrWhiteSpace(receipt.ReceiptNumber))
+        {
+            var existingReceipt = await _receiptRepository.FirstOrDefaultAsync(r =>
+                r.ReceiptNumber == receipt.ReceiptNumber && r.Id != id);
+
+            if (existingReceipt != null)
+            {
+                throw new UserFriendlyException($"Số phiếu thu '{receipt.ReceiptNumber}' đã tồn tại");
+            }
         }
 
         receipt.MarkAsPaid();
