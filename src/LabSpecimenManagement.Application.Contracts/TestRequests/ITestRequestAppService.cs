@@ -131,6 +131,13 @@ public interface ITestRequestAppService :
     Task SendToQLKTAsync(Guid id);
 
     /// <summary>
+    /// Cập nhật LaboratoryId và RequestDate cho các chỉ tiêu trước khi gửi QLKT
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Danh sách chỉ tiêu cần cập nhật</param>
+    Task UpdateIndicatorsLaboratoryAsync(Guid id, UpdateIndicatorsLaboratoryInput input);
+
+    /// <summary>
     /// Hủy yêu cầu thử nghiệm
     /// </summary>
     /// <param name="id">ID của yêu cầu</param>

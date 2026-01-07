@@ -404,4 +404,27 @@ public class TestingController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Sample Received
+
+    /// <summary>
+    /// KTV nhận mẫu - đánh dấu mẫu đã nhận trước khi thực hiện thí nghiệm
+    /// </summary>
+    [HttpPost("{id}/samples/{sampleId}/receive")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task ReceiveSampleAsync(Guid id, Guid sampleId)
+    {
+        await _testingAppService.ReceiveSampleAsync(id, sampleId);
+    }
+
+    /// <summary>
+    /// Kiểm tra mẫu đã được nhận chưa
+    /// </summary>
+    [HttpGet("{id}/samples/{sampleId}/is-received")]
+    public virtual async Task<bool> IsSampleReceivedAsync(Guid id, Guid sampleId)
+    {
+        return await _testingAppService.IsSampleReceivedAsync(id, sampleId);
+    }
+
+    #endregion
 }

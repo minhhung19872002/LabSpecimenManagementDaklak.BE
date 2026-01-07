@@ -37,6 +37,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
+    private readonly IRepository<LaboratoryTaskSampleReceived, Guid> _sampleReceivedRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -56,6 +57,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
+        IRepository<LaboratoryTaskSampleReceived, Guid> sampleReceivedRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -74,6 +76,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _indicatorImageRepository = indicatorImageRepository;
         _supporterRepository = supporterRepository;
+        _sampleReceivedRepository = sampleReceivedRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -748,6 +751,16 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         CreationTime = i.CreationTime,
                         CreatorId = i.CreatorId
                     }).ToList();
+
+                // Load sample received info
+                var sampleReceived = await _sampleReceivedRepository.FirstOrDefaultAsync(x =>
+                    x.LaboratoryTaskId == task.Id && x.SampleId == sampleId);
+                if (sampleReceived != null)
+                {
+                    sampleDto.IsReceived = true;
+                    sampleDto.ReceivedDate = sampleReceived.ReceivedDate;
+                    sampleDto.ReceivedByUserName = sampleReceived.ReceivedByUserName;
+                }
 
                 sampleGroups[sampleId] = sampleDto;
             }
@@ -1442,6 +1455,90 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             CreationTime = x.CreationTime,
             CreatorId = x.CreatorId
         }).ToList();
+    }
+
+    #endregion
+
+    #region Sample Received
+
+    /// <summary>
+    /// KTV nhận mẫu - đánh dấu mẫu đã nhận trước khi thực hiện thí nghiệm
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task ReceiveSampleAsync(Guid laboratoryTaskId, Guid sampleId)
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            throw new ForbiddenAccessException("Không xác định được người dùng hiện tại");
+        }
+
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        if (task == null)
+        {
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
+        }
+
+        // Kiểm tra sample có thuộc task này không (qua indicators)
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
+        var sampleIds = new HashSet<Guid>();
+        foreach (var ti in taskIndicators)
+        {
+            var si = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+            if (si != null)
+            {
+                sampleIds.Add(si.TestRequestSampleId);
+            }
+        }
+
+        if (!sampleIds.Contains(sampleId))
+        {
+            throw new ValidationException("sampleId", "Mẫu không thuộc công việc này");
+        }
+
+        // Kiểm tra quyền: phải là KTV được giao việc hoặc supporter
+        var isAssignedTechnician = taskIndicators.Any(ti => ti.TechnicianId == currentUserId);
+        var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
+        var isSupporter = supporters.Any(s => s.UserId == currentUserId);
+
+        if (!isAssignedTechnician && !isSupporter)
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền nhận mẫu này");
+        }
+
+        // Kiểm tra đã nhận chưa
+        var existingReceived = await _sampleReceivedRepository.FirstOrDefaultAsync(x =>
+            x.LaboratoryTaskId == laboratoryTaskId && x.SampleId == sampleId);
+
+        if (existingReceived != null)
+        {
+            throw new ValidationException("sampleId", "Mẫu này đã được nhận trước đó");
+        }
+
+        // Lấy tên người dùng hiện tại
+        var userName = await _userNameProvider.GetUserNameAsync(currentUserId.Value);
+
+        // Tạo bản ghi nhận mẫu
+        var sampleReceived = new LaboratoryTaskSampleReceived(
+            _guidGenerator.Create(),
+            laboratoryTaskId,
+            sampleId,
+            DateTime.Now,
+            currentUserId.Value,
+            userName
+        );
+
+        await _sampleReceivedRepository.InsertAsync(sampleReceived);
+    }
+
+    /// <summary>
+    /// Kiểm tra mẫu đã được nhận chưa
+    /// </summary>
+    public async Task<bool> IsSampleReceivedAsync(Guid laboratoryTaskId, Guid sampleId)
+    {
+        var received = await _sampleReceivedRepository.FirstOrDefaultAsync(x =>
+            x.LaboratoryTaskId == laboratoryTaskId && x.SampleId == sampleId);
+        return received != null;
     }
 
     #endregion

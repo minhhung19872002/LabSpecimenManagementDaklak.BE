@@ -77,4 +77,14 @@ public interface ITestingAppService : IApplicationService
     /// Get indicator images
     /// </summary>
     Task<List<IndicatorImageDto>> GetIndicatorImagesAsync(Guid indicatorId);
+
+    /// <summary>
+    /// KTV nhận mẫu - đánh dấu mẫu đã nhận trước khi thực hiện thí nghiệm
+    /// </summary>
+    Task ReceiveSampleAsync(Guid laboratoryTaskId, Guid sampleId);
+
+    /// <summary>
+    /// Kiểm tra mẫu đã được nhận chưa
+    /// </summary>
+    Task<bool> IsSampleReceivedAsync(Guid laboratoryTaskId, Guid sampleId);
 }

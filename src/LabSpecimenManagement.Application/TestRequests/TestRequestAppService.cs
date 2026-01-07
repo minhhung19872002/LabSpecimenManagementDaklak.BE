@@ -1442,18 +1442,14 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
-    /// When user confirms sample sent - update status from Paid to SampleSent
+    /// When user confirms sample sent - update status to SampleSent
     /// Also creates LaboratoryTasks for all samples grouped by Laboratory
     /// </summary>
     public async Task SendSampleAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        // Kiểm tra trạng thái: Paid (đã thanh toán)
-        if (entity.Status != TestRequestStatus.Paid)
-        {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi mẫu khi trạng thái là 'Đã thanh toán'", "status");
-        }
+        // Không còn kiểm tra trạng thái Paid - cho phép gửi mẫu từ nhiều trạng thái
 
         entity.Status = TestRequestStatus.SampleSent;
         entity.SampleSentDate = Clock.Now; // Lưu ngày gửi mẫu (ngày lưu kho)
@@ -3110,8 +3106,9 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Gửi kế toán - Tạo Receipt và xử lý theo loại mẫu
-    /// - Mẫu nhiệm vụ (SampleTypeTask): Receipt = NoPaymentRequired, TestRequest -> UnderReview
+    /// - Mẫu nhiệm vụ (SampleTypeTask): Receipt = NoPaymentRequired, TestRequest -> Paid (auto, không chờ thanh toán)
     /// - Mẫu thường: Receipt = PendingPayment, chờ kế toán xác nhận thanh toán
+    /// User click "Gửi QLKT" để chuyển sang UnderReview
     /// </summary>
     public async Task<Guid> SendToAccountingAsync(Guid id)
     {
@@ -3133,22 +3130,14 @@ public partial class TestRequestAppService :
         // Xử lý theo loại mẫu
         if (entity.SampleTypeTask)
         {
-            // Mẫu nhiệm vụ: Không cần thanh toán -> tự động chuyển sang UnderReview
+            // Mẫu nhiệm vụ: Không cần thanh toán -> chuyển sang NoPaymentRequired
+            // User sẽ click "Gửi QLKT" để chuyển sang UnderReview
             var receipt = new Receipt(GuidGenerator.Create(), id, ReceiptStatus.NoPaymentRequired);
             await _receiptRepository.InsertAsync(receipt);
 
-            entity.Status = TestRequestStatus.UnderReview;
+            entity.Status = TestRequestStatus.NoPaymentRequired;
             entity.SentToAccounting = true;
-            entity.UnderReviewDate = Clock.Now;
-            entity.UnderReviewByUserId = _currentUser.Id;
-            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
-
-            // Tạo LaboratoryTasks grouped by Laboratory để QLKT đánh giá
-            await CreateLaboratoryTasksAsync(entity);
-
-            // Thông báo cho QLKT về yêu cầu mới cần đánh giá
-            await NotifyTechnicalManagersOnSampleSentAsync(entity);
 
             return receipt.Id;
         }
@@ -3169,17 +3158,18 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
-    /// Gửi QLKT - Chuyển từ Paid sang UnderReview (Đang xem xét YC)
-    /// Chỉ áp dụng cho mẫu thường (không phải mẫu nhiệm vụ)
+    /// Gửi QLKT - Chuyển từ Paid/NoPaymentRequired sang UnderReview (Đang xem xét YC)
+    /// Áp dụng cho cả mẫu thường (Paid) và mẫu nhiệm vụ (NoPaymentRequired)
     /// Tạo LaboratoryTasks để QLKT có thể đánh giá các chỉ tiêu
     /// </summary>
     public async Task SendToQLKTAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        if (entity.Status != TestRequestStatus.Paid)
+        // Cho phép gửi QLKT từ Paid (mẫu thường) hoặc NoPaymentRequired (mẫu nhiệm vụ)
+        if (entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Đã thanh toán'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
         }
 
         entity.Status = TestRequestStatus.UnderReview;
@@ -3194,6 +3184,73 @@ public partial class TestRequestAppService :
 
         // Thông báo cho QLKT về yêu cầu mới cần đánh giá
         await NotifyTechnicalManagersOnSampleSentAsync(entity);
+    }
+
+    /// <summary>
+    /// Cập nhật LaboratoryId và RequestDate cho các chỉ tiêu trước khi gửi QLKT
+    /// Sử dụng trong modal "Gửi QLKT" để người dùng chọn khoa phòng cho từng chỉ tiêu
+    /// </summary>
+    public async Task UpdateIndicatorsLaboratoryAsync(Guid id, UpdateIndicatorsLaboratoryInput input)
+    {
+        var entity = await Repository.GetAsync(id);
+
+        // Chỉ cho phép cập nhật khi status là Paid hoặc NoPaymentRequired (chuẩn bị gửi QLKT)
+        if (entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể cập nhật khoa phòng khi trạng thái là 'Đã thanh toán' hoặc 'Không cần thanh toán'",
+                "status");
+        }
+
+        // Validate tất cả indicators phải có LaboratoryId
+        if (input.Indicators.Any(i => i.LaboratoryId == Guid.Empty))
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Tất cả chỉ tiêu phải được chọn khoa phòng",
+                "laboratoryId");
+        }
+
+        // Get all sample indicators for validation
+        var sampleIndicatorIds = input.Indicators.Select(i => i.SampleIndicatorId).ToList();
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+
+        // Validate all sample indicators belong to this test request
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
+        var sampleIds = samples.Select(s => s.Id).ToHashSet();
+
+        foreach (var si in sampleIndicators)
+        {
+            if (!sampleIds.Contains(si.TestRequestSampleId))
+            {
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Một số chỉ tiêu không thuộc phiếu yêu cầu này",
+                    "sampleIndicatorId");
+            }
+        }
+
+        // Update each sample indicator
+        foreach (var indicatorInput in input.Indicators)
+        {
+            var sampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == indicatorInput.SampleIndicatorId);
+            if (sampleIndicator == null)
+            {
+                throw new Common.Exceptions.InvalidOperationException(
+                    $"Không tìm thấy chỉ tiêu với ID: {indicatorInput.SampleIndicatorId}",
+                    "sampleIndicatorId");
+            }
+
+            // Update LaboratoryId
+            sampleIndicator.LaboratoryId = indicatorInput.LaboratoryId;
+
+            // Update RequestDate nếu có
+            if (indicatorInput.RequestDate.HasValue)
+            {
+                sampleIndicator.RequestDate = indicatorInput.RequestDate.Value;
+            }
+
+            await _sampleIndicatorRepository.UpdateAsync(sampleIndicator, autoSave: true);
+        }
     }
 
     /// <summary>

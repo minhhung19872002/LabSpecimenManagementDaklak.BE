@@ -246,6 +246,16 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật LaboratoryId và RequestDate cho các chỉ tiêu trước khi gửi QLKT
+    /// </summary>
+    [HttpPost("{id}/update-indicators-laboratory")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task UpdateIndicatorsLaboratoryAsync(Guid id, [FromBody] UpdateIndicatorsLaboratoryInput input)
+    {
+        return _testRequestAppService.UpdateIndicatorsLaboratoryAsync(id, input);
+    }
+
+    /// <summary>
     /// Hủy yêu cầu thử nghiệm
     /// </summary>
     [HttpPost("{id}/cancel-request")]

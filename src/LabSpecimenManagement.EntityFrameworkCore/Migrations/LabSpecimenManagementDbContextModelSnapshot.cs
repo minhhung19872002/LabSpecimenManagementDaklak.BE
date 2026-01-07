@@ -302,6 +302,39 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppLaboratoryTaskIndicators", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSampleReceived", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LaboratoryTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ReceivedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReceivedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("ReceivedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("SampleId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LaboratoryTaskId");
+
+                    b.HasIndex("SampleId");
+
+                    b.HasIndex("LaboratoryTaskId", "SampleId")
+                        .IsUnique();
+
+                    b.ToTable("AppLaboratoryTaskSampleReceiveds", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSupporter", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5580,6 +5613,25 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("LaboratoryTask");
 
                     b.Navigation("TestRequestSampleIndicator");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSampleReceived", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
+                        .WithMany()
+                        .HasForeignKey("LaboratoryTaskId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequestSample", "Sample")
+                        .WithMany()
+                        .HasForeignKey("SampleId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("LaboratoryTask");
+
+                    b.Navigation("Sample");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTaskSupporter", b =>

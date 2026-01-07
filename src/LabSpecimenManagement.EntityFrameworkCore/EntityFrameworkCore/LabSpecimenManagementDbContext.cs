@@ -84,6 +84,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
+    public DbSet<LaboratoryTaskSampleReceived> LaboratoryTaskSampleReceiveds { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
     public DbSet<MethodChangeHistory> MethodChangeHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
@@ -767,6 +768,31 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.LaboratoryTask)
                 .WithMany(x => x.Supporters)
                 .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ LABORATORY TASK SAMPLE RECEIVED CONFIGURATION ============
+
+        builder.Entity<LaboratoryTaskSampleReceived>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryTaskSampleReceiveds", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.LaboratoryTaskId);
+            b.HasIndex(x => x.SampleId);
+            b.HasIndex(x => new { x.LaboratoryTaskId, x.SampleId }).IsUnique();
+
+            b.Property(x => x.ReceivedByUserName).HasMaxLength(256);
+
+            b.HasOne(x => x.LaboratoryTask)
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasOne(x => x.Sample)
+                .WithMany()
+                .HasForeignKey(x => x.SampleId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
         });

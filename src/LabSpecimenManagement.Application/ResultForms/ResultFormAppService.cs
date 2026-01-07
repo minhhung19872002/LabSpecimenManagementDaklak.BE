@@ -1415,8 +1415,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var subContractInfo = input.SubContract ?? "";
         var currentDate = DateTime.Now;
         var dateReceiving = input.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
-        var totalAmount = input.TotalCost.ToString("N0");
-        var totalByText = input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost);
+        // Mẫu nhiệm vụ hiển thị 0
+        var actualTotalCost = input.SampleTypeTask ? 0 : input.TotalCost;
+        var totalAmount = actualTotalCost.ToString("N0");
+        var totalByText = input.SampleTypeTask
+            ? "Không đồng"
+            : (input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost));
         var receiptNumber = input.ReceiptNumber ?? "";
         var currentDateText = currentDate.ToString("dd/MM/yyyy");
 
@@ -2145,9 +2149,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
         var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
 
-        // Total amount formatting
-        var totalAmount = testRequest.TotalCost.ToString("N0");
-        var totalByText = testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost);
+        // Total amount formatting - Mẫu nhiệm vụ hiển thị 0
+        var actualTotalCost = testRequest.SampleTypeTask ? 0 : testRequest.TotalCost;
+        var totalAmount = actualTotalCost.ToString("N0");
+        var totalByText = testRequest.SampleTypeTask
+            ? "Không đồng"
+            : (testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost));
 
         // Receipt number
         var receiptNumber = testRequest.ReceiptNumber ?? "";

@@ -20,5 +20,6 @@ public enum TestRequestStatus
     WaitingCustomerConfirm = 12,  // Chờ KH xác nhận - QLKT yêu cầu đổi PP hoặc từ chối
     RequestApproved = 13,         // Đã duyệt yêu cầu - Tất cả phòng LAB đã duyệt
     PartialResultSent = 14,       // Đã trả 1 phần KQ - đã trả một phần kết quả cho KH
-    ReportPublished = 15          // Đã phát hành BC - (đổi tên từ ResultSent)
+    ReportPublished = 15,         // Đã phát hành BC - (đổi tên từ ResultSent)
+    NoPaymentRequired = 16        // Không cần thanh toán - Mẫu nhiệm vụ (auto sau khi Gửi kế toán)
 }
