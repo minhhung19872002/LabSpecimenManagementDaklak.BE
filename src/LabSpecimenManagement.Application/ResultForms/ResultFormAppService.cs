@@ -231,8 +231,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Calculate TimeOfTesting from a list of LaboratoryTaskIndicators
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
-    /// - Start date = Min(TestDate) of all indicators
-    /// - End date = Max(SubmitDate) of all indicators
+    /// - Start date = Min(TestDate) of all indicators (thời gian thử nghiệm gần nhất)
+    /// - End date = Max(TestDate) of all indicators (thời gian thử nghiệm xa nhất)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
     /// </summary>
     private string CalculateTimeOfTesting(List<LaboratoryTaskIndicator> taskIndicators)
     {
@@ -241,41 +242,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             return "";
         }
 
-        // Get Min TestDate (ngày bắt đầu thử nghiệm sớm nhất)
+        // Get Min TestDate (ngày thử nghiệm sớm nhất - chỉ tiêu gần nhất)
         var minTestDate = taskIndicators
             .Where(ti => ti.TestDate.HasValue)
             .Select(ti => ti.TestDate!.Value)
             .DefaultIfEmpty()
             .Min();
 
-        // Get Max SubmitDate (ngày gửi kết quả muộn nhất)
-        var maxSubmitDate = taskIndicators
-            .Where(ti => ti.SubmitDate.HasValue)
-            .Select(ti => ti.SubmitDate!.Value)
+        // Get Max TestDate (ngày thử nghiệm muộn nhất - chỉ tiêu xa nhất)
+        var maxTestDate = taskIndicators
+            .Where(ti => ti.TestDate.HasValue)
+            .Select(ti => ti.TestDate!.Value)
             .DefaultIfEmpty()
             .Max();
 
-        // Format result
-        if (minTestDate == default && maxSubmitDate == default)
+        // Format result - always show both dates
+        if (minTestDate == default && maxTestDate == default)
         {
             return "";
         }
         else if (minTestDate == default)
         {
-            return maxSubmitDate.ToString("dd/MM/yyyy");
+            // Only have max date, show it twice
+            return $"{maxTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
         }
-        else if (maxSubmitDate == default)
+        else if (maxTestDate == default)
         {
-            return minTestDate.ToString("dd/MM/yyyy");
-        }
-        else if (minTestDate.Date == maxSubmitDate.Date)
-        {
-            // Same date, show only one
-            return minTestDate.ToString("dd/MM/yyyy");
+            // Only have min date, show it twice
+            return $"{minTestDate:dd/MM/yyyy} - {minTestDate:dd/MM/yyyy}";
         }
         else
         {
-            return $"{minTestDate:dd/MM/yyyy} - {maxSubmitDate:dd/MM/yyyy}";
+            // Always show both dates (even if same day: "07/01/2025 - 07/01/2025")
+            return $"{minTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
         }
     }
 
@@ -283,7 +282,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Calculate TimeOfTesting for a single LaboratoryTaskIndicator
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
     /// - Start date = TestDate
-    /// - End date = SubmitDate
+    /// - End date = TestDate (same as start for single indicator)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
     /// </summary>
     private string CalculateTimeOfTestingForSingleIndicator(LaboratoryTaskIndicator taskIndicator)
     {
@@ -293,29 +293,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         var testDate = taskIndicator.TestDate;
-        var submitDate = taskIndicator.SubmitDate;
 
-        // Format result
-        if (!testDate.HasValue && !submitDate.HasValue)
+        // Format result - always show both dates (same for single indicator)
+        if (!testDate.HasValue)
         {
             return "";
         }
-        else if (!testDate.HasValue)
-        {
-            return submitDate!.Value.ToString("dd/MM/yyyy");
-        }
-        else if (!submitDate.HasValue)
-        {
-            return testDate.Value.ToString("dd/MM/yyyy");
-        }
-        else if (testDate.Value.Date == submitDate.Value.Date)
-        {
-            // Same date, show only one
-            return testDate.Value.ToString("dd/MM/yyyy");
-        }
         else
         {
-            return $"{testDate.Value:dd/MM/yyyy} - {submitDate.Value:dd/MM/yyyy}";
+            // Always show both dates (same date for single indicator: "07/01/2025 - 07/01/2025")
+            return $"{testDate.Value:dd/MM/yyyy} - {testDate.Value:dd/MM/yyyy}";
         }
     }
 
@@ -382,6 +369,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                         }
+
+                        // If placeholder has value, replace trailing dots with spaces (same count)
+                        // Template format: {{CustomerName}}...... -> "Công ty ABC      " (dots replaced by spaces)
+                        if (!string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            // Pattern: placeholder followed by one or more dots - capture the dots
+                            var patternWithDots = placeholder.Key + @"(\.+)";
+                            text.Text = System.Text.RegularExpressions.Regex.Replace(
+                                text.Text,
+                                patternWithDots,
+                                match =>
+                                {
+                                    // Replace dots with same number of spaces
+                                    var dotsCount = match.Groups[1].Value.Length;
+                                    return placeholder.Value + new string(' ', dotsCount);
+                                });
+                        }
+
+                        // Standard replacement (for cases without dots or when value is empty)
                         text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
                     }
                 }
@@ -2934,11 +2940,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
     /// <summary>
     /// Convert caret notation to Unicode superscript for display in reports
+    /// Also adds line breaks before '(' and after ')' for better formatting
     /// Examples:
     /// - 2^2 → 2²
     /// - 10^-3 → 10⁻³
     /// - 1.5x10^-6 → 1.5×10⁻⁶
     /// - 2X10^2 → 2×10²
+    /// - "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
     /// Already-unicode superscript text is passed through unchanged
     /// </summary>
     private static string ConvertToSuperscriptDisplay(string? text)
@@ -2962,6 +2970,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
             return baseNum + superscriptExponent;
         });
+
+        // 3. Add line breaks for parentheses content
+        // Insert newline before '(' if there's content before it (not at start)
+        // Insert newline after ')' if there's content after it (not at end)
+        // Example: "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
+        result = Regex.Replace(result, @"(\S)\s*\(", "$1\n("); // Add newline before '('
+        result = Regex.Replace(result, @"\)\s*(\S)", ")\n$1"); // Add newline after ')'
 
         return result;
     }
