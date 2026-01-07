@@ -91,6 +91,7 @@ public class LabSpecimenManagementDbContext :
 
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
+    public DbSet<CostChangeHistory> CostChangeHistories { get; set; }
     public DbSet<Notification> Notifications { get; set; }
 
     // Quality Management Entities
@@ -1061,6 +1062,26 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.QualityManagementTask)
                 .WithMany()
                 .HasForeignKey(x => x.QualityManagementTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ COST CHANGE HISTORY CONFIGURATION ============
+
+        builder.Entity<CostChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "CostChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.AffectedIndicatorName).HasMaxLength(500);
+            b.Property(x => x.Reason).HasMaxLength(1000);
+
+            b.HasIndex(x => x.TestRequestId);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasOne(x => x.TestRequest)
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
         });

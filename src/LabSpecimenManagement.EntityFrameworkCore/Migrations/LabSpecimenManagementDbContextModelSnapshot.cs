@@ -2670,6 +2670,57 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTaskAssignments", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.CostChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("AffectedIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AffectedIndicatorName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<int>("ChangeType")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<decimal>("DifferenceAmount")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal?>("IndicatorUnitPrice")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("NewTotalCost")
+                        .HasColumnType("numeric");
+
+                    b.Property<decimal>("OldTotalCost")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreationTime");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppCostChangeHistories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5706,6 +5757,17 @@ namespace LabSpecimenManagement.Migrations
                         .HasConstraintName("FK_AppSubcontractorCertifications_AppSubcontractors_Subcontra~1");
 
                     b.Navigation("Subcontractor");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.CostChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("TestRequest");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>

@@ -184,4 +184,13 @@ public interface ITestRequestAppService :
     Task<List<PublishedReports.PublishedReportDto>> GetPublishedReportsAsync(Guid id);
 
     #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id);
+
+    #endregion
 }

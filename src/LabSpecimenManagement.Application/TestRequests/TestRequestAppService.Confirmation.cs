@@ -331,7 +331,114 @@ public partial class TestRequestAppService
             testRequest.Status = TestRequestStatus.RequestApproved;
         }
 
+        // ===== THÊM MỚI: Recalculate TotalCost sau khi xác nhận =====
+        // Chỉ tính lại nếu KHÔNG phải mẫu nhiệm vụ
+        if (!testRequest.SampleTypeTask)
+        {
+            var oldTotalCost = testRequest.TotalCost;
+            var newTotalCost = await RecalculateTotalCostExcludingCancelledAsync(testRequest.Id);
+
+            if (oldTotalCost != newTotalCost)
+            {
+                // Lưu lịch sử thay đổi tiền
+                await SaveCostChangeHistoryAsync(
+                    testRequest.Id,
+                    CostChangeType.IndicatorCancelled,
+                    oldTotalCost,
+                    newTotalCost,
+                    reason: "KH hủy chỉ tiêu do không đồng ý thay đổi phương pháp");
+
+                testRequest.TotalCost = newTotalCost;
+            }
+        }
+
         await Repository.UpdateAsync(testRequest);
+    }
+
+    /// <summary>
+    /// Tính lại TotalCost, loại trừ các chỉ tiêu CustomerCancelled
+    /// </summary>
+    private async Task<decimal> RecalculateTotalCostExcludingCancelledAsync(Guid testRequestId)
+    {
+        decimal totalCost = 0;
+
+        // Lấy tất cả samples không bị hủy
+        var samples = await _sampleRepository.GetListAsync(s =>
+            s.TestRequestId == testRequestId && !s.IsCustomerCancelled);
+
+        // Lấy tất cả sample IDs
+        var sampleIds = samples.Select(s => s.Id).ToList();
+
+        // Lấy tất cả sample indicators một lần
+        var allSampleIndicators = await _sampleIndicatorRepository.GetListAsync(si =>
+            sampleIds.Contains(si.TestRequestSampleId));
+
+        // Lấy tất cả sample indicator IDs
+        var sampleIndicatorIds = allSampleIndicators.Select(si => si.Id).ToList();
+
+        // Lấy tất cả lab task indicators một lần (tối ưu query)
+        var allLabTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(lti =>
+            sampleIndicatorIds.Contains(lti.TestRequestSampleIndicatorId));
+
+        foreach (var sample in samples)
+        {
+            decimal sampleCost = 0;
+
+            // Lấy sample indicators của sample này
+            var sampleIndicators = allSampleIndicators.Where(si => si.TestRequestSampleId == sample.Id);
+
+            foreach (var sampleIndicator in sampleIndicators)
+            {
+                // Kiểm tra LaboratoryTaskIndicator có bị CustomerCancelled không
+                var labTaskIndicator = allLabTaskIndicators.FirstOrDefault(lti =>
+                    lti.TestRequestSampleIndicatorId == sampleIndicator.Id);
+
+                // Chỉ tính tiền nếu KHÔNG bị CustomerCancelled
+                if (labTaskIndicator == null ||
+                    labTaskIndicator.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+                {
+                    sampleCost += sampleIndicator.UnitPrice;
+                }
+            }
+
+            // Cập nhật sample cost nếu thay đổi
+            if (sample.TotalIndicatorCost != sampleCost)
+            {
+                sample.TotalIndicatorCost = sampleCost;
+                await _sampleRepository.UpdateAsync(sample);
+            }
+
+            totalCost += sampleCost;
+        }
+
+        return totalCost;
+    }
+
+    /// <summary>
+    /// Lưu lịch sử thay đổi tiền
+    /// </summary>
+    private async Task SaveCostChangeHistoryAsync(
+        Guid testRequestId,
+        CostChangeType changeType,
+        decimal oldTotalCost,
+        decimal newTotalCost,
+        Guid? affectedIndicatorId = null,
+        string? affectedIndicatorName = null,
+        decimal? indicatorUnitPrice = null,
+        string? reason = null)
+    {
+        var history = new CostChangeHistory(
+            GuidGenerator.Create(),
+            testRequestId,
+            changeType,
+            oldTotalCost,
+            newTotalCost,
+            affectedIndicatorId,
+            affectedIndicatorName,
+            indicatorUnitPrice,
+            reason);
+
+        await _costChangeHistoryRepository.InsertAsync(history);
     }
 
     /// <summary>

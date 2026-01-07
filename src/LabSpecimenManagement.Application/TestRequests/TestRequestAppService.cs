@@ -61,6 +61,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<Receipt, Guid> _receiptRepository;
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
+    private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -88,7 +89,8 @@ public partial class TestRequestAppService :
         IResultFormAppService resultFormAppService,
         IRepository<Receipt, Guid> receiptRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
-        IPublishedReportRepository publishedReportRepository)
+        IPublishedReportRepository publishedReportRepository,
+        IRepository<CostChangeHistory, Guid> costChangeHistoryRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -117,6 +119,7 @@ public partial class TestRequestAppService :
         _receiptRepository = receiptRepository;
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _publishedReportRepository = publishedReportRepository;
+        _costChangeHistoryRepository = costChangeHistoryRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -3365,6 +3368,58 @@ public partial class TestRequestAppService :
         }
 
         return result;
+    }
+
+    #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    public async Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id)
+    {
+        var histories = await _costChangeHistoryRepository.GetListAsync(h => h.TestRequestId == id);
+        var result = new List<CostChangeHistoryDto>();
+
+        foreach (var history in histories.OrderByDescending(h => h.CreationTime))
+        {
+            var creatorName = await _userNameProvider.GetUserNameAsync(history.CreatorId);
+
+            result.Add(new CostChangeHistoryDto
+            {
+                Id = history.Id,
+                TestRequestId = history.TestRequestId,
+                ChangeType = (int)history.ChangeType,
+                ChangeTypeLabel = GetCostChangeTypeLabel(history.ChangeType),
+                OldTotalCost = history.OldTotalCost,
+                NewTotalCost = history.NewTotalCost,
+                DifferenceAmount = history.DifferenceAmount,
+                AffectedIndicatorId = history.AffectedIndicatorId,
+                AffectedIndicatorName = history.AffectedIndicatorName,
+                IndicatorUnitPrice = history.IndicatorUnitPrice,
+                Reason = history.Reason,
+                CreationTime = history.CreationTime,
+                CreatorName = creatorName
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Get label for CostChangeType enum
+    /// </summary>
+    private static string GetCostChangeTypeLabel(CostChangeType changeType)
+    {
+        return changeType switch
+        {
+            CostChangeType.IndicatorCancelled => "KH hủy chỉ tiêu",
+            CostChangeType.MethodChanged => "Thay đổi phương pháp",
+            CostChangeType.SampleCancelled => "KH hủy mẫu",
+            CostChangeType.ManualAdjustment => "Điều chỉnh thủ công",
+            _ => "Không xác định"
+        };
     }
 
     #endregion

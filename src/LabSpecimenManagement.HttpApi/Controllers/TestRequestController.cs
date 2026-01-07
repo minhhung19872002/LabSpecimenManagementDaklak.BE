@@ -318,4 +318,17 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Cost Change History
+
+    /// <summary>
+    /// Lấy lịch sử thay đổi tiền của phiếu yêu cầu
+    /// </summary>
+    [HttpGet("{id}/cost-history")]
+    public virtual Task<List<CostChangeHistoryDto>> GetCostChangeHistoryAsync(Guid id)
+    {
+        return _testRequestAppService.GetCostChangeHistoryAsync(id);
+    }
+
+    #endregion
 }
