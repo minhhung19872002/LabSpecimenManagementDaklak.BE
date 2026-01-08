@@ -34,13 +34,14 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
     }
 
     /// <summary>
-    /// Lấy danh sách HĐ có mẫu (status >= SampleSent)
+    /// Lấy danh sách HĐ có mẫu (status >= SampleSent và SampleStorage = Yes)
     /// </summary>
     public async Task<PagedResultDto<SampleStorageDto>> GetListAsync(GetSampleStorageListDto input)
     {
         var query = await _testRequestRepository.WithDetailsAsync(x => x.Samples);
 
-        query = query.Where(x => x.Status >= TestRequestStatus.SampleSent);
+        // Chỉ lấy TestRequest có SampleStorage = Yes (Có lưu mẫu) và status >= SampleSent
+        query = query.Where(x => x.Status >= TestRequestStatus.SampleSent && x.SampleStorage == SampleStorageOption.Yes);
 
         // Tìm kiếm
         if (!string.IsNullOrWhiteSpace(input.Search))

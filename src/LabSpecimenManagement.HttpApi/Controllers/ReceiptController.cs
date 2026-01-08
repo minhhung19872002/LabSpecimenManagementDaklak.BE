@@ -75,4 +75,22 @@ public class ReceiptController : LabSpecimenManagementController
     {
         await _receiptAppService.MarkAsUnpaidAsync(id);
     }
+
+    /// <summary>
+    /// Lấy thông tin thanh toán cho modal - tự động tạo Receipt nếu chưa có
+    /// </summary>
+    [HttpGet("payment-info/{testRequestId}")]
+    public async Task<PaymentInfoDto> GetPaymentInfoAsync(Guid testRequestId)
+    {
+        return await _receiptAppService.GetPaymentInfoAsync(testRequestId);
+    }
+
+    /// <summary>
+    /// Xử lý thanh toán mới
+    /// </summary>
+    [HttpPost("{receiptId}/payments")]
+    public async Task<PaymentResultDto> ProcessPaymentAsync(Guid receiptId, [FromBody] CreatePaymentInput input)
+    {
+        return await _receiptAppService.ProcessPaymentAsync(receiptId, input);
+    }
 }

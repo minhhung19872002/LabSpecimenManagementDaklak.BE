@@ -39,4 +39,14 @@ public interface IReceiptAppService : IApplicationService
     /// Đánh dấu chưa thanh toán
     /// </summary>
     Task MarkAsUnpaidAsync(Guid id);
+
+    /// <summary>
+    /// Lấy thông tin thanh toán cho modal (tự động tạo Receipt nếu chưa có)
+    /// </summary>
+    Task<PaymentInfoDto> GetPaymentInfoAsync(Guid testRequestId);
+
+    /// <summary>
+    /// Xử lý thanh toán mới
+    /// </summary>
+    Task<PaymentResultDto> ProcessPaymentAsync(Guid receiptId, CreatePaymentInput input);
 }

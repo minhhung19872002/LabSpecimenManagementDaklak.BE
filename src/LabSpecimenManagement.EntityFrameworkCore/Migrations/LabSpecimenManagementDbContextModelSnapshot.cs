@@ -2177,6 +2177,76 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppQuotationItems", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.PaymentHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<DateTime>("PaymentDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int>("PaymentMethod")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PaymentNumber")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("RemainingAmountBeforePayment")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PaymentDate");
+
+                    b.HasIndex("PaymentNumber");
+
+                    b.HasIndex("ReceiptId");
+
+                    b.ToTable("AppPaymentHistories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -5763,6 +5833,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("TestMethod");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.PaymentHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.Receipts.Receipt", "Receipt")
+                        .WithMany("PaymentHistories")
+                        .HasForeignKey("ReceiptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Receipt");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
                 {
                     b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", "TestRequest")
@@ -6116,6 +6197,11 @@ namespace LabSpecimenManagement.Migrations
             modelBuilder.Entity("LabSpecimenManagement.Quotations.Quotation", b =>
                 {
                     b.Navigation("Items");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>
+                {
+                    b.Navigation("PaymentHistories");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Subcontractors.Subcontractor", b =>

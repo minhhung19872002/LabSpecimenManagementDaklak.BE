@@ -106,6 +106,7 @@ public class LabSpecimenManagementDbContext :
 
     // Receipt Entities
     public DbSet<Receipt> Receipts { get; set; }
+    public DbSet<PaymentHistory> PaymentHistories { get; set; }
 
     // Published Report Entities
     public DbSet<PublishedReport> PublishedReports { get; set; }
@@ -1061,6 +1062,28 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ============ PAYMENT HISTORY CONFIGURATION ============
+
+        builder.Entity<PaymentHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PaymentHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Amount).HasPrecision(18, 2);
+            b.Property(x => x.RemainingAmountBeforePayment).HasPrecision(18, 2);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.ReceiptId);
+            b.HasIndex(x => x.PaymentNumber);
+            b.HasIndex(x => x.PaymentDate);
+
+            b.HasOne(x => x.Receipt)
+                .WithMany(x => x.PaymentHistories)
+                .HasForeignKey(x => x.ReceiptId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ PUBLISHED REPORT CONFIGURATION ============

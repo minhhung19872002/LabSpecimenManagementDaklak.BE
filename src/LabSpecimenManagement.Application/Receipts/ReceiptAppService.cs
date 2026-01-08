@@ -1,10 +1,12 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
 using LabSpecimenManagement.TestRequests;
 
 namespace LabSpecimenManagement.Receipts;
@@ -16,16 +18,40 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
 {
     private readonly IRepository<Receipt, Guid> _receiptRepository;
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
+    private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
     private readonly ITestRequestAppService _testRequestAppService;
+    private readonly IIdentityUserRepository _userRepository;
+
+    // Các status không được cập nhật lại thành Chờ thanh toán/Đã thanh toán
+    private static readonly TestRequestStatus[] StatusesBeyondPayment = new[]
+    {
+        TestRequestStatus.UnderReview,
+        TestRequestStatus.WaitingCustomerConfirm,
+        TestRequestStatus.RequestApproved,
+        TestRequestStatus.SampleSent,
+        TestRequestStatus.InProgress,
+        TestRequestStatus.PendingChangeApproval,
+        TestRequestStatus.PendingApproval,
+        TestRequestStatus.Approved,
+        TestRequestStatus.ResultSent,
+        TestRequestStatus.PartialResultSent,
+        TestRequestStatus.ReportPublished,
+        TestRequestStatus.Completed,
+        TestRequestStatus.Cancelled
+    };
 
     public ReceiptAppService(
         IRepository<Receipt, Guid> receiptRepository,
         IRepository<TestRequest, Guid> testRequestRepository,
-        ITestRequestAppService testRequestAppService)
+        IRepository<PaymentHistory, Guid> paymentHistoryRepository,
+        ITestRequestAppService testRequestAppService,
+        IIdentityUserRepository userRepository)
     {
         _receiptRepository = receiptRepository;
         _testRequestRepository = testRequestRepository;
+        _paymentHistoryRepository = paymentHistoryRepository;
         _testRequestAppService = testRequestAppService;
+        _userRepository = userRepository;
     }
 
     /// <summary>
@@ -227,6 +253,188 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
 
         receipt.MarkAsUnpaid();
         await _receiptRepository.UpdateAsync(receipt);
+    }
+
+    /// <summary>
+    /// Lấy thông tin thanh toán cho modal - tự động tạo Receipt nếu chưa có
+    /// </summary>
+    public async Task<PaymentInfoDto> GetPaymentInfoAsync(Guid testRequestId)
+    {
+        var testRequest = await _testRequestRepository.GetAsync(testRequestId);
+        if (testRequest == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy phiếu yêu cầu");
+        }
+
+        // Tìm Receipt theo TestRequestId
+        var receipt = await _receiptRepository.FirstOrDefaultAsync(r => r.TestRequestId == testRequestId);
+
+        // Nếu chưa có Receipt, tạo mới
+        if (receipt == null)
+        {
+            receipt = new Receipt(GuidGenerator.Create(), testRequestId, ReceiptStatus.PendingPayment);
+            await _receiptRepository.InsertAsync(receipt);
+        }
+
+        // Lấy danh sách PaymentHistory
+        var paymentHistories = await _paymentHistoryRepository.GetListAsync(ph => ph.ReceiptId == receipt.Id);
+        paymentHistories = paymentHistories.OrderBy(ph => ph.PaymentNumber).ToList();
+
+        // Tính tổng đã thanh toán
+        var paidAmount = paymentHistories.Sum(ph => ph.Amount);
+        var totalCost = testRequest.TotalCost;
+        var remainingAmount = totalCost - paidAmount;
+
+        // Lấy thông tin người tạo cho từng payment history
+        var paymentHistoryDtos = new List<PaymentHistoryDto>();
+        foreach (var ph in paymentHistories)
+        {
+            string? creatorName = null;
+            if (ph.CreatorId.HasValue)
+            {
+                var user = await _userRepository.FindAsync(ph.CreatorId.Value);
+                creatorName = user?.Name ?? user?.UserName;
+            }
+
+            paymentHistoryDtos.Add(new PaymentHistoryDto
+            {
+                Id = ph.Id,
+                ReceiptId = ph.ReceiptId,
+                PaymentNumber = ph.PaymentNumber,
+                Amount = ph.Amount,
+                RemainingAmountBeforePayment = ph.RemainingAmountBeforePayment,
+                PaymentMethod = ph.PaymentMethod,
+                PaymentDate = ph.PaymentDate,
+                Notes = ph.Notes,
+                CreationTime = ph.CreationTime,
+                CreatorName = creatorName
+            });
+        }
+
+        return new PaymentInfoDto
+        {
+            ReceiptId = receipt.Id,
+            TestRequestId = testRequestId,
+            ContractNumber = testRequest.ContractNumber,
+            TotalCost = totalCost,
+            PaidAmount = paidAmount,
+            RemainingAmount = remainingAmount,
+            Status = receipt.Status,
+            PaymentHistories = paymentHistoryDtos
+        };
+    }
+
+    /// <summary>
+    /// Xử lý thanh toán mới
+    /// </summary>
+    public async Task<PaymentResultDto> ProcessPaymentAsync(Guid receiptId, CreatePaymentInput input)
+    {
+        var query = await _receiptRepository.WithDetailsAsync(r => r.TestRequest);
+        var receipt = await AsyncExecuter.FirstOrDefaultAsync(query.Where(r => r.Id == receiptId));
+
+        if (receipt == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy phiếu thu");
+        }
+
+        if (receipt.Status == ReceiptStatus.Paid)
+        {
+            throw new UserFriendlyException("Phiếu thu đã được thanh toán đầy đủ");
+        }
+
+        if (receipt.Status == ReceiptStatus.Cancelled)
+        {
+            throw new UserFriendlyException("Không thể thanh toán cho phiếu thu đã hủy");
+        }
+
+        var testRequest = receipt.TestRequest;
+        var totalCost = testRequest.TotalCost;
+
+        // Lấy danh sách PaymentHistory hiện tại
+        var existingPayments = await _paymentHistoryRepository.GetListAsync(ph => ph.ReceiptId == receiptId);
+        var paidAmount = existingPayments.Sum(ph => ph.Amount);
+        var remainingAmount = totalCost - paidAmount;
+
+        // Validate số tiền thanh toán
+        if (input.Amount <= 0)
+        {
+            throw new UserFriendlyException("Số tiền thanh toán phải lớn hơn 0");
+        }
+
+        if (input.Amount > remainingAmount)
+        {
+            throw new UserFriendlyException($"Số tiền thanh toán không được vượt quá số tiền còn lại ({remainingAmount:N0} đ)");
+        }
+
+        // Xác định số thứ tự lần thanh toán
+        var paymentNumber = existingPayments.Count + 1;
+
+        // Tạo PaymentHistory mới
+        var paymentHistory = new PaymentHistory(
+            GuidGenerator.Create(),
+            receiptId,
+            paymentNumber,
+            input.Amount,
+            remainingAmount,
+            input.PaymentMethod,
+            DateTime.Now,
+            input.Notes
+        );
+
+        await _paymentHistoryRepository.InsertAsync(paymentHistory);
+
+        // Tính toán số tiền còn lại sau khi thanh toán
+        var newPaidAmount = paidAmount + input.Amount;
+        var newRemainingAmount = totalCost - newPaidAmount;
+
+        // Cập nhật status cho Receipt
+        string message;
+        if (newRemainingAmount <= 0)
+        {
+            receipt.MarkAsPaid();
+            message = "Đã thanh toán đầy đủ";
+        }
+        else
+        {
+            receipt.MarkAsPartiallyPaid();
+            message = $"Đã thanh toán một phần. Còn lại: {newRemainingAmount:N0} đ";
+        }
+
+        await _receiptRepository.UpdateAsync(receipt);
+
+        // Luôn cập nhật PaymentReceived, chỉ cập nhật Status nếu chưa qua các status payment-related
+        var currentTestRequestStatus = testRequest.Status;
+        var shouldUpdateStatus = !StatusesBeyondPayment.Contains(currentTestRequestStatus);
+
+        if (newRemainingAmount <= 0)
+        {
+            // Luôn cập nhật PaymentReceived = true khi thanh toán đủ
+            testRequest.PaymentReceived = true;
+            // Chỉ cập nhật Status nếu chưa qua các status payment-related
+            if (shouldUpdateStatus)
+            {
+                testRequest.Status = TestRequestStatus.Paid;
+            }
+        }
+        else
+        {
+            testRequest.PaymentReceived = false;
+            if (shouldUpdateStatus)
+            {
+                testRequest.Status = TestRequestStatus.PendingPayment;
+            }
+        }
+
+        await _testRequestRepository.UpdateAsync(testRequest);
+
+        return new PaymentResultDto
+        {
+            PaymentHistoryId = paymentHistory.Id,
+            PaidAmount = newPaidAmount,
+            RemainingAmount = newRemainingAmount,
+            ReceiptStatus = receipt.Status,
+            Message = message
+        };
     }
 
     private static ReceiptDto MapToDto(Receipt receipt)

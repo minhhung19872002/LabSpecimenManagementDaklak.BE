@@ -28,5 +28,10 @@ public enum ReceiptStatus
     /// <summary>
     /// Không cần thanh toán - Mẫu nhiệm vụ, miễn phí
     /// </summary>
-    NoPaymentRequired = 4
+    NoPaymentRequired = 4,
+
+    /// <summary>
+    /// Đã thanh toán 1 phần - Khách hàng đã thanh toán một phần
+    /// </summary>
+    PartiallyPaid = 5
 }
