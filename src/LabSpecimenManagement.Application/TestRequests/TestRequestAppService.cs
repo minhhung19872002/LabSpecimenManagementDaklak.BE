@@ -3288,18 +3288,18 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
-    /// Gửi QLKT - Chuyển từ Paid/NoPaymentRequired sang UnderReview (Đang xem xét YC)
-    /// Áp dụng cho cả mẫu thường (Paid) và mẫu nhiệm vụ (NoPaymentRequired)
+    /// Gửi QLKT - Chuyển từ PendingPayment/Paid/NoPaymentRequired sang UnderReview (Đang xem xét YC)
+    /// Áp dụng cho cả mẫu thường (PendingPayment/Paid) và mẫu nhiệm vụ (NoPaymentRequired)
     /// Tạo LaboratoryTasks để QLKT có thể đánh giá các chỉ tiêu
     /// </summary>
     public async Task SendToQLKTAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
 
-        // Cho phép gửi QLKT từ Paid (mẫu thường) hoặc NoPaymentRequired (mẫu nhiệm vụ)
-        if (entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
+        // Cho phép gửi QLKT từ PendingPayment (đã in phiếu thu), Paid (mẫu thường) hoặc NoPaymentRequired (mẫu nhiệm vụ)
+        if (entity.Status != TestRequestStatus.PendingPayment && entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
         }
 
         entity.Status = TestRequestStatus.UnderReview;
@@ -3324,11 +3324,11 @@ public partial class TestRequestAppService :
     {
         var entity = await Repository.GetAsync(id);
 
-        // Chỉ cho phép cập nhật khi status là Paid hoặc NoPaymentRequired (chuẩn bị gửi QLKT)
-        if (entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
+        // Chỉ cho phép cập nhật khi status là PendingPayment, Paid hoặc NoPaymentRequired (chuẩn bị gửi QLKT)
+        if (entity.Status != TestRequestStatus.PendingPayment && entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
         {
             throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể cập nhật khoa phòng khi trạng thái là 'Đã thanh toán' hoặc 'Không cần thanh toán'",
+                "Chỉ có thể cập nhật khoa phòng khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'",
                 "status");
         }
 
