@@ -2097,21 +2097,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 5. Create rows for each sample × indicator combination
         // BM02 structure: Each indicator creates a new row
         // Sample columns (Stt, Tên mẫu, Mã số mẫu) are vertically merged (row span)
+        // NOTE: In OpenXML vertical merge, content MUST be in the first row (Restart cell)
+        // LibreOffice/Gotenberg will only display content from the Restart cell
         foreach (var sampleRow in sampleData)
         {
             var totalIndicators = sampleRow.Indicators.Count;
+
             for (int i = 0; i < totalIndicators; i++)
             {
                 var indicator = sampleRow.Indicators[i];
                 bool isFirstIndicator = (i == 0);
-                bool isLastIndicator = (i == totalIndicators - 1);
 
                 var newRow = CloneAndFillMixedResultRowFlat(
                     templateClone,
                     sampleRow,
                     indicator,
                     isFirstIndicator,
-                    isLastIndicator,
                     totalIndicators);
 
                 if (insertAfterRow != null)
@@ -2141,14 +2142,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <param name="sampleData">Sample data</param>
     /// <param name="indicatorData">Indicator data</param>
     /// <param name="isFirstIndicator">True if this is the first indicator of the sample (Restart merge)</param>
-    /// <param name="isLastIndicator">True if this is the last indicator of the sample (for border handling)</param>
     /// <param name="totalIndicators">Total number of indicators for this sample (for rowspan)</param>
     private TableRow CloneAndFillMixedResultRowFlat(
         TableRow template,
         MixedResultSampleRow sampleData,
         MixedResultIndicatorRow indicatorData,
         bool isFirstIndicator,
-        bool isLastIndicator,
         int totalIndicators)
     {
         var newRow = (TableRow)template.CloneNode(true);
@@ -2182,7 +2181,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var horizontalAlignment = (colIndex == 1) ? JustificationValues.Left : JustificationValues.Center;
                     ApplyVerticalMerge(cell, isFirstIndicator, horizontalAlignment);
 
-                    // If not first indicator, clear the cell content (merged cell should be empty)
+                    // Clear content for non-first rows (merged cells should be empty)
                     if (!isFirstIndicator)
                     {
                         ClearCellContent(cell);
@@ -2196,7 +2195,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // For first indicator, show sample info; for subsequent, keep empty (merged)
+            // For first indicator row, show sample info; for subsequent rows, keep empty (merged)
             text.Text = text.Text
                 .Replace("{{TestTable}}", "")
                 .Replace("{{SubTable}}", "")
@@ -2422,6 +2421,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
         public string Result { get; set; } = "";
+        public string ReferenceLimit { get; set; } = ""; // For BM05-QLNN CompareWithStandard
     }
 
     /// <summary>
@@ -2877,7 +2877,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Month}}", now.Month.ToString() },
             { "{{Year}}", now.Year.ToString() },
             { "{{CustomerName}}", testRequest.CustomerName ?? "" },
-            { "{{FullAddress}}", address }
+            { "{{FullAddress}}", address },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", firstSample?.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", firstSample?.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
+            { "{{Conclude}}", "" }
         };
 
         // 5. Build nested data structure - group indicators by sample for BM02 template
@@ -2934,7 +2942,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameter = indicator?.Name ?? "",
                     Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
                     TestMethod = method?.Name ?? "",
-                    Result = resultText
+                    Result = resultText,
+                    ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? ""
                 });
             }
 
@@ -2966,32 +2975,76 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
-        // Use new method for nested table structure
-        ProcessMixedResultDocument(outputPath, placeholders, sampleData);
+        // Determine template type and process accordingly
+        // BM02 uses nested table structure with {{TestTable}}/{{SubTable}} markers
+        // Other templates (BM01, BM04, QLNN) use flat table structure with {{No}}/{{Parameter}} markers
+        var templateFileName = Path.GetFileName(templatePath);
+        var isBM02Template = templateFileName.Contains("BM02") || templateFileName.Contains("tổng hợp");
+
+        if (isBM02Template)
+        {
+            // Use nested table processing for BM02
+            _logger.LogInformation("Using BM02 nested table processing for template: {Template}", templateFileName);
+            ProcessMixedResultDocument(outputPath, placeholders, sampleData);
+        }
+        else
+        {
+            // Convert sampleData to flat tableData for BM01 and other templates
+            _logger.LogInformation("Using flat table processing for template: {Template}", templateFileName);
+            var tableData = new List<ResultFormTableRow>();
+            int rowIndex = 1;
+
+            foreach (var sample in sampleData)
+            {
+                foreach (var indicator in sample.Indicators)
+                {
+                    tableData.Add(new ResultFormTableRow
+                    {
+                        No = rowIndex++,
+                        Parameters = indicator.Parameter,
+                        Unit = indicator.Unit,
+                        TestMethod = indicator.TestMethod,
+                        Result = indicator.Result,
+                        Standards = indicator.ReferenceLimit,
+                        CompareWithStandard = indicator.ReferenceLimit,
+                        Allowlimit = indicator.ReferenceLimit,
+                        Uncertainty = "",
+                        Proclaim = ""
+                    });
+                }
+            }
+
+            ProcessDocument(outputPath, placeholders, tableData);
+        }
 
         // 7. Convert to PDF
         string pdfFileName;
         try
         {
+            _logger.LogInformation("Starting PDF conversion for: {Path}", outputPath);
             var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
             pdfFileName = Path.GetFileName(pdfPath);
+            _logger.LogInformation("PDF conversion successful: {PdfPath}", pdfPath);
 
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
+            // DEBUG: Keep DOCX file for inspection - comment out delete
+            // try
+            // {
+            //     if (File.Exists(outputPath))
+            //     {
+            //         File.Delete(outputPath);
+            //     }
+            // }
+            // catch (Exception ex)
+            // {
+            //     _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
+            // }
+            _logger.LogInformation("DEBUG: Keeping DOCX file for inspection: {Path}", outputPath);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF");
-            pdfFileName = fileName;
+            _logger.LogError(ex, "Failed to convert DOCX to PDF. Error: {Message}", ex.Message);
+            // Re-throw to show error to user instead of silently returning docx
+            throw new Common.Exceptions.InvalidOperationException($"Lỗi chuyển đổi PDF: {ex.Message}");
         }
 
         return new GenerateResultFormOutput

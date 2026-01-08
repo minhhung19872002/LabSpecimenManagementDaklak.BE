@@ -127,21 +127,21 @@ jobs:
             docker-compose stop backend gotenberg db-migrator || true
             docker-compose rm -f backend gotenberg db-migrator || true
 
-            echo "=============================================="
-            echo "🗄️ RESET DATABASE (DROP and RECREATE)"
-            echo "=============================================="
-            # Get database name from docker-compose or use default
-            DB_NAME="LabSpecimenManagement"
-            DB_USER="postgres"
+            # echo "=============================================="
+            # echo "🗄️ RESET DATABASE (DROP and RECREATE)"
+            # echo "=============================================="
+            # # Get database name from docker-compose or use default
+            # DB_NAME="LabSpecimenManagement"
+            # DB_USER="postgres"
 
-            # Drop and recreate database
-            echo "Dropping database ${DB_NAME}..."
-            docker exec lab-specimen-postgres psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";" || true
+            # # Drop and recreate database
+            # echo "Dropping database ${DB_NAME}..."
+            # docker exec lab-specimen-postgres psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";" || true
 
-            echo "Creating database ${DB_NAME}..."
-            docker exec lab-specimen-postgres psql -U ${DB_USER} -c "CREATE DATABASE \"${DB_NAME}\";" || true
+            # echo "Creating database ${DB_NAME}..."
+            # docker exec lab-specimen-postgres psql -U ${DB_USER} -c "CREATE DATABASE \"${DB_NAME}\";" || true
 
-            echo "✅ Database reset completed!"
+            # echo "✅ Database reset completed!"
 
             echo "Starting Gotenberg (PDF service) - using official image..."
             docker-compose up -d gotenberg

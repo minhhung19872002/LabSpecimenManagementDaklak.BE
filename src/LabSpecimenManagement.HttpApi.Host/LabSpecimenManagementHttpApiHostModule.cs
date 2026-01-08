@@ -15,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.EntityFrameworkCore;
 using LabSpecimenManagement.Filters;
@@ -109,8 +110,11 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureSignalR(context);
         ConfigureClock();
 
-        // Register HttpClient for OnlyOffice integration
+        // Register HttpClient for PDF conversion services
         context.Services.AddHttpClient();
+
+        // Register PDF conversion service based on configuration (Gotenberg or OnlyOffice)
+        context.Services.AddPdfConversionService(configuration);
     }
 
     /// <summary>

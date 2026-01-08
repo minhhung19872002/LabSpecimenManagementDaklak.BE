@@ -76,6 +76,29 @@ services:
         networks:
             - lab-specimen-network
 
+    # OnlyOffice Document Server - Better vertical alignment but has watermark transparency issue
+    onlyoffice:
+        image: onlyoffice/documentserver:latest
+        container_name: lab-specimen-onlyoffice
+        ports:
+            - "8088:80"
+        environment:
+            - JWT_ENABLED=false
+            - USE_UNAUTHORIZED_STORAGE=true
+            - ALLOW_PRIVATE_IP_ADDRESS=true
+            - ALLOW_META_IP_ADDRESS=true
+        volumes:
+            - onlyoffice_data:/var/www/onlyoffice/Data
+            - onlyoffice_logs:/var/log/onlyoffice
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost/healthcheck"]
+            interval: 30s
+            timeout: 10s
+            retries: 5
+            start_period: 120s
+        networks:
+            - lab-specimen-network
+
     # Database Migrator (runs migrations then exits)
     db-migrator:
         build:
@@ -190,6 +213,10 @@ volumes:
     backend_logs:
         driver: local
     uploaded_images:
+        driver: local
+    onlyoffice_data:
+        driver: local
+    onlyoffice_logs:
         driver: local
 
 networks:
