@@ -1494,7 +1494,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Checkbox - Payment Method (disabled)
             { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
-            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox },
+
+            // Người gửi mẫu và người nhận mẫu
+            { "{{SampleSender}}", input.ContactPerson ?? "" },
+            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
         };
 
         return placeholders;
@@ -2558,7 +2562,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Checkbox - Payment Method (disabled - paymentReceived field is not used in form)
             { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
-            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox },
+
+            // Người gửi mẫu và người nhận mẫu
+            { "{{SampleSender}}", testRequest.ContactPerson ?? "" },
+            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
         };
 
         return placeholders;
