@@ -124,8 +124,8 @@ jobs:
             EOF
 
             echo "Stopping old containers..."
-            docker-compose stop backend gotenberg db-migrator || true
-            docker-compose rm -f backend gotenberg db-migrator || true
+            docker-compose stop backend onlyoffice db-migrator || true
+            docker-compose rm -f backend onlyoffice db-migrator || true
 
             # echo "=============================================="
             # echo "🗄️ RESET DATABASE (DROP and RECREATE)"
@@ -143,11 +143,11 @@ jobs:
 
             # echo "✅ Database reset completed!"
 
-            echo "Starting Gotenberg (PDF service) - using official image..."
-            docker-compose up -d gotenberg
+            echo "Starting OnlyOffice Document Server..."
+            docker-compose up -d onlyoffice
 
-            echo "Waiting for Gotenberg to be ready..."
-            sleep 15
+            echo "Waiting for OnlyOffice to be ready..."
+            sleep 60
 
             echo "Rebuilding db-migrator and backend..."
             docker-compose build --no-cache db-migrator backend
@@ -179,32 +179,32 @@ jobs:
 
             echo ""
             echo "=============================================="
-            echo "📄 GOTENBERG STATUS"
+            echo "📄 ONLYOFFICE STATUS"
             echo "=============================================="
-            docker-compose ps gotenberg
+            docker-compose ps onlyoffice
 
             echo ""
             echo "=============================================="
-            echo "🌐 TESTING GOTENBERG CONNECTIVITY"
+            echo "🌐 TESTING ONLYOFFICE CONNECTIVITY"
             echo "=============================================="
-            echo "Testing Gotenberg from host (port 3100)..."
-            GOTENBERG_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3100/health || echo "FAILED")
-            echo "Gotenberg HTTP Status (host): $GOTENBERG_STATUS"
-            if [ "$GOTENBERG_STATUS" = "200" ]; then
-              echo "✅ Gotenberg is accessible on port 3100 (host)"
+            echo "Testing OnlyOffice from host (port 8088)..."
+            ONLYOFFICE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8088/healthcheck || echo "FAILED")
+            echo "OnlyOffice HTTP Status (host): $ONLYOFFICE_STATUS"
+            if [ "$ONLYOFFICE_STATUS" = "200" ]; then
+              echo "✅ OnlyOffice is accessible on port 8088 (host)"
             else
-              echo "❌ Gotenberg NOT accessible from host. Checking logs..."
-              docker-compose logs --tail=30 gotenberg
+              echo "❌ OnlyOffice NOT accessible from host. Checking logs..."
+              docker-compose logs --tail=30 onlyoffice
             fi
 
             echo ""
-            echo "Testing Gotenberg from backend container..."
-            GOTENBERG_DOCKER_STATUS=$(docker exec lab-specimen-backend curl -s -o /dev/null -w "%{http_code}" http://lab-specimen-gotenberg:3000/health || echo "FAILED")
-            echo "Gotenberg HTTP Status (from backend): $GOTENBERG_DOCKER_STATUS"
-            if [ "$GOTENBERG_DOCKER_STATUS" = "200" ]; then
-              echo "✅ Backend can reach Gotenberg via Docker network"
+            echo "Testing OnlyOffice from backend container..."
+            ONLYOFFICE_DOCKER_STATUS=$(docker exec lab-specimen-backend curl -s -o /dev/null -w "%{http_code}" http://lab-specimen-onlyoffice:80/healthcheck || echo "FAILED")
+            echo "OnlyOffice HTTP Status (from backend): $ONLYOFFICE_DOCKER_STATUS"
+            if [ "$ONLYOFFICE_DOCKER_STATUS" = "200" ]; then
+              echo "✅ Backend can reach OnlyOffice via Docker network"
             else
-              echo "❌ Backend cannot reach Gotenberg. Check network configuration."
+              echo "❌ Backend cannot reach OnlyOffice. Check network configuration."
             fi
 
             echo ""

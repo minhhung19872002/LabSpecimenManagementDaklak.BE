@@ -160,7 +160,7 @@ services:
                 condition: service_healthy
             mongodb:
                 condition: service_healthy
-            gotenberg:
+            onlyoffice:
                 condition: service_healthy
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
