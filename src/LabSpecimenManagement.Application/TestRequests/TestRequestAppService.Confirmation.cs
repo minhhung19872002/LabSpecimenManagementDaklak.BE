@@ -265,9 +265,11 @@ public partial class TestRequestAppService
         }
 
         // Tính toán trạng thái cuối cùng
+        // Bao gồm cả Approved vì có thể một số chỉ tiêu đã hoàn thành trước đó
         var hasAccepted = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var hasRejected = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
         var allRejected = activeIndicators.All(ti =>

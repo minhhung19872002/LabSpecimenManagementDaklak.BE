@@ -364,12 +364,15 @@ public partial class LaboratoryTaskAppService
         }
 
         // Tất cả chỉ tiêu đã được xử lý - kiểm tra để chuyển trạng thái
+        // Bao gồm cả Approved (đã duyệt KQ) vì có thể một số chỉ tiêu đã hoàn thành trước đó
         var hasAccepted = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var allAccepted = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         // Tất cả chỉ tiêu được chấp nhận
         if (allAccepted)

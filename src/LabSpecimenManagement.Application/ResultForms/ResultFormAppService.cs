@@ -1415,7 +1415,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
         var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
         var resultCopies = input.ResultCopyCount ?? "";
-        var customerTestMethod = input.MethodCustomerDetail ?? "";
+        // Chỉ hiển thị CustomerTestMethod khi MethodCustomer = true
+        var customerTestMethod = input.MethodCustomer ? (input.MethodCustomerDetail ?? "") : "";
         var compareStandard = input.ConformityDeclaration ?? "";
         var otherRequirements = input.OtherRequirements ?? "";
         var subContractInfo = input.SubContract ?? "";
@@ -1684,6 +1685,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•' };
 
     /// <summary>
+    /// Normalize placeholders by removing extra spaces inside {{ }}
+    /// e.g., "{{ CustomerTestMethod }}" -> "{{CustomerTestMethod}}"
+    /// </summary>
+    private static string NormalizePlaceholders(string text)
+    {
+        if (string.IsNullOrEmpty(text) || !text.Contains("{{")) return text;
+
+        // Use regex to find all {{ ... }} patterns and normalize them
+        return System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"\{\{\s*(\w+)\s*\}\}",
+            "{{$1}}");
+    }
+
+    /// <summary>
     /// Replace placeholders in a paragraph, removing surrounding dots when placeholder has value
     /// This handles cases where dots and placeholders are in separate text runs
     /// </summary>
@@ -1691,6 +1707,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var textElements = para.Descendants<Text>().ToList();
         if (!textElements.Any()) return;
+
+        // First, normalize any placeholders with extra spaces in text elements
+        // e.g., "{{ CustomerTestMethod }}" -> "{{CustomerTestMethod}}"
+        foreach (var textElement in textElements)
+        {
+            if (string.IsNullOrEmpty(textElement.Text)) continue;
+            textElement.Text = NormalizePlaceholders(textElement.Text);
+        }
 
         foreach (var placeholder in placeholders)
         {
@@ -2440,8 +2464,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
         var resultCopies = testRequest.ResultCopyCount ?? "";
 
-        // Get customer test method detail
-        var customerTestMethod = testRequest.MethodCustomerDetail ?? "";
+        // Get customer test method detail - chỉ hiển thị khi MethodCustomer = true
+        var customerTestMethod = testRequest.MethodCustomer ? (testRequest.MethodCustomerDetail ?? "") : "";
 
         // Compare standard / conformity declaration
         var compareStandard = testRequest.ConformityDeclaration ?? "";
