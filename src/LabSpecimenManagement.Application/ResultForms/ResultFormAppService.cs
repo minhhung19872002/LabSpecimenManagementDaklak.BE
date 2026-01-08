@@ -2016,6 +2016,285 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
     }
 
+    #region Mixed Result with SubTable (BM02)
+
+    /// <summary>
+    /// Process document for mixed result with SubTable structure (BM02)
+    /// Template structure: Each row = 1 sample, with SubTable marker for indicators
+    /// SubTable is NOT a nested table, just a marker in the same row
+    /// </summary>
+    private void ProcessMixedResultDocument(string filePath, Dictionary<string, string> placeholders, List<MixedResultSampleRow> sampleData)
+    {
+        using var document = WordprocessingDocument.Open(filePath, true);
+        var body = document.MainDocumentPart?.Document?.Body;
+        if (body == null) return;
+
+        ConvertFloatingTablesToInline(document);
+
+        // Process table with SubTable marker (not nested table)
+        ProcessMixedResultTableWithSubTable(body, sampleData);
+
+        // Replace other placeholders
+        ReplacePlaceholdersInBody(body, placeholders);
+
+        document.MainDocumentPart?.Document?.Save();
+    }
+
+    /// <summary>
+    /// Process mixed result table for BM02 template
+    /// Template has {{TestTable}} for sample info and {{SubTable}} for indicators in SAME row
+    /// Each sample creates multiple rows - one for each indicator
+    /// </summary>
+    private void ProcessMixedResultTableWithSubTable(Body body, List<MixedResultSampleRow> sampleData)
+    {
+        if (sampleData == null || sampleData.Count == 0) return;
+
+        // 1. Find table containing {{TestTable}} or {{SubTable}}
+        var allTables = body.Descendants<Table>().ToList();
+        Table? targetTable = null;
+        TableRow? templateRow = null;
+
+        foreach (var table in allTables.AsEnumerable().Reverse())
+        {
+            var directRows = table.Elements<TableRow>().ToList();
+            foreach (var row in directRows)
+            {
+                var rowText = string.Concat(row.Descendants<Text>().Select(t => t.Text ?? ""));
+                // Find row that contains both TestTable/No AND SubTable/Parameter markers
+                if ((rowText.Contains("{{TestTable}}") || rowText.Contains("{{No}}")) &&
+                    (rowText.Contains("{{SubTable}}") || rowText.Contains("{{Parameter}}")))
+                {
+                    targetTable = table;
+                    templateRow = row;
+                    _logger.LogInformation("Found mixed result table with TestTable and SubTable markers in same row");
+                    break;
+                }
+            }
+            if (targetTable != null) break;
+        }
+
+        if (targetTable == null || templateRow == null)
+        {
+            _logger.LogWarning("No mixed result table with TestTable/SubTable found in document");
+            return;
+        }
+
+        // 2. Remove parent height constraints
+        RemoveParentRowHeightConstraints(targetTable);
+
+        // 3. Clone template and remove original
+        var templateClone = (TableRow)templateRow.CloneNode(true);
+        var allRows = targetTable.Elements<TableRow>().ToList();
+        var templateRowIndex = allRows.IndexOf(templateRow);
+        templateRow.Remove();
+
+        // 4. Determine insert position
+        allRows = targetTable.Elements<TableRow>().ToList();
+        TableRow? insertAfterRow = templateRowIndex > 0 && allRows.Count > 0
+            ? allRows[Math.Min(templateRowIndex - 1, allRows.Count - 1)]
+            : null;
+
+        // 5. Create rows for each sample × indicator combination
+        // BM02 structure: Each indicator creates a new row
+        // Sample columns (Stt, Tên mẫu, Mã số mẫu) are vertically merged (row span)
+        foreach (var sampleRow in sampleData)
+        {
+            var totalIndicators = sampleRow.Indicators.Count;
+            for (int i = 0; i < totalIndicators; i++)
+            {
+                var indicator = sampleRow.Indicators[i];
+                bool isFirstIndicator = (i == 0);
+                bool isLastIndicator = (i == totalIndicators - 1);
+
+                var newRow = CloneAndFillMixedResultRowFlat(
+                    templateClone,
+                    sampleRow,
+                    indicator,
+                    isFirstIndicator,
+                    isLastIndicator,
+                    totalIndicators);
+
+                if (insertAfterRow != null)
+                {
+                    insertAfterRow.InsertAfterSelf(newRow);
+                    insertAfterRow = newRow;
+                }
+                else
+                {
+                    var firstRow = targetTable.Elements<TableRow>().FirstOrDefault();
+                    if (firstRow != null) firstRow.InsertBeforeSelf(newRow);
+                    else targetTable.AppendChild(newRow);
+                    insertAfterRow = newRow;
+                }
+            }
+        }
+
+        _logger.LogInformation("Processed {SampleCount} samples with total indicator rows for mixed result table", sampleData.Count);
+    }
+
+    /// <summary>
+    /// Clone template row and fill with sample + indicator data
+    /// For BM02 flat structure (no nested table)
+    /// Applies VerticalMerge for sample columns (No, NameOfSample, CodeOfNumber)
+    /// </summary>
+    /// <param name="template">Template row to clone</param>
+    /// <param name="sampleData">Sample data</param>
+    /// <param name="indicatorData">Indicator data</param>
+    /// <param name="isFirstIndicator">True if this is the first indicator of the sample (Restart merge)</param>
+    /// <param name="isLastIndicator">True if this is the last indicator of the sample (for border handling)</param>
+    /// <param name="totalIndicators">Total number of indicators for this sample (for rowspan)</param>
+    private TableRow CloneAndFillMixedResultRowFlat(
+        TableRow template,
+        MixedResultSampleRow sampleData,
+        MixedResultIndicatorRow indicatorData,
+        bool isFirstIndicator,
+        bool isLastIndicator,
+        int totalIndicators)
+    {
+        var newRow = (TableRow)template.CloneNode(true);
+
+        // Remove row height constraints
+        RemoveRowHeightConstraint(newRow);
+
+        // Merge split placeholders
+        foreach (var para in newRow.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Get all cells in the row
+        var cells = newRow.Elements<TableCell>().ToList();
+
+        // Define which columns should be merged (0-based index)
+        // Columns: 0=Stt, 1=Tên mẫu, 2=Mã số mẫu, 3=Chỉ tiêu, 4=Đơn vị, 5=Phương pháp, 6=Kết quả
+        var columnsToMerge = new[] { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
+
+        // Apply vertical merge to sample columns (first 3 columns)
+        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, Column 2 (Mã mẫu): center
+        if (totalIndicators > 1)
+        {
+            foreach (var colIndex in columnsToMerge)
+            {
+                if (colIndex < cells.Count)
+                {
+                    var cell = cells[colIndex];
+                    // Column 1 (NameOfSample) = left, others = center
+                    var horizontalAlignment = (colIndex == 1) ? JustificationValues.Left : JustificationValues.Center;
+                    ApplyVerticalMerge(cell, isFirstIndicator, horizontalAlignment);
+
+                    // If not first indicator, clear the cell content (merged cell should be empty)
+                    if (!isFirstIndicator)
+                    {
+                        ClearCellContent(cell);
+                    }
+                }
+            }
+        }
+
+        // Replace all placeholders
+        foreach (var text in newRow.Descendants<Text>().ToList())
+        {
+            if (string.IsNullOrEmpty(text.Text)) continue;
+
+            // For first indicator, show sample info; for subsequent, keep empty (merged)
+            text.Text = text.Text
+                .Replace("{{TestTable}}", "")
+                .Replace("{{SubTable}}", "")
+                .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                .Replace("{{Parameter}}", indicatorData.Parameter)
+                .Replace("{{Unit}}", indicatorData.Unit)
+                .Replace("{{TestMethod}}", indicatorData.TestMethod)
+                .Replace("{{Result}}", indicatorData.Result);
+        }
+
+        return newRow;
+    }
+
+    /// <summary>
+    /// Apply vertical merge to a table cell with center alignment
+    /// </summary>
+    /// <param name="cell">The cell to apply merge to</param>
+    /// <param name="isFirstRow">True for Restart (first row of merge), False for Continue (subsequent rows)</param>
+    private void ApplyVerticalMerge(TableCell cell, bool isFirstRow)
+    {
+        ApplyVerticalMerge(cell, isFirstRow, JustificationValues.Center);
+    }
+
+    /// <summary>
+    /// Apply vertical merge to a table cell with vertical center alignment
+    /// NOTE: Vertical centering in merged cells may not work well with LibreOffice/Gotenberg conversion.
+    /// This is a known limitation. The code sets the proper OpenXML properties, but the PDF converter
+    /// may not render them correctly.
+    /// </summary>
+    /// <param name="cell">The cell to apply merge to</param>
+    /// <param name="isFirstRow">True for Restart (first row of merge), False for Continue (subsequent rows)</param>
+    /// <param name="horizontalAlignment">Horizontal text alignment</param>
+    private void ApplyVerticalMerge(TableCell cell, bool isFirstRow, JustificationValues horizontalAlignment)
+    {
+        // Get or create TableCellProperties - must be first child of TableCell
+        var tcPr = cell.GetFirstChild<TableCellProperties>();
+        if (tcPr == null)
+        {
+            tcPr = new TableCellProperties();
+            cell.InsertAt(tcPr, 0);
+        }
+
+        // Remove existing properties we're going to set
+        tcPr.GetFirstChild<VerticalMerge>()?.Remove();
+        tcPr.GetFirstChild<TableCellVerticalAlignment>()?.Remove();
+
+        // Add VerticalMerge - Restart for first row, Continue for subsequent
+        var vMerge = new VerticalMerge
+        {
+            Val = isFirstRow ? MergedCellValues.Restart : MergedCellValues.Continue
+        };
+        tcPr.AppendChild(vMerge);
+
+        // Add vertical alignment to center
+        // Note: This may not render correctly in LibreOffice-based PDF conversion
+        var vAlign = new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center };
+        tcPr.AppendChild(vAlign);
+
+        // Process paragraph properties
+        foreach (var para in cell.Elements<Paragraph>())
+        {
+            var pPr = para.GetFirstChild<ParagraphProperties>();
+            if (pPr == null)
+            {
+                pPr = new ParagraphProperties();
+                para.InsertAt(pPr, 0);
+            }
+
+            // Set horizontal alignment only for first row (where content is)
+            if (isFirstRow)
+            {
+                pPr.GetFirstChild<Justification>()?.Remove();
+                pPr.AppendChild(new Justification { Val = horizontalAlignment });
+            }
+
+            // Remove paragraph spacing
+            var existingSpacing = pPr.GetFirstChild<SpacingBetweenLines>();
+            existingSpacing?.Remove();
+            pPr.AppendChild(new SpacingBetweenLines { Before = "0", After = "0", Line = "240", LineRule = LineSpacingRuleValues.Auto });
+        }
+    }
+
+    /// <summary>
+    /// Clear content of a merged cell (continuation cells should be empty)
+    /// </summary>
+    private void ClearCellContent(TableCell cell)
+    {
+        // Keep the cell structure but clear text content
+        foreach (var text in cell.Descendants<Text>().ToList())
+        {
+            text.Text = "";
+        }
+    }
+
+    #endregion
+
     /// <summary>
     /// Replace placeholder with text containing line breaks (using Word's <w:br/> element)
     /// </summary>
@@ -2120,6 +2399,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public int No { get; set; }
         public string IndicatorName { get; set; } = "";
         public string UnitPrice { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Sample row for mixed result form (BM02) with nested indicator sub-table
+    /// TestTable = samples, SubTable = indicators per sample
+    /// </summary>
+    private class MixedResultSampleRow
+    {
+        public int No { get; set; }
+        public string SampleName { get; set; } = "";
+        public string SampleCode { get; set; } = "";
+        public List<MixedResultIndicatorRow> Indicators { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Indicator row for nested sub-table in mixed result form (BM02)
+    /// </summary>
+    private class MixedResultIndicatorRow
+    {
+        public string Parameter { get; set; } = "";
+        public string Unit { get; set; } = "";
+        public string TestMethod { get; set; } = "";
+        public string Result { get; set; } = "";
     }
 
     /// <summary>
@@ -2578,51 +2880,74 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{FullAddress}}", address }
         };
 
-        // 5. Build table data - multiple indicators
-        var tableData = new List<ResultFormTableRow>();
-        int rowIndex = 1;
+        // 5. Build nested data structure - group indicators by sample for BM02 template
+        var sampleData = new List<MixedResultSampleRow>();
 
-        foreach (var qualityIndicator in qualityIndicators)
-        {
-            var labTaskIndicator = labTaskIndicators.FirstOrDefault(lti => lti.Id == qualityIndicator.LaboratoryTaskIndicatorId);
-            if (labTaskIndicator == null) continue;
-
-            var sampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == labTaskIndicator.TestRequestSampleIndicatorId);
-            if (sampleIndicator == null) continue;
-
-            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
-            var sample = sampleDict.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
-            TestMethod? method = null;
-            if (labTaskIndicator.MethodId.HasValue)
+        // Create a lookup from qualityIndicator to its related data
+        var indicatorDataList = qualityIndicators
+            .Select(qi => new
             {
-                method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
+                QualityIndicator = qi,
+                LabTaskIndicator = labTaskIndicators.FirstOrDefault(lti => lti.Id == qi.LaboratoryTaskIndicatorId)
+            })
+            .Where(x => x.LabTaskIndicator != null)
+            .Select(x => new
+            {
+                x.QualityIndicator,
+                LabTaskIndicator = x.LabTaskIndicator!,
+                SampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == x.LabTaskIndicator!.TestRequestSampleIndicatorId)
+            })
+            .Where(x => x.SampleIndicator != null)
+            .ToList();
+
+        // Group by sample
+        var groupedBySample = indicatorDataList.GroupBy(x => x.SampleIndicator!.TestRequestSampleId);
+
+        int sampleNo = 1;
+        foreach (var group in groupedBySample)
+        {
+            var sample = sampleDict.GetValueOrDefault(group.Key);
+            if (sample == null) continue;
+
+            var sampleRow = new MixedResultSampleRow
+            {
+                No = sampleNo++,
+                SampleName = sample.SampleName ?? "",
+                SampleCode = sample.SampleCode ?? "",
+                Indicators = new List<MixedResultIndicatorRow>()
+            };
+
+            foreach (var item in group)
+            {
+                var indicator = indicatorDict.GetValueOrDefault(item.SampleIndicator!.IndicatorId);
+                TestMethod? method = null;
+                if (item.LabTaskIndicator.MethodId.HasValue)
+                {
+                    method = methodDict.GetValueOrDefault(item.LabTaskIndicator.MethodId.Value);
+                }
+
+                // Apply superscript conversion for formulas like 2^2 → 2²
+                var resultText = ConvertToSuperscriptDisplay(item.LabTaskIndicator.Result);
+
+                sampleRow.Indicators.Add(new MixedResultIndicatorRow
+                {
+                    Parameter = indicator?.Name ?? "",
+                    Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
+                    TestMethod = method?.Name ?? "",
+                    Result = resultText
+                });
             }
 
-            // Apply superscript conversion for formulas like 2^2 → 2²
-            var resultText = ConvertToSuperscriptDisplay(labTaskIndicator.Result);
-
-            tableData.Add(new ResultFormTableRow
-            {
-                No = rowIndex++,
-                NameOfSample = sample?.SampleName ?? "", // BM02 - Tên mẫu
-                CodeOfNumber = sample?.SampleCode ?? "", // BM02 - Mã số mẫu
-                Parameters = indicator?.Name ?? "",
-                Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                Result = resultText,
-                Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
-                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
-                Uncertainty = "",
-                Proclaim = ""
-            });
+            sampleData.Add(sampleRow);
         }
 
-        // 6. Generate document using selected template (or default BM01)
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
+        _logger.LogInformation("Built {SampleCount} sample rows for mixed result", sampleData.Count);
+
+        // 6. Generate document using BM02 template (default for mixed result with nested SubTable)
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM01);
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM02);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2641,7 +2966,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
-        ProcessDocument(outputPath, placeholders, tableData);
+        // Use new method for nested table structure
+        ProcessMixedResultDocument(outputPath, placeholders, sampleData);
 
         // 7. Convert to PDF
         string pdfFileName;
