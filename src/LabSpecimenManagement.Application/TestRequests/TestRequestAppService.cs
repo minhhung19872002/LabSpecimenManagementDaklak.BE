@@ -1095,9 +1095,16 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Auto-create LaboratoryTask records grouped by Laboratory when TestRequest is created
+    /// Chỉ tạo khi khách hàng chọn "Có lưu mẫu" (SampleStorage = Yes)
     /// </summary>
     private async Task CreateLaboratoryTasksAsync(TestRequest testRequest)
     {
+        // Nếu khách hàng chọn "Không lưu mẫu" thì không tạo LaboratoryTask
+        if (testRequest.SampleStorage == SampleStorageOption.No)
+        {
+            return;
+        }
+
         // Get all samples for this TestRequest
         var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequest.Id);
 
@@ -2265,6 +2272,7 @@ public partial class TestRequestAppService :
     /// <summary>
     /// Create or update LaboratoryTasks for new indicators when TestRequest is SampleSent or InProgress
     /// Groups indicators by laboratory - adds to existing task if one exists, otherwise creates new task
+    /// Chỉ tạo khi khách hàng chọn "Có lưu mẫu" (SampleStorage = Yes)
     /// </summary>
     private async Task CreateLaboratoryTasksForNewIndicatorsAsync(
         Guid testRequestId,
@@ -2273,6 +2281,12 @@ public partial class TestRequestAppService :
         if (!newIndicators.Any()) return;
 
         var testRequest = await Repository.GetAsync(testRequestId);
+
+        // Nếu khách hàng chọn "Không lưu mẫu" thì không tạo LaboratoryTask
+        if (testRequest.SampleStorage == SampleStorageOption.No)
+        {
+            return;
+        }
 
         // Group indicators by LaboratoryId
         var indicatorsByLab = newIndicators
