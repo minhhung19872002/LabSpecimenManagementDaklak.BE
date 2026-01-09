@@ -86,8 +86,12 @@ public class TestRequestDtoEnricher : ITransientDependency
         var indicatorIds = allIndicatorLinks.Select(i => i.IndicatorId).Distinct().ToList();
         var indicators = await LoadIndicatorsAsync(indicatorIds);
 
-        // Load indicator groups to get DepartmentId for auto-fill
-        var indicatorGroupIds = indicators.Values.Select(i => i.IndicatorGroupId).Distinct().ToList();
+        // Load indicator groups to get LaboratoryId for auto-fill
+        var indicatorGroupIds = indicators.Values
+            .Where(i => i.IndicatorGroupId != Guid.Empty)
+            .Select(i => i.IndicatorGroupId)
+            .Distinct()
+            .ToList();
         var indicatorGroups = await LoadIndicatorGroupsAsync(indicatorGroupIds);
 
         var laboratoryIds = allIndicatorLinks.Where(i => i.LaboratoryId.HasValue).Select(i => i.LaboratoryId!.Value).Distinct().ToList();

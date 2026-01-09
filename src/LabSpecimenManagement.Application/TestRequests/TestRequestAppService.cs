@@ -62,6 +62,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
+    private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -90,7 +91,8 @@ public partial class TestRequestAppService :
         IRepository<Receipt, Guid> receiptRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IPublishedReportRepository publishedReportRepository,
-        IRepository<CostChangeHistory, Guid> costChangeHistoryRepository)
+        IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -120,6 +122,7 @@ public partial class TestRequestAppService :
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _publishedReportRepository = publishedReportRepository;
         _costChangeHistoryRepository = costChangeHistoryRepository;
+        _indicatorGroupRepository = indicatorGroupRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -173,6 +176,19 @@ public partial class TestRequestAppService :
             foreach (var indicator in indicators)
             {
                 var indicatorEntity = await _indicatorRepository.GetAsync(indicator.IndicatorId);
+
+                // Get indicator group info for auto-fill LaboratoryId
+                string? indicatorGroupName = null;
+                Guid? indicatorGroupLaboratoryId = null;
+                if (indicatorEntity.IndicatorGroupId != Guid.Empty)
+                {
+                    var indicatorGroup = await _indicatorGroupRepository.FindAsync(indicatorEntity.IndicatorGroupId);
+                    if (indicatorGroup != null)
+                    {
+                        indicatorGroupName = indicatorGroup.Name;
+                        indicatorGroupLaboratoryId = indicatorGroup.LaboratoryId;
+                    }
+                }
 
                 // Get laboratory name if assigned
                 string? laboratoryName = null;
@@ -232,6 +248,8 @@ public partial class TestRequestAppService :
                     IndicatorId = indicator.IndicatorId,
                     IndicatorCode = indicatorEntity.Code,
                     IndicatorName = indicatorEntity.Name,
+                    IndicatorGroupName = indicatorGroupName,
+                    IndicatorGroupLaboratoryId = indicatorGroupLaboratoryId,
                     TestMethodId = indicator.TestMethodId,
                     TestMethodCode = testMethodCode,
                     TestMethodName = testMethodName,
@@ -549,11 +567,12 @@ public partial class TestRequestAppService :
                         );
                         sampleIndicator.UnitPrice = indicatorDto.UnitPrice;
                         sampleIndicator.Notes = indicatorDto.Notes;
-                        sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.TestMethodId = indicatorDto.TestMethodId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
                         sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
+                        sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
+
                         await _sampleIndicatorRepository.InsertAsync(sampleIndicator, autoSave: true);
                         sampleIndicatorCost += indicatorDto.UnitPrice;
                     }
@@ -875,11 +894,12 @@ public partial class TestRequestAppService :
                             );
                             indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.Notes = indicatorDto.Notes;
-                            indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
+                            indicator.LaboratoryId = indicatorDto.LaboratoryId;
+
                             await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
                         }
                         sampleIndicatorCost += indicatorDto.UnitPrice;
@@ -2125,8 +2145,9 @@ public partial class TestRequestAppService :
                         );
                         indicator.UnitPrice = indicatorDto.UnitPrice;
                         indicator.Notes = indicatorDto.Notes;
-                        indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
+                        indicator.LaboratoryId = indicatorDto.LaboratoryId;
+
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
 
                         // Collect new indicators for batch task creation
