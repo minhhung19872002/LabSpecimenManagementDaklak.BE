@@ -18,6 +18,7 @@
     <PackageReference Include="Volo.Abp.PermissionManagement.Domain.Shared" Version="9.0.0" />
     <PackageReference Include="Volo.Abp.SettingManagement.Domain.Shared" Version="9.0.0" />
     <PackageReference Include="Volo.Abp.OpenIddict.Domain.Shared" Version="9.0.0" />
+    <PackageReference Include="NCalcSync" Version="5.9.0" />
   </ItemGroup>
 
   <ItemGroup>

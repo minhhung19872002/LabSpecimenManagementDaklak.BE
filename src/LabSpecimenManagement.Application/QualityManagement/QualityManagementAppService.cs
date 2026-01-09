@@ -1428,6 +1428,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
     /// <summary>
     /// Cập nhật trạng thái task sau khi in kết quả
+    /// Đồng thời cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
     /// </summary>
     private async Task UpdateTaskStatusAfterPrintAsync(QualityManagementTask task)
     {
@@ -1459,6 +1460,17 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         await _taskRepository.UpdateAsync(task);
+
+        // Cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest.Status != TestRequestStatus.ReportPublished)
+        {
+            testRequest.Status = TestRequestStatus.ReportPublished;
+            testRequest.ReportPublishedDate = DateTime.Now;
+            testRequest.ReportPublishedByUserId = CurrentUser.Id;
+            testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
     }
 
     /// <summary>
