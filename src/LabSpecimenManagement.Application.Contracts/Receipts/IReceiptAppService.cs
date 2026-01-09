@@ -49,4 +49,9 @@ public interface IReceiptAppService : IApplicationService
     /// Xử lý thanh toán mới
     /// </summary>
     Task<PaymentResultDto> ProcessPaymentAsync(Guid receiptId, CreatePaymentInput input);
+
+    /// <summary>
+    /// Xuất danh sách thanh toán ra Excel
+    /// </summary>
+    Task<byte[]> ExportPaymentHistoryAsync(ExportPaymentHistoryInput input);
 }

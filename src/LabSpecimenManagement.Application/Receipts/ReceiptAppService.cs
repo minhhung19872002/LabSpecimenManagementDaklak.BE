@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using MiniExcelLibs;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Domain.Repositories;
@@ -435,6 +437,90 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             ReceiptStatus = receipt.Status,
             Message = message
         };
+    }
+
+    /// <summary>
+    /// Xuất danh sách thanh toán ra Excel
+    /// </summary>
+    public async Task<byte[]> ExportPaymentHistoryAsync(ExportPaymentHistoryInput input)
+    {
+        // Query PaymentHistory với Receipt và TestRequest
+        var paymentQuery = await _paymentHistoryRepository.GetQueryableAsync();
+
+        // Join với Receipt để lấy thông tin
+        var receiptQuery = await _receiptRepository.WithDetailsAsync(r => r.TestRequest);
+
+        var query = from ph in paymentQuery
+                    join r in receiptQuery on ph.ReceiptId equals r.Id
+                    select new { PaymentHistory = ph, Receipt = r };
+
+        // Filter theo ngày thanh toán
+        if (input.FromDate.HasValue)
+        {
+            var fromDate = input.FromDate.Value.Date;
+            query = query.Where(x => x.PaymentHistory.PaymentDate >= fromDate);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            var toDate = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.PaymentHistory.PaymentDate < toDate);
+        }
+
+        // Order by payment date
+        query = query.OrderBy(x => x.PaymentHistory.PaymentDate);
+
+        var data = await AsyncExecuter.ToListAsync(query);
+
+        // Map to export data
+        var exportData = data.Select(x =>
+        {
+            var ph = x.PaymentHistory;
+            var receipt = x.Receipt;
+            var testRequest = receipt.TestRequest;
+
+            // Tạo mã phiếu thu: {receiptId_8ký_đầu}-YYMMDDxx
+            var shortReceiptId = receipt.Id.ToString("N").Substring(0, 8).ToUpper();
+            var paymentDate = ph.PaymentDate;
+            var yy = paymentDate.ToString("yy");
+            var mm = paymentDate.ToString("MM");
+            var dd = paymentDate.ToString("dd");
+            var xx = ph.PaymentNumber.ToString("D2");
+            var receiptCode = $"{shortReceiptId}-{yy}{mm}{dd}{xx}";
+
+            // Hình thức thanh toán
+            var paymentMethodLabel = ph.PaymentMethod == PaymentMethod.Cash ? "Tiền mặt" : "Chuyển khoản";
+
+            return new
+            {
+                SoHopDong = testRequest?.ContractNumber ?? "",
+                MaPhieuThu = receiptCode,
+                TongChiPhi = testRequest?.TotalCost ?? 0,
+                SoTienThanhToan = ph.Amount,
+                HinhThucThanhToan = paymentMethodLabel,
+                GhiChu = ph.Notes ?? ""
+            };
+        }).ToList();
+
+        // Tạo Excel với header tiếng Việt
+        var excelData = new List<Dictionary<string, object>>();
+
+        foreach (var item in exportData)
+        {
+            excelData.Add(new Dictionary<string, object>
+            {
+                { "Số hợp đồng", item.SoHopDong },
+                { "Mã phiếu thu", item.MaPhieuThu },
+                { "Tổng chi phí", item.TongChiPhi },
+                { "Số tiền thanh toán", item.SoTienThanhToan },
+                { "Hình thức thanh toán", item.HinhThucThanhToan },
+                { "Ghi chú", item.GhiChu }
+            });
+        }
+
+        using var stream = new MemoryStream();
+        stream.SaveAs(excelData);
+        return stream.ToArray();
     }
 
     private static ReceiptDto MapToDto(Receipt receipt)

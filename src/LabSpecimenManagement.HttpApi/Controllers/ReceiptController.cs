@@ -93,4 +93,15 @@ public class ReceiptController : LabSpecimenManagementController
     {
         return await _receiptAppService.ProcessPaymentAsync(receiptId, input);
     }
+
+    /// <summary>
+    /// Xuất danh sách thanh toán ra Excel
+    /// </summary>
+    [HttpGet("export-payment-history")]
+    public async Task<IActionResult> ExportPaymentHistoryAsync([FromQuery] ExportPaymentHistoryInput input)
+    {
+        var fileBytes = await _receiptAppService.ExportPaymentHistoryAsync(input);
+        var fileName = $"danh-sach-thanh-toan_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
 }

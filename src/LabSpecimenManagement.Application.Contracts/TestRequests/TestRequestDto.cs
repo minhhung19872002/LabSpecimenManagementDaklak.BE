@@ -167,6 +167,12 @@ public class TestRequestSampleIndicatorDto
     public string? IndicatorCode { get; set; }
     public string? IndicatorName { get; set; }
     public string? IndicatorGroupName { get; set; }
+
+    /// <summary>
+    /// Khoa phòng thực hiện mặc định của nhóm chỉ tiêu (để auto-fill khi gửi QLKT)
+    /// </summary>
+    public Guid? IndicatorGroupLaboratoryId { get; set; }
+
     public decimal UnitPrice { get; set; }
     public string? Notes { get; set; }
 

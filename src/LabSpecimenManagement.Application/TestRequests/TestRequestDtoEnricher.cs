@@ -20,6 +20,7 @@ public class TestRequestDtoEnricher : ITransientDependency
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
@@ -32,6 +33,7 @@ public class TestRequestDtoEnricher : ITransientDependency
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
@@ -43,6 +45,7 @@ public class TestRequestDtoEnricher : ITransientDependency
         _sampleRepository = sampleRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _indicatorRepository = indicatorRepository;
+        _indicatorGroupRepository = indicatorGroupRepository;
         _laboratoryRepository = laboratoryRepository;
         _testMethodRepository = testMethodRepository;
         _specimenTypeRepository = specimenTypeRepository;
@@ -83,6 +86,10 @@ public class TestRequestDtoEnricher : ITransientDependency
         var indicatorIds = allIndicatorLinks.Select(i => i.IndicatorId).Distinct().ToList();
         var indicators = await LoadIndicatorsAsync(indicatorIds);
 
+        // Load indicator groups to get DepartmentId for auto-fill
+        var indicatorGroupIds = indicators.Values.Select(i => i.IndicatorGroupId).Distinct().ToList();
+        var indicatorGroups = await LoadIndicatorGroupsAsync(indicatorGroupIds);
+
         var laboratoryIds = allIndicatorLinks.Where(i => i.LaboratoryId.HasValue).Select(i => i.LaboratoryId!.Value).Distinct().ToList();
         var laboratories = await LoadLaboratoriesAsync(laboratoryIds);
 
@@ -121,9 +128,15 @@ public class TestRequestDtoEnricher : ITransientDependency
                     ? indicatorImages.GetValueOrDefault(labTaskIndicator.Id, new List<IndicatorImage>())
                     : new List<IndicatorImage>();
 
+                var indicator = indicators.GetValueOrDefault(indicatorLink.IndicatorId);
+                var indicatorGroup = indicator != null
+                    ? indicatorGroups.GetValueOrDefault(indicator.IndicatorGroupId)
+                    : null;
+
                 var indicatorDto = CreateIndicatorDto(
                     indicatorLink,
-                    indicators.GetValueOrDefault(indicatorLink.IndicatorId),
+                    indicator,
+                    indicatorGroup,
                     indicatorLink.LaboratoryId.HasValue ? laboratories.GetValueOrDefault(indicatorLink.LaboratoryId.Value) : null,
                     indicatorLink.TestMethodId.HasValue ? testMethods.GetValueOrDefault(indicatorLink.TestMethodId.Value) : null,
                     labTaskIndicator,
@@ -174,6 +187,13 @@ public class TestRequestDtoEnricher : ITransientDependency
         return items.ToDictionary(x => x.Id);
     }
 
+    private async Task<Dictionary<Guid, IndicatorGroup>> LoadIndicatorGroupsAsync(List<Guid> ids)
+    {
+        if (ids.Count == 0) return new Dictionary<Guid, IndicatorGroup>();
+        var items = await _indicatorGroupRepository.GetListAsync(x => ids.Contains(x.Id));
+        return items.ToDictionary(x => x.Id);
+    }
+
     private async Task<Dictionary<Guid, Laboratory>> LoadLaboratoriesAsync(List<Guid> ids)
     {
         if (ids.Count == 0) return new Dictionary<Guid, Laboratory>();
@@ -214,6 +234,7 @@ public class TestRequestDtoEnricher : ITransientDependency
     private static TestRequestSampleIndicatorDto CreateIndicatorDto(
         TestRequestSampleIndicator indicatorLink,
         Indicator? indicator,
+        IndicatorGroup? indicatorGroup,
         Laboratory? laboratory,
         TestMethod? testMethod,
         LaboratoryTaskIndicator? labTaskIndicator,
@@ -226,6 +247,8 @@ public class TestRequestDtoEnricher : ITransientDependency
             IndicatorId = indicatorLink.IndicatorId,
             IndicatorCode = indicator?.Code ?? string.Empty,
             IndicatorName = indicator?.Name ?? string.Empty,
+            IndicatorGroupName = indicatorGroup?.Name,
+            IndicatorGroupLaboratoryId = indicatorGroup?.LaboratoryId,
             TestMethodId = indicatorLink.TestMethodId,
             TestMethodCode = testMethod?.Code,
             TestMethodName = testMethod?.Name,
