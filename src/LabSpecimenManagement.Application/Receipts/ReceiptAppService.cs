@@ -4,7 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
-using MiniExcelLibs;
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Domain.Repositories;
@@ -502,25 +504,220 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             };
         }).ToList();
 
-        // Tạo Excel với header tiếng Việt
-        var excelData = new List<Dictionary<string, object>>();
-
-        foreach (var item in exportData)
-        {
-            excelData.Add(new Dictionary<string, object>
-            {
-                { "Số hợp đồng", item.SoHopDong },
-                { "Mã phiếu thu", item.MaPhieuThu },
-                { "Tổng chi phí", item.TongChiPhi },
-                { "Số tiền thanh toán", item.SoTienThanhToan },
-                { "Hình thức thanh toán", item.HinhThucThanhToan },
-                { "Ghi chú", item.GhiChu }
-            });
-        }
+        // Group by SoHopDong để merge cells
+        var groupedData = exportData
+            .GroupBy(x => x.SoHopDong)
+            .OrderBy(g => g.Key)
+            .ToList();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(excelData);
+        using (var document = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook))
+        {
+            var workbookPart = document.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+
+            // Add stylesheet for formatting
+            var stylesPart = workbookPart.AddNewPart<WorkbookStylesPart>();
+            stylesPart.Stylesheet = CreateStylesheet();
+            stylesPart.Stylesheet.Save();
+
+            var worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            var sheetData = new SheetData();
+
+            // Create columns with custom widths
+            var columns = new Columns(
+                new Column { Min = 1, Max = 1, Width = 20, CustomWidth = true },  // Số hợp đồng
+                new Column { Min = 2, Max = 2, Width = 28, CustomWidth = true },  // Mã phiếu thu
+                new Column { Min = 3, Max = 3, Width = 18, CustomWidth = true },  // Tổng chi phí
+                new Column { Min = 4, Max = 4, Width = 22, CustomWidth = true },  // Số tiền thanh toán
+                new Column { Min = 5, Max = 5, Width = 22, CustomWidth = true },  // Hình thức thanh toán
+                new Column { Min = 6, Max = 6, Width = 35, CustomWidth = true }   // Ghi chú
+            );
+
+            var mergeCells = new MergeCells();
+
+            // Header row
+            var headerRow = new Row { RowIndex = 1 };
+            headerRow.Append(
+                CreateCell("Số hợp đồng", 2),      // Bold, center
+                CreateCell("Mã phiếu thu", 2),
+                CreateCell("Tổng chi phí", 2),
+                CreateCell("Số tiền thanh toán", 2),
+                CreateCell("Hình thức thanh toán", 2),
+                CreateCell("Ghi chú", 2)
+            );
+            sheetData.Append(headerRow);
+
+            // Data rows
+            uint currentRow = 2;
+            foreach (var group in groupedData)
+            {
+                var items = group.ToList();
+                uint startRow = currentRow;
+
+                for (int i = 0; i < items.Count; i++)
+                {
+                    var item = items[i];
+                    var dataRow = new Row { RowIndex = currentRow };
+
+                    // Cột Số hợp đồng - chỉ điền ở dòng đầu
+                    if (i == 0)
+                    {
+                        dataRow.Append(CreateCell(item.SoHopDong, 1)); // Center aligned
+                    }
+                    else
+                    {
+                        dataRow.Append(CreateCell("", 1));
+                    }
+
+                    dataRow.Append(
+                        CreateCell(item.MaPhieuThu, 1),
+                        CreateNumberCell(i == 0 ? item.TongChiPhi : 0, 3), // Number format, center
+                        CreateNumberCell(item.SoTienThanhToan, 3),
+                        CreateCell(item.HinhThucThanhToan, 1),
+                        CreateCell(item.GhiChu, 4) // Left aligned with border
+                    );
+
+                    sheetData.Append(dataRow);
+                    currentRow++;
+                }
+
+                // Merge cells cho Số hợp đồng và Tổng chi phí nếu có nhiều hơn 1 dòng
+                if (items.Count > 1)
+                {
+                    // Merge cột A (Số hợp đồng)
+                    mergeCells.Append(new MergeCell { Reference = $"A{startRow}:A{currentRow - 1}" });
+                    // Merge cột C (Tổng chi phí)
+                    mergeCells.Append(new MergeCell { Reference = $"C{startRow}:C{currentRow - 1}" });
+                }
+            }
+
+            var worksheet = new Worksheet();
+            worksheet.Append(columns);
+            worksheet.Append(sheetData);
+
+            if (mergeCells.HasChildren)
+            {
+                worksheet.InsertAfter(mergeCells, sheetData);
+            }
+
+            worksheetPart.Worksheet = worksheet;
+            worksheetPart.Worksheet.Save();
+
+            // Add sheet to workbook
+            var sheets = workbookPart.Workbook.AppendChild(new Sheets());
+            sheets.Append(new Sheet
+            {
+                Id = workbookPart.GetIdOfPart(worksheetPart),
+                SheetId = 1,
+                Name = "Lịch sử thanh toán"
+            });
+
+            workbookPart.Workbook.Save();
+        }
+
         return stream.ToArray();
+    }
+
+    /// <summary>
+    /// Create stylesheet for Excel formatting
+    /// </summary>
+    private static Stylesheet CreateStylesheet()
+    {
+        return new Stylesheet(
+            new Fonts(
+                new Font( // Index 0 - Normal
+                    new FontSize { Val = 11 },
+                    new FontName { Val = "Calibri" }
+                ),
+                new Font( // Index 1 - Bold
+                    new Bold(),
+                    new FontSize { Val = 11 },
+                    new FontName { Val = "Calibri" }
+                )
+            ),
+            new Fills(
+                new Fill(new PatternFill { PatternType = PatternValues.None }), // Index 0
+                new Fill(new PatternFill { PatternType = PatternValues.Gray125 }) // Index 1
+            ),
+            new Borders(
+                new Border( // Index 0 - No border
+                    new LeftBorder(),
+                    new RightBorder(),
+                    new TopBorder(),
+                    new BottomBorder(),
+                    new DiagonalBorder()
+                ),
+                new Border( // Index 1 - Thin border
+                    new LeftBorder { Style = BorderStyleValues.Thin },
+                    new RightBorder { Style = BorderStyleValues.Thin },
+                    new TopBorder { Style = BorderStyleValues.Thin },
+                    new BottomBorder { Style = BorderStyleValues.Thin },
+                    new DiagonalBorder()
+                )
+            ),
+            new CellFormats(
+                new CellFormat(), // Index 0 - Default
+                new CellFormat   // Index 1 - Center aligned with border
+                {
+                    Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center },
+                    BorderId = 1,
+                    ApplyBorder = true,
+                    ApplyAlignment = true
+                },
+                new CellFormat   // Index 2 - Bold, center aligned with border (header)
+                {
+                    FontId = 1,
+                    Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center },
+                    BorderId = 1,
+                    ApplyFont = true,
+                    ApplyBorder = true,
+                    ApplyAlignment = true
+                },
+                new CellFormat   // Index 3 - Number format, center aligned with border
+                {
+                    NumberFormatId = 3, // #,##0
+                    Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Center, Vertical = VerticalAlignmentValues.Center },
+                    BorderId = 1,
+                    ApplyNumberFormat = true,
+                    ApplyBorder = true,
+                    ApplyAlignment = true
+                },
+                new CellFormat   // Index 4 - Left aligned with border (for notes)
+                {
+                    Alignment = new Alignment { Horizontal = HorizontalAlignmentValues.Left, Vertical = VerticalAlignmentValues.Center },
+                    BorderId = 1,
+                    ApplyBorder = true,
+                    ApplyAlignment = true
+                }
+            )
+        );
+    }
+
+    /// <summary>
+    /// Create a text cell with style
+    /// </summary>
+    private static Cell CreateCell(string text, uint styleIndex)
+    {
+        return new Cell
+        {
+            DataType = CellValues.String,
+            CellValue = new CellValue(text ?? ""),
+            StyleIndex = styleIndex
+        };
+    }
+
+    /// <summary>
+    /// Create a number cell with style
+    /// </summary>
+    private static Cell CreateNumberCell(decimal value, uint styleIndex)
+    {
+        return new Cell
+        {
+            DataType = CellValues.Number,
+            CellValue = new CellValue(value.ToString(System.Globalization.CultureInfo.InvariantCulture)),
+            StyleIndex = styleIndex
+        };
     }
 
     private static ReceiptDto MapToDto(Receipt receipt)
