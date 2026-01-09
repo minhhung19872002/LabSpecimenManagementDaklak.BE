@@ -1008,17 +1008,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
-        if (input.IndicatorIds == null || !input.IndicatorIds.Any())
+        if (input.Indicators == null || !input.Indicators.Any())
         {
-            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicators", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         var errors = new List<string>();
         var submittedIndicators = new List<LaboratoryTaskIndicator>();
 
-        foreach (var indicatorId in input.IndicatorIds)
+        foreach (var indicatorInput in input.Indicators)
         {
-            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorInput.IndicatorId);
             if (indicator == null) continue;
 
             // Kiểm tra quyền
@@ -1027,16 +1027,16 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Chỉ submit indicators đã check-in (có TestDate) và chưa submit
-            if (!indicator.TestDate.HasValue)
+            // Chỉ submit nếu status phù hợp (Pending, Rejected, hoặc các status cho phép thử nghiệm)
+            var allowedStatuses = new[]
             {
-                errors.Add($"Chỉ tiêu chưa được thực hiện (check-in)");
-                continue;
-            }
+                IndicatorApprovalStatus.Pending,
+                IndicatorApprovalStatus.Rejected,
+                IndicatorApprovalStatus.MethodChanged,
+                IndicatorApprovalStatus.AcceptedForTesting
+            };
 
-            // Chỉ submit nếu status = Pending hoặc Rejected
-            if (indicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
-                indicator.ApprovalStatus != IndicatorApprovalStatus.Rejected)
+            if (!allowedStatuses.Contains(indicator.ApprovalStatus))
             {
                 continue;
             }
@@ -1048,6 +1048,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
+            // Validate TestDate - bắt buộc
+            if (indicatorInput.TestDate == default)
+            {
+                errors.Add($"Vui lòng chọn ngày thử nghiệm");
+                continue;
+            }
+
+            // Nếu indicator bị từ chối trước đó, testDate phải >= ngày hiện tại
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+            {
+                if (indicatorInput.TestDate.Date < DateTime.Today)
+                {
+                    errors.Add($"Ngày thử nghiệm không chính xác. Vui lòng chọn ngày thử nghiệm mới (>= ngày hiện tại)");
+                    continue;
+                }
+            }
+
             // Auto-create TestResultValue for text values (not numeric/formula)
             // This allows user to enter new text values like "Đạt", "Không đạt"
             // which will be saved to master data for future autocomplete
@@ -1055,6 +1072,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 await _testResultValueAppService.GetOrCreateByNameAsync(indicator.Result);
             }
+
+            // Set TestDate từ input
+            indicator.TestDate = indicatorInput.TestDate;
 
             // Set SubmitDate và ApprovalStatus = Entered
             indicator.SubmitDate = DateTime.Now;
@@ -1071,8 +1091,16 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", string.Join("; ", errors.Distinct()));
         }
 
+        if (!submittedIndicators.Any())
+        {
+            throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
+        }
+
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Update TestRequest status to InProgress when KTV submits results
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
 
         // Notify QLKT about submitted results (Case 1 & 6)
         if (task.TechnicalManagerId.HasValue && submittedIndicators.Any())
