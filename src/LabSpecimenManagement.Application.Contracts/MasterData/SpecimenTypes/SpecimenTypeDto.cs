@@ -12,4 +12,9 @@ public class SpecimenTypeDto : FullAuditedEntityDto<Guid>
     public int? MaxStorageDays { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Số lượng chỉ tiêu thuộc loại mẫu này
+    /// </summary>
+    public int IndicatorCount { get; set; }
 }

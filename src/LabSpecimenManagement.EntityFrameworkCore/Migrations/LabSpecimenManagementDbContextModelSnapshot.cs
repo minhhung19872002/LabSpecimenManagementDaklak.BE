@@ -1145,6 +1145,35 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppSpecimenTypes", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.SpecimenTypeIndicator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("SpecimenTypeId");
+
+                    b.HasIndex("SpecimenTypeId", "IndicatorId")
+                        .IsUnique();
+
+                    b.ToTable("AppSpecimenTypeIndicators", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Standard", b =>
                 {
                     b.Property<Guid>("Id")

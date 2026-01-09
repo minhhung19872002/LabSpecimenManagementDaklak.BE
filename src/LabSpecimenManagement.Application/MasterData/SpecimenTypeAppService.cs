@@ -20,9 +20,20 @@ public class SpecimenTypeAppService :
         CreateUpdateSpecimenTypeDto>,
     ISpecimenTypeAppService
 {
-    public SpecimenTypeAppService(IRepository<SpecimenType, Guid> repository)
+    private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
+
+    public SpecimenTypeAppService(
+        IRepository<SpecimenType, Guid> repository,
+        IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository)
         : base(repository)
     {
+        _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
+        _indicatorRepository = indicatorRepository;
+        _indicatorGroupRepository = indicatorGroupRepository;
     }
 
     public override async Task<SpecimenTypeDto> CreateAsync(CreateUpdateSpecimenTypeDto input)
@@ -122,4 +133,243 @@ public class SpecimenTypeAppService :
             ObjectMapper.Map<List<SpecimenType>, List<SpecimenTypeDto>>(items)
         );
     }
+
+    #region Indicator Management
+
+    public async Task<List<SpecimenTypeWithIndicatorsDto>> GetAllWithIndicatorsAsync()
+    {
+        var specimenTypes = await Repository.GetListAsync();
+        var specimenTypeIndicators = await _specimenTypeIndicatorRepository.GetListAsync();
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorGroups = await _indicatorGroupRepository.GetListAsync();
+
+        var result = specimenTypes
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Name)
+            .Select(st =>
+            {
+                var dto = ObjectMapper.Map<SpecimenType, SpecimenTypeWithIndicatorsDto>(st);
+
+                var stIndicators = specimenTypeIndicators
+                    .Where(sti => sti.SpecimenTypeId == st.Id)
+                    .OrderBy(sti => sti.SortOrder)
+                    .Select(sti =>
+                    {
+                        var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
+                        var indicatorGroup = indicator != null
+                            ? indicatorGroups.FirstOrDefault(g => g.Id == indicator.IndicatorGroupId)
+                            : null;
+
+                        return new SpecimenTypeIndicatorDto
+                        {
+                            Id = sti.Id,
+                            SpecimenTypeId = sti.SpecimenTypeId,
+                            IndicatorId = sti.IndicatorId,
+                            IndicatorCode = indicator?.Code ?? "",
+                            IndicatorName = indicator?.Name ?? "",
+                            IndicatorGroupName = indicatorGroup?.Name,
+                            IsActive = sti.IsActive,
+                            SortOrder = sti.SortOrder
+                        };
+                    })
+                    .ToList();
+
+                dto.Indicators = stIndicators;
+                dto.IndicatorCount = stIndicators.Count;
+
+                return dto;
+            })
+            .ToList();
+
+        return result;
+    }
+
+    public async Task<SpecimenTypeWithIndicatorsDto> GetWithIndicatorsAsync(Guid id)
+    {
+        var specimenType = await Repository.GetAsync(id);
+        var specimenTypeIndicatorQuery = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var indicatorGroupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+
+        var dto = ObjectMapper.Map<SpecimenType, SpecimenTypeWithIndicatorsDto>(specimenType);
+
+        // Get indicators linked to this specimen type
+        var stIndicators = specimenTypeIndicatorQuery
+            .Where(sti => sti.SpecimenTypeId == id)
+            .OrderBy(sti => sti.SortOrder)
+            .ToList();
+
+        // Get indicator details
+        var indicatorIds = stIndicators.Select(sti => sti.IndicatorId).ToList();
+        var indicators = indicatorQuery.Where(i => indicatorIds.Contains(i.Id)).ToList();
+
+        // Get indicator group details
+        var groupIds = indicators.Select(i => i.IndicatorGroupId).Distinct().ToList();
+        var indicatorGroups = indicatorGroupQuery.Where(g => groupIds.Contains(g.Id)).ToList();
+
+        // Build indicators list
+        dto.Indicators = stIndicators.Select(sti =>
+        {
+            var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
+            var indicatorGroup = indicator != null
+                ? indicatorGroups.FirstOrDefault(g => g.Id == indicator.IndicatorGroupId)
+                : null;
+
+            return new SpecimenTypeIndicatorDto
+            {
+                Id = sti.Id,
+                SpecimenTypeId = sti.SpecimenTypeId,
+                IndicatorId = sti.IndicatorId,
+                IndicatorCode = indicator?.Code ?? "",
+                IndicatorName = indicator?.Name ?? "",
+                IndicatorGroupName = indicatorGroup?.Name,
+                IsActive = sti.IsActive,
+                SortOrder = sti.SortOrder
+            };
+        }).ToList();
+
+        dto.IndicatorCount = dto.Indicators.Count;
+
+        return dto;
+    }
+
+    public async Task<List<SpecimenTypeIndicatorDto>> GetIndicatorsAsync(Guid specimenTypeId)
+    {
+        var specimenTypeIndicatorQuery = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var indicatorGroupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+
+        var stIndicators = specimenTypeIndicatorQuery
+            .Where(sti => sti.SpecimenTypeId == specimenTypeId)
+            .OrderBy(sti => sti.SortOrder)
+            .ToList();
+
+        var indicatorIds = stIndicators.Select(sti => sti.IndicatorId).ToList();
+        var indicators = indicatorQuery.Where(i => indicatorIds.Contains(i.Id)).ToList();
+
+        var groupIds = indicators.Select(i => i.IndicatorGroupId).Distinct().ToList();
+        var indicatorGroups = indicatorGroupQuery.Where(g => groupIds.Contains(g.Id)).ToList();
+
+        return stIndicators.Select(sti =>
+        {
+            var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
+            var indicatorGroup = indicator != null
+                ? indicatorGroups.FirstOrDefault(g => g.Id == indicator.IndicatorGroupId)
+                : null;
+
+            return new SpecimenTypeIndicatorDto
+            {
+                Id = sti.Id,
+                SpecimenTypeId = sti.SpecimenTypeId,
+                IndicatorId = sti.IndicatorId,
+                IndicatorCode = indicator?.Code ?? "",
+                IndicatorName = indicator?.Name ?? "",
+                IndicatorGroupName = indicatorGroup?.Name,
+                IsActive = sti.IsActive,
+                SortOrder = sti.SortOrder
+            };
+        }).ToList();
+    }
+
+    public async Task AddIndicatorsAsync(Guid specimenTypeId, AddIndicatorsToSpecimenTypeDto input)
+    {
+        // Verify specimen type exists
+        var specimenType = await Repository.GetAsync(specimenTypeId);
+
+        // Get existing indicators to avoid duplicates
+        var existingQuery = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var existingIndicatorIds = existingQuery
+            .Where(sti => sti.SpecimenTypeId == specimenTypeId)
+            .Select(sti => sti.IndicatorId)
+            .ToHashSet();
+
+        // Get max sort order
+        var existingSortOrders = existingQuery
+            .Where(sti => sti.SpecimenTypeId == specimenTypeId)
+            .Select(sti => sti.SortOrder)
+            .ToList();
+        var maxSortOrder = existingSortOrders.Count > 0 ? existingSortOrders.Max() : 0;
+
+        var newItems = new List<SpecimenTypeIndicator>();
+        var sortOrder = maxSortOrder;
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            // Skip if already exists
+            if (existingIndicatorIds.Contains(indicatorId))
+            {
+                continue;
+            }
+
+            sortOrder++;
+            var entity = new SpecimenTypeIndicator(
+                GuidGenerator.Create(),
+                specimenTypeId,
+                indicatorId
+            )
+            {
+                SortOrder = sortOrder
+            };
+
+            newItems.Add(entity);
+            existingIndicatorIds.Add(indicatorId);
+        }
+
+        // Insert only new items
+        if (newItems.Any())
+        {
+            await _specimenTypeIndicatorRepository.InsertManyAsync(newItems);
+        }
+    }
+
+    public async Task RemoveIndicatorAsync(Guid specimenTypeId, Guid indicatorId)
+    {
+        var query = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var entity = query.FirstOrDefault(sti =>
+            sti.SpecimenTypeId == specimenTypeId && sti.IndicatorId == indicatorId);
+
+        if (entity == null)
+        {
+            throw new Common.Exceptions.EntityNotFoundException("SpecimenTypeIndicator");
+        }
+
+        await _specimenTypeIndicatorRepository.DeleteAsync(entity);
+    }
+
+    public async Task<SpecimenTypeIndicatorDto> ToggleIndicatorActiveAsync(Guid specimenTypeId, Guid indicatorId)
+    {
+        var query = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var entity = query.FirstOrDefault(sti =>
+            sti.SpecimenTypeId == specimenTypeId && sti.IndicatorId == indicatorId);
+
+        if (entity == null)
+        {
+            throw new Common.Exceptions.EntityNotFoundException("SpecimenTypeIndicator");
+        }
+
+        entity.IsActive = !entity.IsActive;
+        await _specimenTypeIndicatorRepository.UpdateAsync(entity);
+
+        // Get indicator and group info for response
+        var indicator = await _indicatorRepository.FindAsync(entity.IndicatorId);
+        IndicatorGroup? indicatorGroup = null;
+        if (indicator != null)
+        {
+            indicatorGroup = await _indicatorGroupRepository.FindAsync(indicator.IndicatorGroupId);
+        }
+
+        return new SpecimenTypeIndicatorDto
+        {
+            Id = entity.Id,
+            SpecimenTypeId = entity.SpecimenTypeId,
+            IndicatorId = entity.IndicatorId,
+            IndicatorCode = indicator?.Code ?? "",
+            IndicatorName = indicator?.Name ?? "",
+            IndicatorGroupName = indicatorGroup?.Name,
+            IsActive = entity.IsActive,
+            SortOrder = entity.SortOrder
+        };
+    }
+
+    #endregion
 }

@@ -66,6 +66,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
     public DbSet<StandardIndicator> StandardIndicators { get; set; }
+    public DbSet<SpecimenTypeIndicator> SpecimenTypeIndicators { get; set; }
 
     // Junction Tables
     public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
@@ -397,6 +398,16 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.DefaultStorageCondition).HasMaxLength(256);
 
             b.HasIndex(x => x.Code).IsUnique();
+        });
+
+        // SpecimenTypeIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<SpecimenTypeIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SpecimenTypeIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => new { x.SpecimenTypeId, x.IndicatorId }).IsUnique();
         });
 
         // TestMethod configuration
