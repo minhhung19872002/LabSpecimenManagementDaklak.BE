@@ -3339,7 +3339,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     #region Superscript Helpers
 
     /// <summary>
-    /// Unicode Superscript character mapping
+    /// Unicode Superscript character mapping (for exponents: ^)
     /// </summary>
     private static readonly Dictionary<char, char> SuperscriptMap = new()
     {
@@ -3349,15 +3349,37 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     };
 
     /// <summary>
-    /// Convert caret notation to Unicode superscript for display in reports
+    /// Unicode Subscript character mapping (for chemical formulas: _)
+    /// </summary>
+    private static readonly Dictionary<char, char> SubscriptMap = new()
+    {
+        {'0', '₀'}, {'1', '₁'}, {'2', '₂'}, {'3', '₃'}, {'4', '₄'},
+        {'5', '₅'}, {'6', '₆'}, {'7', '₇'}, {'8', '₈'}, {'9', '₉'},
+        {'-', '₋'}, {'+', '₊'}
+    };
+
+    /// <summary>
+    /// Convert caret (^) and underscore (_) notation to Unicode superscript/subscript for display in reports
     /// Also adds line breaks before '(' and after ')' for better formatting
-    /// Examples:
+    ///
+    /// Superscript examples (^):
     /// - 2^2 → 2²
     /// - 10^-3 → 10⁻³
     /// - 1.5x10^-6 → 1.5×10⁻⁶
-    /// - 2X10^2 → 2×10²
+    /// - Fe^2+ → Fe²⁺
+    /// - SO_4^2- → SO₄²⁻
+    ///
+    /// Subscript examples (_) - for chemical formulas:
+    /// - H_2O → H₂O
+    /// - CO_2 → CO₂
+    /// - H_2SO_4 → H₂SO₄
+    /// - Ca(OH)_2 → Ca(OH)₂
+    /// - CuSO_4.5H_2O → CuSO₄.5H₂O
+    ///
+    /// Parentheses formatting:
     /// - "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
-    /// Already-unicode superscript text is passed through unchanged
+    ///
+    /// Already-unicode superscript/subscript text is passed through unchanged
     /// </summary>
     private static string ConvertToSuperscriptDisplay(string? text)
     {
@@ -3369,19 +3391,26 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Pattern: number followed by x/X followed by number
         result = Regex.Replace(result, @"(\d)\s*[xX]\s*(\d)", "$1×$2");
 
-        // 2. Convert caret notation to superscript
-        // Pattern: number^exponent (e.g., 2^2, 10^-3, 5.5^2)
-        var caretPattern = @"(\d+(?:\.\d+)?)\^(-?\d+(?:\.\d+)?)";
-        result = Regex.Replace(result, caretPattern, match =>
+        // 2. Convert underscore notation to subscript (for chemical formulas)
+        // Pattern: _followed by digits and optional +/- (e.g., H_2, SO_4, NO_3-)
+        // Must process before ^ to handle cases like SO_4^2-
+        result = Regex.Replace(result, @"_(\d+[+-]?)", match =>
         {
-            var baseNum = match.Groups[1].Value;
-            var exponent = match.Groups[2].Value;
-            var superscriptExponent = new string(exponent.Select(c =>
-                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
-            return baseNum + superscriptExponent;
+            var subscriptPart = match.Groups[1].Value;
+            return new string(subscriptPart.Select(c =>
+                SubscriptMap.GetValueOrDefault(c, c)).ToArray());
         });
 
-        // 3. Add line breaks for parentheses content
+        // 3. Convert caret notation to superscript (for exponents and ions)
+        // Pattern: ^followed by optional sign and digits (e.g., ^2, ^-3, ^2+, ^2-)
+        result = Regex.Replace(result, @"\^([+-]?\d+[+-]?)", match =>
+        {
+            var exponent = match.Groups[1].Value;
+            return new string(exponent.Select(c =>
+                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
+        });
+
+        // 4. Add line breaks for parentheses content
         // Insert newline before '(' if there's content before it (not at start)
         // Insert newline after ')' if there's content after it (not at end)
         // Example: "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
