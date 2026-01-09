@@ -227,8 +227,14 @@ public class TestingIndicatorDto
 
     /// <summary>
     /// Ngày bắt đầu thử nghiệm (khi ấn "Thực hiện") - Start Date/Test Date
+    /// [Deprecated] Sử dụng TestDate thay thế
     /// </summary>
     public DateTime? StartDate { get; set; }
+
+    /// <summary>
+    /// Ngày thử nghiệm (do KTV chọn) - Test Date
+    /// </summary>
+    public DateTime? TestDate { get; set; }
 
     /// <summary>
     /// Ngày gửi kết quả cho QLKT - Submit Date

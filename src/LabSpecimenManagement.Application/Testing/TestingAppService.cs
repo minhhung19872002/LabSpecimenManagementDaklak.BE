@@ -247,8 +247,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             indicator.Result = result.Result;
             indicator.Note = result.Note;
 
-            // Auto-set entry date when result is entered
-            if (!string.IsNullOrWhiteSpace(result.Result) && !indicator.EntryDate.HasValue)
+            // Update TestDate if provided
+            if (result.TestDate.HasValue)
+            {
+                indicator.TestDate = result.TestDate;
+            }
+
+            // Auto-set entry date when result is entered or testDate is set
+            if ((!string.IsNullOrWhiteSpace(result.Result) || result.TestDate.HasValue) && !indicator.EntryDate.HasValue)
             {
                 indicator.EntryDate = DateTime.Now;
                 indicator.EnteredById = currentUserId;
@@ -380,10 +386,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.PendingApproval;
         }
 
-        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã check-in (TestDate != null) và đang Pending
-        // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved (đã hoàn thành)
+        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã bắt đầu làm (TestDate hoặc EntryDate) và đang Pending
+        // - TestDate: KTV đã chọn ngày thử nghiệm
+        // - EntryDate: KTV đã nhập kết quả
         var anyInProgress = activeIndicators.Any(i =>
-            i.TestDate.HasValue && i.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            (i.TestDate.HasValue || i.EntryDate.HasValue) && i.ApprovalStatus == IndicatorApprovalStatus.Pending);
 
         if (anyInProgress)
         {
@@ -846,7 +853,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 Note = taskIndicator.Note,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,
-                StartDate = taskIndicator.TestDate,
+                StartDate = taskIndicator.TestDate,  // Deprecated, use TestDate
+                TestDate = taskIndicator.TestDate,
                 SubmitDate = taskIndicator.SubmitDate,
                 CompletionDate = taskIndicator.ApprovalDate,
                 ApprovalStatus = taskIndicator.ApprovalStatus,
@@ -1189,11 +1197,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (testableStatuses.Contains(indicator.ApprovalStatus))
         {
-            if (indicator.TestDate.HasValue)
+            // Đã bắt đầu nhập (có EntryDate hoặc TestDate) → Testing
+            if (indicator.EntryDate.HasValue || indicator.TestDate.HasValue)
             {
-                return IndicatorTestingStatus.Testing; // Đã check-in
+                return IndicatorTestingStatus.Testing;
             }
-            return IndicatorTestingStatus.Todo; // Chưa check-in
+            return IndicatorTestingStatus.Todo; // Chưa làm gì
         }
 
         // Các trạng thái khác (MethodChangeRequested, TestingRejected) - chờ KH xác nhận
