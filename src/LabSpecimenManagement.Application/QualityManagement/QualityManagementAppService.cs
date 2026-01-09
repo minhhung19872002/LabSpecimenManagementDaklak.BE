@@ -1312,10 +1312,41 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         string? standardName = null;
-        if (indicator.StandardId.HasValue)
+        string? comparisonOperator = null;
+        string? allowedLimit = null;
+
+        // Try to get standard info from LaboratoryTaskIndicator first (KTV's selection)
+        var standardId = labIndicator.StandardId ?? indicator.StandardId;
+        if (standardId.HasValue)
         {
-            var standard = await _standardRepository.FindAsync(indicator.StandardId.Value);
+            var standard = await _standardRepository.FindAsync(standardId.Value);
             standardName = standard?.Name;
+
+            // Get comparison operator and allowed limit from StandardIndicator
+            StandardIndicator? standardIndicator = null;
+
+            if (labIndicator.MethodId.HasValue)
+            {
+                // First try with exact method match
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                    si.StandardId == standardId.Value &&
+                    si.IndicatorId == sampleIndicator.IndicatorId &&
+                    si.TestMethodId == labIndicator.MethodId.Value);
+            }
+
+            // If not found with method, try matching by indicator only
+            if (standardIndicator == null)
+            {
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                    si.StandardId == standardId.Value &&
+                    si.IndicatorId == sampleIndicator.IndicatorId);
+            }
+
+            if (standardIndicator != null)
+            {
+                comparisonOperator = standardIndicator.ComparisonOperator;
+                allowedLimit = standardIndicator.AllowedLimit;
+            }
         }
 
         var approvedByName = await _userNameProvider.GetUserNameAsync(indicator.ApprovedById);
@@ -1350,9 +1381,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             Result = labIndicator.Result,
             ResultSentDate = labIndicator.EntryDate,
             ApprovalDate = indicator.ApprovalDate,
-            StandardId = indicator.StandardId,
+            StandardId = standardId,
             StandardName = standardName,
             ReferenceLimit = indicator.ReferenceLimit,
+            ComparisonOperator = comparisonOperator,
+            AllowedLimit = allowedLimit,
             ApprovalStatus = indicator.ApprovalStatus,
             RejectionReason = indicator.RejectionReason,
             IsResultSent = indicator.IsResultSent,

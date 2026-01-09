@@ -105,9 +105,19 @@ public class QualityManagementIndicatorDto
     public string? StandardName { get; set; }
 
     /// <summary>
-    /// Giới hạn tham khảo - Reference Limit
+    /// Giới hạn tham khảo - Reference Limit (deprecated - use ComparisonOperator + AllowedLimit)
     /// </summary>
     public string? ReferenceLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh - Comparison Operator (<=, >=, <, >, =)
+    /// </summary>
+    public string? ComparisonOperator { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép - Allowed Limit
+    /// </summary>
+    public string? AllowedLimit { get; set; }
 
     /// <summary>
     /// Trạng thái phê duyệt - Approval Status
