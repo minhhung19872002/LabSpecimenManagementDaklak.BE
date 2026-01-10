@@ -80,6 +80,15 @@ public class SpecimenTypeAppService :
 
     public override async Task<SpecimenTypeDto> UpdateAsync(Guid id, CreateUpdateSpecimenTypeDto input)
     {
+        // Get existing entity to preserve code if not provided
+        var existingEntity = await Repository.GetAsync(id);
+
+        // If code is not provided, keep the existing code
+        if (string.IsNullOrWhiteSpace(input.Code))
+        {
+            input.Code = existingEntity.Code;
+        }
+
         // Validate duplicate code and name (exclude current entity)
         var errors = await ValidateDuplicateAsync(input.Code, input.Name, id);
         if (errors.Count > 0)
