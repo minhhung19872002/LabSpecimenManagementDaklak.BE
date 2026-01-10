@@ -295,4 +295,19 @@ public class TestingIndicatorDto
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
     /// </summary>
     public List<IndicatorImageDto> Images { get; set; } = new();
+
+    /// <summary>
+    /// ID tiêu chuẩn so sánh - Standard ID (set by QLKT)
+    /// </summary>
+    public Guid? StandardId { get; set; }
+
+    /// <summary>
+    /// Tên tiêu chuẩn - Standard Name
+    /// </summary>
+    public string? StandardName { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép - Limit Description
+    /// </summary>
+    public string? LimitDescription { get; set; }
 }

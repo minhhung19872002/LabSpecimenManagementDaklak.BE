@@ -844,10 +844,17 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new ForbiddenAccessException("Bạn không có quyền cập nhật tiêu chuẩn");
         }
 
-        // Validate: Only allow update when indicator status is Entered (Chờ phê duyệt)
-        if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Entered)
+        // Validate: Not allow update when indicator is in certain statuses
+        var notAllowedStatuses = new[]
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ được chọn tiêu chuẩn khi chỉ tiêu đang ở trạng thái 'Chờ phê duyệt'", "indicator");
+            IndicatorApprovalStatus.Approved,              // Đã duyệt - không cho đổi
+            IndicatorApprovalStatus.CustomerCancelled,     // KH hủy - không cho đổi
+            IndicatorApprovalStatus.MethodChangeRequested, // Đang yêu cầu đổi PP - không cho đổi
+            IndicatorApprovalStatus.TestingRejected        // QLKT từ chối thử nghiệm - không cho đổi
+        };
+        if (notAllowedStatuses.Contains(taskIndicator.ApprovalStatus))
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể thay đổi tiêu chuẩn ở trạng thái hiện tại", "indicator");
         }
 
         taskIndicator.StandardId = standardId;
