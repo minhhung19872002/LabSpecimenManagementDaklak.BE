@@ -268,6 +268,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Update TestRequest status to InProgress when KTV sets testDate
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
