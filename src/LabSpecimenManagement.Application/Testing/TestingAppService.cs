@@ -38,6 +38,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<LaboratoryTaskSampleReceived, Guid> _sampleReceivedRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -58,6 +59,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<LaboratoryTaskSampleReceived, Guid> sampleReceivedRepository,
+        IRepository<Standard, Guid> standardRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -77,6 +79,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _indicatorImageRepository = indicatorImageRepository;
         _supporterRepository = supporterRepository;
         _sampleReceivedRepository = sampleReceivedRepository;
+        _standardRepository = standardRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -807,6 +810,19 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 // Table may not exist yet - migration not applied
             }
 
+            // Get standard info (set by QLKT)
+            string? standardName = null;
+            string? limitDescription = null;
+            if (taskIndicator.StandardId.HasValue)
+            {
+                var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
+                if (standard != null)
+                {
+                    standardName = standard.Name;
+                    limitDescription = standard.LimitDescription;
+                }
+            }
+
             // Determine if can edit
             var hasPermission = await CanEditIndicatorAsync(taskIndicator, task, CurrentUser.Id);
             var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
@@ -876,7 +892,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     Url = $"/api/v1/files/{x.FileId}",
                     CreationTime = x.CreationTime,
                     CreatorId = x.CreatorId
-                }).ToList()
+                }).ToList(),
+                StandardId = taskIndicator.StandardId,
+                StandardName = standardName,
+                LimitDescription = limitDescription
             });
         }
 

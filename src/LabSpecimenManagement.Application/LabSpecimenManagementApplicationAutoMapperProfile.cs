@@ -71,6 +71,7 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
 
         // SpecimenType mappings
         CreateMap<SpecimenType, SpecimenTypeDto>();
+        CreateMap<SpecimenType, SpecimenTypeWithIndicatorsDto>();
         CreateMap<CreateUpdateSpecimenTypeDto, SpecimenType>();
 
         // TestMethod mappings
