@@ -392,11 +392,18 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.PendingApproval;
         }
 
-        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã bắt đầu làm (TestDate hoặc EntryDate) và đang Pending
+        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã bắt đầu làm (TestDate hoặc EntryDate)
+        // và đang ở các trạng thái cho phép thử nghiệm
         // - TestDate: KTV đã chọn ngày thử nghiệm
         // - EntryDate: KTV đã nhập kết quả
+        var inProgressStatuses = new[]
+        {
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.MethodChanged,      // KH đã đồng ý đổi PP
+            IndicatorApprovalStatus.AcceptedForTesting  // QLKT đã chấp nhận TN
+        };
         var anyInProgress = activeIndicators.Any(i =>
-            (i.TestDate.HasValue || i.EntryDate.HasValue) && i.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            (i.TestDate.HasValue || i.EntryDate.HasValue) && inProgressStatuses.Contains(i.ApprovalStatus));
 
         if (anyInProgress)
         {
