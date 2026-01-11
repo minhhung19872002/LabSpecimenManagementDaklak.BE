@@ -307,7 +307,17 @@ public class TestingIndicatorDto
     public string? StandardName { get; set; }
 
     /// <summary>
-    /// Giới hạn cho phép - Limit Description
+    /// Mô tả quy chuẩn - Limit Description
     /// </summary>
     public string? LimitDescription { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh (<=, >=, <, >, =) - Comparison Operator
+    /// </summary>
+    public string? ComparisonOperator { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép (giá trị cụ thể) - Allowed Limit
+    /// </summary>
+    public string? AllowedLimit { get; set; }
 }

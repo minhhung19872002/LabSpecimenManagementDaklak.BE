@@ -39,6 +39,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<LaboratoryTaskSampleReceived, Guid> _sampleReceivedRepository;
     private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -60,6 +61,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<LaboratoryTaskSampleReceived, Guid> sampleReceivedRepository,
         IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -80,6 +82,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _supporterRepository = supporterRepository;
         _sampleReceivedRepository = sampleReceivedRepository;
         _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -823,6 +826,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             // Get standard info (set by QLKT)
             string? standardName = null;
             string? limitDescription = null;
+            string? comparisonOperator = null;
+            string? allowedLimit = null;
             if (taskIndicator.StandardId.HasValue)
             {
                 var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
@@ -830,6 +835,20 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 {
                     standardName = standard.Name;
                     limitDescription = standard.LimitDescription;
+
+                    // Get StandardIndicator for ComparisonOperator and AllowedLimit
+                    if (taskIndicator.MethodId.HasValue)
+                    {
+                        var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                            si.StandardId == taskIndicator.StandardId.Value &&
+                            si.IndicatorId == sampleIndicator.IndicatorId &&
+                            si.TestMethodId == taskIndicator.MethodId.Value);
+                        if (standardIndicator != null)
+                        {
+                            comparisonOperator = standardIndicator.ComparisonOperator;
+                            allowedLimit = standardIndicator.AllowedLimit;
+                        }
+                    }
                 }
             }
 
@@ -905,7 +924,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 }).ToList(),
                 StandardId = taskIndicator.StandardId,
                 StandardName = standardName,
-                LimitDescription = limitDescription
+                LimitDescription = limitDescription,
+                ComparisonOperator = comparisonOperator,
+                AllowedLimit = allowedLimit
             });
         }
 
