@@ -30,6 +30,11 @@ public class PrintSingleDto
     /// If null, uses default template
     /// </summary>
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
 }
 
 /// <summary>
@@ -50,6 +55,11 @@ public class PrintMixedDto
     /// If null, uses default template
     /// </summary>
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
 }
 
 /// <summary>
@@ -74,6 +84,11 @@ public class PrintMultiSingleDto
     /// Optional note to include in the result forms
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
 }
 
 

@@ -127,6 +127,11 @@ public class GenerateSingleIndicatorInput
     /// If null, uses default template
     /// </summary>
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
 }
 
 /// <summary>
@@ -156,6 +161,11 @@ public class GenerateMixedIndicatorInput
     /// If null, uses default template
     /// </summary>
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
 }
 
 /// <summary>

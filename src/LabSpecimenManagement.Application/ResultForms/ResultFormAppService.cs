@@ -19,7 +19,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
 using Volo.Abp.Users;
 
 namespace LabSpecimenManagement.ResultForms;
@@ -43,6 +45,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly ICurrentUser _currentUser;
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<ResultFormAppService> _logger;
+    private readonly IIdentityUserRepository _userRepository;
 
     // Template constants are defined in TemplateConstants class
     // Use TemplateConstants.StandardBasedTemplates for single indicator templates
@@ -63,7 +66,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
         IPdfConversionService pdfConversionService,
-        ILogger<ResultFormAppService> logger)
+        ILogger<ResultFormAppService> logger,
+        IIdentityUserRepository userRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -81,6 +85,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _currentUser = currentUser;
         _pdfConversionService = pdfConversionService;
         _logger = logger;
+        _userRepository = userRepository;
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -226,6 +231,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         if (!string.IsNullOrWhiteSpace(testRequest.District)) parts.Add(testRequest.District);
         if (!string.IsNullOrWhiteSpace(testRequest.Province)) parts.Add(testRequest.Province);
         return string.Join(", ", parts);
+    }
+
+    /// <summary>
+    /// Get Vice President full name by user ID
+    /// Returns empty string if not provided or user not found
+    /// </summary>
+    private async Task<string> GetVicePresidentFullNameAsync(Guid? vicePresidentId)
+    {
+        if (!vicePresidentId.HasValue)
+        {
+            return "";
+        }
+
+        var user = await _userRepository.FindAsync(vicePresidentId.Value);
+        if (user == null)
+        {
+            return "";
+        }
+
+        var fullName = $"{user.Surname} {user.Name}".Trim();
+        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
     }
 
     /// <summary>
@@ -2741,6 +2767,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
+        // Add Vice President placeholder if provided
+        var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
+        placeholders.Add("{{VicePresident}}", vicePresidentName);
+
         // 4. Build table data - single indicator
         var tableData = new List<ResultFormTableRow>
         {
@@ -2919,6 +2949,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{AttachFile}}", "" },
             { "{{Conclude}}", "" }
         };
+
+        // Add Vice President placeholder if provided
+        var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
+        placeholders.Add("{{VicePresident}}", vicePresidentName);
 
         // 5. Build nested data structure - group indicators by sample for BM02 template
         var sampleData = new List<MixedResultSampleRow>();

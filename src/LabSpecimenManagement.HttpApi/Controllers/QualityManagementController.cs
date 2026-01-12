@@ -118,7 +118,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-single")]
     public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleDto input)
     {
-        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName);
+        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName, input.VicePresidentId);
     }
 
     /// <summary>
@@ -127,7 +127,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-mixed")]
     public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
     {
-        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName);
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName, input.VicePresidentId);
     }
 
     /// <summary>

@@ -30,4 +30,9 @@ public interface IUserLookupAppService : IApplicationService
     /// Lấy users theo danh sách IDs
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetByIdsAsync(List<Guid> ids);
+
+    /// <summary>
+    /// Lấy danh sách users có chức vụ Phó Giám đốc
+    /// </summary>
+    Task<ListResultDto<UserLookupDto>> GetVicePresidentsAsync();
 }

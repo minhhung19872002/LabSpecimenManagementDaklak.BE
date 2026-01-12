@@ -97,6 +97,27 @@ public class UserLookupAppService : ApplicationService, IUserLookupAppService
         return new ListResultDto<UserLookupDto>(dtos);
     }
 
+    public async Task<ListResultDto<UserLookupDto>> GetVicePresidentsAsync()
+    {
+        var users = await _userRepository.GetListAsync();
+        var vicePresidents = users
+            .Where(u => u.IsActive)
+            .Where(u =>
+            {
+                var position = u.GetProperty<string>("Position");
+                return !string.IsNullOrWhiteSpace(position) &&
+                       position.Contains("Phó Giám đốc", StringComparison.OrdinalIgnoreCase);
+            })
+            .ToList();
+
+        var departments = await _departmentRepository.GetListAsync();
+        var departmentDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        var dtos = vicePresidents.Select(u => MapToLookupDto(u, departmentDict)).ToList();
+
+        return new ListResultDto<UserLookupDto>(dtos);
+    }
+
     private UserLookupDto MapToLookupDto(IdentityUser user, Dictionary<Guid, string> departmentDict)
     {
         var departmentId = user.GetProperty<Guid?>("DepartmentId");

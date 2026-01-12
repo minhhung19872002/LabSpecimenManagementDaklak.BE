@@ -3042,7 +3042,7 @@ public partial class TestRequestAppService :
     /// <summary>
     /// In kết quả đơn (1 chỉ tiêu)
     /// </summary>
-    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var testRequest = await Repository.GetAsync(id);
 
@@ -3062,7 +3062,8 @@ public partial class TestRequestAppService :
             TaskId = qualityTask.Id,
             IndicatorId = indicatorId,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Update TestRequest status to PendingApproval if not already past that
@@ -3081,7 +3082,7 @@ public partial class TestRequestAppService :
     /// <summary>
     /// In kết quả hỗn hợp (nhiều chỉ tiêu)
     /// </summary>
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var testRequest = await Repository.GetAsync(id);
 
@@ -3105,7 +3106,8 @@ public partial class TestRequestAppService :
             TaskId = qualityTask.Id,
             IndicatorIds = indicatorIds,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Update TestRequest status to PendingApproval if not already past that
@@ -3213,7 +3215,8 @@ public partial class TestRequestAppService :
                         TaskId = qualityTask.Id,
                         IndicatorId = labIndicators[0].Id,
                         Note = input.Note,
-                        TemplateName = templateName
+                        TemplateName = templateName,
+                        VicePresidentId = input.VicePresidentId
                     });
                 }
                 else
@@ -3224,7 +3227,8 @@ public partial class TestRequestAppService :
                         TaskId = qualityTask.Id,
                         IndicatorIds = labIndicators.Select(qi => qi.Id).ToList(),
                         Note = input.Note,
-                        TemplateName = templateName
+                        TemplateName = templateName,
+                        VicePresidentId = input.VicePresidentId
                     });
                 }
 

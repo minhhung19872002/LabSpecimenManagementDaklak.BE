@@ -113,12 +113,12 @@ public interface ITestRequestAppService :
     /// <summary>
     /// In kết quả đơn (1 chỉ tiêu)
     /// </summary>
-    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// In kết quả hỗn hợp (nhiều chỉ tiêu)
     /// </summary>
-    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// In kết quả đơn với nhiều chỉ tiêu và nhiều templates (batch processing)

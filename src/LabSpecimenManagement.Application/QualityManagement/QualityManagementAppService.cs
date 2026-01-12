@@ -804,7 +804,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return response;
     }
 
-    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
@@ -820,7 +820,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TaskId = taskId,
             IndicatorId = indicatorId,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -849,7 +850,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicatorsToPrint = new List<QualityManagementIndicator>();
@@ -870,7 +871,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TaskId = taskId,
             IndicatorIds = indicatorIds,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -954,7 +956,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     TaskId = taskId,
                     IndicatorIds = labIndicatorIds,
                     Note = input.Note,
-                    TemplateName = templateName
+                    TemplateName = templateName,
+                    VicePresidentId = input.VicePresidentId
                 });
 
                 results.Add(new PrintResultItemDto

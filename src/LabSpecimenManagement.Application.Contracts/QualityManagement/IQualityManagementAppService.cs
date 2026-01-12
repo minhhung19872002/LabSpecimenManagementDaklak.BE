@@ -64,12 +64,12 @@ public interface IQualityManagementAppService : IApplicationService
     /// <summary>
     /// Print single result (In KQ Đơn) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// Print mixed result (In KQ Hỗn hợp) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// Print multiple single results (In KQ Đơn batch) - Generates (labs × templates) PDFs
