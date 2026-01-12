@@ -87,6 +87,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<LaboratoryTaskSampleReceived> LaboratoryTaskSampleReceiveds { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+    public DbSet<RejectionHistoryImage> RejectionHistoryImages { get; set; }
     public DbSet<MethodChangeHistory> MethodChangeHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
     public DbSet<IndicatorImage> IndicatorImages { get; set; }
@@ -817,14 +818,36 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.RejectionReason).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.ReportedByRole).HasMaxLength(50);
 
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.RejectedDate);
+            b.HasIndex(x => x.IsCannotTest);
 
             b.HasOne(x => x.Indicator)
                 .WithMany(x => x.RejectionHistories)
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
+        });
+
+        // ============ REJECTION HISTORY IMAGE CONFIGURATION ============
+
+        builder.Entity<RejectionHistoryImage>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "RejectionHistoryImages", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(100);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.RejectionHistoryId);
+
+            b.HasOne(x => x.RejectionHistory)
+                .WithMany(x => x.Images)
+                .HasForeignKey(x => x.RejectionHistoryId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ METHOD CHANGE HISTORY CONFIGURATION ============

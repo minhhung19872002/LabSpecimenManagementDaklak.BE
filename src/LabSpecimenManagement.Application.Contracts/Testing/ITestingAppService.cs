@@ -87,4 +87,29 @@ public interface ITestingAppService : IApplicationService
     /// Kiểm tra mẫu đã được nhận chưa
     /// </summary>
     Task<bool> IsSampleReceivedAsync(Guid laboratoryTaskId, Guid sampleId);
+
+    /// <summary>
+    /// KTV báo không thể thử nghiệm chỉ tiêu
+    /// </summary>
+    /// <param name="laboratoryTaskId">Laboratory Task ID</param>
+    /// <param name="indicatorId">Indicator ID</param>
+    /// <param name="input">Thông tin báo không TN được</param>
+    /// <returns>Indicator sau khi cập nhật</returns>
+    Task<TestingIndicatorDto> MarkCannotTestAsync(Guid laboratoryTaskId, Guid indicatorId, CannotTestDto input);
+
+    /// <summary>
+    /// Upload hình ảnh cho rejection history
+    /// </summary>
+    /// <param name="rejectionHistoryId">Rejection History ID</param>
+    /// <param name="fileId">File ID từ file storage</param>
+    /// <param name="fileName">Tên file</param>
+    /// <param name="filePath">Đường dẫn file</param>
+    /// <param name="fileSize">Kích thước file</param>
+    /// <returns>Image DTO đã upload</returns>
+    Task<RejectionHistoryImageDto> UploadRejectionHistoryImageAsync(Guid rejectionHistoryId, string fileId, string fileName, string filePath, long fileSize);
+
+    /// <summary>
+    /// Xóa hình ảnh rejection history
+    /// </summary>
+    Task DeleteRejectionHistoryImageAsync(Guid imageId);
 }

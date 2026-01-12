@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -29,9 +30,24 @@ public class IndicatorRejectionHistory : CreationAuditedEntity<Guid>
     public Guid RejectedById { get; set; }
 
     /// <summary>
+    /// true = KTV báo không TN được, false = QLKT/QLCL từ chối kết quả
+    /// </summary>
+    public bool IsCannotTest { get; set; }
+
+    /// <summary>
+    /// Vai trò người báo: "Technician" hoặc "QualityManager"
+    /// </summary>
+    public string? ReportedByRole { get; set; }
+
+    /// <summary>
     /// Navigation property to LaboratoryTaskIndicator
     /// </summary>
     public virtual LaboratoryTaskIndicator Indicator { get; set; } = null!;
+
+    /// <summary>
+    /// Navigation property to Rejection History Images
+    /// </summary>
+    public virtual ICollection<RejectionHistoryImage> Images { get; set; } = new List<RejectionHistoryImage>();
 
     protected IndicatorRejectionHistory()
     {
@@ -42,11 +58,15 @@ public class IndicatorRejectionHistory : CreationAuditedEntity<Guid>
         Guid indicatorId,
         string rejectionReason,
         Guid rejectedById,
-        DateTime rejectedDate) : base(id)
+        DateTime rejectedDate,
+        bool isCannotTest = false,
+        string? reportedByRole = null) : base(id)
     {
         IndicatorId = indicatorId;
         RejectionReason = rejectionReason;
         RejectedById = rejectedById;
         RejectedDate = rejectedDate;
+        IsCannotTest = isCannotTest;
+        ReportedByRole = reportedByRole;
     }
 }

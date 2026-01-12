@@ -41,8 +41,9 @@ public partial class LaboratoryTaskAppService
                 "Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
-        // Validate: Indicator must be in Pending status
-        if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+        // Validate: Indicator must be in Pending or CannotTest status
+        if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+            taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
         {
             throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu đã được đánh giá hoặc không ở trạng thái chờ đánh giá", "indicator");
         }
@@ -127,8 +128,9 @@ public partial class LaboratoryTaskAppService
                 continue;
             }
 
-            // Validate: Indicator must be in Pending status
-            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+            // Validate: Indicator must be in Pending or CannotTest status
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
             {
                 continue;
             }
@@ -186,8 +188,9 @@ public partial class LaboratoryTaskAppService
                 continue;
             }
 
-            // Validate: Indicator must be in Pending status
-            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+            // Validate: Indicator must be in Pending or CannotTest status
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
             {
                 continue;
             }
@@ -354,10 +357,12 @@ public partial class LaboratoryTaskAppService
             return;
         }
 
-        // Kiểm tra còn chỉ tiêu Pending không
-        var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+        // Kiểm tra còn chỉ tiêu cần đánh giá không (Pending hoặc CannotTest)
+        var hasPendingOrCannotTest = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
 
-        if (hasPending)
+        if (hasPendingOrCannotTest)
         {
             // Còn chỉ tiêu chờ đánh giá và không có chỉ tiêu cần KH xác nhận - giữ nguyên UnderEvaluation
             return;

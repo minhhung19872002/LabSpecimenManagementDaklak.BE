@@ -81,6 +81,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsCannotTest")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("RejectedById")
                         .HasColumnType("uuid");
 
@@ -92,9 +95,15 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
+                    b.Property<string>("ReportedByRole")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("IndicatorId");
+
+                    b.HasIndex("IsCannotTest");
 
                     b.HasIndex("RejectedDate");
 
@@ -457,6 +466,47 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("RequestedDate");
 
                     b.ToTable("AppMethodChangeHistories", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.RejectionHistoryImage", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("FileId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("FilePath")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<Guid>("RejectionHistoryId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RejectionHistoryId");
+
+                    b.ToTable("AppRejectionHistoryImages", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
@@ -5758,6 +5808,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("Indicator");
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.RejectionHistoryImage", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", "RejectionHistory")
+                        .WithMany("Images")
+                        .HasForeignKey("RejectionHistoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("RejectionHistory");
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.SampleTestingImage", b =>
                 {
                     b.HasOne("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", "LaboratoryTask")
@@ -6203,6 +6264,11 @@ namespace LabSpecimenManagement.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.IndicatorRejectionHistory", b =>
+                {
+                    b.Navigation("Images");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", b =>

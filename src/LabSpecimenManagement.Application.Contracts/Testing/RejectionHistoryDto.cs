@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.Testing;
@@ -32,4 +33,19 @@ public class RejectionHistoryDto : EntityDto<Guid>
     /// Tên người từ chối
     /// </summary>
     public string? RejectedByName { get; set; }
+
+    /// <summary>
+    /// true = KTV báo không TN được, false = QLKT/QLCL từ chối kết quả
+    /// </summary>
+    public bool IsCannotTest { get; set; }
+
+    /// <summary>
+    /// Vai trò người báo: "Technician" hoặc "QualityManager"
+    /// </summary>
+    public string? ReportedByRole { get; set; }
+
+    /// <summary>
+    /// Danh sách hình ảnh đính kèm
+    /// </summary>
+    public List<RejectionHistoryImageDto> Images { get; set; } = new();
 }

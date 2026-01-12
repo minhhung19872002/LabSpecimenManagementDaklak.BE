@@ -40,6 +40,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<LaboratoryTaskSampleReceived, Guid> _sampleReceivedRepository;
     private readonly IRepository<Standard, Guid> _standardRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IRepository<RejectionHistoryImage, Guid> _rejectionHistoryImageRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
@@ -62,6 +63,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<LaboratoryTaskSampleReceived, Guid> sampleReceivedRepository,
         IRepository<Standard, Guid> standardRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IRepository<RejectionHistoryImage, Guid> rejectionHistoryImageRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
@@ -83,6 +85,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _sampleReceivedRepository = sampleReceivedRepository;
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
+        _rejectionHistoryImageRepository = rejectionHistoryImageRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
@@ -333,6 +336,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var userNames = await _userNameProvider.GetUserNamesAsync(
                 orderedHistories.Select(h => (Guid?)h.RejectedById));
 
+            // Batch fetch images for all histories
+            var historyIds = orderedHistories.Select(h => h.Id).ToList();
+            var allImages = await _rejectionHistoryImageRepository.GetListAsync(x => historyIds.Contains(x.RejectionHistoryId));
+            var imagesByHistory = allImages.GroupBy(x => x.RejectionHistoryId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             return orderedHistories.Select(history => new RejectionHistoryDto
             {
                 Id = history.Id,
@@ -340,7 +349,22 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 RejectionReason = history.RejectionReason,
                 RejectedDate = history.RejectedDate,
                 RejectedById = history.RejectedById,
-                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null
+                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null,
+                IsCannotTest = history.IsCannotTest,
+                ReportedByRole = history.ReportedByRole,
+                Images = imagesByHistory.TryGetValue(history.Id, out var images)
+                    ? images.OrderBy(x => x.CreationTime).Select(x => new RejectionHistoryImageDto
+                    {
+                        Id = x.Id,
+                        RejectionHistoryId = x.RejectionHistoryId,
+                        FileId = x.FileId,
+                        FileName = x.FileName,
+                        FileSize = x.FileSize,
+                        Url = $"/{x.FilePath.Replace("\\", "/")}",
+                        CreationTime = x.CreationTime,
+                        CreatorId = x.CreatorId
+                    }).ToList()
+                    : new List<RejectionHistoryImageDto>()
             }).ToList();
         }
         catch
@@ -377,7 +401,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.Completed;
         }
 
-        // "Bị từ chối" = Có ≥1 chỉ tiêu bị từ chối
+        // "Bị từ chối" = Có ≥1 chỉ tiêu bị từ chối (kết quả)
         var anyRejected = activeIndicators.Any(i =>
             i.ApprovalStatus == IndicatorApprovalStatus.Rejected);
 
@@ -393,6 +417,15 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         if (anyPendingApproval)
         {
             return TestingStatus.PendingApproval;
+        }
+
+        // "Không TN được" = Có ≥1 chỉ tiêu KTV báo không thể thử nghiệm
+        var anyCannotTest = activeIndicators.Any(i =>
+            i.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        if (anyCannotTest)
+        {
+            return TestingStatus.CannotTest;
         }
 
         // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã bắt đầu làm (TestDate hoặc EntryDate)
@@ -1222,6 +1255,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return IndicatorTestingStatus.Cancelled; // KH đã hủy
         }
 
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.CannotTest)
+        {
+            return IndicatorTestingStatus.CannotTest; // KTV báo không TN được
+        }
+
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
         {
             return IndicatorTestingStatus.Done;
@@ -1626,6 +1664,283 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var received = await _sampleReceivedRepository.FirstOrDefaultAsync(x =>
             x.LaboratoryTaskId == laboratoryTaskId && x.SampleId == sampleId);
         return received != null;
+    }
+
+    /// <summary>
+    /// KTV báo không thể thử nghiệm chỉ tiêu
+    /// </summary>
+    public async Task<TestingIndicatorDto> MarkCannotTestAsync(Guid laboratoryTaskId, Guid indicatorId, CannotTestDto input)
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Người dùng chưa đăng nhập");
+        }
+
+        // Get laboratory task
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        if (task == null)
+        {
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
+        }
+
+        // Get indicator
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        if (indicator == null || indicator.LaboratoryTaskId != laboratoryTaskId)
+        {
+            throw new EntityNotFoundException("LaboratoryTaskIndicator", indicatorId);
+        }
+
+        // Validate indicator can be marked as cannot test
+        // Allow for: Pending, Rejected (KQ bị từ chối), MethodChanged, AcceptedForTesting, TestingRejected
+        var allowedStatuses = new[]
+        {
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.Rejected,           // KQ bị từ chối - cần làm lại
+            IndicatorApprovalStatus.MethodChanged,      // Đã đổi PP - đang làm
+            IndicatorApprovalStatus.AcceptedForTesting, // Đã được chấp nhận TN - đang làm
+            IndicatorApprovalStatus.TestingRejected     // QLKT từ chối TN - có thể KTV vẫn muốn báo lý do
+        };
+
+        if (!allowedStatuses.Contains(indicator.ApprovalStatus))
+        {
+            throw new ValidationException("indicatorId", $"Chỉ tiêu đang ở trạng thái không thể báo 'Không TN được'. Trạng thái hiện tại: {indicator.ApprovalStatus}");
+        }
+
+        // Create rejection history with IsCannotTest = true
+        var rejectionHistory = new IndicatorRejectionHistory(
+            _guidGenerator.Create(),
+            indicatorId,
+            input.Reason,
+            currentUserId.Value,
+            DateTime.Now,
+            isCannotTest: true,
+            reportedByRole: "Technician"
+        );
+
+        await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
+
+        // Update indicator status to CannotTest
+        indicator.ApprovalStatus = IndicatorApprovalStatus.CannotTest;
+        indicator.RejectionReason = input.Reason;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
+
+        // Update task status to UnderEvaluation (chuyển về QLKT đánh giá)
+        task.Status = LaboratoryTaskStatus.UnderEvaluation;
+        await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+
+        // Send notification to Technical Manager
+        if (task.TechnicalManagerId.HasValue)
+        {
+            // Get indicator info through TestRequestSampleIndicator
+            var sampleIndicator = await _sampleIndicatorRepository.FirstOrDefaultAsync(x => x.Id == indicator.TestRequestSampleIndicatorId);
+            var indicatorEntity = sampleIndicator != null
+                ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
+                : null;
+            var indicatorName = indicatorEntity?.Name ?? "Không xác định";
+            var senderName = await _userNameProvider.GetUserNameAsync(currentUserId.Value) ?? "KTV";
+
+            // Get sample info for notification
+            var sample = sampleIndicator != null
+                ? await _sampleRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.TestRequestSampleId)
+                : null;
+            var sampleName = sample?.SampleName ?? "";
+
+            var methodName = indicator.MethodId.HasValue
+                ? (await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == indicator.MethodId.Value))?.Name ?? ""
+                : "";
+
+            // Use existing notification method for single indicator
+            await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
+                task.TechnicalManagerId.Value,
+                task.ContractNumber ?? "",
+                task.TestRequestId,
+                senderName,
+                1,
+                task.RequestCompletionDate,
+                sampleName,
+                $"[Không TN được] {indicatorName}",
+                methodName
+            );
+        }
+
+        // Build and return indicator DTO
+        return await BuildIndicatorDtoAsync(indicator, task);
+    }
+
+    /// <summary>
+    /// Upload hình ảnh cho rejection history
+    /// </summary>
+    public async Task<RejectionHistoryImageDto> UploadRejectionHistoryImageAsync(
+        Guid rejectionHistoryId,
+        string fileId,
+        string fileName,
+        string filePath,
+        long fileSize)
+    {
+        // Validate rejection history exists
+        var rejectionHistory = await _rejectionHistoryRepository.FirstOrDefaultAsync(x => x.Id == rejectionHistoryId);
+        if (rejectionHistory == null)
+        {
+            throw new EntityNotFoundException("IndicatorRejectionHistory", rejectionHistoryId);
+        }
+
+        // Check max images (5)
+        var existingImages = await _rejectionHistoryImageRepository.GetListAsync(x => x.RejectionHistoryId == rejectionHistoryId);
+        if (existingImages.Count >= 5)
+        {
+            throw new ValidationException("images", "Số lượng hình ảnh tối đa là 5");
+        }
+
+        // Create image record
+        var image = new RejectionHistoryImage(
+            _guidGenerator.Create(),
+            rejectionHistoryId,
+            fileId,
+            fileName,
+            filePath,
+            fileSize
+        );
+
+        await _rejectionHistoryImageRepository.InsertAsync(image);
+
+        return new RejectionHistoryImageDto
+        {
+            Id = image.Id,
+            RejectionHistoryId = image.RejectionHistoryId,
+            FileId = image.FileId,
+            FileName = image.FileName,
+            FileSize = image.FileSize,
+            Url = $"/{image.FilePath.Replace("\\", "/")}",
+            CreationTime = image.CreationTime,
+            CreatorId = image.CreatorId
+        };
+    }
+
+    /// <summary>
+    /// Xóa hình ảnh rejection history
+    /// </summary>
+    public async Task DeleteRejectionHistoryImageAsync(Guid imageId)
+    {
+        var image = await _rejectionHistoryImageRepository.FirstOrDefaultAsync(x => x.Id == imageId);
+        if (image == null)
+        {
+            throw new EntityNotFoundException("RejectionHistoryImage", imageId);
+        }
+
+        await _rejectionHistoryImageRepository.DeleteAsync(image);
+    }
+
+    /// <summary>
+    /// Build indicator DTO from entity
+    /// </summary>
+    private async Task<TestingIndicatorDto> BuildIndicatorDtoAsync(LaboratoryTaskIndicator taskIndicator, LaboratoryTask task)
+    {
+        // Get related data
+        var sampleIndicator = await _sampleIndicatorRepository.FirstOrDefaultAsync(x =>
+            x.Id == taskIndicator.TestRequestSampleIndicatorId);
+
+        var indicator = sampleIndicator != null
+            ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
+            : null;
+
+        var methodName = taskIndicator.MethodId.HasValue
+            ? (await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.MethodId.Value))?.Name
+            : null;
+
+        var technicianName = taskIndicator.TechnicianId.HasValue
+            ? await _userNameProvider.GetUserNameAsync(taskIndicator.TechnicianId.Value)
+            : null;
+
+        // Get rejection histories
+        var rejectionHistories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == taskIndicator.Id);
+        var latestRejection = rejectionHistories.OrderByDescending(h => h.RejectedDate).FirstOrDefault();
+
+        // Get indicator images
+        var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
+        // Get standard info
+        string? standardName = null;
+        string? limitDescription = null;
+        string? comparisonOperator = null;
+        string? allowedLimit = null;
+
+        if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
+        {
+            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.StandardId.Value);
+            standardName = standard?.Name;
+
+            var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(x =>
+                x.StandardId == taskIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+
+            if (standardIndicator != null)
+            {
+                // Build limitDescription from ComparisonOperator and AllowedLimit
+                if (!string.IsNullOrEmpty(standardIndicator.ComparisonOperator) && !string.IsNullOrEmpty(standardIndicator.AllowedLimit))
+                {
+                    limitDescription = $"{standardIndicator.ComparisonOperator} {standardIndicator.AllowedLimit}";
+                }
+                comparisonOperator = standardIndicator.ComparisonOperator;
+                allowedLimit = standardIndicator.AllowedLimit;
+            }
+        }
+
+        // Get unit from standardIndicator or taskIndicator
+        string? unit = null;
+        if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
+        {
+            var standardIndicatorForUnit = await _standardIndicatorRepository.FirstOrDefaultAsync(x =>
+                x.StandardId == taskIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+            unit = standardIndicatorForUnit?.Unit;
+        }
+
+        // Calculate testing status
+        var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
+
+        return new TestingIndicatorDto
+        {
+            Id = taskIndicator.Id,
+            TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
+            IndicatorId = sampleIndicator?.IndicatorId ?? Guid.Empty,
+            IndicatorName = indicator?.Name,
+            MethodId = taskIndicator.MethodId,
+            MethodName = methodName,
+            Unit = unit,
+            Result = taskIndicator.Result,
+            Note = taskIndicator.Note,
+            EntryDate = taskIndicator.EntryDate,
+            AssignedDate = taskIndicator.AssignedDate,
+            StartDate = taskIndicator.TestDate,
+            TestDate = taskIndicator.TestDate,
+            SubmitDate = taskIndicator.SubmitDate,
+            CompletionDate = taskIndicator.ApprovalDate,
+            ApprovalStatus = taskIndicator.ApprovalStatus,
+            TestingStatus = indicatorTestingStatus,
+            LatestRejectionReason = latestRejection?.RejectionReason ?? taskIndicator.RejectionReason,
+            RejectionHistoryCount = rejectionHistories.Count,
+            TechnicianId = taskIndicator.TechnicianId,
+            TechnicianName = technicianName,
+            CanEdit = false, // Cannot edit after marking cannot test
+            CanCheckIn = false,
+            CanSubmit = false,
+            Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList(),
+            StandardId = taskIndicator.StandardId,
+            StandardName = standardName,
+            LimitDescription = limitDescription,
+            ComparisonOperator = comparisonOperator,
+            AllowedLimit = allowedLimit
+        };
     }
 
     #endregion
