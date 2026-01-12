@@ -1167,12 +1167,47 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
 
         // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
-        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+        // Chỉ xét các chỉ tiêu AcceptedForTesting hoặc MethodChanged (đã được QLKT chấp nhận)
+        var acceptedIndicators = activeIndicators.Where(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved).ToList();
 
-        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending)
+        var allAssigned = acceptedIndicators.Any() && acceptedIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending hoặc AcceptedForTesting)
         // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved/Entered/Rejected
         var anyTesting = activeIndicators.Any(ti =>
-            ti.TestDate.HasValue && ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            ti.TestDate.HasValue &&
+            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting));
+
+        // Check trạng thái workflow đánh giá
+        // Tất cả chỉ tiêu đã được QLKT đánh giá (AcceptedForTesting, MethodChanged, TestingRejected, hoặc đã approved)
+        var allEvaluated = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Tất cả được chấp nhận thử nghiệm (không có TestingRejected)
+        var allAcceptedForTesting = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ít nhất 1 chỉ tiêu được chấp nhận (cho PartialAccepted)
+        var anyAcceptedForTesting = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có chỉ tiêu đang chờ KH xác nhận (MethodChangeRequested hoặc TestingRejected chưa confirm)
+        var anyWaitingCustomer = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
 
         LaboratoryTaskStatus newStatus;
 
@@ -1205,9 +1240,29 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // TẤT CẢ chỉ tiêu đã được giao việc (chưa có ai test)
             newStatus = LaboratoryTaskStatus.Assigned;
         }
+        else if (anyWaitingCustomer)
+        {
+            // Có chỉ tiêu đang chờ KH xác nhận
+            newStatus = LaboratoryTaskStatus.WaitingCustomerResponse;
+        }
+        else if (allEvaluated && allAcceptedForTesting)
+        {
+            // Tất cả chỉ tiêu đã được đánh giá và chấp nhận thử nghiệm
+            newStatus = LaboratoryTaskStatus.FullyAccepted;
+        }
+        else if (allEvaluated && anyAcceptedForTesting)
+        {
+            // Một phần được chấp nhận, một phần bị từ chối
+            newStatus = LaboratoryTaskStatus.PartialAccepted;
+        }
+        else if (allEvaluated)
+        {
+            // Tất cả bị từ chối thử nghiệm
+            newStatus = LaboratoryTaskStatus.TestingRejected;
+        }
         else
         {
-            // Còn chỉ tiêu chưa được giao việc
+            // Còn chỉ tiêu chưa được đánh giá
             newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
 

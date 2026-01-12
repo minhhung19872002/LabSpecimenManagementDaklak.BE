@@ -38,9 +38,10 @@ public partial class TestRequestAppService
         foreach (var task in tasks)
         {
             // Get all indicators that need customer confirmation
-            // Status: MethodChangeRequested or TestingRejected
+            // Status: MethodChangeRequested or TestingRejected AND not yet confirmed
             var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
                 ti => ti.LaboratoryTaskId == task.Id &&
+                      !ti.CustomerConfirmationDate.HasValue && // Chưa được xác nhận
                       (ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested ||
                        ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected));
 
