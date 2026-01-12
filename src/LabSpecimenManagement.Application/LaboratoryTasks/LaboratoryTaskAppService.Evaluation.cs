@@ -256,11 +256,12 @@ public partial class LaboratoryTaskAppService
 
     /// <summary>
     /// Chấp nhận chỉ tiêu cho thử nghiệm
+    /// ApprovalDate không được set ở đây - chỉ set khi duyệt kết quả (Approved)
     /// </summary>
     private Task AcceptIndicatorForTestingAsync(LaboratoryTaskIndicator indicator)
     {
         indicator.ApprovalStatus = IndicatorApprovalStatus.AcceptedForTesting;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
         return Task.CompletedTask;
     }
@@ -301,7 +302,7 @@ public partial class LaboratoryTaskAppService
 
         // Update indicator status
         indicator.ApprovalStatus = IndicatorApprovalStatus.MethodChangeRequested;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
     }
 

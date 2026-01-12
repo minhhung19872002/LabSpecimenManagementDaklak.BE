@@ -769,6 +769,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             taskIndicator.ApprovalDate = DateTime.Now;
             taskIndicator.ApprovedById = CurrentUser.Id;
             taskIndicator.RejectionReason = null;
+
+            // Tự động gửi đến QLCL khi duyệt
+            taskIndicator.IsSentToQuality = true;
         }
         else
         {
@@ -780,7 +783,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
             taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
             taskIndicator.RejectionReason = input.RejectionReason;
-            taskIndicator.ApprovalDate = DateTime.Now;
+            // Không set ApprovalDate khi từ chối - chỉ set khi duyệt thành công
             taskIndicator.ApprovedById = CurrentUser.Id;
             // Giữ lại Result và Unit để user có thể sửa và gửi lại
 
@@ -797,33 +800,63 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
-        // Update task status
-        await UpdateTaskStatusAsync(task);
-
-        // Đồng bộ trạng thái TestRequest
-        await UpdateTestRequestStatusAsync(task.TestRequestId);
-
-        // Notify technician when result is rejected (Case 5 KTV - single rejection)
-        if (!input.Approve && taskIndicator.EnteredById.HasValue)
+        // Nếu approve, tạo QualityManagementIndicator và gửi thông báo đến tất cả QLCL
+        if (input.Approve)
         {
-            var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-            var contractNumber = testRequest.ContractNumber ?? task.ContractNumber ?? "";
-            var technicalManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+            await CreateQualityManagementTaskAsync(task, new List<LaboratoryTaskIndicator> { taskIndicator });
 
-            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
-            var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
-            var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
-            var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
+            // Update task status to SentToQuality nếu tất cả đã được gửi
+            var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+            var hasUnsentApproved = allTaskIndicators.Any(ti =>
+                ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
 
-            await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
-                taskIndicator.EnteredById.Value,
-                contractNumber,
-                task.TestRequestId,
-                technicalManagerName,
-                sample?.SampleName ?? "",
-                indicator?.Name ?? "",
-                method?.Name ?? ""
-            );
+            if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
+            {
+                task.Status = LaboratoryTaskStatus.SentToQuality;
+                await _laboratoryTaskRepository.UpdateAsync(task);
+            }
+            else
+            {
+                // Update task status bình thường
+                await UpdateTaskStatusAsync(task);
+            }
+
+            // Update TestRequest status
+            await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
+
+            // Gửi thông báo đến tất cả QLCL
+            await NotifyAllQualityManagersOnApproveAsync(task, taskIndicator);
+        }
+        else
+        {
+            // Update task status
+            await UpdateTaskStatusAsync(task);
+
+            // Đồng bộ trạng thái TestRequest
+            await UpdateTestRequestStatusAsync(task.TestRequestId);
+
+            // Notify technician when result is rejected (Case 5 KTV - single rejection)
+            if (taskIndicator.EnteredById.HasValue)
+            {
+                var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+                var contractNumber = testRequest.ContractNumber ?? task.ContractNumber ?? "";
+                var technicalManagerName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+
+                var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+                var sample = sampleIndicator != null ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId) : null;
+                var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
+                var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
+
+                await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
+                    taskIndicator.EnteredById.Value,
+                    contractNumber,
+                    task.TestRequestId,
+                    technicalManagerName,
+                    sample?.SampleName ?? "",
+                    indicator?.Name ?? "",
+                    method?.Name ?? ""
+                );
+            }
         }
 
         return await MapToIndicatorDtoAsync(taskIndicator);
@@ -1465,6 +1498,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
 
         var results = new List<LaboratoryTaskIndicatorDto>();
+        var approvedIndicators = new List<LaboratoryTaskIndicator>();
 
         foreach (var indicatorId in input.IndicatorIds)
         {
@@ -1486,12 +1520,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 taskIndicator.ApprovalDate = DateTime.Now;
                 taskIndicator.ApprovedById = CurrentUser.Id;
                 taskIndicator.RejectionReason = null;
+
+                // Tự động gửi đến QLCL khi duyệt
+                taskIndicator.IsSentToQuality = true;
+                approvedIndicators.Add(taskIndicator);
             }
             else
             {
                 taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
                 taskIndicator.RejectionReason = input.RejectionReason;
-                taskIndicator.ApprovalDate = DateTime.Now;
+                // Không set ApprovalDate khi từ chối - chỉ set khi duyệt thành công
                 taskIndicator.ApprovedById = CurrentUser.Id;
 
                 // Save rejection history
@@ -1509,16 +1547,46 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             results.Add(await MapToIndicatorDtoAsync(taskIndicator));
         }
 
-        // Update task status
-        await UpdateTaskStatusAsync(task);
-
-        // Đồng bộ trạng thái TestRequest
-        await UpdateTestRequestStatusAsync(task.TestRequestId);
-
-        // Notify technicians when results are rejected (Case 4 & 5 KTV)
-        if (!input.Approve)
+        // Nếu approve, tạo QualityManagementIndicator và gửi thông báo đến tất cả QLCL
+        if (input.Approve && approvedIndicators.Any())
         {
-            await NotifyTechniciansOnRejectAsync(task, input.IndicatorIds);
+            await CreateQualityManagementTaskAsync(task, approvedIndicators);
+
+            // Update task status to SentToQuality nếu tất cả đã được gửi
+            var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+            var hasUnsentApproved = allTaskIndicators.Any(ti =>
+                ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
+
+            if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
+            {
+                task.Status = LaboratoryTaskStatus.SentToQuality;
+                await _laboratoryTaskRepository.UpdateAsync(task);
+            }
+            else
+            {
+                // Update task status bình thường
+                await UpdateTaskStatusAsync(task);
+            }
+
+            // Update TestRequest status
+            await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
+
+            // Gửi 1 thông báo tổng hợp đến tất cả QLCL
+            await NotifyAllQualityManagersOnBulkApproveAsync(task, approvedIndicators);
+        }
+        else
+        {
+            // Update task status
+            await UpdateTaskStatusAsync(task);
+
+            // Đồng bộ trạng thái TestRequest
+            await UpdateTestRequestStatusAsync(task.TestRequestId);
+
+            // Notify technicians when results are rejected (Case 4 & 5 KTV)
+            if (!input.Approve)
+            {
+                await NotifyTechniciansOnRejectAsync(task, input.IndicatorIds);
+            }
         }
 
         return results;
@@ -1732,6 +1800,141 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             indicatorName,
             methodName
         );
+    }
+
+    /// <summary>
+    /// Gửi thông báo đến TẤT CẢ QLCL khi QLKT duyệt kết quả (single indicator)
+    /// </summary>
+    private async Task NotifyAllQualityManagersOnApproveAsync(
+        LaboratoryTask task,
+        LaboratoryTaskIndicator approvedIndicator)
+    {
+        // Lấy danh sách tất cả QLCL
+        var qualityManagers = await GetQualityManagersInternalAsync(task.Id);
+        if (!qualityManagers.Any()) return;
+
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+
+        // Get indicator details
+        string? sampleName = null;
+        string? indicatorName = null;
+        string? methodName = null;
+
+        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(approvedIndicator.TestRequestSampleIndicatorId);
+        if (sampleIndicator != null)
+        {
+            var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
+            var masterIndicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+            sampleName = sample?.SampleName;
+            indicatorName = masterIndicator?.Name;
+        }
+        if (approvedIndicator.MethodId.HasValue)
+        {
+            var method = await _testMethodRepository.FindAsync(approvedIndicator.MethodId.Value);
+            methodName = method?.Name;
+        }
+
+        // Gửi thông báo đến tất cả QLCL
+        foreach (var qlcl in qualityManagers)
+        {
+            await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
+                qlcl.Id,
+                testRequest.ContractNumber ?? task.ContractNumber ?? "",
+                task.TestRequestId,
+                senderName,
+                1, // Single indicator
+                sampleName,
+                indicatorName,
+                methodName
+            );
+        }
+    }
+
+    /// <summary>
+    /// Gửi thông báo đến TẤT CẢ QLCL khi QLKT bulk duyệt kết quả (multiple indicators)
+    /// </summary>
+    private async Task NotifyAllQualityManagersOnBulkApproveAsync(
+        LaboratoryTask task,
+        List<LaboratoryTaskIndicator> approvedIndicators)
+    {
+        // Lấy danh sách tất cả QLCL
+        var qualityManagers = await GetQualityManagersInternalAsync(task.Id);
+        if (!qualityManagers.Any()) return;
+
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Quản lý kỹ thuật";
+        var indicatorCount = approvedIndicators.Count;
+
+        // Gửi thông báo đến tất cả QLCL
+        foreach (var qlcl in qualityManagers)
+        {
+            await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
+                qlcl.Id,
+                testRequest.ContractNumber ?? task.ContractNumber ?? "",
+                task.TestRequestId,
+                senderName,
+                indicatorCount,
+                null, // No specific sample for bulk
+                null, // No specific indicator for bulk
+                null  // No specific method for bulk
+            );
+        }
+    }
+
+    /// <summary>
+    /// Lấy danh sách QLCL (internal helper - không cần authorize)
+    /// Copy logic từ GetQualityManagersAsync
+    /// </summary>
+    private async Task<List<UserLookupDto>> GetQualityManagersInternalAsync(Guid taskId)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+        Guid? qlktDepartmentId = null;
+
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var qlktUser = await _userRepository.GetAsync(task.TechnicalManagerId.Value);
+            qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
+        }
+
+        var users = await _userRepository.GetListAsync();
+        var qualityManagers = new List<UserLookupDto>();
+
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // Check if user has QualityManager role
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            {
+                continue;
+            }
+
+            // Filter by same department as QLKT (if QLKT has department)
+            if (qlktDepartmentId.HasValue)
+            {
+                var userDepartmentId = user.GetProperty<Guid?>("DepartmentId");
+                if (userDepartmentId != qlktDepartmentId)
+                {
+                    continue;
+                }
+            }
+
+            qualityManagers.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return qualityManagers.OrderBy(u => u.DisplayName).ToList();
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
