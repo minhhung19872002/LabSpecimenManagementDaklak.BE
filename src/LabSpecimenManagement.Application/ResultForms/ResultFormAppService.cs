@@ -3044,11 +3044,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
-        // Check if template is BM05-QLNN and handle Standard/Footnotes logic
+        // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
         var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
         var templateFileName = Path.GetFileName(templatePath);
         var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
+        var isBM04 = IsBM04Template(templateFileName);
         BM05StandardInfo? bm05StandardInfo = null;
+        BM05StandardInfo? bm04StandardInfo = null;
 
         if (isBM05QLNN)
         {
@@ -3064,6 +3066,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var updatedNote = string.IsNullOrWhiteSpace(currentNote)
                     ? bm05StandardInfo.FootnotesText
                     : $"{currentNote}\n\n{bm05StandardInfo.FootnotesText}";
+                placeholders["{{Note}}"] = updatedNote;
+            }
+        }
+
+        if (isBM04)
+        {
+            // Get BM04 Standard info for footnotes (luôn đánh footnote kể cả single standard)
+            bm04StandardInfo = await GetBM04StandardInfoAsync(qualityIndicators, labTaskIndicators);
+
+            // BM04: Luôn append footnotes to Note
+            if (!string.IsNullOrEmpty(bm04StandardInfo.FootnotesText))
+            {
+                var currentNote = placeholders.GetValueOrDefault("{{Note}}", "");
+                var updatedNote = string.IsNullOrWhiteSpace(currentNote)
+                    ? bm04StandardInfo.FootnotesText
+                    : $"{currentNote}\n\n{bm04StandardInfo.FootnotesText}";
                 placeholders["{{Note}}"] = updatedNote;
             }
         }
@@ -3203,10 +3221,18 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 foreach (var indicator in sample.Indicators)
                 {
-                    // For BM05-QLNN: get footnote number separately for {{n}} placeholder
-                    var footnoteNumber = isBM05QLNN && bm05StandardInfo != null
-                        ? GetBM05FootnoteNumber(indicator.StandardId, bm05StandardInfo)
-                        : "";
+                    // Get footnote number for {{n}} placeholder
+                    // BM05-QLNN: chỉ đánh footnote khi multiple standards
+                    // BM04: luôn đánh footnote (kể cả single standard)
+                    var footnoteNumber = "";
+                    if (isBM05QLNN && bm05StandardInfo != null)
+                    {
+                        footnoteNumber = GetBM05FootnoteNumber(indicator.StandardId, bm05StandardInfo);
+                    }
+                    else if (isBM04 && bm04StandardInfo != null)
+                    {
+                        footnoteNumber = GetBM04FootnoteNumber(indicator.StandardId, bm04StandardInfo);
+                    }
 
                     // Build CompareWithStandard from ComparisonOperator + AllowedLimit
                     // Format: "<= 4", ">= 6", "= 7", etc.
@@ -3219,9 +3245,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Unit = indicator.Unit,
                         TestMethod = indicator.TestMethod,
                         Result = indicator.Result,
-                        Standards = indicator.AllowedLimit, // Giới hạn cho phép
-                        CompareWithStandard = compareWithStandard, // ComparisonOperator + AllowedLimit
-                        FootnoteNumber = footnoteNumber, // Superscript footnote cho {{n}}
+                        Standards = indicator.AllowedLimit,
+                        CompareWithStandard = compareWithStandard, // {{CompareWithStandard}} = ComparisonOperator + AllowedLimit
+                        FootnoteNumber = footnoteNumber, // {{n}} = Superscript footnote (BM04 & BM05)
                         Allowlimit = indicator.AllowedLimit,
                         Uncertainty = "",
                         Proclaim = ""
@@ -3891,6 +3917,96 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         if (string.IsNullOrEmpty(templateFileName)) return false;
         return templateFileName.Contains("BM05", StringComparison.OrdinalIgnoreCase)
             && templateFileName.Contains("QLNN", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Kiểm tra template có phải BM04 không
+    /// </summary>
+    private static bool IsBM04Template(string? templateFileName)
+    {
+        if (string.IsNullOrEmpty(templateFileName)) return false;
+        return templateFileName.Contains("BM04", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Lấy footnote number (superscript) cho BM04 template
+    /// BM04 luôn đánh footnote cho mọi chỉ tiêu (kể cả single standard)
+    /// </summary>
+    private static string GetBM04FootnoteNumber(Guid? standardId, BM05StandardInfo standardInfo)
+    {
+        if (!standardId.HasValue)
+        {
+            return "";
+        }
+
+        // BM04: Luôn trả về superscript footnote number
+        if (standardInfo.FootnoteMap.TryGetValue(standardId.Value, out int footnoteNumber))
+        {
+            var superscriptNumber = new string(footnoteNumber.ToString()
+                .Select(c => SuperscriptMap.GetValueOrDefault(c, c))
+                .ToArray());
+            return $"⁽{superscriptNumber}⁾";
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Phân tích các chỉ tiêu và tạo thông tin Standard cho BM04 template
+    /// BM04 luôn tạo footnote map (kể cả single standard)
+    /// </summary>
+    private async Task<BM05StandardInfo> GetBM04StandardInfoAsync(
+        List<QualityManagementIndicator> qualityIndicators,
+        List<LaboratoryTaskIndicator>? labTaskIndicators = null)
+    {
+        var result = new BM05StandardInfo();
+
+        // Lấy danh sách StandardId từ QualityManagementIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+
+        // Lấy danh sách StandardId từ LaboratoryTaskIndicator (nếu có)
+        var standardIdsFromLabTask = labTaskIndicators?
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value)
+            ?? Enumerable.Empty<Guid>();
+
+        // Merge và distinct
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+
+        if (!standardIds.Any())
+        {
+            result.IsSingleStandard = true;
+            result.StandardText = "";
+            return result;
+        }
+
+        // Lấy thông tin các Standard từ database
+        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        // BM04: Luôn tạo footnote map (kể cả single standard)
+        result.IsSingleStandard = standardIds.Count == 1;
+
+        // Tạo footnote map cho tất cả standards
+        int footnoteNumber = 1;
+        foreach (var standardId in standardIds.OrderBy(id => result.StandardNames.GetValueOrDefault(id, "")))
+        {
+            result.FootnoteMap[standardId] = footnoteNumber++;
+        }
+
+        // Tạo footnotes text
+        var footnotesLines = result.FootnoteMap
+            .OrderBy(kv => kv.Value)
+            .Select(kv => $"({kv.Value}) {result.StandardNames.GetValueOrDefault(kv.Key, "")}")
+            .ToList();
+        result.FootnotesText = string.Join("\n", footnotesLines);
+
+        return result;
     }
 
     /// <summary>
