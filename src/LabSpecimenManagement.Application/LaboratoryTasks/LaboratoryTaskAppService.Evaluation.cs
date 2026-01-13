@@ -95,7 +95,7 @@ public partial class LaboratoryTaskAppService
                 throw new ValidationException("action", "Hành động không hợp lệ");
         }
 
-        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
 
         // Check and update task/TR status after evaluation
         await UpdateTaskAndTestRequestStatusAfterEvaluationAsync(task);
@@ -153,7 +153,7 @@ public partial class LaboratoryTaskAppService
             }
 
             await RequestMethodChangeForIndicatorAsync(taskIndicator, item.NewMethodId, input.Reason);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
             results.Add(await MapToIndicatorDtoWithHistoryAsync(taskIndicator));
         }
 
@@ -213,7 +213,7 @@ public partial class LaboratoryTaskAppService
             }
 
             await RejectIndicatorForTestingAsync(taskIndicator, input.Reason);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
             results.Add(await MapToIndicatorDtoWithHistoryAsync(taskIndicator));
         }
 
@@ -258,7 +258,7 @@ public partial class LaboratoryTaskAppService
         foreach (var indicator in pendingIndicators)
         {
             await AcceptIndicatorForTestingAsync(indicator);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
         }
 
         // Check and update task/TR status after evaluation

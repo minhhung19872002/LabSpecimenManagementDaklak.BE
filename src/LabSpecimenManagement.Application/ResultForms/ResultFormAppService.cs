@@ -36,6 +36,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
@@ -58,6 +60,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
@@ -76,6 +80,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
@@ -781,6 +787,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{Result}}", data.Result ?? "")
                     .Replace("{{Standards}}", data.Standards ?? "")
                     .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                    .Replace("{{n}}", data.FootnoteNumber ?? "") // BM05-QLNN - Superscript footnote number
                     .Replace("{{Allowlimit}}", data.Allowlimit ?? "") // BM04 - Giới hạn cho phép
                     .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                     .Replace("{{Proclaim}}", data.Proclaim ?? "");
@@ -997,6 +1004,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string Result { get; set; } = "";
         public string Standards { get; set; } = "";
         public string CompareWithStandard { get; set; } = ""; // For BM05-QLNN template
+        public string FootnoteNumber { get; set; } = ""; // For BM05-QLNN template - {{n}} placeholder (superscript)
         public string Allowlimit { get; set; } = ""; // For BM04 template - Giới hạn cho phép
         public string Uncertainty { get; set; } = "";
         public string Proclaim { get; set; } = "";
@@ -1777,6 +1785,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             var targetText = textElements.FirstOrDefault(t => t.Text?.Contains(placeholder.Key) == true);
             if (targetText == null) continue;
 
+            // Special handling for {{Note}} placeholder with line breaks
+            if (placeholder.Key == "{{Note}}" && !string.IsNullOrEmpty(placeholder.Value) && placeholder.Value.Contains("\n"))
+            {
+                RemoveContainingCellHeightConstraint(targetText);
+                SetNoteFontSize(targetText, 11);
+                ReplaceTextWithLineBreaks(targetText, placeholder.Key, placeholder.Value);
+                continue;
+            }
+
             // Replace the placeholder
             targetText.Text = targetText.Text.Replace(placeholder.Key, placeholder.Value);
 
@@ -2500,7 +2517,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
         public string Result { get; set; } = "";
-        public string ReferenceLimit { get; set; } = ""; // For BM05-QLNN CompareWithStandard
+        public string ReferenceLimit { get; set; } = ""; // For BM05-QLNN CompareWithStandard (DEPRECATED)
+        public Guid? StandardId { get; set; } // For BM05-QLNN footnote mapping
+        public Guid? IndicatorId { get; set; } // For StandardIndicator lookup
+        public string ComparisonOperator { get; set; } = ""; // Từ StandardIndicator: <=, >=, <, >, =
+        public string AllowedLimit { get; set; } = ""; // Từ StandardIndicator: giới hạn cho phép
     }
 
     /// <summary>
@@ -2796,6 +2817,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
+        // 5. Generate document using selected template or default BM01
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
+        var templateFileName = Path.GetFileName(templatePath);
+        var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
+
+        // For BM05-QLNN: Get standard info and add {{Standard}} placeholder
+        if (isBM05QLNN && qualityIndicator.StandardId.HasValue)
+        {
+            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == qualityIndicator.StandardId.Value);
+            placeholders.Add("{{Standard}}", standard?.Name ?? "");
+        }
+        else if (isBM05QLNN)
+        {
+            placeholders.Add("{{Standard}}", "");
+        }
+
         // 4. Build table data - single indicator
         var tableData = new List<ResultFormTableRow>
         {
@@ -2807,15 +2844,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 TestMethod = method?.Name ?? "",
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
+                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "", // Single indicator = no footnote needed
+                FootnoteNumber = "", // Single indicator = no footnote needed
                 Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             }
         };
-
-        // 5. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
             throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
@@ -2929,6 +2964,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
+        // Get StandardIndicator data for BM05-QLNN template (ComparisonOperator, AllowedLimit)
+        // Query all StandardIndicators that match any combination of (StandardId, IndicatorId) used
+        // Note: StandardId có thể ở QualityManagementIndicator hoặc LaboratoryTaskIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+        var standardIdsFromLabTask = labTaskIndicators
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value);
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+        var standardIndicators = standardIds.Any()
+            ? await _standardIndicatorRepository.GetListAsync(
+                x => standardIds.Contains(x.StandardId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<StandardIndicator>();
+        // Create lookup: (StandardId, IndicatorId) -> StandardIndicator
+        var standardIndicatorLookup = standardIndicators.ToDictionary(
+            si => (si.StandardId, si.IndicatorId),
+            si => si);
+
+        _logger.LogInformation("BM05-QLNN Debug: standardIds={StandardIds}, indicatorIds={IndicatorIds}, standardIndicators.Count={Count}",
+            string.Join(",", standardIds), string.Join(",", indicatorIds), standardIndicators.Count);
+        foreach (var si in standardIndicators)
+        {
+            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}",
+                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit);
+        }
+
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
         // Not just the selected indicators, but all indicators in the contract
         var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
@@ -2979,6 +3044,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
+        // Check if template is BM05-QLNN and handle Standard/Footnotes logic
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
+        var templateFileName = Path.GetFileName(templatePath);
+        var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
+        BM05StandardInfo? bm05StandardInfo = null;
+
+        if (isBM05QLNN)
+        {
+            // Get BM05 Standard info for placeholder {{Standard}} and footnotes
+            // Truyền cả labTaskIndicators để lấy StandardId nếu QualityIndicator không có
+            bm05StandardInfo = await GetBM05StandardInfoAsync(qualityIndicators, labTaskIndicators);
+            placeholders.Add("{{Standard}}", bm05StandardInfo.StandardText);
+
+            // Append footnotes to Note if multiple standards
+            if (!bm05StandardInfo.IsSingleStandard && !string.IsNullOrEmpty(bm05StandardInfo.FootnotesText))
+            {
+                var currentNote = placeholders.GetValueOrDefault("{{Note}}", "");
+                var updatedNote = string.IsNullOrWhiteSpace(currentNote)
+                    ? bm05StandardInfo.FootnotesText
+                    : $"{currentNote}\n\n{bm05StandardInfo.FootnotesText}";
+                placeholders["{{Note}}"] = updatedNote;
+            }
+        }
+
         // 5. Build nested data structure - group indicators by sample for BM02 template
         var sampleData = new List<MixedResultSampleRow>();
 
@@ -3028,13 +3117,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 // Apply superscript conversion for formulas like 2^2 → 2²
                 var resultText = ConvertToSuperscriptDisplay(item.LabTaskIndicator.Result);
 
+                // Get ComparisonOperator and AllowedLimit from StandardIndicator lookup
+                // Ưu tiên QualityIndicator.StandardId, fallback sang LabTaskIndicator.StandardId
+                var comparisonOperator = "";
+                var allowedLimit = "";
+                var effectiveStandardId = item.QualityIndicator.StandardId ?? item.LabTaskIndicator.StandardId;
+
+                _logger.LogInformation("Building row: QualityIndicator.StandardId={QualityStdId}, LabTaskIndicator.StandardId={LabStdId}, effectiveStandardId={EffectiveStdId}, indicator.Id={IndId}",
+                    item.QualityIndicator.StandardId, item.LabTaskIndicator.StandardId, effectiveStandardId, indicator?.Id);
+
+                if (effectiveStandardId.HasValue && indicator != null)
+                {
+                    var key = (effectiveStandardId.Value, indicator.Id);
+                    var found = standardIndicatorLookup.TryGetValue(key, out var stdIndicator);
+                    _logger.LogInformation("Lookup key=({StandardId},{IndicatorId}), found={Found}", key.Item1, key.Item2, found);
+                    if (found && stdIndicator != null)
+                    {
+                        comparisonOperator = stdIndicator.ComparisonOperator ?? "";
+                        allowedLimit = stdIndicator.AllowedLimit ?? "";
+                        _logger.LogInformation("Found StandardIndicator: ComparisonOperator={Op}, AllowedLimit={Limit}", comparisonOperator, allowedLimit);
+                    }
+                }
+
                 sampleRow.Indicators.Add(new MixedResultIndicatorRow
                 {
                     Parameter = indicator?.Name ?? "",
                     Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
                     TestMethod = method?.Name ?? "",
                     Result = resultText,
-                    ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? ""
+                    ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "", // DEPRECATED - kept for backward compatibility
+                    StandardId = effectiveStandardId, // For BM05-QLNN footnote - dùng effectiveStandardId
+                    IndicatorId = indicator?.Id,
+                    ComparisonOperator = comparisonOperator,
+                    AllowedLimit = allowedLimit
                 });
             }
 
@@ -3044,7 +3159,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _logger.LogInformation("Built {SampleCount} sample rows for mixed result", sampleData.Count);
 
         // 6. Generate document using BM02 template (default for mixed result with nested SubTable)
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
+        // templatePath already defined above for BM05-QLNN check
         if (!File.Exists(templatePath))
         {
             throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM02);
@@ -3069,7 +3184,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Determine template type and process accordingly
         // BM02 uses nested table structure with {{TestTable}}/{{SubTable}} markers
         // Other templates (BM01, BM04, QLNN) use flat table structure with {{No}}/{{Parameter}} markers
-        var templateFileName = Path.GetFileName(templatePath);
         var isBM02Template = templateFileName.Contains("BM02") || templateFileName.Contains("tổng hợp");
 
         if (isBM02Template)
@@ -3089,6 +3203,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 foreach (var indicator in sample.Indicators)
                 {
+                    // For BM05-QLNN: get footnote number separately for {{n}} placeholder
+                    var footnoteNumber = isBM05QLNN && bm05StandardInfo != null
+                        ? GetBM05FootnoteNumber(indicator.StandardId, bm05StandardInfo)
+                        : "";
+
+                    // Build CompareWithStandard from ComparisonOperator + AllowedLimit
+                    // Format: "<= 4", ">= 6", "= 7", etc.
+                    var compareWithStandard = BuildCompareWithStandard(indicator.ComparisonOperator, indicator.AllowedLimit);
+
                     tableData.Add(new ResultFormTableRow
                     {
                         No = rowIndex++,
@@ -3096,9 +3219,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Unit = indicator.Unit,
                         TestMethod = indicator.TestMethod,
                         Result = indicator.Result,
-                        Standards = indicator.ReferenceLimit,
-                        CompareWithStandard = indicator.ReferenceLimit,
-                        Allowlimit = indicator.ReferenceLimit,
+                        Standards = indicator.AllowedLimit, // Giới hạn cho phép
+                        CompareWithStandard = compareWithStandard, // ComparisonOperator + AllowedLimit
+                        FootnoteNumber = footnoteNumber, // Superscript footnote cho {{n}}
+                        Allowlimit = indicator.AllowedLimit,
                         Uncertainty = "",
                         Proclaim = ""
                     });
@@ -3621,6 +3745,177 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Merge: Nối đuôi nhưng tách biệt các đoạn ra
         return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    /// <summary>
+    /// Helper class chứa thông tin Standard mapping cho BM05-QLNN template
+    /// </summary>
+    private class BM05StandardInfo
+    {
+        /// <summary>
+        /// Giá trị cho placeholder {{Standard}}
+        /// - Nếu tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn: Tên tiêu chuẩn
+        /// - Nếu nhiều tiêu chuẩn: "So với QCVN…/ TCVN…./ QĐ…"
+        /// </summary>
+        public string StandardText { get; set; } = "";
+
+        /// <summary>
+        /// Dictionary mapping StandardId -> Footnote number (1, 2, 3...)
+        /// Chỉ sử dụng khi có nhiều tiêu chuẩn
+        /// </summary>
+        public Dictionary<Guid, int> FootnoteMap { get; set; } = new();
+
+        /// <summary>
+        /// Dictionary mapping StandardId -> Standard Name (cho footnotes)
+        /// </summary>
+        public Dictionary<Guid, string> StandardNames { get; set; } = new();
+
+        /// <summary>
+        /// True nếu tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn
+        /// </summary>
+        public bool IsSingleStandard { get; set; }
+
+        /// <summary>
+        /// Text footnotes để append vào {{Note}}
+        /// Format: "(1) Tên tiêu chuẩn 1\n(2) Tên tiêu chuẩn 2"
+        /// </summary>
+        public string FootnotesText { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Phân tích các chỉ tiêu và tạo thông tin Standard cho BM05-QLNN template
+    /// </summary>
+    /// <param name="qualityIndicators">Danh sách QualityManagementIndicator</param>
+    /// <param name="labTaskIndicators">Danh sách LaboratoryTaskIndicator (optional - để lấy StandardId nếu QualityIndicator không có)</param>
+    /// <returns>BM05StandardInfo chứa thông tin placeholder và footnotes</returns>
+    private async Task<BM05StandardInfo> GetBM05StandardInfoAsync(
+        List<QualityManagementIndicator> qualityIndicators,
+        List<LaboratoryTaskIndicator>? labTaskIndicators = null)
+    {
+        var result = new BM05StandardInfo();
+
+        // Lấy danh sách StandardId từ QualityManagementIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+
+        // Lấy danh sách StandardId từ LaboratoryTaskIndicator (nếu có)
+        var standardIdsFromLabTask = labTaskIndicators?
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value)
+            ?? Enumerable.Empty<Guid>();
+
+        // Merge và distinct
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+
+        if (!standardIds.Any())
+        {
+            // Không có tiêu chuẩn nào được chọn
+            result.IsSingleStandard = true;
+            result.StandardText = "";
+            return result;
+        }
+
+        // Lấy thông tin các Standard từ database
+        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        if (standardIds.Count == 1)
+        {
+            // Tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn
+            result.IsSingleStandard = true;
+            var standard = standards.FirstOrDefault();
+            result.StandardText = standard?.Name ?? "";
+        }
+        else
+        {
+            // Nhiều tiêu chuẩn khác nhau
+            result.IsSingleStandard = false;
+            result.StandardText = "So với QCVN…/ TCVN…./ QĐ…";
+
+            // Tạo footnote map: gán số thứ tự cho mỗi tiêu chuẩn
+            int footnoteNumber = 1;
+            foreach (var standardId in standardIds.OrderBy(id => result.StandardNames.GetValueOrDefault(id, "")))
+            {
+                result.FootnoteMap[standardId] = footnoteNumber++;
+            }
+
+            // Tạo footnotes text
+            var footnotesLines = result.FootnoteMap
+                .OrderBy(kv => kv.Value)
+                .Select(kv => $"({kv.Value}) {result.StandardNames.GetValueOrDefault(kv.Key, "")}")
+                .ToList();
+            result.FootnotesText = string.Join("\n", footnotesLines);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Lấy footnote number (superscript) cho BM05-QLNN template
+    /// - Nếu single standard: trả về empty string
+    /// - Nếu multiple standards: trả về superscript footnote như ⁽¹⁾, ⁽²⁾
+    /// </summary>
+    /// <param name="standardId">StandardId của chỉ tiêu</param>
+    /// <param name="standardInfo">BM05StandardInfo chứa footnote mapping</param>
+    /// <returns>Footnote number string (superscript) hoặc empty</returns>
+    private static string GetBM05FootnoteNumber(Guid? standardId, BM05StandardInfo standardInfo)
+    {
+        if (standardInfo.IsSingleStandard || !standardId.HasValue)
+        {
+            // Single standard hoặc không có standardId: không cần footnote
+            return "";
+        }
+
+        // Multiple standards: trả về superscript footnote number
+        if (standardInfo.FootnoteMap.TryGetValue(standardId.Value, out int footnoteNumber))
+        {
+            // Chuyển số thành superscript: 1 → ⁽¹⁾, 2 → ⁽²⁾, etc.
+            var superscriptNumber = new string(footnoteNumber.ToString()
+                .Select(c => SuperscriptMap.GetValueOrDefault(c, c))
+                .ToArray());
+            return $"⁽{superscriptNumber}⁾";
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Kiểm tra template có phải BM05-QLNN không
+    /// </summary>
+    private static bool IsBM05QLNNTemplate(string? templateFileName)
+    {
+        if (string.IsNullOrEmpty(templateFileName)) return false;
+        return templateFileName.Contains("BM05", StringComparison.OrdinalIgnoreCase)
+            && templateFileName.Contains("QLNN", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Build CompareWithStandard từ ComparisonOperator và AllowedLimit
+    /// Format: "<= 4", ">= 6", "= 7", etc.
+    /// </summary>
+    /// <param name="comparisonOperator">Ký hiệu so sánh: <=, >=, <, >, =</param>
+    /// <param name="allowedLimit">Giới hạn cho phép</param>
+    /// <returns>Chuỗi ghép: "comparisonOperator allowedLimit" hoặc empty nếu không có dữ liệu</returns>
+    private static string BuildCompareWithStandard(string? comparisonOperator, string? allowedLimit)
+    {
+        // Nếu không có allowedLimit, trả về empty
+        if (string.IsNullOrWhiteSpace(allowedLimit))
+        {
+            return "";
+        }
+
+        // Nếu có allowedLimit nhưng không có comparisonOperator, chỉ trả về allowedLimit
+        if (string.IsNullOrWhiteSpace(comparisonOperator))
+        {
+            return allowedLimit.Trim();
+        }
+
+        // Ghép: "comparisonOperator allowedLimit" (e.g., "<= 4", ">= 6", "= 7")
+        return $"{comparisonOperator.Trim()} {allowedLimit.Trim()}";
     }
 
     #endregion

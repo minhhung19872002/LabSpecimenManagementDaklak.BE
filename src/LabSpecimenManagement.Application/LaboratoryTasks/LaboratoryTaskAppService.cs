@@ -806,10 +806,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 CurrentUser.Id!.Value,
                 Clock.Now
             );
-            await _rejectionHistoryRepository.InsertAsync(rejectionHistory);
+            await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
         }
 
-        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
 
         // Update task status
         await UpdateTaskStatusAsync(task);
@@ -1085,6 +1085,13 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     labIndicator.Id
                 );
                 qualityIndicator.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+
+                // Copy StandardId from LaboratoryTaskIndicator (ReferenceLimit not used - we use comparisonOperator + allowedLimit from LaboratoryTaskIndicator)
+                if (labIndicator.StandardId.HasValue)
+                {
+                    qualityIndicator.StandardId = labIndicator.StandardId;
+                }
+
                 await _qualityIndicatorRepository.InsertAsync(qualityIndicator, autoSave: true);
             }
         }
@@ -1554,10 +1561,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     CurrentUser.Id!.Value,
                     Clock.Now
                 );
-                await _rejectionHistoryRepository.InsertAsync(rejectionHistory);
+                await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
             }
 
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
             results.Add(await MapToIndicatorDtoAsync(taskIndicator));
         }
 
