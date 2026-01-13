@@ -142,6 +142,28 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public string? Note { get; set; }
 
     /// <summary>
+    /// Lý do yêu cầu bổ sung (QLKT yêu cầu KH cung cấp thông tin bổ sung)
+    /// </summary>
+    [MaxLength(1000)]
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// ID người yêu cầu bổ sung (QLKT)
+    /// </summary>
+    public Guid? SupplementaryRequestedById { get; set; }
+
+    /// <summary>
+    /// Tên người yêu cầu bổ sung
+    /// </summary>
+    [MaxLength(256)]
+    public string? SupplementaryRequestedByName { get; set; }
+
+    /// <summary>
     /// Navigation property to LaboratoryTask
     /// </summary>
     public virtual LaboratoryTask LaboratoryTask { get; set; } = null!;

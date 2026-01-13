@@ -328,6 +328,28 @@ public class LaboratoryTaskIndicatorDto
     /// Lịch sử yêu cầu đổi phương pháp
     /// </summary>
     public List<MethodChangeHistoryDto> MethodChangeHistories { get; set; } = new();
+
+    // ====== Supplementary Request Fields ======
+
+    /// <summary>
+    /// Lý do yêu cầu bổ sung
+    /// </summary>
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// ID người yêu cầu bổ sung (QLKT)
+    /// </summary>
+    public Guid? SupplementaryRequestedById { get; set; }
+
+    /// <summary>
+    /// Tên người yêu cầu bổ sung
+    /// </summary>
+    public string? SupplementaryRequestedByName { get; set; }
 }
 
 /// <summary>
@@ -476,7 +498,12 @@ public enum IndicatorEvaluationAction
     /// <summary>
     /// Từ chối thử nghiệm
     /// </summary>
-    Reject = 2
+    Reject = 2,
+
+    /// <summary>
+    /// Yêu cầu bổ sung thông tin
+    /// </summary>
+    RequestSupplementary = 3
 }
 
 /// <summary>

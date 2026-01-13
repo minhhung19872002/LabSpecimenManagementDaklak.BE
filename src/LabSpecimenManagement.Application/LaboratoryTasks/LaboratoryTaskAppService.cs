@@ -1242,13 +1242,23 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var anyWaitingCustomer = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
 
+        // Có ≥1 chỉ tiêu KTV báo không TN được - cần QLKT xử lý
+        var anyCannotTest = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
         LaboratoryTaskStatus newStatus;
 
         // Logic ưu tiên:
-        // 1. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
-        // 2. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
+        // 1. CannotTest được ưu tiên CAO NHẤT - cần QLKT xử lý trước khi tiếp tục
+        // 2. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
+        // 3. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
 
-        if (anyEntered)
+        if (anyCannotTest)
+        {
+            // Có chỉ tiêu KTV báo không TN được - cần QLKT xử lý
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
+        }
+        else if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
             newStatus = LaboratoryTaskStatus.WaitingApproval;
