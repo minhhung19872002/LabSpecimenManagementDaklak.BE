@@ -149,7 +149,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
-            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" }
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
+            { "{{Conclude}}", "" }
         };
 
         // 3. Build table data
@@ -335,8 +343,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private void ProcessDocument(string filePath, Dictionary<string, string> placeholders, List<ResultFormTableRow> tableData)
     {
         using var document = WordprocessingDocument.Open(filePath, true);
-        var body = document.MainDocumentPart?.Document?.Body;
-        if (body == null) return;
+        var mainPart = document.MainDocumentPart;
+        var body = mainPart?.Document?.Body;
+        if (body == null || mainPart == null) return;
 
         // Convert floating tables to inline so they flow with content
         // This fixes the issue where "Ghi chú" and footnotes overlay the data table
@@ -346,10 +355,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // This ensures the table structure is intact when we find and clone template rows
         ProcessTable(body, tableData);
 
-        // Then replace simple placeholders in all text elements
-        ReplacePlaceholdersInBody(body, placeholders);
+        // Then replace placeholders in entire document (including headers, footers, textboxes)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
 
-        document.MainDocumentPart?.Document?.Save();
+        mainPart.Document?.Save();
     }
 
     private void ReplacePlaceholdersInBody(Body body, Dictionary<string, string> placeholders)
@@ -586,6 +595,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var runs = para.Elements<Run>().ToList();
         if (runs.Count <= 1) return;
+
+        // Skip paragraphs containing Field elements (PAGE, NUMPAGES, etc.)
+        // Merging these would break the field codes
+        if (para.Descendants<FieldChar>().Any() || para.Descendants<FieldCode>().Any() || para.Descendants<SimpleField>().Any())
+        {
+            // For paragraphs with fields, only replace placeholders in individual Text elements
+            // without merging runs
+            return;
+        }
 
         // Get full text from all runs
         var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
@@ -1146,6 +1164,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{Note}}", input.Note ?? "" },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
