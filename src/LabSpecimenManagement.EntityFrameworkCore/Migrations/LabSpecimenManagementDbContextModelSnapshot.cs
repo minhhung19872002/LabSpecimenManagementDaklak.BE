@@ -269,6 +269,20 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("SupplementaryRequestDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("SupplementaryRequestReason")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<Guid?>("SupplementaryRequestedById")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SupplementaryRequestedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<Guid?>("TechnicianId")
                         .HasColumnType("uuid");
 

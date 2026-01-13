@@ -1155,6 +1155,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Check conditions for status calculation
         // Logic mới: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành tất cả mới lên status cao hơn)
         // Ngoại trừ PendingApproval - cần hiển thị ngay khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
+        // Ngoại trừ CannotTest/SupplementaryRequested - cần QLKT đánh giá
 
         // TẤT CẢ chỉ tiêu đã gửi QLCL
         var allSentToQuality = activeIndicators.All(ti =>
@@ -1165,6 +1166,11 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu CannotTest hoặc SupplementaryRequested - cần QLKT đánh giá
+        var anyNeedEvaluation = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested);
 
         // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
         // Chỉ xét các chỉ tiêu AcceptedForTesting hoặc MethodChanged (đã được QLKT chấp nhận)
@@ -1212,10 +1218,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         LaboratoryTaskStatus newStatus;
 
         // Logic ưu tiên:
-        // 1. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
-        // 2. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
+        // 1. CannotTest/SupplementaryRequested ưu tiên cao nhất - cần QLKT đánh giá ngay
+        // 2. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
+        // 3. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
 
-        if (anyEntered)
+        if (anyNeedEvaluation)
+        {
+            // Có ≥1 chỉ tiêu CannotTest/SupplementaryRequested - cần QLKT đánh giá
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
+        }
+        else if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
             newStatus = LaboratoryTaskStatus.WaitingApproval;
@@ -1428,6 +1440,11 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ApprovedByName = approvedByName,
             RejectionReason = taskIndicator.RejectionReason,
             IsSentToQuality = taskIndicator.IsSentToQuality,
+            // Supplementary Request fields
+            SupplementaryRequestReason = taskIndicator.SupplementaryRequestReason,
+            SupplementaryRequestDate = taskIndicator.SupplementaryRequestDate,
+            SupplementaryRequestedById = taskIndicator.SupplementaryRequestedById,
+            SupplementaryRequestedByName = taskIndicator.SupplementaryRequestedByName,
             Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new Testing.IndicatorImageDto
             {
                 Id = x.Id,

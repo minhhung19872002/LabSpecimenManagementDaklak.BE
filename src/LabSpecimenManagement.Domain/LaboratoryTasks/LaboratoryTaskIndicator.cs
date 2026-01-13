@@ -126,6 +126,28 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public string? CustomerConfirmedByName { get; set; }
 
     /// <summary>
+    /// Nội dung yêu cầu bổ sung (QLKT yêu cầu KH cung cấp)
+    /// </summary>
+    [MaxLength(2000)]
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// Người yêu cầu bổ sung - QLKT User ID
+    /// </summary>
+    public Guid? SupplementaryRequestedById { get; set; }
+
+    /// <summary>
+    /// Tên người yêu cầu bổ sung
+    /// </summary>
+    [MaxLength(256)]
+    public string? SupplementaryRequestedByName { get; set; }
+
+    /// <summary>
     /// Đã gửi cho QLCL chưa - Is Sent To Quality
     /// </summary>
     public bool IsSentToQuality { get; set; }

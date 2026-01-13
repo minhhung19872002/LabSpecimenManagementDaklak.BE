@@ -53,5 +53,10 @@ public enum IndicatorApprovalStatus
     /// <summary>
     /// Không TN được - KTV báo không thể thử nghiệm
     /// </summary>
-    CannotTest = 9
+    CannotTest = 9,
+
+    /// <summary>
+    /// Yêu cầu bổ sung - QLKT yêu cầu KH cung cấp thông tin bổ sung
+    /// </summary>
+    SupplementaryRequested = 10
 }

@@ -305,6 +305,23 @@ public class IndicatorPendingConfirmationDto
     /// Ngày yêu cầu
     /// </summary>
     public DateTime? RequestedDate { get; set; }
+
+    // ====== Supplementary Request Fields ======
+
+    /// <summary>
+    /// Nội dung yêu cầu bổ sung (nếu có)
+    /// </summary>
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// Người yêu cầu bổ sung
+    /// </summary>
+    public string? SupplementaryRequestedByName { get; set; }
 }
 
 /// <summary>

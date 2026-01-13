@@ -38,12 +38,13 @@ public partial class TestRequestAppService
         foreach (var task in tasks)
         {
             // Get all indicators that need customer confirmation
-            // Status: MethodChangeRequested or TestingRejected AND not yet confirmed
+            // Status: MethodChangeRequested, TestingRejected, or SupplementaryRequested AND not yet confirmed
             var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
                 ti => ti.LaboratoryTaskId == task.Id &&
                       !ti.CustomerConfirmationDate.HasValue && // Chưa được xác nhận
                       (ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested ||
-                       ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected));
+                       ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected ||
+                       ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested));
 
             foreach (var indicator in taskIndicators)
             {
@@ -207,6 +208,25 @@ public partial class TestRequestAppService
                     indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
                 }
                 break;
+
+            case IndicatorApprovalStatus.SupplementaryRequested:
+                if (confirmed)
+                {
+                    // KH đồng ý cung cấp bổ sung → quay về Pending để tiếp tục TN
+                    // (Giống như đổi PP được đồng ý - chỉ tiêu quay về trạng thái chờ TN)
+                    // Clear supplementary request info
+                    indicator.SupplementaryRequestReason = null;
+                    indicator.SupplementaryRequestDate = null;
+                    indicator.SupplementaryRequestedById = null;
+                    indicator.SupplementaryRequestedByName = null;
+                    indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
+                }
+                else
+                {
+                    // KH từ chối cung cấp bổ sung → hủy chỉ tiêu
+                    indicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                }
+                break;
         }
     }
 
@@ -247,6 +267,7 @@ public partial class TestRequestAppService
         // Kiểm tra còn chỉ tiêu chờ xác nhận không
         var hasPendingConfirmation = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested ||
             (ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && !ti.CustomerConfirmationDate.HasValue));
 
         if (hasPendingConfirmation)
@@ -487,6 +508,11 @@ public partial class TestRequestAppService
             requestedByName = indicator.TestingRejectedByName;
             requestedDate = indicator.TestingRejectionDate;
         }
+        else if (indicator.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested)
+        {
+            requestedByName = indicator.SupplementaryRequestedByName;
+            requestedDate = indicator.SupplementaryRequestDate;
+        }
 
         return new IndicatorPendingConfirmationDto
         {
@@ -502,7 +528,11 @@ public partial class TestRequestAppService
             NewMethodName = newMethodName,
             MethodChangeReason = methodChangeReason,
             RequestedByName = requestedByName,
-            RequestedDate = requestedDate
+            RequestedDate = requestedDate,
+            // Supplementary request fields
+            SupplementaryRequestReason = indicator.SupplementaryRequestReason,
+            SupplementaryRequestDate = indicator.SupplementaryRequestDate,
+            SupplementaryRequestedByName = indicator.SupplementaryRequestedByName
         };
     }
 
