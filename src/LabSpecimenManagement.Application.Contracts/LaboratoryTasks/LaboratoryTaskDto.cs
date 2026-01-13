@@ -157,6 +157,11 @@ public class LaboratoryTaskIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên nhóm chỉ tiêu - Indicator Group Name
     /// </summary>
     public string? IndicatorGroupName { get; set; }

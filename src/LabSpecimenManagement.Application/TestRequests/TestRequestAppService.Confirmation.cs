@@ -526,6 +526,7 @@ public partial class TestRequestAppService
             SampleName = sample?.SampleName,
             IndicatorCode = indicatorInfo?.Code,
             IndicatorName = indicatorInfo?.Name,
+            IndicatorFormattedName = indicatorInfo?.FormattedName,
             LaboratoryName = laboratory?.Name,
             ApprovalStatus = indicator.ApprovalStatus,
             TestingRejectionReason = indicator.TestingRejectionReason,

@@ -780,6 +780,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<string>("FormattedName")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<Guid>("IndicatorGroupId")
                         .HasColumnType("uuid");
 

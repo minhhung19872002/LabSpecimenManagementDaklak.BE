@@ -15,9 +15,15 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Code { get; set; }
 
     /// <summary>
-    /// Tên chỉ tiêu
+    /// Tên chỉ tiêu (plain text)
     /// </summary>
     public string Name { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML sanitized - bold, italic, underline, sub, sup)
+    /// Nếu null thì sử dụng Name
+    /// </summary>
+    public string? FormattedName { get; set; }
 
     /// <summary>
     /// Trạng thái hoạt động

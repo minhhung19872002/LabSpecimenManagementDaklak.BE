@@ -513,6 +513,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.FormattedName).HasMaxLength(1000);
 
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);

@@ -615,6 +615,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             QualityManagementIndicatorId = h.QualityManagementIndicatorId,
             IndicatorCode = masterIndicator.Code,
             IndicatorName = masterIndicator.Name,
+            IndicatorFormattedName = masterIndicator.FormattedName,
             OldStatus = h.OldStatus,
             NewStatus = h.NewStatus,
             Comment = h.Comment,
@@ -774,6 +775,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     IndicatorId = indicator.Id,
                     IndicatorCode = masterIndicator.Code,
                     IndicatorName = masterIndicator.Name,
+                    IndicatorFormattedName = masterIndicator.FormattedName,
                     SampleCode = sample.SampleCode,
                     SampleName = sample.SampleName
                 };
@@ -788,6 +790,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityManagementIndicatorId = h.QualityManagementIndicatorId,
                         IndicatorCode = masterIndicator.Code,
                         IndicatorName = masterIndicator.Name,
+                        IndicatorFormattedName = masterIndicator.FormattedName,
                         OldStatus = h.OldStatus,
                         NewStatus = h.NewStatus,
                         Comment = h.Comment,
@@ -1378,6 +1381,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorId = masterIndicator.Id,
             IndicatorCode = masterIndicator.Code,
             IndicatorName = masterIndicator.Name,
+            IndicatorFormattedName = masterIndicator.FormattedName,
             MethodId = labIndicator.MethodId,
             MethodName = methodName,
             Unit = labIndicator.Unit,

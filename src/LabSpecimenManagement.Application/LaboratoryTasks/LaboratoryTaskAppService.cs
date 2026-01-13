@@ -447,6 +447,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 IndicatorId = sampleIndicator.IndicatorId,
                 IndicatorCode = indicator?.Code,
                 IndicatorName = indicator?.Name,
+                IndicatorFormattedName = indicator?.FormattedName,
                 IndicatorGroupName = indicatorGroupName,
                 UnitPrice = sampleIndicator.UnitPrice,
                 // Phase 6 workflow fields
@@ -1481,6 +1482,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             IndicatorId = sampleIndicator.IndicatorId,
             IndicatorCode = indicator?.Code,
             IndicatorName = indicator?.Name,
+            IndicatorFormattedName = indicator?.FormattedName,
             IndicatorGroupName = indicatorGroupName,
             UnitPrice = sampleIndicator.UnitPrice,
             // Phase 6 workflow fields

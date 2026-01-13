@@ -166,6 +166,10 @@ public class TestRequestSampleIndicatorDto
     public Guid IndicatorId { get; set; }
     public string? IndicatorCode { get; set; }
     public string? IndicatorName { get; set; }
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
     public string? IndicatorGroupName { get; set; }
 
     /// <summary>
@@ -265,6 +269,11 @@ public class IndicatorPendingConfirmationDto
     /// Tên chỉ tiêu
     /// </summary>
     public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
 
     /// <summary>
     /// Tên khoa phòng

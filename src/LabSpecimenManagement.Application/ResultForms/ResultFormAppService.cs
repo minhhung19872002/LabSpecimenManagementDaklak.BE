@@ -185,6 +185,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Name ?? "",
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
@@ -640,6 +641,59 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
     }
 
+    /// <summary>
+    /// Replaces a placeholder in a Text element with formatted runs from HTML content.
+    /// This allows rich text formatting (bold, italic, subscript, superscript) in Word documents.
+    /// </summary>
+    private void ReplaceTextWithFormattedRuns(Text textElement, string placeholder, string htmlContent)
+    {
+        if (textElement.Parent is not Run parentRun)
+            return;
+
+        var text = textElement.Text ?? "";
+        var placeholderIndex = text.IndexOf(placeholder);
+        if (placeholderIndex == -1)
+            return;
+
+        var beforeText = text.Substring(0, placeholderIndex);
+        var afterText = text.Substring(placeholderIndex + placeholder.Length);
+
+        // Get base run properties from parent run
+        var baseProps = parentRun.GetFirstChild<RunProperties>()?.CloneNode(true) as RunProperties;
+
+        // Convert HTML to runs
+        var formattedRuns = HtmlToOpenXmlConverter.ConvertHtmlToRuns(htmlContent, baseProps);
+
+        // Clear original text
+        textElement.Text = beforeText;
+
+        // If there's after text, create a new run for it
+        Run? afterRun = null;
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            afterRun = new Run();
+            if (baseProps != null)
+            {
+                afterRun.Append(baseProps.CloneNode(true));
+            }
+            afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
+        }
+
+        // Insert formatted runs after parent run
+        var insertAfter = parentRun;
+        foreach (var run in formattedRuns)
+        {
+            insertAfter.InsertAfterSelf(run);
+            insertAfter = run;
+        }
+
+        // Insert after text run at the end
+        if (afterRun != null)
+        {
+            insertAfter.InsertAfterSelf(afterRun);
+        }
+    }
+
     private void ProcessTable(Body body, List<ResultFormTableRow> tableData)
     {
         // Helper to get text from row's direct cells only (not from nested tables)
@@ -773,6 +827,56 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (text.Text.Contains("{{Result}}") && !string.IsNullOrEmpty(data.Result) && data.Result.Contains('\n'))
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
+            }
+            // Handle Parameters placeholder with HTML formatting
+            else if (text.Text.Contains("{{Parameters}}"))
+            {
+                // Use formatted name if available, otherwise plain name
+                var parametersDisplayName = !string.IsNullOrEmpty(data.ParametersFormattedName)
+                    ? data.ParametersFormattedName
+                    : data.Parameters;
+
+                // If formatted name contains HTML, we need special handling
+                if (HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName))
+                {
+                    // Replace other placeholders first
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{No}}", data.No.ToString())
+                        .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
+                        .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
+                        .Replace("{{Unit}}", data.Unit ?? "")
+                        .Replace("{{TestMethod}}", data.TestMethod ?? "")
+                        .Replace("{{Result}}", data.Result ?? "")
+                        .Replace("{{Standards}}", data.Standards ?? "")
+                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                        .Replace("{{n}}", data.FootnoteNumber ?? "")
+                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
+                        .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
+                        .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                    // Now handle Parameters with HTML
+                    ReplaceTextWithFormattedRuns(text, "{{Parameters}}", parametersDisplayName);
+                }
+                else
+                {
+                    // No HTML - simple replacement
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{No}}", data.No.ToString())
+                        .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
+                        .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
+                        .Replace("{{Parameters}}", parametersDisplayName ?? "")
+                        .Replace("{{Unit}}", data.Unit ?? "")
+                        .Replace("{{TestMethod}}", data.TestMethod ?? "")
+                        .Replace("{{Result}}", data.Result ?? "")
+                        .Replace("{{Standards}}", data.Standards ?? "")
+                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                        .Replace("{{n}}", data.FootnoteNumber ?? "")
+                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
+                        .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
+                        .Replace("{{Proclaim}}", data.Proclaim ?? "");
+                }
             }
             else
             {
@@ -999,6 +1103,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string NameOfSample { get; set; } = ""; // BM02 - Tên mẫu
         public string CodeOfNumber { get; set; } = ""; // BM02 - Mã số mẫu
         public string Parameters { get; set; } = "";
+        /// <summary>
+        /// Tên chỉ tiêu có định dạng HTML (nếu có)
+        /// </summary>
+        public string? ParametersFormattedName { get; set; }
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
         public string Result { get; set; } = "";
@@ -1207,6 +1315,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
@@ -1582,6 +1691,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     No = subRowIndex++,
                     IndicatorName = indicator.IndicatorName,
+                    IndicatorFormattedName = indicator.IndicatorFormattedName,
                     UnitPrice = indicator.UnitPrice.ToString("N0")
                 });
             }
@@ -1647,6 +1757,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     {
                         No = subRowIndex++,
                         IndicatorName = indicator.Name ?? "",
+                        IndicatorFormattedName = indicator.FormattedName,
                         UnitPrice = si.UnitPrice.ToString("N0")
                     });
                 }
@@ -2083,11 +2194,43 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 if (string.IsNullOrEmpty(text.Text)) continue;
 
-                text.Text = text.Text
-                    .Replace("{{SubTable}}", "")
-                    .Replace("{{SubNo}}", indicator.No.ToString())
-                    .Replace("{{SubIndicator}}", indicator.IndicatorName)
-                    .Replace("{{SubPrice}}", indicator.UnitPrice);
+                // Check if this text contains the SubIndicator placeholder
+                if (text.Text.Contains("{{SubIndicator}}"))
+                {
+                    // Use formatted name if available, otherwise plain name
+                    var indicatorDisplayName = !string.IsNullOrEmpty(indicator.IndicatorFormattedName)
+                        ? indicator.IndicatorFormattedName
+                        : indicator.IndicatorName;
+
+                    // If formatted name contains HTML, we need special handling
+                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorDisplayName))
+                    {
+                        // Replace other placeholders first
+                        text.Text = text.Text
+                            .Replace("{{SubTable}}", "")
+                            .Replace("{{SubNo}}", indicator.No.ToString())
+                            .Replace("{{SubPrice}}", indicator.UnitPrice);
+
+                        // Now handle SubIndicator with HTML
+                        ReplaceTextWithFormattedRuns(text, "{{SubIndicator}}", indicatorDisplayName);
+                    }
+                    else
+                    {
+                        // No HTML - simple replacement
+                        text.Text = text.Text
+                            .Replace("{{SubTable}}", "")
+                            .Replace("{{SubNo}}", indicator.No.ToString())
+                            .Replace("{{SubIndicator}}", indicatorDisplayName)
+                            .Replace("{{SubPrice}}", indicator.UnitPrice);
+                    }
+                }
+                else
+                {
+                    text.Text = text.Text
+                        .Replace("{{SubTable}}", "")
+                        .Replace("{{SubNo}}", indicator.No.ToString())
+                        .Replace("{{SubPrice}}", indicator.UnitPrice);
+                }
             }
 
             // Insert the new row
@@ -2291,17 +2434,59 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // For first indicator row, show sample info; for subsequent rows, keep empty (merged)
-            text.Text = text.Text
-                .Replace("{{TestTable}}", "")
-                .Replace("{{SubTable}}", "")
-                .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
-                .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
-                .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
-                .Replace("{{Parameter}}", indicatorData.Parameter)
-                .Replace("{{Unit}}", indicatorData.Unit)
-                .Replace("{{TestMethod}}", indicatorData.TestMethod)
-                .Replace("{{Result}}", indicatorData.Result);
+            // Check if this text contains the Parameter placeholder
+            if (text.Text.Contains("{{Parameter}}"))
+            {
+                // Use formatted name if available, otherwise plain name
+                var parameterDisplayName = !string.IsNullOrEmpty(indicatorData.ParameterFormattedName)
+                    ? indicatorData.ParameterFormattedName
+                    : indicatorData.Parameter;
+
+                // If formatted name contains HTML, we need special handling
+                if (HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName))
+                {
+                    // Replace other placeholders first
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{SubTable}}", "")
+                        .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                        .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                        .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                        .Replace("{{Unit}}", indicatorData.Unit)
+                        .Replace("{{TestMethod}}", indicatorData.TestMethod)
+                        .Replace("{{Result}}", indicatorData.Result);
+
+                    // Now handle Parameter with HTML
+                    ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
+                }
+                else
+                {
+                    // No HTML - simple replacement
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{SubTable}}", "")
+                        .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                        .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                        .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                        .Replace("{{Parameter}}", parameterDisplayName)
+                        .Replace("{{Unit}}", indicatorData.Unit)
+                        .Replace("{{TestMethod}}", indicatorData.TestMethod)
+                        .Replace("{{Result}}", indicatorData.Result);
+                }
+            }
+            else
+            {
+                // For first indicator row, show sample info; for subsequent rows, keep empty (merged)
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                    .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                    .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Unit}}", indicatorData.Unit)
+                    .Replace("{{TestMethod}}", indicatorData.TestMethod)
+                    .Replace("{{Result}}", indicatorData.Result);
+            }
         }
 
         return newRow;
@@ -2493,6 +2678,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         public int No { get; set; }
         public string IndicatorName { get; set; } = "";
+        /// <summary>
+        /// Tên có định dạng HTML (nếu có)
+        /// </summary>
+        public string? IndicatorFormattedName { get; set; }
         public string UnitPrice { get; set; } = "";
     }
 
@@ -2514,6 +2703,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private class MixedResultIndicatorRow
     {
         public string Parameter { get; set; } = "";
+        /// <summary>
+        /// Tên chỉ tiêu có định dạng HTML (nếu có)
+        /// </summary>
+        public string? ParameterFormattedName { get; set; }
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
         public string Result { get; set; } = "";
@@ -2840,6 +3033,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = 1,
                 Parameters = indicator.Name ?? "",
+                ParametersFormattedName = indicator.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
@@ -3160,6 +3354,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 sampleRow.Indicators.Add(new MixedResultIndicatorRow
                 {
                     Parameter = indicator?.Name ?? "",
+                    ParameterFormattedName = indicator?.FormattedName,
                     Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
                     TestMethod = method?.Name ?? "",
                     Result = resultText,
@@ -3242,6 +3437,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     {
                         No = rowIndex++,
                         Parameters = indicator.Parameter,
+                        ParametersFormattedName = indicator.ParameterFormattedName,
                         Unit = indicator.Unit,
                         TestMethod = indicator.TestMethod,
                         Result = indicator.Result,
@@ -3422,6 +3618,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),

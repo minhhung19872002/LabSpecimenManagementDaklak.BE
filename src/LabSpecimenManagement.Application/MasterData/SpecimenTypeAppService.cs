@@ -176,6 +176,7 @@ public class SpecimenTypeAppService :
                             IndicatorId = sti.IndicatorId,
                             IndicatorCode = indicator?.Code ?? "",
                             IndicatorName = indicator?.Name ?? "",
+                            IndicatorFormattedName = indicator?.FormattedName,
                             IndicatorGroupName = indicatorGroup?.Name,
                             IsActive = sti.IsActive,
                             SortOrder = sti.SortOrder
@@ -231,6 +232,7 @@ public class SpecimenTypeAppService :
                 IndicatorId = sti.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
                 IndicatorGroupName = indicatorGroup?.Name,
                 IsActive = sti.IsActive,
                 SortOrder = sti.SortOrder
@@ -273,6 +275,7 @@ public class SpecimenTypeAppService :
                 IndicatorId = sti.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
                 IndicatorGroupName = indicatorGroup?.Name,
                 IsActive = sti.IsActive,
                 SortOrder = sti.SortOrder
@@ -374,6 +377,7 @@ public class SpecimenTypeAppService :
             IndicatorId = entity.IndicatorId,
             IndicatorCode = indicator?.Code ?? "",
             IndicatorName = indicator?.Name ?? "",
+            IndicatorFormattedName = indicator?.FormattedName,
             IndicatorGroupName = indicatorGroup?.Name,
             IsActive = entity.IsActive,
             SortOrder = entity.SortOrder

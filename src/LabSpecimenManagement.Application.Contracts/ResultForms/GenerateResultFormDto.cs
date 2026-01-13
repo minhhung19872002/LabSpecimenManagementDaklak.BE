@@ -400,6 +400,12 @@ public class PreviewSampleIndicatorDto
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Indicator formatted name (HTML) - for rich text display
+    /// </summary>
+    [StringLength(1000)]
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Unit price
     /// </summary>
     public decimal UnitPrice { get; set; }

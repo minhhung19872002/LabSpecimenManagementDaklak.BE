@@ -12,6 +12,11 @@ public class IndicatorDto : FullAuditedEntityDto<Guid>
 {
     public string Code { get; set; }
     public string Name { get; set; }
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng HTML (bold, italic, underline, sub, sup)
+    /// Nếu null thì hiển thị Name
+    /// </summary>
+    public string? FormattedName { get; set; }
     public bool IsActive { get; set; }
     public Guid IndicatorGroupId { get; set; }
     public string IndicatorGroupName { get; set; }
@@ -27,6 +32,12 @@ public class CreateIndicatorDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng HTML (bold, italic, underline, sub, sup)
+    /// </summary>
+    [StringLength(1000, ErrorMessage = "Tên định dạng không được vượt quá 1000 ký tự")]
+    public string? FormattedName { get; set; }
 
     public bool IsActive { get; set; } = true;
 
@@ -44,6 +55,12 @@ public class UpdateIndicatorDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng HTML (bold, italic, underline, sub, sup)
+    /// </summary>
+    [StringLength(1000, ErrorMessage = "Tên định dạng không được vượt quá 1000 ký tự")]
+    public string? FormattedName { get; set; }
 
     public bool IsActive { get; set; }
 
@@ -74,6 +91,12 @@ public class BulkIndicatorItemDto
     [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
     [StringLength(256, ErrorMessage = "Tên chỉ tiêu không được vượt quá 256 ký tự")]
     public string Name { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng HTML (nếu có rich text)
+    /// </summary>
+    [StringLength(1000)]
+    public string? FormattedName { get; set; }
 }
 
 /// <summary>
@@ -146,6 +169,7 @@ public class IndicatorWithMethodsDto
     public Guid Id { get; set; }
     public string Code { get; set; }
     public string Name { get; set; }
+    public string? FormattedName { get; set; }
     public Guid IndicatorGroupId { get; set; }
     public string IndicatorGroupName { get; set; }
     public bool IsActive { get; set; }

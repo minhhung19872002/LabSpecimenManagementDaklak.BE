@@ -191,6 +191,11 @@ public class TestingIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// ID phương pháp - Method ID
     /// </summary>
     public Guid? MethodId { get; set; }

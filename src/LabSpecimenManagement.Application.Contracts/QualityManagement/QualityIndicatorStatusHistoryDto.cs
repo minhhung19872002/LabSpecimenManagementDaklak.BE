@@ -38,6 +38,7 @@ public class QualityTaskHistoryDto
     public Guid IndicatorId { get; set; }
     public string? IndicatorCode { get; set; }
     public string? IndicatorName { get; set; }
+    public string? IndicatorFormattedName { get; set; }
     public string? SampleCode { get; set; }
     public string? SampleName { get; set; }
     public List<QualityIndicatorStatusHistoryDto> Histories { get; set; } = new();
@@ -116,6 +117,11 @@ public class QualityIndicatorStatusHistoryDto
     /// Indicator Name
     /// </summary>
     public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Indicator Formatted Name (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
 
     /// <summary>
     /// Trạng thái cũ - Old Status

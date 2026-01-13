@@ -22,6 +22,11 @@ public class SpecimenTypeIndicatorDto
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng HTML (denormalized từ Indicator)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên nhóm chỉ tiêu (denormalized từ IndicatorGroup)
     /// </summary>
     public string? IndicatorGroupName { get; set; }

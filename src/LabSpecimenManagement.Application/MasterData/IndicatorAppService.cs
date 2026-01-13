@@ -111,7 +111,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var entity = new Indicator(GuidGenerator.Create(), code, input.Name, input.IndicatorGroupId)
         {
             IsActive = input.IsActive,
-            SortOrder = input.SortOrder
+            SortOrder = input.SortOrder,
+            FormattedName = SanitizeHtml(input.FormattedName)
         };
 
         await _indicatorRepository.InsertAsync(entity);
@@ -154,7 +155,10 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
             var entity = new Indicator(GuidGenerator.Create(), code, item.Name, input.IndicatorGroupId)
             {
-                IsActive = true
+                IsActive = true,
+                FormattedName = !string.IsNullOrWhiteSpace(item.FormattedName)
+                    ? SanitizeHtml(item.FormattedName)
+                    : item.Name
             };
 
             await _indicatorRepository.InsertAsync(entity, autoSave: true);
@@ -173,6 +177,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
 
         entity.Name = input.Name;
+        entity.FormattedName = SanitizeHtml(input.FormattedName);
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
         entity.SortOrder = input.SortOrder;
@@ -654,6 +659,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 Id = indicator.Id,
                 Code = indicator.Code,
                 Name = indicator.Name,
+                FormattedName = indicator.FormattedName,
                 IndicatorGroupId = indicator.IndicatorGroupId,
                 IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId, ""),
                 IsActive = indicator.IsActive,
@@ -687,5 +693,67 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Sanitize HTML to only allow safe formatting tags (bold, italic, underline, sub, sup)
+    /// </summary>
+    private static string? SanitizeHtml(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        // Allowed tags for text formatting
+        var allowedTags = new[] { "b", "strong", "i", "em", "u", "sub", "sup", "br" };
+
+        // Simple sanitization: remove all tags except allowed ones
+        // For production, consider using HtmlSanitizer library
+        var result = html;
+
+        // Remove script tags and their content
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"<script[^>]*>[\s\S]*?</script>",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove style tags and their content
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"<style[^>]*>[\s\S]*?</style>",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove event handlers (onclick, onerror, etc.)
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"\s*on\w+\s*=\s*[""'][^""']*[""']",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove javascript: protocol
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"javascript\s*:",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Only keep allowed tags - remove others but keep their content
+        var tagPattern = @"</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>";
+        result = System.Text.RegularExpressions.Regex.Replace(result, tagPattern, match =>
+        {
+            var tagName = match.Groups[1].Value.ToLower();
+            if (allowedTags.Contains(tagName))
+            {
+                // Keep allowed tags but remove any attributes
+                var isClosing = match.Value.StartsWith("</");
+                return isClosing ? $"</{tagName}>" : $"<{tagName}>";
+            }
+            return ""; // Remove disallowed tags
+        });
+
+        return result.Trim();
     }
 }

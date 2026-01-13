@@ -9,6 +9,7 @@ public class TestMethodIndicatorDto
     public Guid IndicatorId { get; set; }
     public string IndicatorCode { get; set; }
     public string IndicatorName { get; set; }
+    public string? IndicatorFormattedName { get; set; }
     public decimal UnitPrice { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }

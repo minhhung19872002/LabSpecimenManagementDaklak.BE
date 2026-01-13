@@ -65,6 +65,11 @@ public class QualityManagementIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên phương pháp - Method Name
     /// </summary>
     public string? MethodName { get; set; }

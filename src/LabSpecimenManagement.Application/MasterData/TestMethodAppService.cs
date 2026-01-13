@@ -169,6 +169,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                             IndicatorId = tmi.IndicatorId,
                             IndicatorCode = indicator?.Code ?? "",
                             IndicatorName = indicator?.Name ?? "",
+                            IndicatorFormattedName = indicator?.FormattedName,
                             UnitPrice = tmi.UnitPrice,
                             IsActive = indicator?.IsActive ?? false,
                             SortOrder = tmi.SortOrder
@@ -213,6 +214,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorId = tmi.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder
@@ -248,6 +250,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorId = tmi.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder

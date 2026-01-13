@@ -159,6 +159,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 {
                     dto.IndicatorCode = indicator.Code;
                     dto.IndicatorName = indicator.Name;
+                    dto.IndicatorFormattedName = indicator.FormattedName;
                 }
             }
 
