@@ -54,7 +54,20 @@ public partial class LaboratoryTaskAppService
         else if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
                  taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu đã được đánh giá hoặc không ở trạng thái chờ đánh giá", "indicator");
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.AcceptedForTesting &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+            {
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Chỉ có thể yêu cầu bổ sung cho chỉ tiêu đã chấp nhận TN hoặc không TN được", "indicator");
+            }
+        }
+        else
+        {
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu đã được đánh giá hoặc không ở trạng thái chờ đánh giá", "indicator");
+            }
         }
 
         switch (input.Action)
@@ -273,11 +286,12 @@ public partial class LaboratoryTaskAppService
 
     /// <summary>
     /// Chấp nhận chỉ tiêu cho thử nghiệm
+    /// ApprovalDate không được set ở đây - chỉ set khi duyệt kết quả (Approved)
     /// </summary>
     private Task AcceptIndicatorForTestingAsync(LaboratoryTaskIndicator indicator)
     {
         indicator.ApprovalStatus = IndicatorApprovalStatus.AcceptedForTesting;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
         return Task.CompletedTask;
     }
@@ -318,7 +332,7 @@ public partial class LaboratoryTaskAppService
 
         // Update indicator status
         indicator.ApprovalStatus = IndicatorApprovalStatus.MethodChangeRequested;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
     }
 

@@ -577,6 +577,73 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
+    /// <summary>
+    /// Tính status của task từ danh sách indicators đã có sẵn (không fetch lại từ DB)
+    /// Dùng khi đã có indicators trong memory để tránh re-fetch và tracking issues
+    /// </summary>
+    private LaboratoryTaskStatus CalculateTaskStatusFromIndicators(List<LaboratoryTaskIndicator> allIndicators)
+    {
+        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        var activeIndicators = allIndicators.Where(ti =>
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+
+        if (!activeIndicators.Any())
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+
+        // TẤT CẢ chỉ tiêu đã gửi QLCL
+        var allSentToQuality = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
+
+        // TẤT CẢ chỉ tiêu đã được duyệt (Approved)
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu KTV báo không TN được - cần QLKT xử lý
+        var anyCannotTest = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
+        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending)
+        var anyTesting = activeIndicators.Any(ti =>
+            ti.TestDate.HasValue && ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+
+        // Logic ưu tiên (đồng bộ với UpdateTaskStatusAsync)
+        // 1. CannotTest được ưu tiên CAO NHẤT - cần QLKT xử lý trước khi tiếp tục
+        if (anyCannotTest)
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+        else if (anyEntered)
+        {
+            return LaboratoryTaskStatus.WaitingApproval;
+        }
+        else if (allSentToQuality)
+        {
+            return LaboratoryTaskStatus.SentToQuality;
+        }
+        else if (allApproved)
+        {
+            return LaboratoryTaskStatus.Approved;
+        }
+        else if (allAssigned && anyTesting)
+        {
+            return LaboratoryTaskStatus.InProgress;
+        }
+        else if (allAssigned)
+        {
+            return LaboratoryTaskStatus.Assigned;
+        }
+        else
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+    }
+
     private async Task<TestingListDto> MapToListDtoAsync(
         LaboratoryTask task,
         List<LaboratoryTaskIndicator> indicators,
@@ -1119,10 +1186,42 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var errors = new List<string>();
         var submittedIndicators = new List<LaboratoryTaskIndicator>();
 
+        // Fetch TẤT CẢ indicators của task một lần để:
+        // 1. Tránh multiple queries
+        // 2. Dùng để tính task status sau khi update
+        // 3. Tránh EF tracking issues khi re-fetch
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
+        var indicatorMap = allTaskIndicators.ToDictionary(i => i.Id);
+
+        // Collect unique text values để tránh race condition khi batch submit có nhiều indicator với cùng text result
+        var textValuesToCreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inputIndicatorIds = input.Indicators.Select(i => i.IndicatorId).ToHashSet();
+
+        foreach (var indicatorId in inputIndicatorIds)
+        {
+            if (indicatorMap.TryGetValue(indicatorId, out var indicator))
+            {
+                // Collect text values cần tạo (không phải numeric/formula)
+                if (!string.IsNullOrWhiteSpace(indicator.Result) && !IsNumericOrFormulaValue(indicator.Result))
+                {
+                    textValuesToCreate.Add(indicator.Result.Trim());
+                }
+            }
+        }
+
+        // Pre-create all unique text values TRƯỚC khi process indicators
+        // Điều này tránh race condition khi có nhiều indicator với cùng text value
+        foreach (var textValue in textValuesToCreate)
+        {
+            await _testResultValueAppService.GetOrCreateByNameAsync(textValue);
+        }
+
         foreach (var indicatorInput in input.Indicators)
         {
-            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorInput.IndicatorId);
-            if (indicator == null) continue;
+            if (!indicatorMap.TryGetValue(indicatorInput.IndicatorId, out var indicator))
+            {
+                continue;
+            }
 
             // Kiểm tra quyền
             if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
@@ -1168,13 +1267,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 }
             }
 
-            // Auto-create TestResultValue for text values (not numeric/formula)
-            // This allows user to enter new text values like "Đạt", "Không đạt"
-            // which will be saved to master data for future autocomplete
-            if (!IsNumericOrFormulaValue(indicator.Result))
-            {
-                await _testResultValueAppService.GetOrCreateByNameAsync(indicator.Result);
-            }
+            // Text values đã được tạo ở trên, không cần gọi GetOrCreateByNameAsync nữa
 
             // Set TestDate từ input
             indicator.TestDate = indicatorInput.TestDate;
@@ -1185,7 +1278,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             indicator.EnteredById ??= currentUserId;
             indicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
 
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: false);
             submittedIndicators.Add(indicator);
         }
 
@@ -1199,8 +1292,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
         }
 
-        // Update task status
-        await UpdateTaskStatusAsync(task);
+        // Update task status (sử dụng TẤT CẢ indicators đã cached, không fetch lại từ DB)
+        // allTaskIndicators đã được update trong memory nên sẽ có ApprovalStatus mới
+        var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
+        if (task.Status != newTaskStatus)
+        {
+            task.Status = newTaskStatus;
+            await _laboratoryTaskRepository.UpdateAsync(task, autoSave: false);
+        }
 
         // Update TestRequest status to InProgress when KTV submits results
         await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);

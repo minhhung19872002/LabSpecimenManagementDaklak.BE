@@ -20,8 +20,8 @@ namespace LabSpecimenManagement.Migrations
             migrationBuilder.AddColumn<string>(
                 name: "SupplementaryRequestReason",
                 table: "AppLaboratoryTaskIndicators",
-                type: "character varying(2000)",
-                maxLength: 2000,
+                type: "character varying(1000)",
+                maxLength: 1000,
                 nullable: true);
 
             migrationBuilder.AddColumn<Guid>(

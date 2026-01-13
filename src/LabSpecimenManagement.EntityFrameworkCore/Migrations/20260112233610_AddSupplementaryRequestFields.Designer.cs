@@ -13,7 +13,7 @@ using Volo.Abp.EntityFrameworkCore;
 namespace LabSpecimenManagement.Migrations
 {
     [DbContext(typeof(LabSpecimenManagementDbContext))]
-    [Migration("20260113034130_AddSupplementaryRequestFields")]
+    [Migration("20260112233610_AddSupplementaryRequestFields")]
     partial class AddSupplementaryRequestFields
     {
         /// <inheritdoc />
@@ -276,8 +276,8 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("SupplementaryRequestReason")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<Guid?>("SupplementaryRequestedById")
                         .HasColumnType("uuid");

@@ -276,11 +276,16 @@ public partial class TestRequestAppService
             return;
         }
 
-        // Kiểm tra có chỉ tiêu quay về Pending không (KH không đồng ý từ chối)
+        // Kiểm tra có chỉ tiêu quay về Pending hoặc AcceptedForTesting (từ SupplementaryRequested) không
         var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
-        if (hasPending)
+        var hasAcceptedForTestingNeedReassign = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            ti.CustomerConfirmationDate.HasValue); // Đã được KH xác nhận bổ sung
+
+        if (hasPending || hasAcceptedForTestingNeedReassign)
         {
-            // Có chỉ tiêu quay về Pending → Task quay về UnderEvaluation để QLKT đánh giá lại
+            // Có chỉ tiêu quay về Pending hoặc AcceptedForTesting (sau khi KH đồng ý bổ sung)
+            // → Task quay về UnderEvaluation để QLKT phân công lại
             task.Status = LaboratoryTaskStatus.UnderEvaluation;
             await _laboratoryTaskRepository.UpdateAsync(task);
             return;
