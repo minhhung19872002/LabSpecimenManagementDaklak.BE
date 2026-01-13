@@ -2935,8 +2935,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Note}}", mergedNote },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
-            { "{{Date}}", now.Day.ToString() },
-            { "{{Month}}", now.Month.ToString() },
+            { "{{Date}}", now.Day.ToString("D2") },
+            { "{{Month}}", now.Month.ToString("D2") },
             { "{{Year}}", now.Year.ToString() },
             { "{{CustomerName}}", testRequest.CustomerName ?? "" },
             { "{{FullAddress}}", address },
