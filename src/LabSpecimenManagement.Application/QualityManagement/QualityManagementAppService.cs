@@ -923,9 +923,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             indicatorsToPrint.Add(indicator);
         }
 
-        // Group indicators by laboratory
-        var labIndicatorGroups = new Dictionary<Guid, List<Guid>>();
-        var labNames = new Dictionary<Guid, string>();
+        // Build mapping: indicator -> (labId, labName, sampleId, sampleCode, sampleName)
+        var indicatorMapping = new Dictionary<Guid, (Guid LabId, string LabName, Guid SampleId, string SampleCode, string SampleName)>();
 
         foreach (var indicator in indicatorsToPrint)
         {
@@ -934,30 +933,37 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             var labTask = await _laboratoryTaskRepository.GetAsync(labTaskIndicator.LaboratoryTaskId);
             var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
 
-            if (!labIndicatorGroups.ContainsKey(laboratory.Id))
-            {
-                labIndicatorGroups[laboratory.Id] = new List<Guid>();
-                labNames[laboratory.Id] = laboratory.Name;
-            }
-            labIndicatorGroups[laboratory.Id].Add(indicator.Id);
+            // Get sample from TestRequestSampleIndicator
+            var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labTaskIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
+
+            indicatorMapping[indicator.Id] = (laboratory.Id, laboratory.Name, sample.Id, sample.SampleCode, sample.SampleName);
         }
 
-        // Generate PDFs for each lab × template combination
+        // Group indicators by (laboratoryId, sampleId)
+        var labSampleGroups = indicatorsToPrint
+            .GroupBy(ind => (indicatorMapping[ind.Id].LabId, indicatorMapping[ind.Id].SampleId))
+            .ToDictionary(g => g.Key, g => g.Select(ind => ind.Id).ToList());
+
+        // Generate PDFs for each (lab × sample × template) combination
         var results = new List<PrintResultItemDto>();
 
-        foreach (var labGroup in labIndicatorGroups)
+        foreach (var labSampleGroup in labSampleGroups)
         {
-            var labId = labGroup.Key;
-            var labIndicatorIds = labGroup.Value;
-            var labName = labNames[labId];
+            var (labId, sampleId) = labSampleGroup.Key;
+            var labSampleIndicatorIds = labSampleGroup.Value;
+
+            // Get lab and sample info from first indicator
+            var firstIndicatorId = labSampleIndicatorIds.First();
+            var (_, labName, _, sampleCode, sampleName) = indicatorMapping[firstIndicatorId];
 
             foreach (var templateName in input.TemplateNames)
             {
-                // Generate PDF for this lab + template
+                // Generate PDF for this lab + sample + template
                 var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
                 {
                     TaskId = taskId,
-                    IndicatorIds = labIndicatorIds,
+                    IndicatorIds = labSampleIndicatorIds,
                     Note = input.Note,
                     TemplateName = templateName,
                     VicePresidentId = input.VicePresidentId
@@ -968,6 +974,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     FileName = result.FileName,
                     LaboratoryId = labId,
                     LaboratoryName = labName,
+                    SampleId = sampleId,
+                    SampleCode = sampleCode,
+                    SampleName = sampleName,
                     TemplateName = templateName
                 });
 
@@ -979,7 +988,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     result.FileName,
                     "Single",
                     input.Note,
-                    JsonSerializer.Serialize(labIndicatorIds)
+                    JsonSerializer.Serialize(labSampleIndicatorIds)
                 );
                 await _publishedReportRepository.InsertAsync(publishedReport);
             }

@@ -3178,50 +3178,71 @@ public partial class TestRequestAppService :
         var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
         var labTaskDict = labTasks.ToDictionary(lt => lt.Id);
 
-        // Build mapping: QualityManagementIndicator.Id -> LaboratoryId
-        var indicatorToLabId = new Dictionary<Guid, Guid>();
+        // Get TestRequestSampleIndicators to find SampleId
+        var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            x => sampleIndicatorIds.Contains(x.Id));
+        var sampleIndicatorDict = sampleIndicators.ToDictionary(si => si.Id);
+
+        // Get TestRequestSamples to get SampleCode, SampleName
+        var sampleIds = sampleIndicators.Select(si => si.TestRequestSampleId).Distinct().ToList();
+        var samples = await _sampleRepository.GetListAsync(x => sampleIds.Contains(x.Id));
+        var sampleDict = samples.ToDictionary(s => s.Id);
+
+        // Build mapping: QualityManagementIndicator.Id -> (LaboratoryId, SampleId, SampleCode, SampleName)
+        var indicatorToLabSample = new Dictionary<Guid, (Guid LabId, Guid SampleId, string SampleCode, string SampleName)>();
         foreach (var qi in qualityIndicators)
         {
             if (labTaskIndicatorDict.TryGetValue(qi.LaboratoryTaskIndicatorId, out var lti))
             {
                 if (labTaskDict.TryGetValue(lti.LaboratoryTaskId, out var lt))
                 {
-                    indicatorToLabId[qi.Id] = lt.LaboratoryId;
+                    if (sampleIndicatorDict.TryGetValue(lti.TestRequestSampleIndicatorId, out var si))
+                    {
+                        if (sampleDict.TryGetValue(si.TestRequestSampleId, out var sample))
+                        {
+                            indicatorToLabSample[qi.Id] = (lt.LaboratoryId, sample.Id, sample.SampleCode, sample.SampleName);
+                        }
+                    }
                 }
             }
         }
 
-        // Group indicators by LaboratoryId
-        var indicatorsByLab = qualityIndicators
-            .Where(qi => indicatorToLabId.ContainsKey(qi.Id))
-            .GroupBy(qi => indicatorToLabId[qi.Id])
+        // Group indicators by (LaboratoryId, SampleId) instead of just LaboratoryId
+        var indicatorsByLabSample = qualityIndicators
+            .Where(qi => indicatorToLabSample.ContainsKey(qi.Id))
+            .GroupBy(qi => (indicatorToLabSample[qi.Id].LabId, indicatorToLabSample[qi.Id].SampleId))
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Get laboratory names
-        var labIds = indicatorsByLab.Keys.ToList();
+        var labIds = indicatorsByLabSample.Keys.Select(k => k.LabId).Distinct().ToList();
         var laboratories = await _laboratoryRepository.GetListAsync(x => labIds.Contains(x.Id));
         var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
 
         var results = new List<PrintResultItemDto>();
 
-        // Generate (labs × templates) PDFs
+        // Generate ((lab-sample combinations) × templates) PDFs
         foreach (var templateName in input.TemplateNames)
         {
-            foreach (var labGroup in indicatorsByLab)
+            foreach (var labSampleGroup in indicatorsByLabSample)
             {
-                var labId = labGroup.Key;
-                var labIndicators = labGroup.Value;
+                var (labId, sampleId) = labSampleGroup.Key;
+                var labSampleIndicators = labSampleGroup.Value;
                 var labName = labDict.GetValueOrDefault(labId, "Unknown Lab");
+
+                // Get sample info from first indicator in this group
+                var firstGroupIndicator = labSampleIndicators.First();
+                var (_, _, sampleCode, sampleName) = indicatorToLabSample[firstGroupIndicator.Id];
 
                 GenerateResultFormOutput result;
 
-                if (labIndicators.Count == 1)
+                if (labSampleIndicators.Count == 1)
                 {
                     // Single indicator - use single form
                     result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
                     {
                         TaskId = qualityTask.Id,
-                        IndicatorId = labIndicators[0].Id,
+                        IndicatorId = labSampleIndicators[0].Id,
                         Note = input.Note,
                         TemplateName = templateName,
                         VicePresidentId = input.VicePresidentId
@@ -3233,7 +3254,7 @@ public partial class TestRequestAppService :
                     result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
                     {
                         TaskId = qualityTask.Id,
-                        IndicatorIds = labIndicators.Select(qi => qi.Id).ToList(),
+                        IndicatorIds = labSampleIndicators.Select(qi => qi.Id).ToList(),
                         Note = input.Note,
                         TemplateName = templateName,
                         VicePresidentId = input.VicePresidentId
@@ -3245,6 +3266,9 @@ public partial class TestRequestAppService :
                     FileName = result.FileName,
                     LaboratoryId = labId,
                     LaboratoryName = labName,
+                    SampleId = sampleId,
+                    SampleCode = sampleCode,
+                    SampleName = sampleName,
                     TemplateName = templateName
                 });
             }

@@ -3059,11 +3059,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         if (isBM05QLNN && qualityIndicator.StandardId.HasValue)
         {
             var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == qualityIndicator.StandardId.Value);
-            placeholders.Add("{{Standard}}", standard?.Name ?? "");
+            placeholders.Add("{{Standard}}", standard?.Name ?? "So với QCVN…/ TCVN…./ QĐ…");
         }
         else if (isBM05QLNN)
         {
-            placeholders.Add("{{Standard}}", "");
+            placeholders.Add("{{Standard}}", "So với QCVN…/ TCVN…./ QĐ…");
         }
 
         // 4. Build table data - single indicator
@@ -4080,9 +4080,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         if (!standardIds.Any())
         {
-            // Không có tiêu chuẩn nào được chọn
+            // Không có tiêu chuẩn nào được chọn - hiển thị text mặc định
             result.IsSingleStandard = true;
-            result.StandardText = "";
+            result.StandardText = "So với QCVN…/ TCVN…./ QĐ…";
             return result;
         }
 

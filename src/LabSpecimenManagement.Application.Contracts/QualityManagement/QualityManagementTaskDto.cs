@@ -170,7 +170,7 @@ public class PrintMultiResultOutputDto
 }
 
 /// <summary>
-/// Individual print result item with lab and template info
+/// Individual print result item with lab, sample, and template info
 /// </summary>
 public class PrintResultItemDto
 {
@@ -188,6 +188,21 @@ public class PrintResultItemDto
     /// Laboratory name for display
     /// </summary>
     public string LaboratoryName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Sample ID
+    /// </summary>
+    public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Sample code for display
+    /// </summary>
+    public string SampleCode { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Sample name for display
+    /// </summary>
+    public string SampleName { get; set; } = string.Empty;
 
     /// <summary>
     /// Template name used
