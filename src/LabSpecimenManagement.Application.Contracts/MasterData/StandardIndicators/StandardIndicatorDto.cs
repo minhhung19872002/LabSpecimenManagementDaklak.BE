@@ -13,6 +13,7 @@ public class StandardIndicatorDto
     public Guid TestMethodId { get; set; }
     public string TestMethodCode { get; set; }
     public string TestMethodName { get; set; }
+    public string? TestMethodFormattedName { get; set; }
     public string Unit { get; set; }
     public string? ComparisonOperator { get; set; }
     public string? AllowedLimit { get; set; }

@@ -188,6 +188,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ParametersFormattedName = indicator?.FormattedName,
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
@@ -828,25 +829,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
             }
-            // Handle Parameters placeholder with HTML formatting
-            else if (text.Text.Contains("{{Parameters}}"))
+            // Handle Parameters and TestMethod placeholders with HTML formatting
+            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}"))
             {
-                // Use formatted name if available, otherwise plain name
+                // Use formatted names if available, otherwise plain names
                 var parametersDisplayName = !string.IsNullOrEmpty(data.ParametersFormattedName)
                     ? data.ParametersFormattedName
                     : data.Parameters;
+                var testMethodDisplayName = !string.IsNullOrEmpty(data.TestMethodFormattedName)
+                    ? data.TestMethodFormattedName
+                    : data.TestMethod;
 
-                // If formatted name contains HTML, we need special handling
-                if (HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName))
+                var hasParametersHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName);
+                var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+
+                // If either contains HTML, we need special handling
+                if (hasParametersHtml || hasTestMethodHtml)
                 {
-                    // Replace other placeholders first
+                    // Replace non-HTML placeholders first
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
                         .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
                         .Replace("{{Unit}}", data.Unit ?? "")
-                        .Replace("{{TestMethod}}", data.TestMethod ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
                         .Replace("{{Standards}}", data.Standards ?? "")
                         .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
@@ -855,8 +861,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
 
-                    // Now handle Parameters with HTML
-                    ReplaceTextWithFormattedRuns(text, "{{Parameters}}", parametersDisplayName);
+                    // Handle Parameters with HTML if applicable
+                    if (hasParametersHtml && text.Text.Contains("{{Parameters}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Parameters}}", parametersDisplayName);
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Parameters}}", parametersDisplayName ?? "");
+                    }
+
+                    // Handle TestMethod with HTML if applicable
+                    if (hasTestMethodHtml && text.Text.Contains("{{TestMethod}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                    }
                 }
                 else
                 {
@@ -868,7 +891,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
                         .Replace("{{Parameters}}", parametersDisplayName ?? "")
                         .Replace("{{Unit}}", data.Unit ?? "")
-                        .Replace("{{TestMethod}}", data.TestMethod ?? "")
+                        .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
                         .Replace("{{Standards}}", data.Standards ?? "")
                         .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
@@ -1109,6 +1132,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string? ParametersFormattedName { get; set; }
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
+        /// <summary>
+        /// Tên phương pháp có định dạng HTML (nếu có)
+        /// </summary>
+        public string? TestMethodFormattedName { get; set; }
         public string Result { get; set; } = "";
         public string Standards { get; set; } = "";
         public string CompareWithStandard { get; set; } = ""; // For BM05-QLNN template
@@ -1318,6 +1345,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
                 // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
@@ -2429,54 +2457,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
         }
 
+        // Use formatted names if available, otherwise plain names
+        var parameterDisplayName = !string.IsNullOrEmpty(indicatorData.ParameterFormattedName)
+            ? indicatorData.ParameterFormattedName
+            : indicatorData.Parameter;
+        var testMethodDisplayName = !string.IsNullOrEmpty(indicatorData.TestMethodFormattedName)
+            ? indicatorData.TestMethodFormattedName
+            : indicatorData.TestMethod;
+
+        var hasParameterHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName);
+        var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+
         // Replace all placeholders
         foreach (var text in newRow.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // Check if this text contains the Parameter placeholder
-            if (text.Text.Contains("{{Parameter}}"))
-            {
-                // Use formatted name if available, otherwise plain name
-                var parameterDisplayName = !string.IsNullOrEmpty(indicatorData.ParameterFormattedName)
-                    ? indicatorData.ParameterFormattedName
-                    : indicatorData.Parameter;
+            // Check if this text contains placeholders that need HTML handling
+            var hasParameterPlaceholder = text.Text.Contains("{{Parameter}}");
+            var hasTestMethodPlaceholder = text.Text.Contains("{{TestMethod}}");
 
-                // If formatted name contains HTML, we need special handling
-                if (HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName))
-                {
-                    // Replace other placeholders first
-                    text.Text = text.Text
-                        .Replace("{{TestTable}}", "")
-                        .Replace("{{SubTable}}", "")
-                        .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
-                        .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
-                        .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
-                        .Replace("{{Unit}}", indicatorData.Unit)
-                        .Replace("{{TestMethod}}", indicatorData.TestMethod)
-                        .Replace("{{Result}}", indicatorData.Result);
-
-                    // Now handle Parameter with HTML
-                    ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
-                }
-                else
-                {
-                    // No HTML - simple replacement
-                    text.Text = text.Text
-                        .Replace("{{TestTable}}", "")
-                        .Replace("{{SubTable}}", "")
-                        .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
-                        .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
-                        .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
-                        .Replace("{{Parameter}}", parameterDisplayName)
-                        .Replace("{{Unit}}", indicatorData.Unit)
-                        .Replace("{{TestMethod}}", indicatorData.TestMethod)
-                        .Replace("{{Result}}", indicatorData.Result);
-                }
-            }
-            else
+            if ((hasParameterPlaceholder && hasParameterHtml) || (hasTestMethodPlaceholder && hasTestMethodHtml))
             {
-                // For first indicator row, show sample info; for subsequent rows, keep empty (merged)
+                // Replace non-HTML placeholders first
                 text.Text = text.Text
                     .Replace("{{TestTable}}", "")
                     .Replace("{{SubTable}}", "")
@@ -2484,7 +2487,40 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
                     .Replace("{{Unit}}", indicatorData.Unit)
-                    .Replace("{{TestMethod}}", indicatorData.TestMethod)
+                    .Replace("{{Result}}", indicatorData.Result);
+
+                // Handle Parameter with HTML if applicable
+                if (hasParameterPlaceholder && hasParameterHtml)
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
+                }
+                else if (hasParameterPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{Parameter}}", parameterDisplayName ?? "");
+                }
+
+                // Handle TestMethod with HTML if applicable
+                if (hasTestMethodPlaceholder && hasTestMethodHtml)
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                }
+                else if (hasTestMethodPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                }
+            }
+            else
+            {
+                // No HTML - simple replacement
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                    .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                    .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Parameter}}", parameterDisplayName ?? "")
+                    .Replace("{{Unit}}", indicatorData.Unit)
+                    .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
                     .Replace("{{Result}}", indicatorData.Result);
             }
         }
@@ -2709,6 +2745,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string? ParameterFormattedName { get; set; }
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
+        /// <summary>
+        /// Tên phương pháp có định dạng HTML (nếu có)
+        /// </summary>
+        public string? TestMethodFormattedName { get; set; }
         public string Result { get; set; } = "";
         public string ReferenceLimit { get; set; } = ""; // For BM05-QLNN CompareWithStandard (DEPRECATED)
         public Guid? StandardId { get; set; } // For BM05-QLNN footnote mapping
@@ -3036,6 +3076,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ParametersFormattedName = indicator.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = qualityIndicator.ReferenceLimit ?? "",
                 CompareWithStandard = qualityIndicator.ReferenceLimit ?? "", // Single indicator = no footnote needed
@@ -3357,6 +3398,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     ParameterFormattedName = indicator?.FormattedName,
                     Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
                     TestMethod = method?.Name ?? "",
+                    TestMethodFormattedName = method?.FormattedName,
                     Result = resultText,
                     ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "", // DEPRECATED - kept for backward compatibility
                     StandardId = effectiveStandardId, // For BM05-QLNN footnote - dùng effectiveStandardId
@@ -3440,6 +3482,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         ParametersFormattedName = indicator.ParameterFormattedName,
                         Unit = indicator.Unit,
                         TestMethod = indicator.TestMethod,
+                        TestMethodFormattedName = indicator.TestMethodFormattedName,
                         Result = indicator.Result,
                         Standards = indicator.AllowedLimit,
                         CompareWithStandard = compareWithStandard, // {{CompareWithStandard}} = ComparisonOperator + AllowedLimit
@@ -3621,6 +3664,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",

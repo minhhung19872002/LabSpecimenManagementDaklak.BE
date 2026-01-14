@@ -903,6 +903,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             // Map indicator
             var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
             string? methodName = null;
+            string? methodFormattedName = null;
             string? technicianName = null;
             string? unit = taskIndicator.Unit;
 
@@ -910,6 +911,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                methodFormattedName = method?.FormattedName;
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
@@ -1006,6 +1008,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 IndicatorFormattedName = indicator?.FormattedName,
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
+                MethodFormattedName = methodFormattedName,
                 Unit = unit,
                 Result = taskIndicator.Result,
                 Note = taskIndicator.Note,
@@ -1956,9 +1959,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
             : null;
 
-        var methodName = taskIndicator.MethodId.HasValue
-            ? (await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.MethodId.Value))?.Name
+        var method = taskIndicator.MethodId.HasValue
+            ? await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.MethodId.Value)
             : null;
+        var methodName = method?.Name;
+        var methodFormattedName = method?.FormattedName;
 
         var technicianName = taskIndicator.TechnicianId.HasValue
             ? await _userNameProvider.GetUserNameAsync(taskIndicator.TechnicianId.Value)
@@ -2019,6 +2024,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             IndicatorFormattedName = indicator?.FormattedName,
             MethodId = taskIndicator.MethodId,
             MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
             Unit = unit,
             Result = taskIndicator.Result,
             Note = taskIndicator.Note,

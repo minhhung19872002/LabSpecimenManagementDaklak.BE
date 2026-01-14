@@ -398,10 +398,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
             string? methodName = null;
             string? unit = taskIndicator.Unit;
+            string? methodFormattedName = null;
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                methodFormattedName = method?.FormattedName;
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
@@ -453,6 +455,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 // Phase 6 workflow fields
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
+                MethodFormattedName = methodFormattedName,
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
                 AssignedDate = taskIndicator.AssignedDate,
@@ -1456,11 +1459,13 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         string? enteredByName = taskIndicator.EnteredById.HasValue && userNames.TryGetValue(taskIndicator.EnteredById.Value, out var en) ? en : null;
         string? approvedByName = taskIndicator.ApprovedById.HasValue && userNames.TryGetValue(taskIndicator.ApprovedById.Value, out var an) ? an : null;
         string? methodName = null;
+        string? methodFormattedName = null;
         string? unit = taskIndicator.Unit;
         if (taskIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
             methodName = method?.Name;
+            methodFormattedName = method?.FormattedName;
             // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
             if (string.IsNullOrEmpty(unit) && method != null)
             {
@@ -1488,6 +1493,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Phase 6 workflow fields
             MethodId = taskIndicator.MethodId,
             MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
             AssignedDate = taskIndicator.AssignedDate,

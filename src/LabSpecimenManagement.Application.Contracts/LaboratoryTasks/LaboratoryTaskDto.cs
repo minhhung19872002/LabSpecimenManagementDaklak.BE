@@ -184,6 +184,11 @@ public class LaboratoryTaskIndicatorDto
     public string? MethodName { get; set; }
 
     /// <summary>
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
+
+    /// <summary>
     /// ID kỹ thuật viên - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -19,17 +21,23 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
 {
     private readonly IRepository<Quotation, Guid> _quotationRepository;
     private readonly IRepository<QuotationItem, Guid> _quotationItemRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IClock _clock;
 
     public QuotationAppService(
         IRepository<Quotation, Guid> quotationRepository,
         IRepository<QuotationItem, Guid> quotationItemRepository,
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
         IClock clock)
     {
         _quotationRepository = quotationRepository;
         _quotationItemRepository = quotationItemRepository;
+        _indicatorRepository = indicatorRepository;
+        _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _clock = clock;
     }
@@ -124,7 +132,22 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
             throw new UserFriendlyException("Không tìm thấy báo giá");
         }
 
-        return MapToDto(quotation);
+        // Load Indicator and TestMethod for each item to get FormattedName
+        var indicatorIds = quotation.Items.Select(i => i.IndicatorId).Distinct().ToList();
+        var testMethodIds = quotation.Items.Select(i => i.TestMethodId).Distinct().ToList();
+
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+
+        var indicators = await AsyncExecuter.ToListAsync(
+            indicatorQuery.Where(i => indicatorIds.Contains(i.Id)));
+        var testMethods = await AsyncExecuter.ToListAsync(
+            testMethodQuery.Where(t => testMethodIds.Contains(t.Id)));
+
+        var indicatorDict = indicators.ToDictionary(i => i.Id);
+        var testMethodDict = testMethods.ToDictionary(t => t.Id);
+
+        return MapToDto(quotation, indicatorDict, testMethodDict);
     }
 
     [Authorize(LabSpecimenManagementPermissions.Quotations.Create)]
@@ -328,6 +351,57 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                 UnitPrice = item.UnitPrice,
                 TotalPrice = item.TotalPrice,
                 SortOrder = item.SortOrder
+            }).ToList()
+        };
+    }
+
+    private QuotationDto MapToDto(
+        Quotation quotation,
+        Dictionary<Guid, Indicator> indicatorDict,
+        Dictionary<Guid, TestMethod> testMethodDict)
+    {
+        return new QuotationDto
+        {
+            Id = quotation.Id,
+            QuotationNumber = quotation.QuotationNumber,
+            QuotationDate = quotation.QuotationDate,
+            OrganizationId = quotation.OrganizationId,
+            OrganizationName = quotation.Organization?.Name,
+            CustomerName = quotation.CustomerName,
+            ProvinceCode = quotation.ProvinceCode,
+            DistrictCode = quotation.DistrictCode,
+            WardCode = quotation.WardCode,
+            Address = quotation.Address,
+            TaxCode = quotation.TaxCode,
+            ContactPerson = quotation.ContactPerson,
+            Phone = quotation.Phone,
+            TotalCost = quotation.TotalCost,
+            Notes = quotation.Notes,
+            Status = quotation.Status,
+            CreationTime = quotation.CreationTime,
+            CreatorId = quotation.CreatorId,
+            LastModificationTime = quotation.LastModificationTime,
+            LastModifierId = quotation.LastModifierId,
+            Items = quotation.Items.OrderBy(x => x.SortOrder).Select(item =>
+            {
+                indicatorDict.TryGetValue(item.IndicatorId, out var indicator);
+                testMethodDict.TryGetValue(item.TestMethodId, out var testMethod);
+
+                return new QuotationItemDto
+                {
+                    Id = item.Id,
+                    QuotationId = item.QuotationId,
+                    IndicatorId = item.IndicatorId,
+                    TestMethodId = item.TestMethodId,
+                    IndicatorName = item.IndicatorName,
+                    IndicatorFormattedName = indicator?.FormattedName,
+                    TestMethodName = item.TestMethodName,
+                    TestMethodFormattedName = testMethod?.FormattedName,
+                    SampleCount = item.SampleCount,
+                    UnitPrice = item.UnitPrice,
+                    TotalPrice = item.TotalPrice,
+                    SortOrder = item.SortOrder
+                };
             }).ToList()
         };
     }

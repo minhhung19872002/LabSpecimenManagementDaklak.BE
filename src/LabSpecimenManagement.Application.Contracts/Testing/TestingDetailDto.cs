@@ -206,6 +206,11 @@ public class TestingIndicatorDto
     public string? MethodName { get; set; }
 
     /// <summary>
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
+
+    /// <summary>
     /// Đơn vị tính - Unit
     /// </summary>
     public string? Unit { get; set; }

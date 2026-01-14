@@ -201,11 +201,13 @@ public partial class TestRequestAppService :
                 // Get test method info if assigned
                 string? testMethodCode = null;
                 string? testMethodName = null;
+                string? testMethodFormattedName = null;
                 if (indicator.TestMethodId.HasValue)
                 {
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     testMethodCode = testMethod?.Code;
                     testMethodName = testMethod?.Name;
+                    testMethodFormattedName = testMethod?.FormattedName;
                 }
 
                 // Get approval status and test date from LaboratoryTaskIndicator if exists
@@ -254,6 +256,7 @@ public partial class TestRequestAppService :
                     TestMethodId = indicator.TestMethodId,
                     TestMethodCode = testMethodCode,
                     TestMethodName = testMethodName,
+                    TestMethodFormattedName = testMethodFormattedName,
                     UnitPrice = indicator.UnitPrice,
                     Notes = indicator.Notes,
                     LaboratoryId = indicator.LaboratoryId,
@@ -3005,10 +3008,12 @@ public partial class TestRequestAppService :
 
             // Get method info
             string? methodName = null;
+            string? methodFormattedName = null;
             if (labIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
                 methodName = method?.Name;
+                methodFormattedName = method?.FormattedName;
             }
 
             result.Add(new QualityManagementIndicatorDto
@@ -3027,6 +3032,7 @@ public partial class TestRequestAppService :
                 IndicatorFormattedName = masterIndicator.FormattedName,
                 MethodId = labIndicator.MethodId,
                 MethodName = methodName,
+                MethodFormattedName = methodFormattedName,
                 Unit = labIndicator.Unit,
                 Result = labIndicator.Result,
                 ResultSentDate = labIndicator.EntryDate,

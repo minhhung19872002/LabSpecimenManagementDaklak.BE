@@ -206,6 +206,11 @@ public class TestRequestSampleIndicatorDto
     public string? TestMethodName { get; set; }
 
     /// <summary>
+    /// Tên phương pháp thử có định dạng (HTML)
+    /// </summary>
+    public string? TestMethodFormattedName { get; set; }
+
+    /// <summary>
     /// Ngày chuyển giao
     /// </summary>
     public DateTime? TransferDate { get; set; }

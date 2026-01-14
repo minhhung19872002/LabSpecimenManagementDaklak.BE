@@ -1311,10 +1311,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var lab = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
 
         string? methodName = null;
+        string? methodFormattedName = null;
         if (labIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
             methodName = method?.Name;
+            methodFormattedName = method?.FormattedName;
         }
 
         string? standardName = null;
@@ -1384,6 +1386,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorFormattedName = masterIndicator.FormattedName,
             MethodId = labIndicator.MethodId,
             MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
             Unit = labIndicator.Unit,
             Result = labIndicator.Result,
             ResultSentDate = labIndicator.EntryDate,

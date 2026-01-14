@@ -167,6 +167,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
             if (taskIndicator.MethodId.HasValue && testMethods.TryGetValue(taskIndicator.MethodId.Value, out var testMethod))
             {
                 dto.MethodName = testMethod.Name;
+                dto.MethodFormattedName = testMethod.FormattedName;
             }
 
             // Set technician name

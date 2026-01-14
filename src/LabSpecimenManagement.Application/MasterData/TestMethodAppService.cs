@@ -81,7 +81,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             input.Unit
         )
         {
-            IsActive = input.IsActive
+            IsActive = input.IsActive,
+            FormattedName = input.FormattedName
         };
 
         await _testMethodRepository.InsertAsync(entity);
@@ -94,6 +95,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var entity = await _testMethodRepository.GetAsync(id);
 
         entity.Name = input.Name;
+        entity.FormattedName = input.FormattedName;
         entity.Unit = input.Unit;
         entity.IsActive = input.IsActive;
 

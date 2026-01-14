@@ -75,6 +75,11 @@ public class QualityManagementIndicatorDto
     public string? MethodName { get; set; }
 
     /// <summary>
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
+
+    /// <summary>
     /// Method ID
     /// </summary>
     public Guid? MethodId { get; set; }
