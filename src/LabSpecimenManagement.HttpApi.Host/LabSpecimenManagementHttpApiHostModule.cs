@@ -161,7 +161,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
     private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
     {
-        context.Services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        context.Services.Configure<EmailSettings>(configuration.GetSection("EmailSettings"));
     }
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)

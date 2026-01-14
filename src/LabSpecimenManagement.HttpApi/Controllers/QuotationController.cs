@@ -54,4 +54,17 @@ public class QuotationController : LabSpecimenManagementController
     {
         return await _quotationAppService.GenerateQuotationNumberAsync();
     }
+
+    [HttpPost("send-email")]
+    public async Task SendEmailAsync([FromBody] SendQuotationEmailDto input)
+    {
+        await _quotationAppService.SendEmailAsync(input);
+    }
+
+    [HttpPost("generate-pdf")]
+    public async Task<IActionResult> GeneratePdfAsync([FromBody] GenerateQuotationPdfDto input)
+    {
+        var pdfData = await _quotationAppService.GeneratePdfAsync(input);
+        return File(pdfData, "application/pdf", "BaoGia.pdf");
+    }
 }

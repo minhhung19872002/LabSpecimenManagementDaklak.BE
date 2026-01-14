@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
@@ -25,6 +26,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IClock _clock;
+    private readonly IEmailService _emailService;
+    private readonly IQuotationPdfGenerator _pdfGenerator;
 
     public QuotationAppService(
         IRepository<Quotation, Guid> quotationRepository,
@@ -32,7 +35,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
-        IClock clock)
+        IClock clock,
+        IEmailService emailService,
+        IQuotationPdfGenerator pdfGenerator)
     {
         _quotationRepository = quotationRepository;
         _quotationItemRepository = quotationItemRepository;
@@ -40,6 +45,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _clock = clock;
+        _emailService = emailService;
+        _pdfGenerator = pdfGenerator;
     }
 
     public async Task<PagedResultDto<QuotationListDto>> GetListAsync(GetQuotationListInput input)
@@ -404,5 +411,54 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                 };
             }).ToList()
         };
+    }
+
+    public async Task SendEmailAsync(SendQuotationEmailDto input)
+    {
+        // Filter empty emails
+        var toEmails = input.To?.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).ToList();
+        var ccEmails = input.Cc?.Where(e => !string.IsNullOrWhiteSpace(e)).Select(e => e.Trim()).ToList();
+
+        if (toEmails == null || toEmails.Count == 0)
+        {
+            throw new UserFriendlyException("Vui lòng nhập địa chỉ email người nhận");
+        }
+
+        if (input.Items == null || input.Items.Count == 0)
+        {
+            throw new UserFriendlyException("Vui lòng thêm ít nhất một chỉ tiêu vào báo giá");
+        }
+
+        // Generate PDF
+        var pdfData = await _pdfGenerator.GeneratePdfAsync(
+            input.CustomerName ?? "Quý khách hàng",
+            input.Items,
+            input.TotalPrice);
+
+        var fileName = $"BaoGia_{_clock.Now:yyyyMMdd_HHmmss}.pdf";
+
+        // Send email with attachment
+        await _emailService.SendEmailWithAttachmentAsync(
+            toEmails,
+            ccEmails,
+            input.Subject,
+            input.Body,
+            pdfData,
+            fileName);
+    }
+
+    public async Task<byte[]> GeneratePdfAsync(GenerateQuotationPdfDto input)
+    {
+        if (input.Items == null || input.Items.Count == 0)
+        {
+            throw new UserFriendlyException("Vui lòng thêm ít nhất một chỉ tiêu vào báo giá");
+        }
+
+        var pdfData = await _pdfGenerator.GeneratePdfAsync(
+            input.CustomerName ?? "Quý khách hàng",
+            input.Items,
+            input.TotalPrice);
+
+        return pdfData;
     }
 }

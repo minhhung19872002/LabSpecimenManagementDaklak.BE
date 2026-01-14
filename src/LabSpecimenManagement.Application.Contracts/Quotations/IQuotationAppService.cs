@@ -39,4 +39,14 @@ public interface IQuotationAppService : IApplicationService
     /// Sinh mã báo giá mới
     /// </summary>
     Task<string> GenerateQuotationNumberAsync();
+
+    /// <summary>
+    /// Gửi email báo giá với PDF đính kèm
+    /// </summary>
+    Task SendEmailAsync(SendQuotationEmailDto input);
+
+    /// <summary>
+    /// Tạo PDF báo giá để preview
+    /// </summary>
+    Task<byte[]> GeneratePdfAsync(GenerateQuotationPdfDto input);
 }
