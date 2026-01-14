@@ -166,6 +166,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Conclude}}", "" }
         };
 
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
+
         // 3. Build table data
         var tableData = new List<ResultFormTableRow>();
         int rowIndex = 1;
@@ -261,6 +266,42 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         var user = await _userRepository.FindAsync(vicePresidentId.Value);
+        if (user == null)
+        {
+            return "";
+        }
+
+        var fullName = $"{user.Surname} {user.Name}".Trim();
+        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+    }
+
+    /// <summary>
+    /// Get Officer In Charge name from LaboratoryTaskIndicators
+    /// Logic:
+    /// - Get all unique ApprovedById from selected indicators
+    /// - If exactly 1 approver: return full name (Surname + Name)
+    /// - If 0 or multiple approvers: return empty string
+    /// </summary>
+    private async Task<string> GetOfficerInChargeNameAsync(IEnumerable<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (taskIndicators == null || !taskIndicators.Any())
+        {
+            return "";
+        }
+
+        var approverIds = taskIndicators
+            .Where(i => i.ApprovedById.HasValue)
+            .Select(i => i.ApprovedById!.Value)
+            .Distinct()
+            .ToList();
+
+        // Only show name if exactly 1 approver
+        if (approverIds.Count != 1)
+        {
+            return "";
+        }
+
+        var user = await _userRepository.FindAsync(approverIds[0]);
         if (user == null)
         {
             return "";
@@ -1316,6 +1357,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{AttachFile}}", "" },
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // 3. Build table data (BM01 has fewer columns than BM03)
         var tableData = new List<ResultFormTableRow>();
@@ -3050,6 +3096,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
+        // Add Officer In Charge placeholder (QLKT who approved the indicator)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(new[] { labTaskIndicator });
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
+
         // 5. Generate document using selected template or default BM01
         var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         var templateFileName = Path.GetFileName(templatePath);
@@ -3278,6 +3329,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Add Vice President placeholder if provided
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(labTaskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
         var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
@@ -3632,6 +3688,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{Note}}", input.Note ?? "" }
         };
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // 3. Build table data - combine all indicators from all samples
         var tableData = new List<ResultFormTableRow>();
