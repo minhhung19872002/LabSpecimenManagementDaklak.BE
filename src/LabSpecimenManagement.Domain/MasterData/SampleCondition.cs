@@ -1,0 +1,43 @@
+using System;
+using LabSpecimenManagement.Common;
+using Volo.Abp.Domain.Entities.Auditing;
+
+namespace LabSpecimenManagement.MasterData;
+
+/// <summary>
+/// Tình trạng mẫu - Sample Condition
+/// </summary>
+public class SampleCondition : FullAuditedAggregateRoot<Guid>, IHasActive
+{
+    /// <summary>
+    /// Tên tình trạng mẫu
+    /// </summary>
+    public string Name { get; set; }
+
+    /// <summary>
+    /// Mô tả
+    /// </summary>
+    public string? Description { get; set; }
+
+    /// <summary>
+    /// Trạng thái hoạt động
+    /// </summary>
+    public bool IsActive { get; set; }
+
+    /// <summary>
+    /// Thứ tự hiển thị
+    /// </summary>
+    public int SortOrder { get; set; }
+
+    protected SampleCondition()
+    {
+    }
+
+    public SampleCondition(Guid id, string name, string? description = null) : base(id)
+    {
+        Name = name;
+        Description = description;
+        IsActive = true;
+        SortOrder = 0;
+    }
+}

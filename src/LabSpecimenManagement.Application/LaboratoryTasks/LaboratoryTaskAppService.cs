@@ -986,12 +986,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new ForbiddenAccessException("Bạn không có quyền cập nhật ghi chú");
         }
 
-        // Combine all indicator IDs that need to be updated
-        var allIds = input.AllIndicatorIds.Union(input.SelectedIndicatorIds).Distinct().ToList();
-
-        // Get indicators belonging to this task
+        // Get indicators belonging to this task - chỉ cần lấy selectedIndicatorIds
+        // Vì cả FreeTextNote và MasterDataNoteIds đều áp dụng cho từng chỉ tiêu được chọn
         var indicators = await _laboratoryTaskIndicatorRepository
-            .GetListAsync(x => allIds.Contains(x.Id) && x.LaboratoryTaskId == taskId);
+            .GetListAsync(x => input.SelectedIndicatorIds.Contains(x.Id) && x.LaboratoryTaskId == taskId);
 
         // Convert Master Data Note IDs to comma-separated string
         var masterDataNoteIdsString = input.MasterDataNoteIds != null && input.MasterDataNoteIds.Any()
@@ -1000,30 +998,25 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         foreach (var indicator in indicators)
         {
-            // 1. Update FreeTextNote for ALL indicators in sample (AllIndicatorIds)
-            // FreeTextNote được cập nhật cho TẤT CẢ indicators bất kể ApprovalStatus
-            // vì FreeTextNote là thông tin chung cho cả sample
-            if (input.AllIndicatorIds.Contains(indicator.Id))
+            // Skip approved/cancelled indicators
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+                continue;
+
+            // 1. Update FreeTextNote for selected indicators only
+            if (input.AppendMode && !string.IsNullOrEmpty(indicator.FreeTextNote) && !string.IsNullOrEmpty(input.FreeTextNote))
             {
-                if (input.AppendMode && !string.IsNullOrEmpty(indicator.FreeTextNote) && !string.IsNullOrEmpty(input.FreeTextNote))
-                {
-                    indicator.FreeTextNote = $"{indicator.FreeTextNote}\n{input.FreeTextNote}";
-                }
-                else
-                {
-                    indicator.FreeTextNote = input.FreeTextNote;
-                }
+                indicator.FreeTextNote = $"{indicator.FreeTextNote}\n{input.FreeTextNote}";
+            }
+            else
+            {
+                indicator.FreeTextNote = input.FreeTextNote;
             }
 
-            // 2. Update MasterDataNoteIds for ONLY selected indicators (SelectedIndicatorIds)
-            // Skip approved indicators - chỉ skip cho MasterDataNoteIds, không skip cho FreeTextNote
+            // 2. Update MasterDataNoteIds for selected indicators
             // Skip if SkipMasterDataUpdate is true (giữ nguyên MasterDataNoteIds)
-            if (!input.SkipMasterDataUpdate && input.SelectedIndicatorIds.Contains(indicator.Id))
+            if (!input.SkipMasterDataUpdate)
             {
-                // Skip approved indicators for MasterDataNoteIds only
-                if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
-                    continue;
-
                 if (input.AppendMode && !string.IsNullOrEmpty(indicator.MasterDataNoteIds) && masterDataNoteIdsString != null)
                 {
                     // Append: Merge existing and new note IDs (avoid duplicates)
