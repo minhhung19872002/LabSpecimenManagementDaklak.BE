@@ -24,6 +24,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IUserNameProvider _userNameProvider;
 
     public LaboratoryTaskDtoEnricher(
@@ -35,6 +36,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Note, Guid> noteRepository,
         IUserNameProvider userNameProvider)
     {
         _testRequestRepository = testRequestRepository;
@@ -45,6 +47,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         _sampleRepository = sampleRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _noteRepository = noteRepository;
         _userNameProvider = userNameProvider;
     }
 
@@ -115,6 +118,14 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         var technicianIds = taskIndicators.Where(i => i.TechnicianId.HasValue).Select(i => i.TechnicianId).ToList();
         var technicianNames = await _userNameProvider.GetUserNamesAsync(technicianIds);
 
+        // Batch load Master Data Notes
+        var allMasterDataNoteIds = taskIndicators
+            .Where(i => !string.IsNullOrEmpty(i.MasterDataNoteIds))
+            .SelectMany(i => ParseNoteIds(i.MasterDataNoteIds))
+            .Distinct()
+            .ToList();
+        var masterDataNotes = await LoadNotesAsync(allMasterDataNoteIds);
+
         var result = new List<LaboratoryTaskIndicatorDto>();
 
         foreach (var taskIndicator in taskIndicators)
@@ -127,7 +138,8 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 TechnicianId = taskIndicator.TechnicianId,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
-                Note = taskIndicator.Note,
+                FreeTextNote = taskIndicator.FreeTextNote,
+                MasterDataNoteIds = taskIndicator.MasterDataNoteIds,
                 Unit = taskIndicator.Unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
@@ -174,6 +186,16 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
             if (taskIndicator.TechnicianId.HasValue && technicianNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
             {
                 dto.TechnicianName = techName;
+            }
+
+            // Set Master Data Note Contents
+            if (!string.IsNullOrEmpty(taskIndicator.MasterDataNoteIds))
+            {
+                var noteIds = ParseNoteIds(taskIndicator.MasterDataNoteIds);
+                dto.MasterDataNoteContents = noteIds
+                    .Where(id => masterDataNotes.ContainsKey(id))
+                    .Select(id => masterDataNotes[id].Content)
+                    .ToList();
             }
 
             result.Add(dto);
@@ -245,6 +267,29 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         if (ids.Count == 0) return new Dictionary<Guid, TestMethod>();
         var items = await _testMethodRepository.GetListAsync(x => ids.Contains(x.Id));
         return items.ToDictionary(x => x.Id);
+    }
+
+    private async Task<Dictionary<Guid, Note>> LoadNotesAsync(List<Guid> ids)
+    {
+        if (ids.Count == 0) return new Dictionary<Guid, Note>();
+        var items = await _noteRepository.GetListAsync(x => ids.Contains(x.Id));
+        return items.ToDictionary(x => x.Id);
+    }
+
+    /// <summary>
+    /// Parse comma-separated note IDs string to list of Guids
+    /// </summary>
+    private static List<Guid> ParseNoteIds(string? noteIdsString)
+    {
+        if (string.IsNullOrEmpty(noteIdsString))
+            return new List<Guid>();
+
+        return noteIdsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
     }
 
     #endregion

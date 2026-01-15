@@ -17,6 +17,10 @@ public class StandardIndicatorDto
     public string Unit { get; set; }
     public string? ComparisonOperator { get; set; }
     public string? AllowedLimit { get; set; }
+    public string? LowerOperator { get; set; }
+    public string? LowerLimit { get; set; }
+    public string? UpperOperator { get; set; }
+    public string? UpperLimit { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
 }

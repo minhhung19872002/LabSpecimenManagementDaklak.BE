@@ -158,10 +158,17 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? StandardId { get; set; }
 
     /// <summary>
-    /// Ghi chú của kỹ thuật viên khi nhập kết quả
+    /// Ghi chú tự do (free text) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>
-    [MaxLength(500)]
-    public string? Note { get; set; }
+    [MaxLength(2000)]
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách ID của Master Data Notes (lưu dạng JSON array hoặc comma-separated)
+    /// Ví dụ: "guid1,guid2,guid3"
+    /// </summary>
+    [MaxLength(2000)]
+    public string? MasterDataNoteIds { get; set; }
 
     /// <summary>
     /// Navigation property to LaboratoryTask

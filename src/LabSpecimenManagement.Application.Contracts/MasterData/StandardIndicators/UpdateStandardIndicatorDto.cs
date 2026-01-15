@@ -10,5 +10,17 @@ public class UpdateStandardIndicatorDto
     [StringLength(256)]
     public string? AllowedLimit { get; set; }
 
+    [StringLength(10)]
+    public string? LowerOperator { get; set; }
+
+    [StringLength(256)]
+    public string? LowerLimit { get; set; }
+
+    [StringLength(10)]
+    public string? UpperOperator { get; set; }
+
+    [StringLength(256)]
+    public string? UpperLimit { get; set; }
+
     public bool IsActive { get; set; }
 }

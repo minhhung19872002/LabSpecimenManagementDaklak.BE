@@ -164,6 +164,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [HttpPut("{taskId}/indicators/bulk-note")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task BulkUpdateIndicatorNoteAsync(
+        Guid taskId,
+        [FromBody] BulkUpdateNoteDto input)
+    {
+        return _laboratoryTaskAppService.BulkUpdateIndicatorNoteAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]

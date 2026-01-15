@@ -80,6 +80,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note);
 
     /// <summary>
+    /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task BulkUpdateIndicatorNoteAsync(Guid taskId, BulkUpdateNoteDto input);
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality)
     /// </summary>
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);

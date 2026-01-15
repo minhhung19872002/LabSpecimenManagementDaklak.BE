@@ -214,9 +214,19 @@ public class LaboratoryTaskIndicatorDto
     public string? Result { get; set; }
 
     /// <summary>
-    /// Ghi chú từ KTV - Note
+    /// Ghi chú tự do (free text) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>
-    public string? Note { get; set; }
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách ID của Master Data Notes (comma-separated GUIDs)
+    /// </summary>
+    public string? MasterDataNoteIds { get; set; }
+
+    /// <summary>
+    /// Danh sách nội dung Master Data Notes (để hiển thị trên UI)
+    /// </summary>
+    public List<string>? MasterDataNoteContents { get; set; }
 
     /// <summary>
     /// Đơn vị tính - Unit
@@ -289,6 +299,26 @@ public class LaboratoryTaskIndicatorDto
     /// Giới hạn cho phép - Allowed Limit
     /// </summary>
     public string? AllowedLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh cận dưới (dùng cho khoảng): >, >=
+    /// </summary>
+    public string? LowerOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận dưới (dùng cho khoảng)
+    /// </summary>
+    public string? LowerLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh cận trên (dùng cho khoảng): <, <=
+    /// </summary>
+    public string? UpperOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận trên (dùng cho khoảng)
+    /// </summary>
+    public string? UpperLimit { get; set; }
 
     /// <summary>
     /// Danh sách hình ảnh của chỉ tiêu (max 5)

@@ -48,6 +48,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -73,7 +74,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
-        IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository)
+        IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
+        IRepository<Note, Guid> noteRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -99,6 +101,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _indicatorImageRepository = indicatorImageRepository;
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
+        _noteRepository = noteRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -377,6 +380,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .ToList();
         var userNames = await _userNameProvider.GetUserNamesAsync(allUserIds);
 
+        // Batch load all Master Data Notes
+        var allNoteIds = taskIndicators
+            .Where(ti => !string.IsNullOrEmpty(ti.MasterDataNoteIds))
+            .SelectMany(ti => ParseNoteIds(ti.MasterDataNoteIds))
+            .Distinct()
+            .ToList();
+        var masterDataNotes = allNoteIds.Count > 0
+            ? (await _noteRepository.GetListAsync(n => allNoteIds.Contains(n.Id))).ToDictionary(n => n.Id)
+            : new Dictionary<Guid, Note>();
+
         foreach (var taskIndicator in taskIndicators)
         {
             var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
@@ -415,6 +428,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string? standardName = null;
             string? comparisonOperator = null;
             string? allowedLimit = null;
+            string? lowerOperator = null;
+            string? lowerLimit = null;
+            string? upperOperator = null;
+            string? upperLimit = null;
             if (taskIndicator.StandardId.HasValue)
             {
                 var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
@@ -429,6 +446,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 {
                     comparisonOperator = standardIndicator.ComparisonOperator;
                     allowedLimit = standardIndicator.AllowedLimit;
+                    lowerOperator = standardIndicator.LowerOperator;
+                    lowerLimit = standardIndicator.LowerLimit;
+                    upperOperator = standardIndicator.UpperOperator;
+                    upperLimit = standardIndicator.UpperLimit;
                 }
             }
 
@@ -461,7 +482,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 AssignedDate = taskIndicator.AssignedDate,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
-                Note = taskIndicator.Note,
+                FreeTextNote = taskIndicator.FreeTextNote,
+                MasterDataNoteIds = taskIndicator.MasterDataNoteIds,
+                MasterDataNoteContents = GetMasterDataNoteContentsFromCache(taskIndicator.MasterDataNoteIds, masterDataNotes),
                 Unit = unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
@@ -477,6 +500,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 StandardName = standardName,
                 ComparisonOperator = comparisonOperator,
                 AllowedLimit = allowedLimit,
+                LowerOperator = lowerOperator,
+                LowerLimit = lowerLimit,
+                UpperOperator = upperOperator,
+                UpperLimit = upperLimit,
                 // Indicator images
                 Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new Testing.IndicatorImageDto
                 {
@@ -939,10 +966,85 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật ghi chú cho chỉ tiêu đã duyệt", "indicator");
         }
 
-        taskIndicator.Note = note;
+        taskIndicator.FreeTextNote = note;
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
+    /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task BulkUpdateIndicatorNoteAsync(Guid taskId, BulkUpdateNoteDto input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        // Validate: Only QLKT or supporter can update note
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật ghi chú");
+        }
+
+        // Combine all indicator IDs that need to be updated
+        var allIds = input.AllIndicatorIds.Union(input.SelectedIndicatorIds).Distinct().ToList();
+
+        // Get indicators belonging to this task
+        var indicators = await _laboratoryTaskIndicatorRepository
+            .GetListAsync(x => allIds.Contains(x.Id) && x.LaboratoryTaskId == taskId);
+
+        // Convert Master Data Note IDs to comma-separated string
+        var masterDataNoteIdsString = input.MasterDataNoteIds != null && input.MasterDataNoteIds.Any()
+            ? string.Join(",", input.MasterDataNoteIds)
+            : null;
+
+        foreach (var indicator in indicators)
+        {
+            // 1. Update FreeTextNote for ALL indicators in sample (AllIndicatorIds)
+            // FreeTextNote được cập nhật cho TẤT CẢ indicators bất kể ApprovalStatus
+            // vì FreeTextNote là thông tin chung cho cả sample
+            if (input.AllIndicatorIds.Contains(indicator.Id))
+            {
+                if (input.AppendMode && !string.IsNullOrEmpty(indicator.FreeTextNote) && !string.IsNullOrEmpty(input.FreeTextNote))
+                {
+                    indicator.FreeTextNote = $"{indicator.FreeTextNote}\n{input.FreeTextNote}";
+                }
+                else
+                {
+                    indicator.FreeTextNote = input.FreeTextNote;
+                }
+            }
+
+            // 2. Update MasterDataNoteIds for ONLY selected indicators (SelectedIndicatorIds)
+            // Skip approved indicators - chỉ skip cho MasterDataNoteIds, không skip cho FreeTextNote
+            // Skip if SkipMasterDataUpdate is true (giữ nguyên MasterDataNoteIds)
+            if (!input.SkipMasterDataUpdate && input.SelectedIndicatorIds.Contains(indicator.Id))
+            {
+                // Skip approved indicators for MasterDataNoteIds only
+                if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+                    continue;
+
+                if (input.AppendMode && !string.IsNullOrEmpty(indicator.MasterDataNoteIds) && masterDataNoteIdsString != null)
+                {
+                    // Append: Merge existing and new note IDs (avoid duplicates)
+                    var existingIds = indicator.MasterDataNoteIds.Split(',').ToHashSet();
+                    var newIds = input.MasterDataNoteIds!.Select(id => id.ToString()).ToList();
+                    foreach (var id in newIds)
+                    {
+                        existingIds.Add(id);
+                    }
+                    indicator.MasterDataNoteIds = string.Join(",", existingIds);
+                }
+                else
+                {
+                    // Replace mode hoặc không có MasterDataNoteIds cũ
+                    // Nếu masterDataNoteIdsString là null hoặc empty thì xóa MasterDataNoteIds
+                    indicator.MasterDataNoteIds = masterDataNoteIdsString;
+                }
+            }
+        }
+
+        await _laboratoryTaskIndicatorRepository.UpdateManyAsync(indicators);
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -1499,7 +1601,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             AssignedDate = taskIndicator.AssignedDate,
             TestDate = taskIndicator.TestDate,
             Result = taskIndicator.Result,
-            Note = taskIndicator.Note,
+            FreeTextNote = taskIndicator.FreeTextNote,
+            MasterDataNoteIds = taskIndicator.MasterDataNoteIds,
+            MasterDataNoteContents = await GetMasterDataNoteContentsAsync(taskIndicator.MasterDataNoteIds),
             Unit = unit,
             EntryDate = taskIndicator.EntryDate,
             EnteredById = taskIndicator.EnteredById,
@@ -1527,6 +1631,64 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 CreatorId = x.CreatorId
             }).ToList()
         };
+    }
+
+    /// <summary>
+    /// Lấy danh sách nội dung Master Data Notes từ comma-separated IDs
+    /// </summary>
+    private async Task<List<string>?> GetMasterDataNoteContentsAsync(string? masterDataNoteIds)
+    {
+        if (string.IsNullOrEmpty(masterDataNoteIds))
+            return null;
+
+        var noteIdStrings = masterDataNoteIds.Split(',', StringSplitOptions.RemoveEmptyEntries);
+        var noteIds = noteIdStrings
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
+
+        if (!noteIds.Any())
+            return null;
+
+        var notes = await _noteRepository.GetListAsync(n => noteIds.Contains(n.Id));
+        return notes.OrderBy(n => noteIds.IndexOf(n.Id)).Select(n => n.Content).ToList();
+    }
+
+    /// <summary>
+    /// Parse comma-separated note IDs string to list of Guids
+    /// </summary>
+    private static List<Guid> ParseNoteIds(string? noteIdsString)
+    {
+        if (string.IsNullOrEmpty(noteIdsString))
+            return new List<Guid>();
+
+        return noteIdsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Get Master Data Note contents from pre-loaded cache dictionary
+    /// </summary>
+    private static List<string>? GetMasterDataNoteContentsFromCache(string? masterDataNoteIds, Dictionary<Guid, Note> notesCache)
+    {
+        if (string.IsNullOrEmpty(masterDataNoteIds))
+            return null;
+
+        var noteIds = ParseNoteIds(masterDataNoteIds);
+        if (noteIds.Count == 0)
+            return null;
+
+        var contents = noteIds
+            .Where(id => notesCache.ContainsKey(id))
+            .Select(id => notesCache[id].Content)
+            .ToList();
+
+        return contents.Count > 0 ? contents : null;
     }
 
     #endregion

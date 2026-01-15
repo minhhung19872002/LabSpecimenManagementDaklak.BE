@@ -254,7 +254,13 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             indicator.MethodId = result.MethodId;
             indicator.Unit = result.Unit;
             indicator.Result = result.Result;
-            indicator.Note = result.Note;
+
+            // Chỉ update FreeTextNote nếu có giá trị mới được truyền vào
+            // Nếu result.Note là null thì giữ nguyên FreeTextNote hiện tại
+            if (result.Note != null)
+            {
+                indicator.FreeTextNote = result.Note;
+            }
 
             // Update TestDate if provided
             if (result.TestDate.HasValue)
@@ -1011,7 +1017,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 MethodFormattedName = methodFormattedName,
                 Unit = unit,
                 Result = taskIndicator.Result,
-                Note = taskIndicator.Note,
+                Note = taskIndicator.FreeTextNote,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,
                 StartDate = taskIndicator.TestDate,  // Deprecated, use TestDate
@@ -2027,7 +2033,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             MethodFormattedName = methodFormattedName,
             Unit = unit,
             Result = taskIndicator.Result,
-            Note = taskIndicator.Note,
+            Note = taskIndicator.FreeTextNote,
             EntryDate = taskIndicator.EntryDate,
             AssignedDate = taskIndicator.AssignedDate,
             StartDate = taskIndicator.TestDate,

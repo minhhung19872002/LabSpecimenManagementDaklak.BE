@@ -41,6 +41,26 @@ public class StandardIndicator : Entity<Guid>, IHasActive
     public string? AllowedLimit { get; set; }
 
     /// <summary>
+    /// Ký hiệu so sánh cận dưới (dùng cho khoảng): >, >=
+    /// </summary>
+    public string? LowerOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận dưới (dùng cho khoảng)
+    /// </summary>
+    public string? LowerLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh cận trên (dùng cho khoảng): <, <=
+    /// </summary>
+    public string? UpperOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận trên (dùng cho khoảng)
+    /// </summary>
+    public string? UpperLimit { get; set; }
+
+    /// <summary>
     /// Trạng thái hoạt động
     /// </summary>
     public bool IsActive { get; set; }

@@ -242,18 +242,22 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("EntryDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<string>("FreeTextNote")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<bool>("IsSentToQuality")
                         .HasColumnType("boolean");
 
                     b.Property<Guid>("LaboratoryTaskId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("MasterDataNoteIds")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.Property<Guid?>("MethodId")
                         .HasColumnType("uuid");
-
-                    b.Property<string>("Note")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
 
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(1000)
@@ -1338,6 +1342,14 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
+                    b.Property<string>("LowerLimit")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("LowerOperator")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -1351,6 +1363,14 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("UpperLimit")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("UpperOperator")
+                        .HasMaxLength(10)
+                        .HasColumnType("character varying(10)");
 
                     b.HasKey("Id");
 

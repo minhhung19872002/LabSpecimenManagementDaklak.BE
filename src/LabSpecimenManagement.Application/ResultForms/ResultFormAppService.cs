@@ -2801,6 +2801,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public Guid? IndicatorId { get; set; } // For StandardIndicator lookup
         public string ComparisonOperator { get; set; } = ""; // Từ StandardIndicator: <=, >=, <, >, =
         public string AllowedLimit { get; set; } = ""; // Từ StandardIndicator: giới hạn cho phép
+        public string LowerOperator { get; set; } = ""; // Từ StandardIndicator: >, >= (cận dưới)
+        public string LowerLimit { get; set; } = ""; // Từ StandardIndicator: giá trị cận dưới
+        public string UpperOperator { get; set; } = ""; // Từ StandardIndicator: <, <= (cận trên)
+        public string UpperLimit { get; set; } = ""; // Từ StandardIndicator: giá trị cận trên
     }
 
     /// <summary>
@@ -3448,6 +3452,23 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     }
                 }
 
+                // Get range fields from StandardIndicator
+                var lowerOperator = "";
+                var lowerLimit = "";
+                var upperOperator = "";
+                var upperLimit = "";
+                if (effectiveStandardId.HasValue && indicator != null)
+                {
+                    var key = (effectiveStandardId.Value, indicator.Id);
+                    if (standardIndicatorLookup.TryGetValue(key, out var stdIndicator) && stdIndicator != null)
+                    {
+                        lowerOperator = stdIndicator.LowerOperator ?? "";
+                        lowerLimit = stdIndicator.LowerLimit ?? "";
+                        upperOperator = stdIndicator.UpperOperator ?? "";
+                        upperLimit = stdIndicator.UpperLimit ?? "";
+                    }
+                }
+
                 sampleRow.Indicators.Add(new MixedResultIndicatorRow
                 {
                     Parameter = indicator?.Name ?? "",
@@ -3460,7 +3481,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     StandardId = effectiveStandardId, // For BM05-QLNN footnote - dùng effectiveStandardId
                     IndicatorId = indicator?.Id,
                     ComparisonOperator = comparisonOperator,
-                    AllowedLimit = allowedLimit
+                    AllowedLimit = allowedLimit,
+                    LowerOperator = lowerOperator,
+                    LowerLimit = lowerLimit,
+                    UpperOperator = upperOperator,
+                    UpperLimit = upperLimit
                 });
             }
 
@@ -3527,9 +3552,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         footnoteNumber = GetBM04FootnoteNumber(indicator.StandardId, bm04StandardInfo);
                     }
 
-                    // Build CompareWithStandard from ComparisonOperator + AllowedLimit
-                    // Format: "<= 4", ">= 6", "= 7", etc.
-                    var compareWithStandard = BuildCompareWithStandard(indicator.ComparisonOperator, indicator.AllowedLimit);
+                    // Build CompareWithStandard from ComparisonOperator + AllowedLimit (or range fields)
+                    // Format: "≤ 4", "≥ 6", "= 7", "> 5 và < 10", etc.
+                    var compareWithStandard = BuildCompareWithStandard(
+                        indicator.ComparisonOperator,
+                        indicator.AllowedLimit,
+                        indicator.LowerOperator,
+                        indicator.LowerLimit,
+                        indicator.UpperOperator,
+                        indicator.UpperLimit);
 
                     tableData.Add(new ResultFormTableRow
                     {
@@ -3932,46 +3963,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
-    /// Merge ghi chú từ QLKT (đã lưu trong SampleIndicatorNote) với ghi chú từ QLCL (input parameter)
+    /// Merge ghi chú từ QLKT (LaboratoryTaskIndicator) với ghi chú từ QLCL (input parameter)
     /// Format: Ghi chú QLKT + newline + Ghi chú QLCL
     /// </summary>
     private async Task<string> GetMergedNoteAsync(Guid testRequestSampleIndicatorId, string? qualityNote)
     {
         var parts = new List<string>();
 
-        // 1. Lấy ghi chú từ QLKT (SampleIndicatorNote)
-        var sampleIndicatorNote = await _sampleIndicatorNoteRepository.FirstOrDefaultAsync(
+        // 1. Lấy ghi chú từ QLKT (LaboratoryTaskIndicator - new model)
+        var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
             x => x.TestRequestSampleIndicatorId == testRequestSampleIndicatorId
         );
 
-        if (sampleIndicatorNote != null)
+        if (labTaskIndicator != null)
         {
             var labNote = new List<string>();
 
-            // Add NoteContent if exists
-            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.NoteContent))
+            // Add FreeTextNote if exists
+            if (!string.IsNullOrWhiteSpace(labTaskIndicator.FreeTextNote))
             {
-                labNote.Add(sampleIndicatorNote.NoteContent.Trim());
+                labNote.Add(labTaskIndicator.FreeTextNote.Trim());
             }
 
-            // Add master notes if exists
-            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.SelectedNoteIds))
+            // Add MasterDataNoteIds if exists
+            if (!string.IsNullOrWhiteSpace(labTaskIndicator.MasterDataNoteIds))
             {
-                try
+                var noteIds = ParseNoteIds(labTaskIndicator.MasterDataNoteIds);
+                if (noteIds.Any())
                 {
-                    var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(sampleIndicatorNote.SelectedNoteIds);
-                    if (noteIds != null && noteIds.Any())
+                    var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
+                    foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
-                        var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
-                        foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
-                        {
-                            labNote.Add($"- {note.Content}");
-                        }
+                        labNote.Add($"- {note.Content}");
                     }
-                }
-                catch (System.Text.Json.JsonException ex)
-                {
-                    _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", sampleIndicatorNote.Id);
                 }
             }
 
@@ -3994,68 +4018,58 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Merge ghi chú từ nhiều chỉ tiêu (QLKT) với ghi chú từ QLCL cho In KQ Hỗn Hợp
     /// Logic:
-    /// - Gộp tất cả NoteContent từ các chỉ tiêu (mỗi note 1 dòng với dấu -)
-    /// - Gộp tất cả Master Note Items và loại bỏ trùng lặp
+    /// - Gộp tất cả FreeTextNote từ các chỉ tiêu và loại bỏ trùng lặp (nếu giống nhau chỉ lấy 1)
+    /// - Gộp tất cả MasterDataNoteIds và loại bỏ trùng lặp
     /// - Thêm ghi chú từ QLCL ở cuối
-    /// Format: QLKT note contents + Master notes + QLCL note
+    /// Format: QLKT FreeText notes + Master data notes + QLCL note
     /// </summary>
     private async Task<string> GetMergedNotesForMultipleIndicatorsAsync(List<Guid> testRequestSampleIndicatorIds, string? qualityNote)
     {
         var parts = new List<string>();
 
-        // 1. Lấy tất cả ghi chú từ QLKT (SampleIndicatorNote)
-        var sampleIndicatorNotes = await _sampleIndicatorNoteRepository.GetListAsync(
+        // 1. Lấy tất cả ghi chú từ QLKT (LaboratoryTaskIndicator - new model)
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
             x => testRequestSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId)
         );
 
-        if (sampleIndicatorNotes.Any())
+        if (labTaskIndicators.Any())
         {
-            var allNoteContents = new HashSet<string>(); // Use HashSet to avoid duplicates
+            var allFreeTextNotes = new HashSet<string>(); // Use HashSet to avoid duplicates
             var allMasterNoteIds = new HashSet<Guid>(); // Use HashSet to avoid duplicates
 
-            // Collect all note contents and master note IDs
-            foreach (var note in sampleIndicatorNotes)
+            // Collect all FreeTextNote and MasterDataNoteIds
+            foreach (var indicator in labTaskIndicators)
             {
-                // Add NoteContent if exists (HashSet automatically handles duplicates)
-                if (!string.IsNullOrWhiteSpace(note.NoteContent))
+                // Add FreeTextNote if exists (HashSet automatically handles duplicates)
+                if (!string.IsNullOrWhiteSpace(indicator.FreeTextNote))
                 {
-                    allNoteContents.Add(note.NoteContent.Trim());
+                    allFreeTextNotes.Add(indicator.FreeTextNote.Trim());
                 }
 
-                // Collect master note IDs
-                if (!string.IsNullOrWhiteSpace(note.SelectedNoteIds))
+                // Collect master data note IDs
+                if (!string.IsNullOrWhiteSpace(indicator.MasterDataNoteIds))
                 {
-                    try
+                    var noteIds = ParseNoteIds(indicator.MasterDataNoteIds);
+                    foreach (var id in noteIds)
                     {
-                        var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(note.SelectedNoteIds);
-                        if (noteIds != null && noteIds.Any())
-                        {
-                            foreach (var id in noteIds)
-                            {
-                                allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
-                            }
-                        }
-                    }
-                    catch (System.Text.Json.JsonException ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", note.Id);
+                        allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
                     }
                 }
             }
 
-            // Add all note contents
-            if (allNoteContents.Any())
+            // Add all FreeText notes (distinct - if same content, only add once)
+            if (allFreeTextNotes.Any())
             {
-                parts.Add(string.Join("\n", allNoteContents));
+                parts.Add(string.Join("\n", allFreeTextNotes));
             }
 
-            // Fetch and add master notes (distinct)
+            // Fetch and add master data notes (distinct)
             if (allMasterNoteIds.Any())
             {
                 var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
-                    .Select(x => x.Content)
+                    .Select(x => $"- {x.Content}")
                     .ToList();
 
                 if (masterNoteLines.Any())
@@ -4073,6 +4087,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Merge: Nối đuôi nhưng tách biệt các đoạn ra
         return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    /// <summary>
+    /// Parse comma-separated note IDs string to list of Guids
+    /// </summary>
+    private static List<Guid> ParseNoteIds(string? noteIdsString)
+    {
+        if (string.IsNullOrEmpty(noteIdsString))
+            return new List<Guid>();
+
+        return noteIdsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
     }
 
     /// <summary>
@@ -4318,8 +4348,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <param name="comparisonOperator">Ký hiệu so sánh: <=, >=, <, >, =</param>
     /// <param name="allowedLimit">Giới hạn cho phép</param>
     /// <returns>Chuỗi ghép: "comparisonOperator allowedLimit" hoặc empty nếu không có dữ liệu</returns>
-    private static string BuildCompareWithStandard(string? comparisonOperator, string? allowedLimit)
+    private static string BuildCompareWithStandard(
+        string? comparisonOperator,
+        string? allowedLimit,
+        string? lowerOperator = null,
+        string? lowerLimit = null,
+        string? upperOperator = null,
+        string? upperLimit = null)
     {
+        // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
+        if (!string.IsNullOrWhiteSpace(lowerLimit) && !string.IsNullOrWhiteSpace(upperLimit))
+        {
+            var lower = ConvertOperatorSymbol(lowerOperator);
+            var upper = ConvertOperatorSymbol(upperOperator);
+            return $"{lower} {lowerLimit.Trim()} và {upper} {upperLimit.Trim()}";
+        }
+
         // Nếu không có allowedLimit, trả về empty
         if (string.IsNullOrWhiteSpace(allowedLimit))
         {
@@ -4332,8 +4376,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             return allowedLimit.Trim();
         }
 
-        // Ghép: "comparisonOperator allowedLimit" (e.g., "<= 4", ">= 6", "= 7")
-        return $"{comparisonOperator.Trim()} {allowedLimit.Trim()}";
+        // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
+        var op = ConvertOperatorSymbol(comparisonOperator);
+        return $"{op} {allowedLimit.Trim()}";
+    }
+
+    /// <summary>
+    /// Chuyển đổi ký hiệu so sánh từ <= thành ≤, >= thành ≥
+    /// </summary>
+    private static string ConvertOperatorSymbol(string? op)
+    {
+        if (string.IsNullOrWhiteSpace(op)) return "";
+
+        return op.Trim() switch
+        {
+            "<=" => "≤",
+            ">=" => "≥",
+            _ => op.Trim()
+        };
     }
 
     #endregion

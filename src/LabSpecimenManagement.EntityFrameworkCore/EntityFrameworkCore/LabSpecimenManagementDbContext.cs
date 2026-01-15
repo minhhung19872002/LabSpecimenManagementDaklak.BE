@@ -568,6 +568,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
             b.Property(x => x.ComparisonOperator).HasMaxLength(10);
             b.Property(x => x.AllowedLimit).HasMaxLength(256);
+            b.Property(x => x.LowerOperator).HasMaxLength(10);
+            b.Property(x => x.LowerLimit).HasMaxLength(256);
+            b.Property(x => x.UpperOperator).HasMaxLength(10);
+            b.Property(x => x.UpperLimit).HasMaxLength(256);
 
             b.HasIndex(x => x.StandardId);
             b.HasIndex(x => x.IndicatorId);
