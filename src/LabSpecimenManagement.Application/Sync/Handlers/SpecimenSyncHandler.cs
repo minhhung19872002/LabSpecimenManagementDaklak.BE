@@ -2,6 +2,7 @@ using System;
 using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Specimens;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
 
