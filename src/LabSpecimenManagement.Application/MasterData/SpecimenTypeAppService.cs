@@ -426,6 +426,27 @@ public class SpecimenTypeAppService :
         await _specimenTypeIndicatorRepository.DeleteAsync(entity);
     }
 
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid specimenTypeId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(sti => sti.SpecimenTypeId == specimenTypeId && indicatorIds.Contains(sti.IndicatorId))
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        await _specimenTypeIndicatorRepository.DeleteManyAsync(entities);
+        return entities.Count;
+    }
+
     public async Task<SpecimenTypeIndicatorDto> ToggleIndicatorActiveAsync(Guid specimenTypeId, Guid indicatorId)
     {
         var query = await _specimenTypeIndicatorRepository.GetQueryableAsync();

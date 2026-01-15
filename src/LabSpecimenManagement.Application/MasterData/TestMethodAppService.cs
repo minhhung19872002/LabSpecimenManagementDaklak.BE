@@ -372,4 +372,25 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             return $"{datePrefix}{nextNumber:D3}";
         }
     }
+
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(tmi => tmi.TestMethodId == testMethodId && indicatorIds.Contains(tmi.IndicatorId))
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        await _testMethodIndicatorRepository.DeleteManyAsync(entities);
+        return entities.Count;
+    }
 }

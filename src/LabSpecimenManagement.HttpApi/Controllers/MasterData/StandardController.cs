@@ -120,4 +120,34 @@ public class StandardController : LabSpecimenManagementController
     {
         return _standardAppService.ToggleIndicatorActiveAsync(id, indicatorId);
     }
+
+    /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
+    }
+
+    /// <summary>
+    /// Kích hoạt hàng loạt chỉ tiêu trong tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-activate")]
+    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    public virtual Task<int> ActivateIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.ActivateIndicatorsBatchAsync(id, input.Ids);
+    }
+
+    /// <summary>
+    /// Ngừng kích hoạt hàng loạt chỉ tiêu trong tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-deactivate")]
+    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    public virtual Task<int> DeactivateIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.DeactivateIndicatorsBatchAsync(id, input.Ids);
+    }
 }

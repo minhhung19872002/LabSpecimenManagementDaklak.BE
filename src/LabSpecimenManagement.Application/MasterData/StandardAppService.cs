@@ -518,4 +518,77 @@ public class StandardAppService : ApplicationService, IStandardAppService
             return $"{datePrefix}{nextNumber:D3}";
         }
     }
+
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id))
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        await _standardIndicatorRepository.DeleteManyAsync(entities);
+        return entities.Count;
+    }
+
+    public async Task<int> ActivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id) && !si.IsActive)
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var entity in entities)
+        {
+            entity.IsActive = true;
+        }
+
+        await _standardIndicatorRepository.UpdateManyAsync(entities);
+        return entities.Count;
+    }
+
+    public async Task<int> DeactivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id) && si.IsActive)
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var entity in entities)
+        {
+            entity.IsActive = false;
+        }
+
+        await _standardIndicatorRepository.UpdateManyAsync(entities);
+        return entities.Count;
+    }
 }

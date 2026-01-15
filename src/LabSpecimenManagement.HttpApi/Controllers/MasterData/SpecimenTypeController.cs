@@ -118,6 +118,16 @@ public class SpecimenTypeController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi loại mẫu
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _specimenTypeAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
+    }
+
+    /// <summary>
     /// Bật/tắt trạng thái hoạt động của chỉ tiêu trong loại mẫu
     /// </summary>
     [HttpPost("{id}/indicators/{indicatorId}/toggle-active")]
