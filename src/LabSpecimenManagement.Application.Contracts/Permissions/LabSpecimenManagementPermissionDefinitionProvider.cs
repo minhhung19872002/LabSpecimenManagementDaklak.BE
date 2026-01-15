@@ -169,6 +169,10 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Create, L("Permission:Quotations.Create"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Edit, L("Permission:Quotations.Edit"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Delete, L("Permission:Quotations.Delete"));
+
+        // Sync Permissions (Offline data synchronization)
+        var syncPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Sync.Default, L("Permission:Sync"));
+        syncPermission.AddChild(LabSpecimenManagementPermissions.Sync.TestRequests, L("Permission:Sync.TestRequests"));
     }
 
     private static LocalizableString L(string name)
