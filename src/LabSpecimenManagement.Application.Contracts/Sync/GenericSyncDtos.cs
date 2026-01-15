@@ -18,7 +18,12 @@ public enum SyncEntityType
     Testing,
     Subcontractor,
     Employee,
-    LaboratoryTask
+    LaboratoryTask,
+    StandardIndicator,
+    TestMethod,
+    Laboratory,
+    SpecimenType,
+    TestResult
 }
 
 /// <summary>
