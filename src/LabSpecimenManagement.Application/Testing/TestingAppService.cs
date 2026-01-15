@@ -1327,7 +1327,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private async Task NotifyTechnicalManagerOnSubmitAsync(LaboratoryTask task, List<LaboratoryTaskIndicator> submittedIndicators)
     {
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Thử nghiệm viên";
         var indicatorCount = submittedIndicators.Count;
 
         // Get sample/indicator/method info for single indicator case

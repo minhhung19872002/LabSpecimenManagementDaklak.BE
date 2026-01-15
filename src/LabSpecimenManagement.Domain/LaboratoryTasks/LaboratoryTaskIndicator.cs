@@ -8,7 +8,7 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 
 /// <summary>
 /// Bảng trung gian liên kết LaboratoryTask với TestRequestSampleIndicator
-/// Bao gồm thông tin gán phương pháp, kỹ thuật viên, kết quả và duyệt
+/// Bao gồm thông tin gán phương pháp, Thử nghiệm viên, kết quả và duyệt
 /// </summary>
 public class LaboratoryTaskIndicator : Entity<Guid>
 {
@@ -28,12 +28,12 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? MethodId { get; set; }
 
     /// <summary>
-    /// Kỹ thuật viên thực hiện - Technician ID
+    /// Thử nghiệm viên thực hiện - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Ngày giao việc cho kỹ thuật viên - Assigned Date
+    /// Ngày giao việc cho Thử nghiệm viên - Assigned Date
     /// </summary>
     public DateTime? AssignedDate { get; set; }
 

@@ -28,7 +28,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     public const string RoleLabTechnicalManager = "LabTechnicalManager";  // Quản lý kỹ thuật Lab (labvisinh, labhoa)
     public const string RoleSampleReceiver = "SampleReceiver";            // Bộ phận Giao nhận mẫu
     public const string RoleQualityManager = "QualityManager";            // Quản lý chất lượng (QLCL)
-    public const string RoleLabTechnician = "LabTechnician";              // Kỹ thuật viên (KTV)
+    public const string RoleLabTechnician = "LabTechnician";              // Thử nghiệm viên (KTV)
     public const string RoleAccountant = "Accountant";                    // Kế toán
 
     public LabUsersDataSeedContributor(
@@ -133,7 +133,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             LabSpecimenManagementPermissions.Reports.Send,
         });
 
-        // 4. LabTechnician - Kỹ thuật viên (kythuatvien1, kythuatvien2)
+        // 4. LabTechnician - Thử nghiệm viên (kythuatvien1, kythuatvien2)
         // Access: Dashboard, Quản lý thử nghiệm, Quản lý mẫu, Quản lý công việc (để xem task được giao)
         await CreateRoleIfNotExistsAsync(RoleLabTechnician, new[]
         {
@@ -231,20 +231,20 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             new[] { RoleQualityManager }
         );
 
-        // 6. Kỹ thuật viên 1
+        // 6. Thử nghiệm viên 1
         await CreateUserIfNotExistsAsync(
             "kythuatvien1",
             "kythuatvien1@lab.vn",
-            "Kỹ thuật viên 1",
+            "Thử nghiệm viên 1",
             defaultPassword,
             new[] { RoleLabTechnician }
         );
 
-        // 7. Kỹ thuật viên 2
+        // 7. Thử nghiệm viên 2
         await CreateUserIfNotExistsAsync(
             "kythuatvien2",
             "kythuatvien2@lab.vn",
-            "Kỹ thuật viên 2",
+            "Thử nghiệm viên 2",
             defaultPassword,
             new[] { RoleLabTechnician }
         );

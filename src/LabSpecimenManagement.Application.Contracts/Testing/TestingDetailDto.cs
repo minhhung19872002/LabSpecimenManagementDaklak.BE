@@ -26,7 +26,7 @@ public class TestingDetailDto : EntityDto<Guid>
     public TestingStatus TestingStatus { get; set; }
 
     /// <summary>
-    /// Danh sách tên kỹ thuật viên (comma separated)
+    /// Danh sách tên Thử nghiệm viên (comma separated)
     /// </summary>
     public string? TechnicianNames { get; set; }
 
@@ -277,12 +277,12 @@ public class TestingIndicatorDto
     public int RejectionHistoryCount { get; set; }
 
     /// <summary>
-    /// ID kỹ thuật viên
+    /// ID Thử nghiệm viên
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Tên kỹ thuật viên
+    /// Tên Thử nghiệm viên
     /// </summary>
     public string? TechnicianName { get; set; }
 

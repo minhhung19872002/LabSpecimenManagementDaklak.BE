@@ -623,7 +623,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Chỉ validate method + technician cho các chỉ tiêu hợp lệ
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
             {
-                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
+                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và Thử nghiệm viên cho tất cả chỉ tiêu được chọn");
             }
 
             validAssignments.Add(assignment);
@@ -760,7 +760,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
             var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
 
-            var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+            var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Thử nghiệm viên";
 
             await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
                 task.TechnicalManagerId.Value,
@@ -1255,28 +1255,88 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId)
     {
-        // Get all users - later can filter by role or laboratory assignment
-        // If laboratoryId is null, return all technicians
+        // Get all active users with LabTechnician role
         var users = await _userRepository.GetListAsync();
-        var dtos = users
-            .Where(u => u.IsActive)
-            .Select(u => new UserLookupDto
-            {
-                Id = u.Id,
-                UserName = u.UserName,
-                Name = u.Name,
-                Surname = u.Surname,
-                DisplayName = !string.IsNullOrWhiteSpace(u.Name)
-                    ? $"{u.Surname} {u.Name}".Trim()
-                    : u.UserName,
-                Email = u.Email,
-                PhoneNumber = u.PhoneNumber,
-                IsActive = u.IsActive
-            })
-            .OrderBy(u => u.DisplayName)
-            .ToList();
+        var technicians = new List<UserLookupDto>();
 
-        return new ListResultDto<UserLookupDto>(dtos);
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // Filter by role: only LabTechnician
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            {
+                continue;
+            }
+
+            technicians.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return new ListResultDto<UserLookupDto>(technicians.OrderBy(u => u.DisplayName).ToList());
+    }
+
+    public async Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId)
+    {
+        // Get task to find QLKT's department
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+        Guid? qlktDepartmentId = null;
+
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var qlktUser = await _userRepository.GetAsync(task.TechnicalManagerId.Value);
+            qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
+        }
+
+        // Get all active users
+        var users = await _userRepository.GetListAsync();
+        var technicians = new List<UserLookupDto>();
+
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // Filter by role: only LabTechnician
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            {
+                continue;
+            }
+
+            // Filter by same department as QLKT (if QLKT has department)
+            if (qlktDepartmentId.HasValue)
+            {
+                var userDepartmentId = user.GetProperty<Guid?>("DepartmentId");
+                if (!userDepartmentId.HasValue || userDepartmentId.Value != qlktDepartmentId.Value)
+                {
+                    continue;
+                }
+            }
+
+            technicians.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return new ListResultDto<UserLookupDto>(technicians.OrderBy(u => u.DisplayName).ToList());
     }
 
     #endregion

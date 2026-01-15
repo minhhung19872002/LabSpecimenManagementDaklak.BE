@@ -103,7 +103,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     #region Phase 6 - Workflow Endpoints
 
     /// <summary>
-    /// Gán phương pháp và kỹ thuật viên cho các chỉ tiêu của một mẫu
+    /// Gán phương pháp và Thử nghiệm viên cho các chỉ tiêu của một mẫu
     /// </summary>
     [HttpPost("{taskId}/samples/{sampleId}/assign")]
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -195,12 +195,21 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Lấy danh sách kỹ thuật viên theo khoa phòng
+    /// Lấy danh sách Thử nghiệm viên theo khoa phòng
     /// </summary>
     [HttpGet("technicians-lookup")]
     public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync([FromQuery] Guid? laboratoryId)
     {
         return _laboratoryTaskAppService.GetTechniciansByLaboratoryAsync(laboratoryId);
+    }
+
+    /// <summary>
+    /// Lấy danh sách Thử nghiệm viên theo phòng ban của QLKT (role LabTechnician + cùng DepartmentId với QLKT của task)
+    /// </summary>
+    [HttpGet("{taskId}/technicians")]
+    public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.GetTechniciansByTaskAsync(taskId);
     }
 
     #endregion

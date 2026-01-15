@@ -55,7 +55,7 @@ public interface ILaboratoryTaskAppService : IApplicationService
     #region Phase 6 - Workflow Methods
 
     /// <summary>
-    /// Gán phương pháp và kỹ thuật viên cho các chỉ tiêu của một mẫu
+    /// Gán phương pháp và Thử nghiệm viên cho các chỉ tiêu của một mẫu
     /// </summary>
     Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(Guid taskId, Guid sampleId, List<AssignIndicatorDto> assignments);
 
@@ -95,9 +95,14 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId);
 
     /// <summary>
-    /// Lấy danh sách kỹ thuật viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
+    /// Lấy danh sách Thử nghiệm viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId);
+
+    /// <summary>
+    /// Lấy danh sách Thử nghiệm viên theo phòng ban của QLKT (role LabTechnician + cùng DepartmentId với QLKT của task)
+    /// </summary>
+    Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId);
 
     #endregion
 

@@ -189,12 +189,12 @@ public class LaboratoryTaskIndicatorDto
     public string? MethodFormattedName { get; set; }
 
     /// <summary>
-    /// ID kỹ thuật viên - Technician ID
+    /// ID Thử nghiệm viên - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Tên kỹ thuật viên - Technician Name
+    /// Tên Thử nghiệm viên - Technician Name
     /// </summary>
     public string? TechnicianName { get; set; }
 
