@@ -169,6 +169,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Create, L("Permission:Quotations.Create"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Edit, L("Permission:Quotations.Edit"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Delete, L("Permission:Quotations.Delete"));
+
+        // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+        var sampleConditionPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.SampleConditions.Default, L("Permission:SampleConditions"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Create, L("Permission:SampleConditions.Create"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Edit, L("Permission:SampleConditions.Edit"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Delete, L("Permission:SampleConditions.Delete"));
     }
 
     private static LocalizableString L(string name)

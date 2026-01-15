@@ -63,6 +63,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
     public DbSet<Indicator> Indicators { get; set; }
     public DbSet<SampleTypeCategory> SampleTypeCategories { get; set; }
+    public DbSet<SampleCondition> SampleConditions { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -398,6 +399,19 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.Description).HasMaxLength(500);
 
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // SampleCondition configuration
+        builder.Entity<SampleCondition>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SampleConditions", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Description).HasMaxLength(500);
+
+            b.HasIndex(x => x.Name);
             b.HasIndex(x => x.IsActive);
         });
 

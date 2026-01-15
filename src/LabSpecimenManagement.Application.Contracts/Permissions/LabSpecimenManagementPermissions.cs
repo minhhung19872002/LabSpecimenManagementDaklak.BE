@@ -240,4 +240,13 @@ public static class LabSpecimenManagementPermissions
         public const string Edit = Default + ".Edit";
         public const string Delete = Default + ".Delete";
     }
+
+    // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+    public static class SampleConditions
+    {
+        public const string Default = GroupName + ".SampleConditions";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
 }
