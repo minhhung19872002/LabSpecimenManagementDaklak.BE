@@ -4,6 +4,7 @@ public class MasterDataStatisticsDto
 {
     public int DepartmentCount { get; set; }
     public int LaboratoryCount { get; set; }
+    public int SampleTypeCategoryCount { get; set; }
     public int SpecimenTypeCount { get; set; }
     public int TestMethodCount { get; set; }
     public int StandardCount { get; set; }

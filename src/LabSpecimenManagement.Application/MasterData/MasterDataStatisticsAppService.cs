@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.SampleTypeCategories;
 using Microsoft.AspNetCore.Hosting;
 using Volo.Abp;
 using Volo.Abp.Application.Services;
@@ -15,6 +16,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
 {
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Standard, Guid> _standardRepository;
@@ -29,6 +31,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     public MasterDataStatisticsAppService(
         IRepository<Department, Guid> departmentRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Standard, Guid> standardRepository,
@@ -42,6 +45,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     {
         _departmentRepository = departmentRepository;
         _laboratoryRepository = laboratoryRepository;
+        _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _testMethodRepository = testMethodRepository;
         _standardRepository = standardRepository;
@@ -58,6 +62,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     {
         var departmentCount = await _departmentRepository.CountAsync();
         var laboratoryCount = await _laboratoryRepository.CountAsync();
+        var sampleTypeCategoryCount = await _sampleTypeCategoryRepository.CountAsync();
         var specimenTypeCount = await _specimenTypeRepository.CountAsync();
         var testMethodCount = await _testMethodRepository.CountAsync();
         var standardCount = await _standardRepository.CountAsync();
@@ -81,6 +86,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         {
             DepartmentCount = (int)departmentCount,
             LaboratoryCount = (int)laboratoryCount,
+            SampleTypeCategoryCount = (int)sampleTypeCategoryCount,
             SpecimenTypeCount = (int)specimenTypeCount,
             TestMethodCount = (int)testMethodCount,
             StandardCount = (int)standardCount,

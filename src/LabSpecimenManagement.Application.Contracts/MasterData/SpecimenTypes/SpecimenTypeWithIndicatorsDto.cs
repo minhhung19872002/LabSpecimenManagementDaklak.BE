@@ -18,6 +18,16 @@ public class SpecimenTypeWithIndicatorsDto : FullAuditedEntityDto<Guid>
     public int SortOrder { get; set; }
 
     /// <summary>
+    /// ID danh mục loại mẫu
+    /// </summary>
+    public Guid? SampleTypeCategoryId { get; set; }
+
+    /// <summary>
+    /// Tên danh mục loại mẫu
+    /// </summary>
+    public string? SampleTypeCategoryName { get; set; }
+
+    /// <summary>
     /// Số lượng chỉ tiêu
     /// </summary>
     public int IndicatorCount { get; set; }

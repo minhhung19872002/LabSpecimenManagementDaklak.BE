@@ -1136,6 +1136,72 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppOrganizations", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.SampleTypeCategory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IsActive");
+
+                    b.ToTable("AppSampleTypeCategories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.MasterData.SpecimenType", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1206,6 +1272,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<Guid?>("SampleTypeCategoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -1213,6 +1282,8 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("Code")
                         .IsUnique();
+
+                    b.HasIndex("SampleTypeCategoryId");
 
                     b.ToTable("AppSpecimenTypes", (string)null);
                 });
@@ -5869,6 +5940,13 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("LaboratoryTask");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.SpecimenType", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.SampleTypeCategory", null)
+                        .WithMany()
+                        .HasForeignKey("SampleTypeCategoryId");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>

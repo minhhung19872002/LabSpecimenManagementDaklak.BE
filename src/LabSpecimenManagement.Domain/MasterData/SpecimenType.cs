@@ -44,6 +44,11 @@ public class SpecimenType : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// ID danh mục loại mẫu - FK to SampleTypeCategory
+    /// </summary>
+    public Guid? SampleTypeCategoryId { get; set; }
+
     protected SpecimenType()
     {
     }

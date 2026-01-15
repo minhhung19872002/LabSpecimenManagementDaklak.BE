@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.MasterData;
@@ -22,4 +23,9 @@ public class CreateUpdateSpecimenTypeDto
     public bool IsActive { get; set; } = true;
 
     public int SortOrder { get; set; } = 0;
+
+    /// <summary>
+    /// ID danh mục loại mẫu
+    /// </summary>
+    public Guid? SampleTypeCategoryId { get; set; }
 }
