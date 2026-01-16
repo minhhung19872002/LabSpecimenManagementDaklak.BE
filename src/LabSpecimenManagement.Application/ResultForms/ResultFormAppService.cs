@@ -665,7 +665,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // If no placeholder pattern, skip
         if (!fullText.Contains("{{")) return;
 
-        // Merge all text into first run's first text element
+        // Check if runs have different formatting (Bold, Italic, etc.)
+        // If so, use smart merge that preserves formatting
+        if (HasDifferentFormatting(runs))
+        {
+            MergeSplitPlaceholdersPreserveFormatting(para, runs);
+            return;
+        }
+
+        // All runs have same formatting - safe to merge all text into first run
         var firstRun = runs.First();
         var firstText = firstRun.GetFirstChild<Text>();
 
@@ -686,6 +694,111 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 t.Remove();
             }
         }
+    }
+
+    /// <summary>
+    /// Check if runs have different formatting (Bold, Italic, Underline, etc.)
+    /// </summary>
+    private bool HasDifferentFormatting(List<Run> runs)
+    {
+        if (runs.Count <= 1) return false;
+
+        bool? firstBold = null;
+        bool? firstItalic = null;
+
+        foreach (var run in runs)
+        {
+            var props = run.RunProperties;
+            var isBold = props?.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value);
+            var isItalic = props?.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value);
+
+            if (firstBold == null)
+            {
+                firstBold = isBold;
+                firstItalic = isItalic;
+            }
+            else if (isBold != firstBold || isItalic != firstItalic)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Merge split placeholders while preserving formatting of each run.
+    /// Only merges consecutive runs with the same formatting.
+    /// </summary>
+    private void MergeSplitPlaceholdersPreserveFormatting(Paragraph para, List<Run> runs)
+    {
+        // Group consecutive runs with same formatting
+        var groups = new List<(int startIndex, int endIndex, string formatting)>();
+        int groupStart = 0;
+        string currentFormatting = GetRunFormattingKey(runs[0]);
+
+        for (int i = 1; i <= runs.Count; i++)
+        {
+            string newFormatting = i < runs.Count ? GetRunFormattingKey(runs[i]) : "";
+            if (i == runs.Count || newFormatting != currentFormatting)
+            {
+                groups.Add((groupStart, i - 1, currentFormatting));
+                groupStart = i;
+                currentFormatting = newFormatting;
+            }
+        }
+
+        // Merge each group
+        foreach (var group in groups)
+        {
+            if (group.endIndex > group.startIndex)
+            {
+                // Merge runs in this group
+                var groupText = new StringBuilder();
+                for (int i = group.startIndex; i <= group.endIndex; i++)
+                {
+                    foreach (var text in runs[i].Elements<Text>())
+                    {
+                        groupText.Append(text.Text ?? "");
+                    }
+                }
+
+                // Put merged text in first run of group
+                var firstText = runs[group.startIndex].GetFirstChild<Text>();
+                if (firstText == null)
+                {
+                    firstText = new Text();
+                    runs[group.startIndex].AppendChild(firstText);
+                }
+                firstText.Text = groupText.ToString();
+                firstText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs in group
+                for (int i = group.startIndex + 1; i <= group.endIndex; i++)
+                {
+                    foreach (var t in runs[i].Elements<Text>().ToList())
+                    {
+                        t.Remove();
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get a key representing the formatting of a run (Bold, Italic, etc.)
+    /// </summary>
+    private string GetRunFormattingKey(Run run)
+    {
+        var props = run.RunProperties;
+        if (props == null) return "normal";
+
+        var parts = new List<string>();
+        if (props.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value)) parts.Add("B");
+        if (props.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value)) parts.Add("I");
+        if (props.Underline != null) parts.Add("U");
+
+        return parts.Count > 0 ? string.Join("", parts) : "normal";
     }
 
     /// <summary>
@@ -2071,33 +2184,69 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         foreach (var para in element.Descendants<Paragraph>())
         {
-            var textElements = para.Descendants<Text>().ToList();
-            if (textElements.Count <= 1) continue;
+            var runs = para.Elements<Run>().ToList();
+            if (runs.Count <= 1) continue;
 
-            // Build full text from all Text elements
-            var fullText = string.Concat(textElements.Select(t => t.Text ?? ""));
+            // Build full text from all runs
+            var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
 
-            // Check if any placeholder exists in the combined text
-            var hasPlaceholder = placeholders.Keys.Any(key => fullText.Contains(key));
-            if (!hasPlaceholder) continue;
-
-            // Replace all placeholders in the combined text
+            // Check if any placeholder exists in the combined text but not in individual runs
+            // This means the placeholder is split across runs
             foreach (var placeholder in placeholders)
             {
-                fullText = fullText.Replace(placeholder.Key, placeholder.Value);
-            }
+                if (!fullText.Contains(placeholder.Key)) continue;
 
-            // Distribute the replaced text back to Text elements
-            // Put all text in first element, clear others
-            if (textElements.Count > 0)
-            {
-                textElements[0].Text = fullText;
-                textElements[0].Space = SpaceProcessingModeValues.Preserve;
+                // Check if placeholder is already in a single run (already handled)
+                var alreadyInSingleRun = runs.Any(r =>
+                    r.Elements<Text>().Any(t => t.Text?.Contains(placeholder.Key) == true));
+                if (alreadyInSingleRun) continue;
 
-                for (int i = 1; i < textElements.Count; i++)
+                // Placeholder is split - find which runs contain parts of it
+                // and merge only those runs' text, keeping the formatting of the run containing "{{"
+                var placeholderStartIndex = fullText.IndexOf(placeholder.Key);
+                var placeholderEndIndex = placeholderStartIndex + placeholder.Key.Length;
+
+                // Find the run containing the start of placeholder "{{"
+                int charIndex = 0;
+                Run? targetRun = null;
+                foreach (var run in runs)
                 {
-                    textElements[i].Text = "";
+                    var runText = string.Concat(run.Elements<Text>().Select(t => t.Text ?? ""));
+                    if (charIndex <= placeholderStartIndex && charIndex + runText.Length > placeholderStartIndex)
+                    {
+                        targetRun = run;
+                        break;
+                    }
+                    charIndex += runText.Length;
                 }
+
+                if (targetRun == null) continue;
+
+                // Replace in the full text
+                var replacedFullText = fullText.Replace(placeholder.Key, placeholder.Value);
+
+                // Put replaced text in target run, clear others
+                var targetText = targetRun.GetFirstChild<Text>();
+                if (targetText == null)
+                {
+                    targetText = new Text();
+                    targetRun.AppendChild(targetText);
+                }
+                targetText.Text = replacedFullText;
+                targetText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs
+                foreach (var run in runs)
+                {
+                    if (run == targetRun) continue;
+                    foreach (var t in run.Elements<Text>().ToList())
+                    {
+                        t.Text = "";
+                    }
+                }
+
+                // Update fullText for next placeholder
+                fullText = replacedFullText;
             }
         }
     }
