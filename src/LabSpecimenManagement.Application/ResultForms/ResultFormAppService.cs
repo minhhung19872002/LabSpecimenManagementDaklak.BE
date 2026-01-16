@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
@@ -645,12 +646,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var runs = para.Elements<Run>().ToList();
         if (runs.Count <= 1) return;
 
-        // Skip paragraphs containing Field elements (PAGE, NUMPAGES, etc.)
-        // Merging these would break the field codes
-        if (para.Descendants<FieldChar>().Any() || para.Descendants<FieldCode>().Any() || para.Descendants<SimpleField>().Any())
+        // Check if paragraph contains Field elements (PAGE, NUMPAGES, etc.)
+        var hasFieldElements = para.Descendants<FieldChar>().Any() ||
+                               para.Descendants<FieldCode>().Any() ||
+                               para.Descendants<SimpleField>().Any();
+
+        if (hasFieldElements)
         {
-            // For paragraphs with fields, only replace placeholders in individual Text elements
-            // without merging runs
+            // For paragraphs with fields, merge only NON-field runs that are consecutive
+            // This preserves field codes while still merging split placeholders
+            MergeSplitPlaceholdersWithFields(para, runs);
             return;
         }
 
@@ -675,6 +680,89 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Remove text from other runs (but keep runs for formatting)
         for (int i = 1; i < runs.Count; i++)
+        {
+            foreach (var t in runs[i].Elements<Text>().ToList())
+            {
+                t.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merge split placeholders in paragraphs that contain field codes.
+    /// Only merges consecutive non-field runs to preserve PAGE/NUMPAGES fields.
+    /// </summary>
+    private void MergeSplitPlaceholdersWithFields(Paragraph para, List<Run> runs)
+    {
+        // Identify runs that contain field elements
+        var fieldRunIndices = new HashSet<int>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (runs[i].Descendants<FieldChar>().Any() ||
+                runs[i].Descendants<FieldCode>().Any() ||
+                runs[i].Descendants<SimpleField>().Any())
+            {
+                fieldRunIndices.Add(i);
+            }
+        }
+
+        // Find consecutive groups of non-field runs and merge them
+        int groupStart = -1;
+        for (int i = 0; i <= runs.Count; i++)
+        {
+            bool isFieldRun = i >= runs.Count || fieldRunIndices.Contains(i);
+
+            if (!isFieldRun && groupStart == -1)
+            {
+                // Start a new group
+                groupStart = i;
+            }
+            else if (isFieldRun && groupStart != -1)
+            {
+                // End current group and merge if it has multiple runs
+                int groupEnd = i - 1;
+                if (groupEnd > groupStart)
+                {
+                    MergeRunGroup(runs, groupStart, groupEnd);
+                }
+                groupStart = -1;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merge a group of consecutive runs into the first run
+    /// </summary>
+    private void MergeRunGroup(List<Run> runs, int startIndex, int endIndex)
+    {
+        // Get full text from runs in this group
+        var groupText = new StringBuilder();
+        for (int i = startIndex; i <= endIndex; i++)
+        {
+            foreach (var text in runs[i].Elements<Text>())
+            {
+                groupText.Append(text.Text ?? "");
+            }
+        }
+
+        // If no placeholder pattern in this group, skip
+        if (!groupText.ToString().Contains("{{")) return;
+
+        // Merge all text into first run's first text element
+        var firstRun = runs[startIndex];
+        var firstText = firstRun.GetFirstChild<Text>();
+
+        if (firstText == null)
+        {
+            firstText = new Text();
+            firstRun.AppendChild(firstText);
+        }
+
+        firstText.Text = groupText.ToString();
+        firstText.Space = SpaceProcessingModeValues.Preserve;
+
+        // Remove text from other runs in group (but keep runs for formatting)
+        for (int i = startIndex + 1; i <= endIndex; i++)
         {
             foreach (var t in runs[i].Elements<Text>().ToList())
             {
@@ -1896,7 +1984,23 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             if (headerPart.Header != null)
             {
+                _logger.LogDebug("Processing header part, paragraphs count: {Count}",
+                    headerPart.Header.Descendants<Paragraph>().Count());
                 ReplacePlaceholdersInElement(headerPart.Header, placeholders);
+
+                // Also process any text directly in header (not in paragraphs)
+                foreach (var text in headerPart.Header.Descendants<Text>())
+                {
+                    if (string.IsNullOrEmpty(text.Text)) continue;
+                    foreach (var placeholder in placeholders)
+                    {
+                        if (text.Text.Contains(placeholder.Key))
+                        {
+                            _logger.LogDebug("Found placeholder {Key} in header Text element", placeholder.Key);
+                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                        }
+                    }
+                }
             }
         }
 
@@ -1906,6 +2010,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (footerPart.Footer != null)
             {
                 ReplacePlaceholdersInElement(footerPart.Footer, placeholders);
+
+                // Also process any text directly in footer (not in paragraphs)
+                foreach (var text in footerPart.Footer.Descendants<Text>())
+                {
+                    if (string.IsNullOrEmpty(text.Text)) continue;
+                    foreach (var placeholder in placeholders)
+                    {
+                        if (text.Text.Contains(placeholder.Key))
+                        {
+                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1926,6 +2043,62 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var para in element.Descendants<Paragraph>())
         {
             ReplacePlaceholdersInParagraphWithDotRemoval(para, placeholders);
+        }
+
+        // Fallback: Handle split placeholders across multiple Text elements
+        // This handles cases where Word splits {{Placeholder}} into multiple Text nodes
+        ReplaceSplitPlaceholdersInElement(element, placeholders);
+
+        // Final fallback: Direct replacement for any remaining complete placeholders
+        foreach (var placeholder in placeholders)
+        {
+            foreach (var text in element.Descendants<Text>())
+            {
+                if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains(placeholder.Key))
+                {
+                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handle placeholders that are split across multiple Text elements.
+    /// For example: Text1="{{NumberOf", Text2="Sample}}"
+    /// This reconstructs the full text, replaces placeholders, and updates the elements.
+    /// </summary>
+    private void ReplaceSplitPlaceholdersInElement(OpenXmlElement element, Dictionary<string, string> placeholders)
+    {
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            var textElements = para.Descendants<Text>().ToList();
+            if (textElements.Count <= 1) continue;
+
+            // Build full text from all Text elements
+            var fullText = string.Concat(textElements.Select(t => t.Text ?? ""));
+
+            // Check if any placeholder exists in the combined text
+            var hasPlaceholder = placeholders.Keys.Any(key => fullText.Contains(key));
+            if (!hasPlaceholder) continue;
+
+            // Replace all placeholders in the combined text
+            foreach (var placeholder in placeholders)
+            {
+                fullText = fullText.Replace(placeholder.Key, placeholder.Value);
+            }
+
+            // Distribute the replaced text back to Text elements
+            // Put all text in first element, clear others
+            if (textElements.Count > 0)
+            {
+                textElements[0].Text = fullText;
+                textElements[0].Space = SpaceProcessingModeValues.Preserve;
+
+                for (int i = 1; i < textElements.Count; i++)
+                {
+                    textElements[i].Text = "";
+                }
+            }
         }
     }
 
@@ -2339,18 +2512,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private void ProcessMixedResultDocument(string filePath, Dictionary<string, string> placeholders, List<MixedResultSampleRow> sampleData)
     {
         using var document = WordprocessingDocument.Open(filePath, true);
-        var body = document.MainDocumentPart?.Document?.Body;
-        if (body == null) return;
+        var mainPart = document.MainDocumentPart;
+        var body = mainPart?.Document?.Body;
+        if (body == null || mainPart == null) return;
 
         ConvertFloatingTablesToInline(document);
 
         // Process table with SubTable marker (not nested table)
         ProcessMixedResultTableWithSubTable(body, sampleData);
 
-        // Replace other placeholders
-        ReplacePlaceholdersInBody(body, placeholders);
+        // Replace placeholders in entire document (including headers, footers, textboxes)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
 
-        document.MainDocumentPart?.Document?.Save();
+        mainPart.Document?.Save();
     }
 
     /// <summary>
