@@ -991,11 +991,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                              !taskIndicator.TestDate.HasValue;
 
             // Determine if can submit (Gửi kết quả)
-            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending hoặc Rejected, có kết quả
+            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending/Rejected/Entered, có kết quả
             var canSubmit = hasPermission &&
                             taskIndicator.TestDate.HasValue &&
                             (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected) &&
+                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
+                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered) && // Cho phép gửi lại khi đang chờ phê duyệt
                             !string.IsNullOrWhiteSpace(taskIndicator.Result);
 
             // Calculate indicator testing status
@@ -1239,13 +1240,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Chỉ submit nếu status phù hợp (Pending, Rejected, hoặc các status cho phép thử nghiệm)
+            // Chỉ submit nếu status phù hợp (Pending, Rejected, Entered (cho phép gửi lại), hoặc các status cho phép thử nghiệm)
             var allowedStatuses = new[]
             {
                 IndicatorApprovalStatus.Pending,
                 IndicatorApprovalStatus.Rejected,
                 IndicatorApprovalStatus.MethodChanged,
-                IndicatorApprovalStatus.AcceptedForTesting
+                IndicatorApprovalStatus.AcceptedForTesting,
+                IndicatorApprovalStatus.Entered // Cho phép TNV gửi lại kết quả khi đang chờ phê duyệt
             };
 
             if (!allowedStatuses.Contains(indicator.ApprovalStatus))
