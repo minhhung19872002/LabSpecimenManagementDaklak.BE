@@ -24,11 +24,6 @@ public class SampleCondition : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public bool IsActive { get; set; }
 
-    /// <summary>
-    /// Thứ tự hiển thị
-    /// </summary>
-    public int SortOrder { get; set; }
-
     protected SampleCondition()
     {
     }
@@ -38,6 +33,5 @@ public class SampleCondition : FullAuditedAggregateRoot<Guid>, IHasActive
         Name = name;
         Description = description;
         IsActive = true;
-        SortOrder = 0;
     }
 }

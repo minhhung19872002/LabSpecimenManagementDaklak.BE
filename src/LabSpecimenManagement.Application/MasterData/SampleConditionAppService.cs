@@ -39,8 +39,7 @@ public class SampleConditionAppService :
         var query = await Repository.GetQueryableAsync();
         var items = query
             .WhereActive()
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderBy(x => x.Name)
             .ToList();
 
         var dtos = ObjectMapper.Map<List<SampleCondition>, List<SampleConditionDto>>(items);
@@ -55,8 +54,7 @@ public class SampleConditionAppService :
         var totalCount = query.Count();
 
         var items = query
-            .OrderBy(x => x.SortOrder)
-            .ThenBy(x => x.Name)
+            .OrderBy(x => x.Name)
             .ApplyPaging(input)
             .ToList();
 
@@ -85,8 +83,7 @@ public class SampleConditionAppService :
     {
         return Task.FromResult(new SampleCondition(GuidGenerator.Create(), createInput.Name, createInput.Description)
         {
-            IsActive = createInput.IsActive,
-            SortOrder = createInput.SortOrder
+            IsActive = createInput.IsActive
         });
     }
 
@@ -95,7 +92,6 @@ public class SampleConditionAppService :
         entity.Name = updateInput.Name;
         entity.Description = updateInput.Description;
         entity.IsActive = updateInput.IsActive;
-        entity.SortOrder = updateInput.SortOrder;
         return Task.CompletedTask;
     }
 

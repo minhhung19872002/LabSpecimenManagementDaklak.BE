@@ -12,7 +12,6 @@ public class SampleConditionDto : FullAuditedEntityDto<Guid>
     public string Name { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
-    public int SortOrder { get; set; }
 }
 
 /// <summary>
@@ -28,6 +27,4 @@ public class CreateUpdateSampleConditionDto
     public string? Description { get; set; }
 
     public bool IsActive { get; set; } = true;
-
-    public int SortOrder { get; set; } = 0;
 }
