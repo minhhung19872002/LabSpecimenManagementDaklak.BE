@@ -1066,9 +1066,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
 
-        // Filter out CustomerCancelled indicators - they should not block sending results
+        // Filter out finalized indicators - they should not block sending results
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận
         var activeIndicators = taskIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
         // Validate: Must have at least one active indicator
@@ -1378,12 +1381,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return;
         }
 
-        // Filter out CustomerCancelled indicators - they should not affect task status calculation
+        // Filter out CustomerCancelled and TestingRejected (with customer confirmation) indicators
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected with CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
+        // These should not affect task status calculation (considered as "completed/finalized")
         var activeIndicators = taskIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
-        // If all indicators are cancelled, keep current status or set to a default
+        // If all indicators are cancelled/rejected, keep current status or set to a default
         if (!activeIndicators.Any())
         {
             return;
@@ -1621,9 +1628,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
             ti => taskIds.Contains(ti.LaboratoryTaskId));
 
-        // Loại trừ các chỉ tiêu bị KH hủy
+        // Loại trừ các chỉ tiêu đã "finalized":
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận
         var activeIndicators = allIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
         if (!activeIndicators.Any()) return;

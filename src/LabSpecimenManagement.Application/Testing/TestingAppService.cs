@@ -496,9 +496,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     {
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
-        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        // Loại trừ các chỉ tiêu đã "finalized" khi tính toán trạng thái:
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
         var activeIndicators = allTaskIndicators.Where(ti =>
-            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+            !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue)).ToList();
 
         if (!activeIndicators.Any())
         {
@@ -589,9 +592,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     /// </summary>
     private LaboratoryTaskStatus CalculateTaskStatusFromIndicators(List<LaboratoryTaskIndicator> allIndicators)
     {
-        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        // Loại trừ các chỉ tiêu đã "finalized" khi tính toán trạng thái:
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
         var activeIndicators = allIndicators.Where(ti =>
-            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+            !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue)).ToList();
 
         if (!activeIndicators.Any())
         {
