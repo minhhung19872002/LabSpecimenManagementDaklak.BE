@@ -153,6 +153,12 @@ namespace LabSpecimenManagement.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
 
+                    b.Property<bool>("IsSharedSampleTask")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("IsWaitingForPriorLab")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("LaboratoryId")
                         .HasColumnType("uuid");
 
@@ -168,11 +174,26 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<Guid?>("PriorLabTaskId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("RequestCompletionDate")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ResultRejectionReason")
                         .HasColumnType("text");
+
+                    b.Property<DateTime?>("SampleReceivedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("SampleReceivedNote")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime?>("SampleSentDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("SampleSentToNextLab")
+                        .HasColumnType("boolean");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -3877,6 +3898,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
+
+                    b.Property<bool>("IsSharedSample")
+                        .HasColumnType("boolean");
 
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")

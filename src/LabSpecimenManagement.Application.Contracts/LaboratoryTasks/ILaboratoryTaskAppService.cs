@@ -207,4 +207,24 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId);
 
     #endregion
+
+    #region Shared Sample (Mẫu chung)
+
+    /// <summary>
+    /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
+    /// </summary>
+    /// <param name="id">LaboratoryTask ID của Lab Vi Sinh</param>
+    /// <param name="input">Thông tin gửi mẫu (ghi chú tùy chọn)</param>
+    /// <returns>DTO task sau khi gửi</returns>
+    Task<LaboratoryTaskDto> SendSharedSampleAsync(Guid id, SendSharedSampleDto input);
+
+    /// <summary>
+    /// Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
+    /// </summary>
+    /// <param name="id">LaboratoryTask ID của Lab Hóa</param>
+    /// <param name="input">Thông tin nhận mẫu (ghi chú tùy chọn)</param>
+    /// <returns>DTO task sau khi nhận</returns>
+    Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input);
+
+    #endregion
 }

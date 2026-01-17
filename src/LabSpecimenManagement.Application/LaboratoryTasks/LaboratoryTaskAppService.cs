@@ -330,8 +330,28 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             Notes = task.Notes,
             ResultRejectionReason = task.ResultRejectionReason,
             CreationTime = task.CreationTime,
-            LastModificationTime = task.LastModificationTime
+            LastModificationTime = task.LastModificationTime,
+            // Shared Sample Fields
+            IsSharedSampleTask = task.IsSharedSampleTask,
+            IsWaitingForPriorLab = task.IsWaitingForPriorLab,
+            SampleSentToNextLab = task.SampleSentToNextLab,
+            SampleSentDate = task.SampleSentDate,
+            SampleReceivedDate = task.SampleReceivedDate,
+            SampleReceivedNote = task.SampleReceivedNote,
+            PriorLabTaskId = task.PriorLabTaskId,
+            // Check if prior lab has sent sample (for Lab Hóa waiting for Vi Sinh)
+            PriorLabSentSample = false // Will be set below if applicable
         };
+
+        // Check if prior lab has sent sample
+        if (task.PriorLabTaskId.HasValue && task.IsWaitingForPriorLab)
+        {
+            var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
+            if (priorTask != null)
+            {
+                dto.PriorLabSentSample = priorTask.SampleSentToNextLab;
+            }
+        }
 
         // Get TestRequest info
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -1501,9 +1521,77 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         if (task.Status != newStatus)
         {
+            var oldStatus = task.Status;
             task.Status = newStatus;
             await _laboratoryTaskRepository.UpdateAsync(task);
+
+            // Send notifications for shared sample status changes
+            await SendSharedSampleStatusNotificationAsync(task, oldStatus, newStatus);
         }
+    }
+
+    /// <summary>
+    /// Gửi notification cho Lab Hóa khi Lab Vi Sinh thay đổi trạng thái (shared sample)
+    /// </summary>
+    private async Task SendSharedSampleStatusNotificationAsync(LaboratoryTask task, LaboratoryTaskStatus oldStatus, LaboratoryTaskStatus newStatus)
+    {
+        // Only send for shared sample tasks from microbiology lab
+        if (!task.IsSharedSampleTask)
+        {
+            return;
+        }
+
+        // Check if this is the microbiology lab (priority lab)
+        var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
+        var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
+                                laboratory.Name?.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) == true ||
+                                laboratory.Name?.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase) == true;
+
+        if (!isMicrobiologyLab)
+        {
+            return; // Only microbiology lab sends notifications to other labs
+        }
+
+        // Get waiting tasks (Lab Hóa) that reference this task
+        var waitingTasks = await _laboratoryTaskRepository.GetListAsync(
+            t => t.PriorLabTaskId == task.Id);
+
+        if (!waitingTasks.Any())
+        {
+            return;
+        }
+
+        // Get sample codes for notification message
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequest.Id && s.IsSharedSample);
+        var sampleCodes = string.Join(", ", samples.Select(s => s.SampleCode));
+
+        // Determine notification message based on status change
+        string? notificationType = null;
+        string? title = null;
+        string? message = null;
+
+        if (newStatus == LaboratoryTaskStatus.UnderEvaluation && oldStatus != LaboratoryTaskStatus.UnderEvaluation)
+        {
+            notificationType = "SharedSampleUnderReview";
+            title = "Mẫu chung đang được xem xét";
+            message = $"{sampleCodes} mẫu chung đang được xem xét yêu cầu thử nghiệm";
+        }
+        else if (newStatus == LaboratoryTaskStatus.InProgress)
+        {
+            notificationType = "SharedSampleInProgress";
+            title = "Mẫu chung đang được thử nghiệm";
+            message = $"{sampleCodes} mẫu chung đang được thử nghiệm";
+        }
+        else if (newStatus == LaboratoryTaskStatus.Approved)
+        {
+            notificationType = "SharedSampleCompleted";
+            title = "Mẫu chung đã thử nghiệm xong";
+            message = $"{sampleCodes} mẫu chung đã thử nghiệm xong";
+        }
+
+        // TODO: Add notification for shared sample status change when INotificationCreator interface is updated
+        // Notification types: SharedSampleUnderReview, SharedSampleInProgress, SharedSampleCompleted
     }
 
     /// <summary>

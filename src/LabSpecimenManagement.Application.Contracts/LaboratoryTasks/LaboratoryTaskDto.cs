@@ -109,6 +109,50 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Current user là Supporter của task này hay không
     /// </summary>
     public bool IsCurrentUserSupporter { get; set; }
+
+    // ====== Shared Sample Fields ======
+
+    /// <summary>
+    /// Task này thuộc về mẫu chung (có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa)
+    /// </summary>
+    public bool IsSharedSampleTask { get; set; }
+
+    /// <summary>
+    /// Task này đang chờ lab trước hoàn thành (dành cho Lab Hóa chờ Vi Sinh)
+    /// </summary>
+    public bool IsWaitingForPriorLab { get; set; }
+
+    /// <summary>
+    /// Đã gửi mẫu cho lab tiếp theo (dành cho Lab Vi Sinh đã gửi cho Hóa)
+    /// </summary>
+    public bool SampleSentToNextLab { get; set; }
+
+    /// <summary>
+    /// Ngày gửi mẫu cho lab tiếp theo
+    /// </summary>
+    public DateTime? SampleSentDate { get; set; }
+
+    /// <summary>
+    /// Ngày nhận mẫu từ lab trước (dành cho Lab Hóa nhận từ Vi Sinh)
+    /// </summary>
+    public DateTime? SampleReceivedDate { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi nhận mẫu
+    /// </summary>
+    public string? SampleReceivedNote { get; set; }
+
+    /// <summary>
+    /// ID của Task lab trước (dành cho Lab Hóa reference đến Task Vi Sinh)
+    /// </summary>
+    public Guid? PriorLabTaskId { get; set; }
+
+    /// <summary>
+    /// Lab trước đã gửi mẫu chưa (dành cho Lab Hóa kiểm tra Vi Sinh đã gửi mẫu)
+    /// True = Vi Sinh đã gửi, có thể nhận mẫu
+    /// False = Vi Sinh chưa gửi, chờ đợi
+    /// </summary>
+    public bool PriorLabSentSample { get; set; }
 }
 
 /// <summary>
@@ -613,4 +657,31 @@ public class MethodChangeHistoryDto
     public Guid? ConfirmedByUserId { get; set; }
     public string? ConfirmedByUserName { get; set; }
     public bool? IsApproved { get; set; }
+}
+
+/// <summary>
+/// DTO cho việc gửi mẫu chung (Lab Vi Sinh gửi cho Lab Hóa)
+/// </summary>
+public class SendSharedSampleDto
+{
+    /// <summary>
+    /// Ghi chú khi gửi mẫu (optional)
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>
+/// DTO cho việc nhận mẫu chung (Lab Hóa nhận từ Lab Vi Sinh)
+/// </summary>
+public class ReceiveSharedSampleDto
+{
+    /// <summary>
+    /// Ngày nhận mẫu (default: ngày hiện tại)
+    /// </summary>
+    public DateTime? ReceivedDate { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi nhận mẫu
+    /// </summary>
+    public string? Note { get; set; }
 }

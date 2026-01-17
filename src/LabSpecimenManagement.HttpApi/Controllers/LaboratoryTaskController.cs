@@ -380,4 +380,32 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Shared Sample (Mẫu chung)
+
+    /// <summary>
+    /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
+    /// </summary>
+    [HttpPost("{id}/send-shared-sample")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> SendSharedSampleAsync(
+        Guid id,
+        [FromBody] SendSharedSampleDto input)
+    {
+        return _laboratoryTaskAppService.SendSharedSampleAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
+    /// </summary>
+    [HttpPost("{id}/receive-shared-sample")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(
+        Guid id,
+        [FromBody] ReceiveSharedSampleDto input)
+    {
+        return _laboratoryTaskAppService.ReceiveSharedSampleAsync(id, input);
+    }
+
+    #endregion
 }

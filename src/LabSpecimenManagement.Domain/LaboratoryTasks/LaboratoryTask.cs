@@ -68,6 +68,46 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? ResultRejectionReason { get; set; }
 
+    #region Shared Sample (Mẫu chung) fields
+
+    /// <summary>
+    /// Task này thuộc về mẫu chung (có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa)
+    /// </summary>
+    public bool IsSharedSampleTask { get; set; }
+
+    /// <summary>
+    /// Task này đang chờ lab trước hoàn thành (dành cho Lab Hóa chờ Vi Sinh)
+    /// Khi true, QLKT chỉ có thể xem readonly, không thực hiện action
+    /// </summary>
+    public bool IsWaitingForPriorLab { get; set; }
+
+    /// <summary>
+    /// Đã gửi mẫu cho lab tiếp theo (dành cho Lab Vi Sinh đã gửi cho Hóa)
+    /// </summary>
+    public bool SampleSentToNextLab { get; set; }
+
+    /// <summary>
+    /// Ngày gửi mẫu cho lab tiếp theo
+    /// </summary>
+    public DateTime? SampleSentDate { get; set; }
+
+    /// <summary>
+    /// Ngày nhận mẫu từ lab trước (dành cho Lab Hóa nhận từ Vi Sinh)
+    /// </summary>
+    public DateTime? SampleReceivedDate { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi nhận mẫu
+    /// </summary>
+    public string? SampleReceivedNote { get; set; }
+
+    /// <summary>
+    /// ID của Task lab trước (dành cho Lab Hóa reference đến Task Vi Sinh)
+    /// </summary>
+    public Guid? PriorLabTaskId { get; set; }
+
+    #endregion
+
     /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
