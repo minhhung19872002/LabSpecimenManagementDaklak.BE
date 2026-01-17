@@ -40,7 +40,8 @@ public class OnlyOfficePdfConversionService : IPdfConversionService, ITransientD
         // Get OnlyOffice URL from config
         _onlyOfficeUrl = configuration["OnlyOffice:Url"] ?? "http://localhost:8088";
         // Backend URL that OnlyOffice can access to download files
-        _backendUrl = configuration["OnlyOffice:CallbackUrl"] ?? "http://host.docker.internal:44381";
+        // Use BackendUrlForDocker which is the URL OnlyOffice (in Docker) uses to reach the host backend
+        _backendUrl = configuration["OnlyOffice:BackendUrlForDocker"] ?? configuration["OnlyOffice:CallbackUrl"] ?? "http://host.docker.internal:44381";
     }
 
     /// <summary>
