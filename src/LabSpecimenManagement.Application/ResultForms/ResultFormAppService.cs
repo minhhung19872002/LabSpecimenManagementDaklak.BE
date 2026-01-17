@@ -1727,36 +1727,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 8. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
+        // 8. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Test request form generated: {Path}", outputPath);
 
-            // 9. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log but don't fail if cleanup fails
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            // If PDF conversion fails, return the DOCX file as fallback
-            pdfFileName = fileName;
-        }
-
-        // 10. Update TestRequest status: New -> PendingPayment when printing
+        // 9. Update TestRequest status: New -> PendingPayment when printing
         if (testRequest.Status == TestRequestStatus.New)
         {
             testRequest.Status = TestRequestStatus.PendingPayment;
@@ -1766,7 +1741,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = testRequest.RequestNumber ?? "",
             ContractNumber = testRequest.ContractNumber ?? ""
         };
@@ -1813,36 +1788,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 6. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            // 7. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 6. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Preview test request form generated: {Path}", outputPath);
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = "Preview",
             ContractNumber = input.ContractNumber ?? ""
         };
@@ -3615,8 +3567,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
         var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
 
-        // Merge notes from QLKT (lab) and QLCL (quality) for multiple indicators
-        var mergedNote = await GetMergedNotesForMultipleIndicatorsAsync(sampleIndicatorIds, input.Note);
+        // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
+        // nên không cần merge ở BE nữa, chỉ sử dụng input.Note trực tiếp
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -3635,7 +3587,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", mergedNote },
+            { "{{Note}}", input.Note ?? "" },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
             { "{{Date}}", now.Day.ToString("D2") },
@@ -3907,46 +3859,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessDocument(outputPath, placeholders, tableData);
         }
 
-        // 7. Convert to PDF
-        string pdfFileName;
-        try
-        {
-            _logger.LogInformation("Starting PDF conversion for: {Path}", outputPath);
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-            _logger.LogInformation("PDF conversion successful: {PdfPath}", pdfPath);
-
-            // DEBUG: Keep DOCX file for inspection - comment out delete
-            // try
-            // {
-            //     if (File.Exists(outputPath))
-            //     {
-            //         File.Delete(outputPath);
-            //     }
-            // }
-            // catch (Exception ex)
-            // {
-            //     _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            // }
-            _logger.LogInformation("DEBUG: Keeping DOCX file for inspection: {Path}", outputPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF. Error: {Message}", ex.Message);
-            // Re-throw to show error to user instead of silently returning docx
-            throw new Common.Exceptions.InvalidOperationException($"Lỗi chuyển đổi PDF: {ex.Message}");
-        }
+        // 7. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed indicator result form generated: {Path}", outputPath);
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = firstSample?.SampleCode ?? ""
         };
     }
 
     /// <summary>
     /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
-    /// Used from TestRequestDetail page - combines indicators from multiple samples into one PDF
+    /// Used from TestRequestDetail page - combines indicators from multiple samples into one DOCX
     /// </summary>
     public async Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input)
     {
@@ -4112,30 +4038,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         ProcessDocument(outputPath, placeholders, tableData);
 
-        // 5. Convert to PDF
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 5. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed samples result form generated: {Path}", outputPath);
 
         // 6. Update TestRequest status to PendingApproval after printing
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -4146,7 +4051,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = sampleCodes
         };
     }

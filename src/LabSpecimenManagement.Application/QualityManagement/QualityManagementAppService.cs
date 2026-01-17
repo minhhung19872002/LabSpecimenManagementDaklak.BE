@@ -46,6 +46,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly IResultFormAppService _resultFormAppService;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -70,7 +71,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         INotificationCreator notificationCreator,
         IResultFormAppService resultFormAppService,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
-        IPublishedReportRepository publishedReportRepository)
+        IPublishedReportRepository publishedReportRepository,
+        IRepository<Note, Guid> noteRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -95,6 +97,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _resultFormAppService = resultFormAppService;
         _indicatorImageRepository = indicatorImageRepository;
         _publishedReportRepository = publishedReportRepository;
+        _noteRepository = noteRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -1423,8 +1426,42 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 Url = $"/api/v1/files/{x.FileId}",
                 CreationTime = x.CreationTime,
                 CreatorId = x.CreatorId
-            }).ToList()
+            }).ToList(),
+            FreeTextNote = labIndicator.FreeTextNote,
+            MasterDataNotes = await GetMasterDataNotesAsync(labIndicator.MasterDataNoteIds)
         };
+    }
+
+    /// <summary>
+    /// Parse MasterDataNoteIds and get note contents
+    /// </summary>
+    private async Task<List<string>> GetMasterDataNotesAsync(string? masterDataNoteIds)
+    {
+        if (string.IsNullOrWhiteSpace(masterDataNoteIds))
+        {
+            return new List<string>();
+        }
+
+        var noteContents = new List<string>();
+
+        // Parse comma-separated or JSON array format
+        var noteIdStrings = masterDataNoteIds.Contains("[")
+            ? JsonSerializer.Deserialize<List<string>>(masterDataNoteIds) ?? new List<string>()
+            : masterDataNoteIds.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+
+        foreach (var idStr in noteIdStrings)
+        {
+            if (Guid.TryParse(idStr, out var noteId))
+            {
+                var note = await _noteRepository.FindAsync(noteId);
+                if (note != null && !string.IsNullOrWhiteSpace(note.Content))
+                {
+                    noteContents.Add(note.Content);
+                }
+            }
+        }
+
+        return noteContents;
     }
 
     private async Task UpdateTaskStatusAsync(Guid taskId)
