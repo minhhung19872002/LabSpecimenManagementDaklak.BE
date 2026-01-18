@@ -13,5 +13,5 @@ public interface IEmployeeAppService : IApplicationService
     Task<EmployeeDto> UpdateAsync(Guid id, UpdateEmployeeDto input);
     Task DeleteAsync(Guid id);
     Task<EmployeeDto> ToggleActiveAsync(Guid id, bool isActive);
-    Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id);
+    Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id, ResetPasswordDto input);
 }

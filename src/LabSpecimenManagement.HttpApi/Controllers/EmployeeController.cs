@@ -64,8 +64,8 @@ public class EmployeeController : LabSpecimenManagementController
 
     [HttpPost("{id}/reset-password")]
     [Authorize(LabSpecimenManagementPermissions.Users.Edit)]
-    public virtual Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id)
+    public virtual Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id, [FromBody] ResetPasswordDto input)
     {
-        return _employeeAppService.ResetPasswordAsync(id);
+        return _employeeAppService.ResetPasswordAsync(id, input);
     }
 }

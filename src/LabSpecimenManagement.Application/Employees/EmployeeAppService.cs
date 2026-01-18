@@ -297,10 +297,30 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
     }
 
     [Authorize(LabSpecimenManagementPermissions.Users.Edit)]
-    public async Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id)
+    public async Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id, ResetPasswordDto input)
     {
         var user = await _userRepository.GetAsync(id);
-        var newPassword = GenerateRandomPassword();
+
+        // Determine password based on mode
+        string newPassword;
+        if (input.UseManualPassword)
+        {
+            // Validate manual password
+            if (string.IsNullOrEmpty(input.Password))
+            {
+                throw new ValidationException("password", "Vui lòng nhập mật khẩu");
+            }
+            if (input.Password != input.ConfirmPassword)
+            {
+                throw new ValidationException("confirmPassword", "Mật khẩu xác nhận không khớp");
+            }
+            newPassword = input.Password;
+        }
+        else
+        {
+            // Auto-generate password
+            newPassword = GenerateRandomPassword();
+        }
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
         var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
@@ -310,26 +330,29 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             throw new ValidationException("password", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
-        // Send password reset email
-        var fullName = $"{user.Surname} {user.Name}".Trim();
-        if (string.IsNullOrWhiteSpace(fullName))
+        // Send password reset email (only for auto-generated password)
+        if (!input.UseManualPassword)
         {
-            fullName = user.UserName ?? "User";
-        }
+            var fullName = $"{user.Surname} {user.Name}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = user.UserName ?? "User";
+            }
 
-        try
-        {
-            await _emailService.SendPasswordResetEmailAsync(
-                user.Email!,
-                fullName,
-                user.UserName!,
-                newPassword
-            );
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to send password reset email to {Email}", user.Email);
-            // Don't throw - password was reset successfully, just email failed
+            try
+            {
+                await _emailService.SendPasswordResetEmailAsync(
+                    user.Email!,
+                    fullName,
+                    user.UserName!,
+                    newPassword
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send password reset email to {Email}", user.Email);
+                // Don't throw - password was reset successfully, just email failed
+            }
         }
 
         return new ResetPasswordResultDto { Password = newPassword };
