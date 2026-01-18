@@ -3133,7 +3133,7 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("TestRequestSampleIndicatorId");
 
-                    b.ToTable("SampleIndicatorNotes");
+                    b.ToTable("SampleIndicatorNotes", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>

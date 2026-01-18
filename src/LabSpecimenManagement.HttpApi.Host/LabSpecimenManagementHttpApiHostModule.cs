@@ -450,5 +450,16 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Account expiration check - deactivate expired accounts
+        // CRON: "0 1 * * *" = At 01:00 every day
+        RecurringJob.AddOrUpdate<AccountExpirationJob>(
+            "account-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 1 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }

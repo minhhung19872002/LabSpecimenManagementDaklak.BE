@@ -33,6 +33,17 @@ public class CreateEmployeeDto
     public bool IsActive { get; set; } = true;
 
     /// <summary>
+    /// If true, this is a temporary account with expiration date.
+    /// </summary>
+    public bool IsTemporaryAccount { get; set; } = false;
+
+    /// <summary>
+    /// Account expiration date (required when IsTemporaryAccount = true).
+    /// After this date, the account will be automatically deactivated.
+    /// </summary>
+    public DateTime? AccountExpirationDate { get; set; }
+
+    /// <summary>
     /// If true, use Password field instead of auto-generating password.
     /// When true, no email will be sent.
     /// </summary>

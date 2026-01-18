@@ -165,6 +165,14 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         user.SetProperty("DepartmentId", input.DepartmentId);
         user.SetProperty("Position", input.Position ?? string.Empty);
 
+        // Set account expiration if temporary account
+        if (input.IsTemporaryAccount && input.AccountExpirationDate.HasValue)
+        {
+            // Store expiration date as end of day (23:59:59) for proper comparison
+            var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
+            user.SetProperty("AccountExpirationDate", expirationDate);
+        }
+
         // Determine password based on mode
         string password;
         if (input.UseManualPassword)
@@ -266,6 +274,39 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             var currentRoles = await _userManager.GetRolesAsync(user);
             await _userManager.RemoveFromRolesAsync(user, currentRoles);
             await _userManager.AddToRoleAsync(user, input.Role);
+        }
+
+        // Update account expiration
+        if (input.IsTemporaryAccount.HasValue)
+        {
+            if (input.IsTemporaryAccount.Value)
+            {
+                // Set expiration date
+                if (input.AccountExpirationDate.HasValue)
+                {
+                    // Store expiration date as end of day (23:59:59) for proper comparison
+                    var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
+                    user.SetProperty("AccountExpirationDate", expirationDate);
+                }
+                else
+                {
+                    throw new ValidationException("accountExpirationDate", "Vui lòng chọn ngày hết hạn cho tài khoản tạm thời");
+                }
+            }
+            else
+            {
+                // Remove expiration (make permanent)
+                user.RemoveProperty("AccountExpirationDate");
+            }
+        }
+        else if (input.AccountExpirationDate.HasValue)
+        {
+            // Update expiration date only
+            if (input.AccountExpirationDate.Value <= DateTime.Now)
+            {
+                throw new ValidationException("accountExpirationDate", "Ngày hết hạn phải lớn hơn ngày hiện tại");
+            }
+            user.SetProperty("AccountExpirationDate", input.AccountExpirationDate.Value);
         }
 
         await _userManager.UpdateAsync(user);
@@ -385,7 +426,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             Position = user.GetProperty<string>("Position"),
             IsActive = user.IsActive,
             CreatedAt = user.CreationTime,
-            LastLogin = user.GetProperty<DateTime?>("LastLoginTime")
+            LastLogin = user.GetProperty<DateTime?>("LastLoginTime"),
+            AccountExpirationDate = user.GetProperty<DateTime?>("AccountExpirationDate")
         };
     }
 
@@ -414,5 +456,57 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
         // Shuffle
         return new string(password.OrderBy(_ => random.Next()).ToArray());
+    }
+
+    /// <summary>
+    /// Deactivate all accounts that have expired.
+    /// Called by background job.
+    /// </summary>
+    public async Task<int> DeactivateExpiredAccountsAsync()
+    {
+        var allUsers = await _userRepository.GetListAsync();
+        var now = DateTime.Now;
+        var deactivatedCount = 0;
+
+        foreach (var user in allUsers)
+        {
+            if (!user.IsActive) continue;
+
+            var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+            if (expirationDate.HasValue && expirationDate.Value <= now)
+            {
+                user.SetIsActive(false);
+                await _userManager.UpdateAsync(user);
+                deactivatedCount++;
+                Logger.LogInformation("Deactivated expired account: {Username} (expired at {ExpirationDate})",
+                    user.UserName, expirationDate.Value);
+            }
+        }
+
+        return deactivatedCount;
+    }
+
+    /// <summary>
+    /// Check if a user's account has expired.
+    /// Returns true if expired, false if still valid or no expiration set.
+    /// </summary>
+    public async Task<bool> IsAccountExpiredAsync(Guid userId)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+
+        if (!expirationDate.HasValue) return false;
+
+        var isExpired = expirationDate.Value <= DateTime.Now;
+
+        // Auto-deactivate if expired
+        if (isExpired && user.IsActive)
+        {
+            user.SetIsActive(false);
+            await _userManager.UpdateAsync(user);
+            Logger.LogInformation("Auto-deactivated expired account on access check: {Username}", user.UserName);
+        }
+
+        return isExpired;
     }
 }

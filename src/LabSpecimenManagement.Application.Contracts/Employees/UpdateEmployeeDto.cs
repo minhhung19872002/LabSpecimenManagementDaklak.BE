@@ -23,4 +23,16 @@ public class UpdateEmployeeDto
     public string? Position { get; set; }
 
     public bool? IsActive { get; set; }
+
+    /// <summary>
+    /// If true, this is a temporary account with expiration date.
+    /// If false, remove expiration (make permanent).
+    /// </summary>
+    public bool? IsTemporaryAccount { get; set; }
+
+    /// <summary>
+    /// Account expiration date (required when IsTemporaryAccount = true).
+    /// After this date, the account will be automatically deactivated.
+    /// </summary>
+    public DateTime? AccountExpirationDate { get; set; }
 }
