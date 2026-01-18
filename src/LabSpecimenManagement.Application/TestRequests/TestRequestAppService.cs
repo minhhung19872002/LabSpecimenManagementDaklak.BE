@@ -1609,7 +1609,7 @@ public partial class TestRequestAppService :
                 await _notificationCreator.NotifySampleSentToLabAsync(
                     labTask.TechnicalManagerId.Value,
                     testRequest.ContractNumber ?? "",
-                    testRequest.Id,
+                    labTask.Id,
                     indicatorCount,
                     labTask.RequestCompletionDate
                 );
@@ -2351,22 +2351,18 @@ public partial class TestRequestAppService :
         // Get all laboratory tasks for this test request
         var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
 
-        // Group by technical manager to avoid duplicate notifications
-        var technicalManagerIds = labTasks
-            .Where(lt => lt.TechnicalManagerId.HasValue)
-            .Select(lt => lt.TechnicalManagerId!.Value)
-            .Distinct()
-            .ToList();
-
-        foreach (var managerId in technicalManagerIds)
+        // Notify each technical manager with their specific task ID
+        foreach (var labTask in labTasks.Where(lt => lt.TechnicalManagerId.HasValue))
         {
+            var managerId = labTask.TechnicalManagerId!.Value;
+
             // Case 8.1: Notify about new samples/indicators
             if (newSampleCount > 0 || newIndicatorCount > 0)
             {
                 await _notificationCreator.NotifyNewSamplesAddedAsync(
                     managerId,
                     testRequest.ContractNumber ?? "",
-                    testRequest.Id,
+                    labTask.Id,
                     newSampleCount,
                     newIndicatorCount
                 );
@@ -2381,7 +2377,7 @@ public partial class TestRequestAppService :
                     await _notificationCreator.NotifySamplesCancelledAsync(
                         managerId,
                         testRequest.ContractNumber ?? "",
-                        testRequest.Id,
+                        labTask.Id,
                         sampleCode,
                         indicatorCount
                     );

@@ -75,7 +75,7 @@ public class QualityManagerReminderJob : ITransientDependency
                             await _notificationCreator.NotifyDeadlineReminderAsync(
                                 task.AssignedQualityManagerId!.Value,
                                 task.ContractNumber,
-                                task.TestRequestId,
+                                task.Id,  // Pass qualityTaskId for navigation to quality management detail
                                 testRequest.ResultDeliveryDate.Value
                             );
 
@@ -140,7 +140,7 @@ public class QualityManagerReminderJob : ITransientDependency
                     await _notificationCreator.NotifyHandoverReminderAsync(
                         qualityTask.AssignedQualityManagerId!.Value,
                         testRequest.ContractNumber ?? "",
-                        testRequest.Id,
+                        qualityTask.Id,  // Pass qualityTaskId for navigation to quality management detail
                         testRequest.ApprovedDate!.Value
                     );
 

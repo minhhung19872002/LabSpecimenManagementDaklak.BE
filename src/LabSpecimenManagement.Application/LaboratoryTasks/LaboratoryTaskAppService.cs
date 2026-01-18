@@ -716,7 +716,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     await _notificationCreator.NotifySingleIndicatorAssignedToTechnicianAsync(
                         technicianId,
                         contractNumber,
-                        task.TestRequestId,
+                        task.Id,
                         technicalManagerName,
                         sample?.SampleName ?? "",
                         indicator?.Name ?? "",
@@ -731,7 +731,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifyMultipleIndicatorsAssignedToTechnicianAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     indicatorCount,
                     task.RequestCompletionDate
                 );
@@ -785,7 +785,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
                 task.TechnicalManagerId.Value,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                task.Id,
                 senderName,
                 1, // Single indicator
                 task.RequestCompletionDate,
@@ -912,7 +912,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
                     taskIndicator.EnteredById.Value,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName,
                     sample?.SampleName ?? "",
                     indicator?.Name ?? "",
@@ -1106,7 +1106,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// - Nếu chưa có: thêm vào task hiện có hoặc tạo mới nếu chưa có task nào
     /// Mỗi TestRequest chỉ có DUY NHẤT 1 QualityManagementTask loại ResultApproval
     /// </summary>
-    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators, Guid? qualityManagerId = null)
+    /// <returns>QualityManagementTask ID</returns>
+    private async Task<Guid> CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators, Guid? qualityManagerId = null)
     {
         var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
 
@@ -1246,7 +1247,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                 await _qualityIndicatorRepository.InsertAsync(qualityIndicator, autoSave: true);
             }
+
+            return qualityTask.Id;
         }
+
+        // Return existing task ID (if no new indicators were created)
+        if (existingTask != null)
+        {
+            return existingTask.Id;
+        }
+
+        // Should not reach here, but return Guid.Empty as fallback
+        return Guid.Empty;
     }
 
     public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId)
@@ -2016,7 +2028,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName,
                     sample?.SampleName ?? "",
                     indicator?.Name ?? "",
@@ -2029,7 +2041,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifyMultipleResultsRejectedByTechnicalManagerAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName
                 );
             }
@@ -2170,10 +2182,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
             qualityManagerId,
             testRequest.ContractNumber ?? task.ContractNumber ?? "",
-            task.TestRequestId,
+            qualityTaskId,
             senderName,
             indicatorCount,
             sampleName,
@@ -2217,13 +2235,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             methodName = method?.Name;
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         // Notify all quality managers
         foreach (var qualityManagerId in qualityManagers)
         {
             await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
                 qualityManagerId,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                qualityTaskId,
                 senderName,
                 1, // Single indicator
                 sampleName,
@@ -2271,13 +2295,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         // Notify all quality managers
         foreach (var qualityManagerId in qualityManagers)
         {
             await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
                 qualityManagerId,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                qualityTaskId,
                 senderName,
                 indicatorCount,
                 sampleName,

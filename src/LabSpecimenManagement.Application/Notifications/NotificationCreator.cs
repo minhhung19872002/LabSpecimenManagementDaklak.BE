@@ -47,7 +47,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyIndicatorSubmittedToTechnicalManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string senderName,
         int indicatorCount,
         DateTime? deadline,
@@ -83,7 +83,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             type,
-            testRequestId.ToString(),
+            taskId.ToString(),
             "LaboratoryTask",
             deadline,
             senderName,
@@ -99,7 +99,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifySampleSentToLabAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int indicatorCount,
         DateTime? deadline)
     {
@@ -113,7 +113,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.SampleSentToLab,
-            testRequestId.ToString(),
+            taskId.ToString(),
             "LaboratoryTask",
             deadline,
             null,
@@ -129,7 +129,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyPendingWorkAssignmentAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int pendingIndicatorCount,
         DateTime sentDate)
     {
@@ -143,7 +143,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.PendingWorkAssignment,
-            testRequestId.ToString(),
+            taskId.ToString(),
             "LaboratoryTask",
             null,
             null,
@@ -159,7 +159,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyResultRejectedByQualityManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string qualityManagerName,
         int rejectedCount,
         string? sampleName = null,
@@ -192,8 +192,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             type,
-            testRequestId.ToString(),
-            "QualityManagement",
+            taskId.ToString(),
+            "LaboratoryTask",
             null,
             qualityManagerName,
             rejectedCount
@@ -208,7 +208,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyResultApprovedByQualityManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string qualityManagerName,
         string? sampleName = null,
         string? indicatorName = null,
@@ -235,8 +235,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.ResultApprovedByQM,
-            testRequestId.ToString(),
-            "QualityManagement",
+            taskId.ToString(),
+            "LaboratoryTask",
             null,
             qualityManagerName
         );
@@ -250,7 +250,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyNewSamplesAddedAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int newSampleCount,
         int newIndicatorCount)
     {
@@ -264,8 +264,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.NewSamplesAdded,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "LaboratoryTask",
             null,
             null,
             newIndicatorCount
@@ -280,7 +280,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifySamplesCancelledAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string sampleCode,
         int cancelledIndicatorCount)
     {
@@ -294,8 +294,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.SamplesCancelled,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "LaboratoryTask",
             null,
             null,
             cancelledIndicatorCount
@@ -314,7 +314,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyResultSubmittedToQualityManagerAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         string senderName,
         int indicatorCount,
         string? sampleName = null,
@@ -347,7 +347,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             type,
-            testRequestId.ToString(),
+            qualityTaskId.ToString(),
             "QualityManagement",
             null,
             senderName,
@@ -363,7 +363,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyDeadlineReminderAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         DateTime deadline)
     {
         var title = $"Hợp đồng {contractNumber}";
@@ -376,7 +376,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.DeadlineReminder,
-            testRequestId.ToString(),
+            qualityTaskId.ToString(),
             "QualityManagement",
             deadline
         );
@@ -390,7 +390,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyHandoverReminderAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         DateTime approvedDate)
     {
         var title = $"Hợp đồng {contractNumber}";
@@ -403,8 +403,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.HandoverReminder,
-            testRequestId.ToString(),
-            "TestRequest",
+            qualityTaskId.ToString(),
+            "QualityManagement",
             null
         );
 
@@ -430,7 +430,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             message,
             NotificationType.TestRequestChangePendingApproval,
             testRequestId.ToString(),
-            "QualityManagement",
+            "TestRequest",  // Navigate to test request detail to approve changes
             null
         );
 
@@ -612,7 +612,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             message,
             NotificationType.ResultApprovedNotification,
             testRequestId.ToString(),
-            "QualityManagement",
+            "TestRequest",  // SampleReceiver should navigate to test request detail
             null,
             qualityManagerName
         );
@@ -630,7 +630,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyMultipleIndicatorsAssignedToTechnicianAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int indicatorCount,
         DateTime? deadline)
     {
@@ -644,8 +644,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.MultipleIndicatorsAssignedToTechnician,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "Testing",
             deadline
         );
 
@@ -658,7 +658,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifySingleIndicatorAssignedToTechnicianAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName,
         string sampleName,
         string indicatorName,
@@ -675,8 +675,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.SingleIndicatorAssignedToTechnician,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "Testing",
             deadline
         );
 
@@ -689,7 +689,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyPendingIndicatorReminderAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int pendingIndicatorCount)
     {
         var title = $"Hợp đồng {contractNumber}";
@@ -702,8 +702,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.PendingIndicatorReminder,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "Testing",
             null
         );
 
@@ -716,7 +716,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifyMultipleResultsRejectedByTechnicalManagerAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName)
     {
         var title = $"Hợp đồng {contractNumber}";
@@ -729,8 +729,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.MultipleResultsRejectedByTechnicalManager,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "Testing",
             null
         );
 
@@ -743,7 +743,7 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     public async Task NotifySingleResultRejectedByTechnicalManagerAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName,
         string sampleName,
         string indicatorName,
@@ -760,8 +760,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             title,
             message,
             NotificationType.SingleResultRejectedByTechnicalManager,
-            testRequestId.ToString(),
-            "TestRequest",
+            taskId.ToString(),
+            "Testing",
             null
         );
 
