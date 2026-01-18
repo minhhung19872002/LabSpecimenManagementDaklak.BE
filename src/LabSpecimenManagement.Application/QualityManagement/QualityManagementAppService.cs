@@ -47,6 +47,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -60,6 +61,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<Indicator, Guid> masterIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Standard, Guid> standardRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
@@ -85,6 +87,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _masterIndicatorRepository = masterIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _testMethodRepository = testMethodRepository;
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
@@ -935,12 +938,13 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             var labTaskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
             var labTask = await _laboratoryTaskRepository.GetAsync(labTaskIndicator.LaboratoryTaskId);
             var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+            var labDepartment = await _departmentRepository.GetAsync(laboratory.DepartmentId);
 
             // Get sample from TestRequestSampleIndicator
             var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labTaskIndicator.TestRequestSampleIndicatorId);
             var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
 
-            indicatorMapping[indicator.Id] = (laboratory.Id, laboratory.Name, sample.Id, sample.SampleCode, sample.SampleName);
+            indicatorMapping[indicator.Id] = (laboratory.Id, labDepartment.Name, sample.Id, sample.SampleCode, sample.SampleName);
         }
 
         // Group indicators by (laboratoryId, sampleId)
@@ -1242,7 +1246,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == task.TestRequestId);
         var labIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
         var labs = await _laboratoryRepository.GetListAsync(l => labIds.Contains(l.Id));
-        var labNames = string.Join(", ", labs.Select(l => l.Name));
+        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+        var labNames = string.Join(", ", labs.Select(l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : ""));
 
         // Get technical manager names
         var managerIds = labTasks.Where(lt => lt.TechnicalManagerId.HasValue).Select(lt => lt.TechnicalManagerId!.Value).Distinct().ToList();
@@ -1321,6 +1328,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
         var lab = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+        var labDept = await _departmentRepository.GetAsync(lab.DepartmentId);
 
         string? methodName = null;
         string? methodFormattedName = null;
@@ -1387,7 +1395,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             Id = indicator.Id,
             LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
             LaboratoryId = lab.Id,
-            LaboratoryName = lab.Name,
+            LaboratoryName = labDept.Name,
             SampleId = sample.Id,
             SampleCode = sample.SampleCode,
             SampleName = sample.SampleName,

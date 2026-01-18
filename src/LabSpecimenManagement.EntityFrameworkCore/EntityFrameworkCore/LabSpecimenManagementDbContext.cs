@@ -573,10 +573,10 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(20);
-            b.Property(x => x.Name).IsRequired().HasMaxLength(100);
+            b.Property(x => x.DepartmentId).IsRequired();
 
             b.HasIndex(x => x.Code).IsUnique();
-            b.HasIndex(x => x.Name).IsUnique();
+            b.HasIndex(x => x.DepartmentId);
             b.HasIndex(x => x.IsActive);
         });
 

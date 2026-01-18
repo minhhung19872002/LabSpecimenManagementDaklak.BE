@@ -15,8 +15,10 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
 
@@ -45,6 +47,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
     private readonly ITestResultValueAppService _testResultValueAppService;
+    private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IIdentityUserRepository _identityUserRepository;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -55,6 +59,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<TestRequestSampleAttachment, Guid> sampleAttachmentRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
@@ -67,7 +72,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
-        ITestResultValueAppService testResultValueAppService)
+        ITestResultValueAppService testResultValueAppService,
+        IIdentityUserRepository identityUserRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -77,6 +83,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _sampleAttachmentRepository = sampleAttachmentRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
@@ -90,6 +97,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
         _testResultValueAppService = testResultValueAppService;
+        _identityUserRepository = identityUserRepository;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -109,7 +117,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // - Admin: xem tất cả
         // - QLKT: xem được tất cả task của phòng ban họ quản lý (Laboratory.TechnicalManagerId) hoặc task họ được gán làm TechnicalManager
         // - Người hỗ trợ: xem được task mà họ là supporter
-        // - KTV: chỉ xem được task mà họ được assign làm KTV
+        // - KTV: chỉ xem được task của Lab họ thuộc về (qua DepartmentId)
         var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
         if (currentUserId.HasValue && !isAdmin)
         {
@@ -125,15 +133,38 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
+            // Lấy DepartmentId của user hiện tại để filter task của Lab họ thuộc về
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            // Lấy danh sách LaboratoryId có cùng DepartmentId với user (Lab họ thuộc về)
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id)
+                    .ToHashSet();
+            }
+
             // User có thể xem task nếu:
             // 1. Task thuộc phòng ban mà họ là QLKT (Laboratory.TechnicalManagerId)
             // 2. Họ là TechnicalManager của task cụ thể (LaboratoryTask.TechnicalManagerId)
             // 3. Họ là Supporter của task
-            // 4. Họ được assign làm KTV cho ít nhất 1 indicator
+            // 4. Task thuộc Lab có cùng DepartmentId với user (Lab họ thuộc về)
             taskQuery = taskQuery.Where(x =>
                 managedLaboratoryIds.Contains(x.Task.LaboratoryId) ||
                 x.Task.TechnicalManagerId == currentUserId.Value ||
                 supporterTaskIds.Contains(x.Task.Id) ||
+                userLabIds.Contains(x.Task.LaboratoryId));
+        }
+
+        // Apply Tab filter:
+        // - MyAssignments: Chỉ hiển thị task mà user được assign làm KTV (có ít nhất 1 indicator)
+        // - All: Hiển thị tất cả task mà user có quyền xem (đã filter ở trên)
+        if (input.Tab == TestingTabType.MyAssignments && currentUserId.HasValue)
+        {
+            taskQuery = taskQuery.Where(x =>
                 x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
 
@@ -678,7 +709,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Get laboratory name
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        dto.LaboratoryName = laboratory?.Name;
+        if (laboratory != null)
+        {
+            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = labDept?.Name;
+        }
 
         // Get customer name from test request
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -792,7 +827,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Get laboratory name
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        dto.LaboratoryName = laboratory?.Name;
+        if (laboratory != null)
+        {
+            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = labDept?.Name;
+        }
 
         // Get customer name
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);

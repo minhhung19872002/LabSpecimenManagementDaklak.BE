@@ -488,6 +488,7 @@ public partial class TestRequestAppService
 
         // Get laboratory info
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
+        var labDept = laboratory != null ? await _departmentRepository.FindAsync(laboratory.DepartmentId) : null;
 
         // Get method change history if applicable
         string? oldMethodName = null;
@@ -527,7 +528,7 @@ public partial class TestRequestAppService
             IndicatorCode = indicatorInfo?.Code,
             IndicatorName = indicatorInfo?.Name,
             IndicatorFormattedName = indicatorInfo?.FormattedName,
-            LaboratoryName = laboratory?.Name,
+            LaboratoryName = labDept?.Name,
             ApprovalStatus = indicator.ApprovalStatus,
             TestingRejectionReason = indicator.TestingRejectionReason,
             OldMethodName = oldMethodName,

@@ -49,6 +49,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -75,7 +76,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
-        IRepository<Note, Guid> noteRepository)
+        IRepository<Note, Guid> noteRepository,
+        IRepository<Department, Guid> departmentRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -102,6 +104,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _noteRepository = noteRepository;
+        _departmentRepository = departmentRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -366,7 +369,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (laboratory != null)
         {
             dto.LaboratoryCode = laboratory.Code;
-            dto.LaboratoryName = laboratory.Name;
+            var department = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = department?.Name ?? "";
         }
 
         // Get Technical Manager name
@@ -1562,9 +1566,11 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         // Check if this is the microbiology lab (priority lab)
         var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
+        var labDepartment = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+        var labName = labDepartment?.Name ?? "";
         var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase) == true;
+                                labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                                labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
 
         if (!isMicrobiologyLab)
         {

@@ -9,9 +9,11 @@ public class CreateUpdateLaboratoryDto
     [StringLength(20)]
     public string Code { get; set; }
 
+    /// <summary>
+    /// Phòng ban liên kết - Department ID
+    /// </summary>
     [Required]
-    [StringLength(100)]
-    public string Name { get; set; }
+    public Guid DepartmentId { get; set; }
 
     public Guid? TechnicalManagerId { get; set; }
 

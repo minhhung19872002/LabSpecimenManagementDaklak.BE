@@ -36,9 +36,11 @@ public partial class LaboratoryTaskAppService
 
         // Check if this is the microbiology lab (priority lab)
         var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
+        var labDept = await _departmentRepository.GetAsync(laboratory.DepartmentId);
+        var labName = labDept.Name;
         var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase) == true;
+                                labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                                labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
 
         if (!isMicrobiologyLab)
         {
@@ -137,9 +139,11 @@ public partial class LaboratoryTaskAppService
 
         // Nếu là Lab Vi Sinh (priority lab), không ẩn
         var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
+        var labDept2 = await _departmentRepository.GetAsync(laboratory.DepartmentId);
+        var labName2 = labDept2.Name;
         var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) == true ||
-                                laboratory.Name?.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase) == true;
+                                labName2.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                                labName2.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
 
         if (isMicrobiologyLab)
         {

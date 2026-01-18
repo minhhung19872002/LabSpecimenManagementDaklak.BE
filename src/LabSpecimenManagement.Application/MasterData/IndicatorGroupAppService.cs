@@ -27,15 +27,18 @@ public class IndicatorGroupAppService :
 {
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public IndicatorGroupAppService(
         IRepository<IndicatorGroup, Guid> repository,
         IRepository<Indicator, Guid> indicatorRepository,
-        IRepository<Laboratory, Guid> laboratoryRepository)
+        IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository)
         : base(repository)
     {
         _indicatorRepository = indicatorRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
 
         GetPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
         GetListPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
@@ -201,10 +204,11 @@ public class IndicatorGroupAppService :
         var laboratoryNames = new Dictionary<Guid, string>();
         if (laboratoryIds.Count > 0)
         {
-            var laboratoryQuery = await _laboratoryRepository.GetQueryableAsync();
-            laboratoryNames = laboratoryQuery
-                .Where(l => laboratoryIds.Contains(l.Id))
-                .ToDictionary(l => l.Id, l => l.Name);
+            var labs = await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id));
+            var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+            var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+            var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+            laboratoryNames = labs.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
         }
 
         foreach (var dto in dtos)

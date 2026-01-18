@@ -63,6 +63,7 @@ public partial class TestRequestAppService :
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -71,6 +72,7 @@ public partial class TestRequestAppService :
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -100,6 +102,7 @@ public partial class TestRequestAppService :
         _indicatorRepository = indicatorRepository;
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _codeGenerator = codeGenerator;
@@ -195,7 +198,11 @@ public partial class TestRequestAppService :
                 if (indicator.LaboratoryId.HasValue)
                 {
                     var laboratory = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    laboratoryName = laboratory?.Name;
+                    if (laboratory != null)
+                    {
+                        var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+                        laboratoryName = labDept?.Name;
+                    }
                 }
 
                 // Get test method info if assigned
@@ -1195,9 +1202,11 @@ public partial class TestRequestAppService :
         foreach (var labId in indicatorsByLab.Keys)
         {
             var lab = await _laboratoryRepository.GetAsync(labId);
+            var labDept = await _departmentRepository.GetAsync(lab.DepartmentId);
+            var labName = labDept.Name;
             if (lab.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                lab.Name?.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) == true ||
-                lab.Name?.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase) == true)
+                labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase))
             {
                 microbiologyLabId = labId;
                 break;
@@ -2882,9 +2891,14 @@ public partial class TestRequestAppService :
                 if (indicator.LaboratoryId.HasValue)
                 {
                     var lab = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    if (lab != null && !laboratories.Contains(lab.Name))
+                    if (lab != null)
                     {
-                        laboratories.Add(lab.Name);
+                        var labDept = await _departmentRepository.FindAsync(lab.DepartmentId);
+                        var labName = labDept?.Name ?? "";
+                        if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
+                        {
+                            laboratories.Add(labName);
+                        }
                     }
                 }
             }
@@ -3096,6 +3110,7 @@ public partial class TestRequestAppService :
             // Get lab info through LaboratoryTask
             var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
             var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+            var labDept = await _departmentRepository.GetAsync(laboratory.DepartmentId);
 
             // Get specimen type name if exists
             string? specimenTypeName = null;
@@ -3120,7 +3135,7 @@ public partial class TestRequestAppService :
                 Id = indicator.Id,
                 LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
                 LaboratoryId = laboratory.Id,
-                LaboratoryName = laboratory.Name,
+                LaboratoryName = labDept.Name,
                 SampleId = sample.Id,
                 SampleCode = sample.SampleCode,
                 SampleName = sample.SampleName,
@@ -3316,7 +3331,10 @@ public partial class TestRequestAppService :
         // Get laboratory names
         var labIds = indicatorsByLabSample.Keys.Select(k => k.LabId).Distinct().ToList();
         var laboratories = await _laboratoryRepository.GetListAsync(x => labIds.Contains(x.Id));
-        var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
+        var deptIds = laboratories.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+        var labDict = laboratories.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
 
         var results = new List<PrintResultItemDto>();
 

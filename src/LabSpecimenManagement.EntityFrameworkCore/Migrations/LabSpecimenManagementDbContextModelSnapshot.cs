@@ -948,6 +948,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<Guid>("DepartmentId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")
@@ -970,11 +973,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -986,10 +984,9 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
-                    b.HasIndex("IsActive");
+                    b.HasIndex("DepartmentId");
 
-                    b.HasIndex("Name")
-                        .IsUnique();
+                    b.HasIndex("IsActive");
 
                     b.ToTable("AppLaboratories", (string)null);
                 });
@@ -3133,7 +3130,7 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("TestRequestSampleIndicatorId");
 
-                    b.ToTable("SampleIndicatorNotes", (string)null);
+                    b.ToTable("SampleIndicatorNotes");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.Specimen", b =>

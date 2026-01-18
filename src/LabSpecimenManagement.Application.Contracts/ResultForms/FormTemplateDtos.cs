@@ -145,6 +145,9 @@ public class OnlyOfficeCustomization
 
     [JsonPropertyName("help")]
     public bool Help { get; set; }
+
+    [JsonPropertyName("goback")]
+    public bool Goback { get; set; }
 }
 
 /// <summary>

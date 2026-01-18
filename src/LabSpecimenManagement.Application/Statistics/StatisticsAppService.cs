@@ -21,6 +21,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
 
     public StatisticsAppService(
@@ -30,6 +31,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository)
     {
         _testRequestRepository = testRequestRepository;
@@ -38,6 +40,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
     }
 
@@ -163,7 +166,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
 
         var laboratoryTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
         var laboratories = await _laboratoryRepository.GetListAsync();
-        var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
+        var departments = await _departmentRepository.GetListAsync();
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+        var labDict = laboratories.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
 
         // Get tasks within date range (based on CreationTime or TransferDate)
         var filteredTasks = await AsyncExecuter.ToListAsync(

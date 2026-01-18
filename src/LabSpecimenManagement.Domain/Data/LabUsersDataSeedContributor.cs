@@ -1,10 +1,14 @@
 using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Configuration;
 using Volo.Abp.Data;
 using Volo.Abp.DependencyInjection;
+using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
 using Volo.Abp.Identity;
 using Volo.Abp.PermissionManagement;
@@ -23,6 +27,10 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
     private readonly IdentityRoleManager _roleManager;
     private readonly IPermissionManager _permissionManager;
     private readonly IConfiguration _configuration;
+    private readonly IRepository<Department, Guid> _departmentRepository;
+
+    // Cache for department lookup
+    private Dictionary<string, Guid>? _departmentCodeToIdMap;
 
     // Role names
     public const string RoleLabTechnicalManager = "LabTechnicalManager";  // Quản lý kỹ thuật Lab (labvisinh, labhoa)
@@ -38,7 +46,8 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         IdentityUserManager userManager,
         IdentityRoleManager roleManager,
         IPermissionManager permissionManager,
-        IConfiguration configuration)
+        IConfiguration configuration,
+        IRepository<Department, Guid> departmentRepository)
     {
         _guidGenerator = guidGenerator;
         _roleRepository = roleRepository;
@@ -47,6 +56,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         _roleManager = roleManager;
         _permissionManager = permissionManager;
         _configuration = configuration;
+        _departmentRepository = departmentRepository;
     }
 
     public async Task SeedAsync(DataSeedContext context)
@@ -58,8 +68,47 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             return;
         }
 
+        // Seed Departments first (if not exists) for DepartmentId assignment
+        await SeedDepartmentsIfNotExistsAsync();
+
         await CreateRolesAsync();
         await CreateUsersAsync();
+    }
+
+    /// <summary>
+    /// Seed Departments nếu chưa có - để có thể gán DepartmentId cho Users
+    /// </summary>
+    private async Task SeedDepartmentsIfNotExistsAsync()
+    {
+        if (await _departmentRepository.GetCountAsync() > 0) return;
+
+        var departments = new[]
+        {
+            // Phòng ban chung
+            ("QL", "Quản lý"),
+            ("BGD", "Ban Giám đốc"),
+            ("PHH", "Phòng Hóa học"),
+            ("PVS", "Phòng Vi sinh"),
+            ("PVL", "Phòng Vật lý"),
+            ("PMT", "Phòng Môi trường"),
+            ("TNM", "Tiếp nhận mẫu"),
+            // Phòng ban cho Laboratories
+            ("TTKN", "Trung tâm kiểm nghiệm"),
+            ("HLSK", "Lab Hóa Lý sắc ký"),
+            ("LVS", "Lab vi sinh"),
+            ("PNM", "Phòng Nhận mẫu"),
+            ("KVK", "Khoa vi khuẩn"),
+            ("HDP", "Hợp đồng phụ"),
+            ("KKT", "Khoa Kế Toán"),
+            ("QTN-KLN", "Quầy thu ngân - Kim loại nặng"),
+            ("LH", "Lab Hóa"),
+        };
+
+        foreach (var (code, name) in departments)
+        {
+            var entity = new Department(_guidGenerator.Create(), code, name);
+            await _departmentRepository.InsertAsync(entity);
+        }
     }
 
     private async Task CreateRolesAsync()
@@ -184,79 +233,106 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
 
     private async Task CreateUsersAsync()
     {
-        const string defaultPassword = "";
+        const string defaultPassword = "1q2w3E*";
 
-        // 1. Admin1 - Full access (role admin của ABP)
+        // Load departments for mapping
+        await LoadDepartmentMapAsync();
+
+        // 1. Admin1 - Full access (role admin của ABP) - thuộc Ban Giám đốc
         await CreateUserIfNotExistsAsync(
             "admin1",
             "admin1@lab.vn",
             "Admin 1",
             defaultPassword,
-            new[] { "admin" }
+            new[] { "admin" },
+            "BGD"  // Ban Giám đốc
         );
 
-        // 2. Lab Vi Sinh - Quản lý kỹ thuật
+        // 2. Lab Vi Sinh - Quản lý kỹ thuật - thuộc Lab vi sinh
         await CreateUserIfNotExistsAsync(
             "labvisinh",
             "labvisinh@lab.vn",
             "Lab Vi Sinh - QLKT",
             defaultPassword,
-            new[] { RoleLabTechnicalManager }
+            new[] { RoleLabTechnicalManager },
+            "LVS"  // Lab vi sinh
         );
 
-        // 3. Lab Hóa - Quản lý kỹ thuật
+        // 3. Lab Hóa - Quản lý kỹ thuật - thuộc Lab Hóa
         await CreateUserIfNotExistsAsync(
             "labhoa",
             "labhoa@lab.vn",
             "Lab Hóa - QLKT",
             defaultPassword,
-            new[] { RoleLabTechnicalManager }
+            new[] { RoleLabTechnicalManager },
+            "LH"  // Lab Hóa
         );
 
-        // 4. Bộ phận Giao nhận mẫu
+        // 4. Bộ phận Giao nhận mẫu - thuộc Phòng Nhận mẫu
         await CreateUserIfNotExistsAsync(
             "bpgiaonhan",
             "bpgiaonhan@lab.vn",
             "BP Giao nhận mẫu",
             defaultPassword,
-            new[] { RoleSampleReceiver }
+            new[] { RoleSampleReceiver },
+            "PNM"  // Phòng Nhận mẫu
         );
 
-        // 5. Quản lý chất lượng
+        // 5. Quản lý chất lượng - thuộc Trung tâm kiểm nghiệm
         await CreateUserIfNotExistsAsync(
             "quanlychatluong",
             "quanlychatluong@lab.vn",
             "Quản lý chất lượng",
             defaultPassword,
-            new[] { RoleQualityManager }
+            new[] { RoleQualityManager },
+            "TTKN"  // Trung tâm kiểm nghiệm
         );
 
-        // 6. Thử nghiệm viên 1
+        // 6. Thử nghiệm viên 1 - thuộc Lab vi sinh
         await CreateUserIfNotExistsAsync(
             "kythuatvien1",
             "kythuatvien1@lab.vn",
             "Thử nghiệm viên 1",
             defaultPassword,
-            new[] { RoleLabTechnician }
+            new[] { RoleLabTechnician },
+            "LVS"  // Lab vi sinh
         );
 
-        // 7. Thử nghiệm viên 2
+        // 7. Thử nghiệm viên 2 - thuộc Lab Hóa
         await CreateUserIfNotExistsAsync(
             "kythuatvien2",
             "kythuatvien2@lab.vn",
             "Thử nghiệm viên 2",
             defaultPassword,
-            new[] { RoleLabTechnician }
+            new[] { RoleLabTechnician },
+            "LH"  // Lab Hóa
         );
 
-        // 8. Kế toán
+        // 8. Kế toán - thuộc Khoa Kế Toán
         await CreateUserIfNotExistsAsync(
             "ketoan",
             "ketoan@lab.vn",
             "Kế toán",
             defaultPassword,
-            new[] { RoleAccountant }
+            new[] { RoleAccountant },
+            "KKT"  // Khoa Kế Toán
         );
+    }
+
+    private async Task LoadDepartmentMapAsync()
+    {
+        if (_departmentCodeToIdMap != null) return;
+
+        var departments = await _departmentRepository.GetListAsync();
+        _departmentCodeToIdMap = departments.ToDictionary(d => d.Code, d => d.Id);
+    }
+
+    private Guid? GetDepartmentId(string? departmentCode)
+    {
+        if (string.IsNullOrEmpty(departmentCode) || _departmentCodeToIdMap == null)
+            return null;
+
+        return _departmentCodeToIdMap.TryGetValue(departmentCode, out var id) ? id : null;
     }
 
     private async Task CreateUserIfNotExistsAsync(
@@ -264,7 +340,8 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
         string email,
         string name,
         string password,
-        string[] roleNames)
+        string[] roleNames,
+        string? departmentCode = null)
     {
         var user = await _userRepository.FindByNormalizedUserNameAsync(userName.ToUpperInvariant());
         if (user == null)
@@ -275,6 +352,13 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
                 email
             );
             user.Name = name;
+
+            // Set DepartmentId extra property
+            var departmentId = GetDepartmentId(departmentCode);
+            if (departmentId.HasValue)
+            {
+                user.SetProperty("DepartmentId", departmentId.Value);
+            }
 
             var result = await _userManager.CreateAsync(user, password);
             if (result.Succeeded)
