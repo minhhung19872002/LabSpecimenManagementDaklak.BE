@@ -187,11 +187,11 @@ jobs:
             echo "=============================================="
             echo "🌐 TESTING ONLYOFFICE CONNECTIVITY"
             echo "=============================================="
-            echo "Testing OnlyOffice from host (port 8090)..."
-            ONLYOFFICE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/healthcheck || echo "FAILED")
+            echo "Testing OnlyOffice from host (port 8092)..."
+            ONLYOFFICE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8092/healthcheck || echo "FAILED")
             echo "OnlyOffice HTTP Status (host): $ONLYOFFICE_STATUS"
             if [ "$ONLYOFFICE_STATUS" = "200" ]; then
-              echo "✅ OnlyOffice is accessible on port 8090 (host)"
+              echo "✅ OnlyOffice is accessible on port 8092 (host)"
             else
               echo "❌ OnlyOffice NOT accessible from host. Checking logs..."
               docker-compose logs --tail=30 onlyoffice
