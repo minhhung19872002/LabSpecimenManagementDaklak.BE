@@ -775,62 +775,67 @@ public class ImportAppService : ApplicationService, IImportAppService
                     IsValid = true
                 };
 
+                var rowErrorMessages = new List<string>();
+
                 // Validate indicator name not empty
                 if (string.IsNullOrWhiteSpace(indicatorKey))
                 {
                     item.IsValid = false;
-                    item.ErrorMessage = "Tên chỉ tiêu không được để trống";
+                    var error = "Tên chỉ tiêu không được để trống";
+                    rowErrorMessages.Add(error);
                     validationResult.Errors.Add(new ImportRowError
                     {
                         RowNumber = rowNumber,
                         ColumnName = "Chỉ tiêu",
-                        ErrorMessage = item.ErrorMessage
+                        ErrorMessage = error
                     });
-                    AddRowError(rowErrors, rowNumber, item.ErrorMessage);
-                    previewGroup.Indicators.Add(item);
-                    continue;
-                }
-
-                // Validate indicator exists
-                if (!indicatorDict.TryGetValue(indicatorKey, out var indicatorId))
-                {
-                    item.IsValid = false;
-                    item.ErrorMessage = $"Chỉ tiêu '{row.IndicatorName}' không tồn tại trong hệ thống";
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Chỉ tiêu",
-                        ErrorMessage = item.ErrorMessage,
-                        Value = row.IndicatorName
-                    });
-                    AddRowError(rowErrors, rowNumber, item.ErrorMessage);
+                    AddRowError(rowErrors, rowNumber, error);
                 }
                 else
                 {
-                    item.IndicatorId = indicatorId;
-
-                    // Check duplicate indicator in same test method
-                    if (!indicatorNames.Add(indicatorKey))
+                    // Validate indicator exists (only if name is not empty)
+                    if (!indicatorDict.TryGetValue(indicatorKey, out var indicatorId))
                     {
                         item.IsValid = false;
-                        item.ErrorMessage = $"Chỉ tiêu '{row.IndicatorName}' bị trùng trong phương pháp này";
+                        var error = $"Chỉ tiêu '{row.IndicatorName}' không tồn tại trong hệ thống";
+                        rowErrorMessages.Add(error);
                         validationResult.Errors.Add(new ImportRowError
                         {
                             RowNumber = rowNumber,
                             ColumnName = "Chỉ tiêu",
-                            ErrorMessage = item.ErrorMessage,
+                            ErrorMessage = error,
                             Value = row.IndicatorName
                         });
-                        AddRowError(rowErrors, rowNumber, item.ErrorMessage);
+                        AddRowError(rowErrors, rowNumber, error);
+                    }
+                    else
+                    {
+                        item.IndicatorId = indicatorId;
+
+                        // Check duplicate indicator in same test method
+                        if (!indicatorNames.Add(indicatorKey))
+                        {
+                            item.IsValid = false;
+                            var error = $"Chỉ tiêu '{row.IndicatorName}' bị trùng trong phương pháp này";
+                            rowErrorMessages.Add(error);
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = rowNumber,
+                                ColumnName = "Chỉ tiêu",
+                                ErrorMessage = error,
+                                Value = row.IndicatorName
+                            });
+                            AddRowError(rowErrors, rowNumber, error);
+                        }
                     }
                 }
 
-                // Validate UnitPrice
+                // Validate UnitPrice (always check regardless of other errors)
                 if (row.UnitPrice < 0)
                 {
                     var error = "Đơn giá phải >= 0";
                     item.IsValid = false;
-                    item.ErrorMessage = (item.ErrorMessage != null ? item.ErrorMessage + "; " : "") + error;
+                    rowErrorMessages.Add(error);
                     validationResult.Errors.Add(new ImportRowError
                     {
                         RowNumber = rowNumber,
@@ -841,12 +846,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                     AddRowError(rowErrors, rowNumber, error);
                 }
 
-                // Validate Unit not empty
+                // Validate Unit not empty (always check regardless of other errors)
                 if (string.IsNullOrWhiteSpace(row.Unit))
                 {
                     var error = "Đơn vị tính không được để trống";
                     item.IsValid = false;
-                    item.ErrorMessage = (item.ErrorMessage != null ? item.ErrorMessage + "; " : "") + error;
+                    rowErrorMessages.Add(error);
                     validationResult.Errors.Add(new ImportRowError
                     {
                         RowNumber = rowNumber,
@@ -854,6 +859,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                         ErrorMessage = error
                     });
                     AddRowError(rowErrors, rowNumber, error);
+                }
+
+                // Set combined error message for display
+                if (rowErrorMessages.Count > 0)
+                {
+                    item.ErrorMessage = string.Join("; ", rowErrorMessages);
                 }
 
                 previewGroup.Indicators.Add(item);
