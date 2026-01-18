@@ -184,7 +184,7 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
 
     private async Task CreateUsersAsync()
     {
-        const string defaultPassword = "1q2w3E*";
+        const string defaultPassword = "";
 
         // 1. Admin1 - Full access (role admin của ABP)
         await CreateUserIfNotExistsAsync(

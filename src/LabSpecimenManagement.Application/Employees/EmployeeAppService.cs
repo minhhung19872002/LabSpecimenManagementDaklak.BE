@@ -165,8 +165,26 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         user.SetProperty("DepartmentId", input.DepartmentId);
         user.SetProperty("Position", input.Position ?? string.Empty);
 
-        // Generate a random password
-        var password = GenerateRandomPassword();
+        // Determine password based on mode
+        string password;
+        if (input.UseManualPassword)
+        {
+            // Validate manual password
+            if (string.IsNullOrEmpty(input.Password))
+            {
+                throw new ValidationException("password", "Vui lòng nhập mật khẩu");
+            }
+            if (input.Password != input.ConfirmPassword)
+            {
+                throw new ValidationException("confirmPassword", "Mật khẩu xác nhận không khớp");
+            }
+            password = input.Password;
+        }
+        else
+        {
+            // Auto-generate password
+            password = GenerateRandomPassword();
+        }
 
         var result = await _userManager.CreateAsync(user, password);
         if (!result.Succeeded)
@@ -180,20 +198,23 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             await _userManager.AddToRoleAsync(user, input.Role);
         }
 
-        // Send welcome email with credentials
-        try
+        // Send welcome email with credentials (only for auto-generated password)
+        if (!input.UseManualPassword)
         {
-            await _emailService.SendAccountCreatedEmailAsync(
-                input.Email,
-                input.FullName,
-                input.Username,
-                password
-            );
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to send welcome email to {Email}", input.Email);
-            // Don't throw - user was created successfully, just email failed
+            try
+            {
+                await _emailService.SendAccountCreatedEmailAsync(
+                    input.Email,
+                    input.FullName,
+                    input.Username,
+                    password
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send welcome email to {Email}", input.Email);
+                // Don't throw - user was created successfully, just email failed
+            }
         }
 
         var departments = await _departmentRepository.GetListAsync();
