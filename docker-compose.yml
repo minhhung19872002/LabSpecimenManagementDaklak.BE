@@ -81,7 +81,7 @@ services:
         image: onlyoffice/documentserver:latest
         container_name: lab-specimen-onlyoffice
         ports:
-            - "8092:80"
+            - "8089:80"
         environment:
             - JWT_ENABLED=false
             - USE_UNAUTHORIZED_STORAGE=true
