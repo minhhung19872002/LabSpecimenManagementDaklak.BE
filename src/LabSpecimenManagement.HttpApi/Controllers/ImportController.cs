@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
+using Volo.Abp.Validation;
 
 namespace LabSpecimenManagement.Controllers;
 
@@ -134,6 +135,53 @@ public class ImportController : LabSpecimenManagementController
     {
         var bytes = _importAppService.GetTestMethodTemplate();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_PhuongPhapThuNghiem.xlsx");
+    }
+
+    /// <summary>
+    /// Get template for importing TestMethods with Indicators
+    /// </summary>
+    [HttpGet("test-methods-with-indicators/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    public virtual IActionResult GetTestMethodWithIndicatorsTemplate()
+    {
+        var bytes = _importAppService.GetTestMethodWithIndicatorsTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_PhuongPhapThu.xlsx");
+    }
+
+    #endregion
+
+    #region TestMethod with Indicators Import
+
+    /// <summary>
+    /// Preview TestMethod with Indicators import - validates data without saving
+    /// </summary>
+    [HttpPost("test-methods-with-indicators/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    [DisableValidation]
+    public virtual async Task<TestMethodImportPreviewDto> PreviewTestMethodsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        // Convert to byte array to avoid ABP validation issues with Stream
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewTestMethodsWithIndicatorsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import TestMethods with Indicators (upsert logic)
+    /// </summary>
+    [HttpPost("test-methods-with-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportTestMethodsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        // Convert to byte array to avoid ABP validation issues with Stream
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportTestMethodsWithIndicatorsAsync(fileBytes);
     }
 
     #endregion

@@ -1,6 +1,7 @@
 using System.IO;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Validation;
 
 namespace LabSpecimenManagement.Import;
 
@@ -78,6 +79,30 @@ public interface IImportAppService : IApplicationService
     /// Get TestMethod import template
     /// </summary>
     byte[] GetTestMethodTemplate();
+
+    /// <summary>
+    /// Get TestMethod with Indicators import template
+    /// Template columns: Tên phương pháp, Mô tả, Đơn vị tính, Chỉ tiêu, Đơn giá
+    /// </summary>
+    byte[] GetTestMethodWithIndicatorsTemplate();
+
+    #endregion
+
+    #region TestMethod with Indicators Import
+
+    /// <summary>
+    /// Preview TestMethod with Indicators import - validates data without saving
+    /// Groups rows by TestMethodName, validates Indicators exist
+    /// </summary>
+    [DisableValidation]
+    Task<TestMethodImportPreviewDto> PreviewTestMethodsWithIndicatorsAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import TestMethods with Indicators from Excel file
+    /// Upsert logic: match by TestMethodName (trim, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportTestMethodsWithIndicatorsAsync(byte[] fileBytes);
 
     #endregion
 }
