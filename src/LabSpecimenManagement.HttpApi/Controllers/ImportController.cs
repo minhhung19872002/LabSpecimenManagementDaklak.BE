@@ -186,6 +186,51 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Standard with Indicators Import
+
+    /// <summary>
+    /// Get template for importing Standards with Indicators
+    /// </summary>
+    [HttpGet("standards-with-indicators/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    public virtual IActionResult GetStandardWithIndicatorsTemplate()
+    {
+        var bytes = _importAppService.GetStandardWithIndicatorsTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_TieuChuan.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Standard with Indicators import - validates data without saving
+    /// </summary>
+    [HttpPost("standards-with-indicators/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    [DisableValidation]
+    public virtual async Task<StandardImportPreviewDto> PreviewStandardsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewStandardsWithIndicatorsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Standards with Indicators (upsert logic)
+    /// </summary>
+    [HttpPost("standards-with-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportStandardsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportStandardsWithIndicatorsAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)

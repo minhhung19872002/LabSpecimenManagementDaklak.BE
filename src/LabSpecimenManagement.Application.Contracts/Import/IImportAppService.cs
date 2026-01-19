@@ -105,4 +105,29 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportTestMethodsWithIndicatorsAsync(byte[] fileBytes);
 
     #endregion
+
+    #region Standard with Indicators Import
+
+    /// <summary>
+    /// Get Standard with Indicators import template
+    /// Template columns: Tên tiêu chuẩn, Chỉ tiêu, Phương pháp, Đơn vị, So sánh, Giới hạn,
+    /// So sánh giới hạn dưới, Giới hạn dưới, So sánh giới hạn trên, Giới hạn trên
+    /// </summary>
+    byte[] GetStandardWithIndicatorsTemplate();
+
+    /// <summary>
+    /// Preview Standard with Indicators import - validates data without saving
+    /// Groups rows by StandardName, validates Indicators and TestMethods exist
+    /// </summary>
+    [DisableValidation]
+    Task<StandardImportPreviewDto> PreviewStandardsWithIndicatorsAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import Standards with Indicators from Excel file
+    /// Upsert logic: match by StandardName (trim, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportStandardsWithIndicatorsAsync(byte[] fileBytes);
+
+    #endregion
 }

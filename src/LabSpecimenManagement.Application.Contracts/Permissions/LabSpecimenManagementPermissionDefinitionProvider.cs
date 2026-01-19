@@ -152,6 +152,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Specimens, L("Permission:Import.Specimens"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Customers, L("Permission:Import.Customers"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.TestMethods, L("Permission:Import.TestMethods"));
+        importPermission.AddChild(LabSpecimenManagementPermissions.Import.Standards, L("Permission:Import.Standards"));
 
         // User Management Permissions
         var userPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Users.Default, L("Permission:Users"));

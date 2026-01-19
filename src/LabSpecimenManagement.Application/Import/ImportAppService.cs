@@ -29,6 +29,8 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -42,6 +44,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Department, Guid> departmentRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -54,6 +58,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _departmentRepository = departmentRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -1373,6 +1379,759 @@ public class ImportAppService : ApplicationService, IImportAppService
         cell.Style.Font.FontColor = XLColor.DarkRed;
         cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
         cell.Style.Border.OutsideBorderColor = XLColor.Red;
+    }
+
+    #endregion
+
+    #region Standard with Indicators Import
+
+    // Valid comparison operators
+    private static readonly HashSet<string> ValidComparisonOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "<", ">", "<=", ">=", "=", "Khoảng", "khoảng", "KHOẢNG"
+    };
+
+    private static readonly HashSet<string> ValidLowerOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ">", ">="
+    };
+
+    private static readonly HashSet<string> ValidUpperOperators = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "<", "<="
+    };
+
+    public byte[] GetStandardWithIndicatorsTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "Tiêu chuẩn.xlsx");
+
+        if (File.Exists(templatePath))
+        {
+            return File.ReadAllBytes(templatePath);
+        }
+
+        // Fallback: Generate template dynamically
+        var templateData = new List<Dictionary<string, object>>
+        {
+            new()
+            {
+                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
+                { "Chỉ tiêu", "pH" },
+                { "Phương pháp", "TCVN 6492:2011" },
+                { "Đơn vị", "mg/L" },
+                { "So sánh", "<=" },
+                { "Giới hạn", "6.5" },
+                { "So sánh giới hạn dưới", "" },
+                { "Giới hạn dưới", "" },
+                { "So sánh giới hạn trên", "" },
+                { "Giới hạn trên", "" }
+            },
+            new()
+            {
+                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
+                { "Chỉ tiêu", "Độ đục" },
+                { "Phương pháp", "TCVN 6492:2011" },
+                { "Đơn vị", "NTU" },
+                { "So sánh", "Khoảng" },
+                { "Giới hạn", "" },
+                { "So sánh giới hạn dưới", ">=" },
+                { "Giới hạn dưới", "0" },
+                { "So sánh giới hạn trên", "<=" },
+                { "Giới hạn trên", "5" }
+            }
+        };
+
+        using var stream = new MemoryStream();
+        stream.SaveAs(templateData);
+        return stream.ToArray();
+    }
+
+    public async Task<StandardImportPreviewDto> PreviewStandardsWithIndicatorsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewStandardsWithIndicatorsInternalAsync(memoryStream);
+    }
+
+    private async Task<StandardImportPreviewDto> PreviewStandardsWithIndicatorsInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadStandardExcelRows(memoryStream);
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorDict = indicators.ToDictionary(
+            x => x.Name.Trim().ToLowerInvariant(),
+            x => x);
+
+        var testMethods = await _testMethodRepository.GetListAsync();
+        var testMethodDict = testMethods.ToDictionary(
+            x => x.Name.Trim().ToLowerInvariant(),
+            x => x);
+
+        var standards = await _standardRepository.GetListAsync();
+        var standardDict = standards.ToDictionary(
+            x => x.Name.Trim().ToLowerInvariant(),
+            x => x.Id);
+
+        var result = new StandardImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        // Group by StandardName
+        var groups = rows
+            .Select((row, idx) => (Row: row, RowNumber: idx + 2))
+            .GroupBy(x => x.Row.StandardName?.Trim().ToLowerInvariant() ?? "")
+            .ToList();
+
+        foreach (var group in groups)
+        {
+            var firstRow = group.First().Row;
+            var standardKey = group.Key;
+
+            // Validate StandardName not empty
+            if (string.IsNullOrWhiteSpace(standardKey))
+            {
+                foreach (var (row, rowNumber) in group)
+                {
+                    var error = "Tên tiêu chuẩn không được để trống";
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Tên tiêu chuẩn",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                continue;
+            }
+
+            var previewGroup = new StandardImportPreviewGroup
+            {
+                StandardName = firstRow.StandardName?.Trim() ?? "",
+                IsNew = !standardDict.ContainsKey(standardKey)
+            };
+
+            if (!previewGroup.IsNew)
+            {
+                previewGroup.ExistingId = standardDict[standardKey];
+            }
+
+            // Check for duplicate indicators within the group (same Indicator + TestMethod)
+            var indicatorMethodPairs = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            foreach (var (row, rowNumber) in group)
+            {
+                var indicatorKey = row.IndicatorName?.Trim().ToLowerInvariant() ?? "";
+                var testMethodKey = row.TestMethodName?.Trim().ToLowerInvariant() ?? "";
+                var pairKey = $"{indicatorKey}||{testMethodKey}";
+
+                var item = new StandardIndicatorImportItem
+                {
+                    RowNumber = rowNumber,
+                    IndicatorName = row.IndicatorName?.Trim() ?? "",
+                    TestMethodName = row.TestMethodName?.Trim() ?? "",
+                    Unit = row.Unit?.Trim() ?? "",
+                    ComparisonOperator = row.ComparisonOperator?.Trim() ?? "",
+                    AllowedLimit = row.AllowedLimit?.Trim(),
+                    LowerOperator = row.LowerOperator?.Trim(),
+                    LowerLimit = row.LowerLimit?.Trim(),
+                    UpperOperator = row.UpperOperator?.Trim(),
+                    UpperLimit = row.UpperLimit?.Trim(),
+                    IsValid = true
+                };
+
+                var rowErrorMessages = new List<string>();
+
+                // Validate indicator name not empty
+                if (string.IsNullOrWhiteSpace(indicatorKey))
+                {
+                    item.IsValid = false;
+                    var error = "Tên chỉ tiêu không được để trống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Chỉ tiêu",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else if (!indicatorDict.TryGetValue(indicatorKey, out var indicator))
+                {
+                    item.IsValid = false;
+                    var error = $"Chỉ tiêu '{row.IndicatorName}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Chỉ tiêu",
+                        ErrorMessage = error,
+                        Value = row.IndicatorName
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else
+                {
+                    item.IndicatorId = indicator.Id;
+                }
+
+                // Validate test method name not empty
+                if (string.IsNullOrWhiteSpace(testMethodKey))
+                {
+                    item.IsValid = false;
+                    var error = "Tên phương pháp không được để trống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Phương pháp",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else if (!testMethodDict.TryGetValue(testMethodKey, out var testMethod))
+                {
+                    item.IsValid = false;
+                    var error = $"Phương pháp '{row.TestMethodName}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Phương pháp",
+                        ErrorMessage = error,
+                        Value = row.TestMethodName
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else
+                {
+                    item.TestMethodId = testMethod.Id;
+                }
+
+                // Validate Unit not empty
+                if (string.IsNullOrWhiteSpace(row.Unit))
+                {
+                    item.IsValid = false;
+                    var error = "Đơn vị không được để trống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Đơn vị",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+
+                // Validate duplicate Indicator + TestMethod in same Standard
+                if (!string.IsNullOrWhiteSpace(indicatorKey) && !string.IsNullOrWhiteSpace(testMethodKey))
+                {
+                    if (!indicatorMethodPairs.Add(pairKey))
+                    {
+                        item.IsValid = false;
+                        var error = $"Chỉ tiêu '{row.IndicatorName}' + Phương pháp '{row.TestMethodName}' bị trùng trong tiêu chuẩn này";
+                        rowErrorMessages.Add(error);
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = rowNumber,
+                            ColumnName = "Chỉ tiêu",
+                            ErrorMessage = error,
+                            Value = $"{row.IndicatorName} | {row.TestMethodName}"
+                        });
+                        AddRowError(rowErrors, rowNumber, error);
+                    }
+                }
+
+                // Validate ComparisonOperator
+                var comparison = row.ComparisonOperator?.Trim() ?? "";
+                if (string.IsNullOrWhiteSpace(comparison))
+                {
+                    item.IsValid = false;
+                    var error = "Ký hiệu so sánh không được để trống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "So sánh",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else if (!ValidComparisonOperators.Contains(comparison))
+                {
+                    item.IsValid = false;
+                    var error = $"Ký hiệu so sánh '{comparison}' không hợp lệ. Chỉ được: <, >, <=, >=, =, Khoảng";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "So sánh",
+                        ErrorMessage = error,
+                        Value = comparison
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else
+                {
+                    // Validate based on comparison type
+                    var isRange = comparison.Equals("Khoảng", StringComparison.OrdinalIgnoreCase);
+
+                    if (!isRange)
+                    {
+                        // Single limit validation: AllowedLimit required
+                        if (string.IsNullOrWhiteSpace(row.AllowedLimit))
+                        {
+                            item.IsValid = false;
+                            var error = "Giới hạn không được để trống khi So sánh không phải 'Khoảng'";
+                            rowErrorMessages.Add(error);
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = rowNumber,
+                                ColumnName = "Giới hạn",
+                                ErrorMessage = error
+                            });
+                            AddRowError(rowErrors, rowNumber, error);
+                        }
+                    }
+                    else
+                    {
+                        // Range validation
+                        ValidateRangeFields(row, rowNumber, item, rowErrorMessages, validationResult, rowErrors);
+                    }
+                }
+
+                // Set combined error message for display
+                if (rowErrorMessages.Count > 0)
+                {
+                    item.ErrorMessage = string.Join("; ", rowErrorMessages);
+                }
+
+                previewGroup.Indicators.Add(item);
+            }
+
+            result.Groups.Add(previewGroup);
+        }
+
+        result.ValidationResult = validationResult;
+        result.ValidationResult.ValidRows = rows.Count - validationResult.Errors.Select(e => e.RowNumber).Distinct().Count();
+        result.TotalStandards = result.Groups.Count;
+        result.NewStandards = result.Groups.Count(g => g.IsNew);
+        result.UpdateStandards = result.Groups.Count(g => !g.IsNew);
+        result.TotalIndicators = result.Groups.Sum(g => g.Indicators.Count);
+
+        // Generate error file if there are errors
+        if (!validationResult.IsValid && rowErrors.Count > 0)
+        {
+            var errorFileBytes = GenerateStandardErrorFile(rows, rowErrors, validationResult.Errors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = $"Loi_Import_TieuChuan_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        }
+
+        return result;
+    }
+
+    private void ValidateRangeFields(
+        StandardWithIndicatorImportRow row,
+        int rowNumber,
+        StandardIndicatorImportItem item,
+        List<string> rowErrorMessages,
+        ImportValidationResult validationResult,
+        Dictionary<int, List<string>> rowErrors)
+    {
+        // LowerOperator required
+        var lowerOp = row.LowerOperator?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(lowerOp))
+        {
+            item.IsValid = false;
+            var error = "So sánh giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "So sánh giới hạn dưới",
+                ErrorMessage = error
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+        else if (!ValidLowerOperators.Contains(lowerOp))
+        {
+            item.IsValid = false;
+            var error = $"So sánh giới hạn dưới '{lowerOp}' không hợp lệ. Chỉ được: >, >=";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "So sánh giới hạn dưới",
+                ErrorMessage = error,
+                Value = lowerOp
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+
+        // LowerLimit required
+        if (string.IsNullOrWhiteSpace(row.LowerLimit))
+        {
+            item.IsValid = false;
+            var error = "Giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "Giới hạn dưới",
+                ErrorMessage = error
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+
+        // UpperOperator required
+        var upperOp = row.UpperOperator?.Trim() ?? "";
+        if (string.IsNullOrWhiteSpace(upperOp))
+        {
+            item.IsValid = false;
+            var error = "So sánh giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "So sánh giới hạn trên",
+                ErrorMessage = error
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+        else if (!ValidUpperOperators.Contains(upperOp))
+        {
+            item.IsValid = false;
+            var error = $"So sánh giới hạn trên '{upperOp}' không hợp lệ. Chỉ được: <, <=";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "So sánh giới hạn trên",
+                ErrorMessage = error,
+                Value = upperOp
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+
+        // UpperLimit required
+        if (string.IsNullOrWhiteSpace(row.UpperLimit))
+        {
+            item.IsValid = false;
+            var error = "Giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
+            rowErrorMessages.Add(error);
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = rowNumber,
+                ColumnName = "Giới hạn trên",
+                ErrorMessage = error
+            });
+            AddRowError(rowErrors, rowNumber, error);
+        }
+
+        // Validate LowerLimit < UpperLimit (if both are numbers)
+        if (!string.IsNullOrWhiteSpace(row.LowerLimit) && !string.IsNullOrWhiteSpace(row.UpperLimit))
+        {
+            if (decimal.TryParse(row.LowerLimit, out var lowerVal) && decimal.TryParse(row.UpperLimit, out var upperVal))
+            {
+                if (lowerVal >= upperVal)
+                {
+                    item.IsValid = false;
+                    var error = $"Giới hạn dưới ({lowerVal}) phải nhỏ hơn Giới hạn trên ({upperVal})";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Giới hạn",
+                        ErrorMessage = error,
+                        Value = $"{lowerVal} - {upperVal}"
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+            }
+        }
+    }
+
+    public async Task<ImportResultDto> ImportStandardsWithIndicatorsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewStandardsWithIndicatorsInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var importedCount = 0;
+        var updatedCount = 0;
+        var codeOffset = 0;
+
+        try
+        {
+            foreach (var group in preview.Groups)
+            {
+                Standard standard;
+
+                if (group.IsNew)
+                {
+                    // Create new Standard
+                    var code = await GenerateStandardCodeAsync(codeOffset);
+                    codeOffset++;
+                    standard = new Standard(
+                        _guidGenerator.Create(),
+                        code,
+                        group.StandardName
+                    );
+                    await _standardRepository.InsertAsync(standard);
+                    importedCount++;
+                }
+                else
+                {
+                    // Update existing Standard (just update LastModificationTime by touching it)
+                    standard = await _standardRepository.GetAsync(group.ExistingId!.Value);
+                    await _standardRepository.UpdateAsync(standard);
+                    updatedCount++;
+                }
+
+                // Remove existing indicators
+                var existingIndicators = await _standardIndicatorRepository
+                    .GetListAsync(x => x.StandardId == standard.Id);
+                if (existingIndicators.Any())
+                {
+                    await _standardIndicatorRepository.DeleteManyAsync(existingIndicators);
+                }
+
+                // Add indicators from import
+                var sortOrder = 0;
+                foreach (var item in group.Indicators.Where(i => i.IsValid && i.IndicatorId.HasValue && i.TestMethodId.HasValue))
+                {
+                    var isRange = item.ComparisonOperator?.Equals("Khoảng", StringComparison.OrdinalIgnoreCase) == true;
+
+                    var standardIndicator = new StandardIndicator(
+                        _guidGenerator.Create(),
+                        standard.Id,
+                        item.IndicatorId!.Value,
+                        item.TestMethodId!.Value,
+                        item.Unit
+                    )
+                    {
+                        ComparisonOperator = isRange ? null : item.ComparisonOperator,
+                        AllowedLimit = isRange ? null : item.AllowedLimit,
+                        LowerOperator = isRange ? item.LowerOperator : null,
+                        LowerLimit = isRange ? item.LowerLimit : null,
+                        UpperOperator = isRange ? item.UpperOperator : null,
+                        UpperLimit = isRange ? item.UpperLimit : null,
+                        IsActive = true,
+                        SortOrder = sortOrder++
+                    };
+                    await _standardIndicatorRepository.InsertAsync(standardIndicator);
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = importedCount,
+                SkippedRows = updatedCount,
+                Message = $"Import thành công: {importedCount} tiêu chuẩn mới, {updatedCount} tiêu chuẩn cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}. Đã rollback tất cả thay đổi."
+            };
+        }
+    }
+
+    private List<StandardWithIndicatorImportRow> ReadStandardExcelRows(Stream fileStream)
+    {
+        using var workbook = new XLWorkbook(fileStream);
+        var worksheet = workbook.Worksheet(1);
+        var result = new List<StandardWithIndicatorImportRow>();
+
+        // Find header row and column indices
+        var headerRow = worksheet.Row(1);
+        var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var cell in headerRow.CellsUsed())
+        {
+            var headerName = cell.GetString()?.Trim().ToLowerInvariant() ?? "";
+            if (!string.IsNullOrEmpty(headerName))
+            {
+                columnMap[headerName] = cell.Address.ColumnNumber;
+            }
+        }
+
+        // Find column indices for each field
+        int standardNameCol = FindColumnIndex(columnMap, "tên tiêu chuẩn", "tiêu chuẩn", "ten tieu chuan", "tieu chuan", "standard");
+        int indicatorCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "chitieu", "indicator", "tên chỉ tiêu");
+        int testMethodCol = FindColumnIndex(columnMap, "phương pháp", "phuong phap", "pp", "test method", "method");
+        int unitCol = FindColumnIndex(columnMap, "đơn vị", "don vi", "đvt", "dvt", "unit");
+        int comparisonCol = FindColumnIndex(columnMap, "so sánh", "so sanh", "comparison", "operator");
+        int limitCol = FindColumnIndex(columnMap, "giới hạn", "gioi han", "limit", "allowed limit");
+        int lowerOpCol = FindColumnIndex(columnMap, "so sánh giới hạn dưới", "so sanh gioi han duoi", "lower operator", "lower op");
+        int lowerLimitCol = FindColumnIndex(columnMap, "giới hạn dưới", "gioi han duoi", "lower limit");
+        int upperOpCol = FindColumnIndex(columnMap, "so sánh giới hạn trên", "so sanh gioi han tren", "upper operator", "upper op");
+        int upperLimitCol = FindColumnIndex(columnMap, "giới hạn trên", "gioi han tren", "upper limit");
+
+        // Read data rows (starting from row 2)
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (!row.CellsUsed().Any())
+                continue;
+
+            var importRow = new StandardWithIndicatorImportRow
+            {
+                StandardName = standardNameCol > 0 ? row.Cell(standardNameCol).GetString()?.Trim() ?? "" : "",
+                IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
+                TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
+                Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
+                ComparisonOperator = comparisonCol > 0 ? row.Cell(comparisonCol).GetString()?.Trim() ?? "" : "",
+                AllowedLimit = limitCol > 0 ? row.Cell(limitCol).GetString()?.Trim() : null,
+                LowerOperator = lowerOpCol > 0 ? row.Cell(lowerOpCol).GetString()?.Trim() : null,
+                LowerLimit = lowerLimitCol > 0 ? row.Cell(lowerLimitCol).GetString()?.Trim() : null,
+                UpperOperator = upperOpCol > 0 ? row.Cell(upperOpCol).GetString()?.Trim() : null,
+                UpperLimit = upperLimitCol > 0 ? row.Cell(upperLimitCol).GetString()?.Trim() : null
+            };
+
+            result.Add(importRow);
+        }
+
+        return result;
+    }
+
+    private async Task<string> GenerateStandardCodeAsync(int offset = 0)
+    {
+        var today = DateTime.Now;
+        var datePrefix = $"TC{today:ddMMyyyy}";
+
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var query = await _standardRepository.GetQueryableAsync();
+            var maxCode = query
+                .Where(x => x.Code.StartsWith(datePrefix))
+                .Select(x => x.Code)
+                .OrderByDescending(x => x)
+                .FirstOrDefault();
+
+            int nextNumber = 1;
+            if (maxCode != null)
+            {
+                var numberPart = maxCode.Substring(datePrefix.Length);
+                if (int.TryParse(numberPart, out var num))
+                {
+                    nextNumber = num + 1;
+                }
+            }
+
+            return $"{datePrefix}{(nextNumber + offset):D3}";
+        }
+    }
+
+    private byte[] GenerateStandardErrorFile(
+        List<StandardWithIndicatorImportRow> rows,
+        Dictionary<int, List<string>> rowErrors,
+        List<ImportRowError> allErrors)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Import Errors");
+
+        // Column headers
+        var columns = new[] {
+            "Tên tiêu chuẩn", "Chỉ tiêu", "Phương pháp", "Đơn vị", "So sánh",
+            "Giới hạn", "So sánh giới hạn dưới", "Giới hạn dưới",
+            "So sánh giới hạn trên", "Giới hạn trên", "Lỗi"
+        };
+
+        // Write header row with styling
+        for (int col = 0; col < columns.Length; col++)
+        {
+            var cell = worksheet.Cell(1, col + 1);
+            cell.Value = columns[col];
+            cell.Style.Font.Bold = true;
+            cell.Style.Fill.BackgroundColor = XLColor.LightGray;
+            cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+
+        // Build error lookup
+        var errorColumnsByRow = new Dictionary<int, HashSet<string>>();
+        foreach (var error in allErrors)
+        {
+            if (!errorColumnsByRow.ContainsKey(error.RowNumber))
+            {
+                errorColumnsByRow[error.RowNumber] = new HashSet<string>();
+            }
+            errorColumnsByRow[error.RowNumber].Add(error.ColumnName);
+        }
+
+        // Write data rows
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var excelRowNumber = i + 2;
+            var dataRowNumber = i + 2;
+
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            worksheet.Cell(excelRowNumber, 1).Value = row.StandardName ?? "";
+            worksheet.Cell(excelRowNumber, 2).Value = row.IndicatorName ?? "";
+            worksheet.Cell(excelRowNumber, 3).Value = row.TestMethodName ?? "";
+            worksheet.Cell(excelRowNumber, 4).Value = row.Unit ?? "";
+            worksheet.Cell(excelRowNumber, 5).Value = row.ComparisonOperator ?? "";
+            worksheet.Cell(excelRowNumber, 6).Value = row.AllowedLimit ?? "";
+            worksheet.Cell(excelRowNumber, 7).Value = row.LowerOperator ?? "";
+            worksheet.Cell(excelRowNumber, 8).Value = row.LowerLimit ?? "";
+            worksheet.Cell(excelRowNumber, 9).Value = row.UpperOperator ?? "";
+            worksheet.Cell(excelRowNumber, 10).Value = row.UpperLimit ?? "";
+
+            // Error column
+            var cell11 = worksheet.Cell(excelRowNumber, 11);
+            if (rowErrors.TryGetValue(dataRowNumber, out var errors) && errors.Count > 0)
+            {
+                cell11.Value = string.Join("; ", errors);
+                cell11.Style.Font.FontColor = XLColor.Red;
+                cell11.Style.Font.Bold = true;
+            }
+
+            // Highlight row if has errors
+            if (hasError)
+            {
+                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 11);
+                rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+                rowRange.Style.Border.OutsideBorderColor = XLColor.Red;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        // Make error column wider
+        if (worksheet.Column(11).Width < 50)
+        {
+            worksheet.Column(11).Width = 50;
+        }
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     #endregion

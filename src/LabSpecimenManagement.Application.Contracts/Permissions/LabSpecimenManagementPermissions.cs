@@ -213,6 +213,7 @@ public static class LabSpecimenManagementPermissions
         public const string Specimens = Default + ".Specimens";
         public const string Customers = Default + ".Customers";
         public const string TestMethods = Default + ".TestMethods";
+        public const string Standards = Default + ".Standards";
     }
 
     // User Management Permissions

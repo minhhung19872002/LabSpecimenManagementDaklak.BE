@@ -155,6 +155,16 @@ public class ImportResultDto
     public int FailedRows { get; set; }
     public List<ImportRowError> Errors { get; set; } = new();
     public string? Message { get; set; }
+
+    /// <summary>
+    /// File lỗi dạng base64 (chỉ có khi có lỗi)
+    /// </summary>
+    public string? ErrorFileBase64 { get; set; }
+
+    /// <summary>
+    /// Tên file lỗi
+    /// </summary>
+    public string? ErrorFileName { get; set; }
 }
 
 /// <summary>
