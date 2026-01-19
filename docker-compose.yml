@@ -105,7 +105,7 @@ services:
         image: collabora/code:latest
         container_name: lab-specimen-collabora
         ports:
-            - "8090:9980"
+            - "8089:9980"
         environment:
             # Admin console credentials
             - "username=admin"
