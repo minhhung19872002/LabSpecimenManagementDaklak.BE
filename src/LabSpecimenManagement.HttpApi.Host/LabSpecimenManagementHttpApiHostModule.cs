@@ -324,8 +324,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             RequestPath = "/uploads"
         });
 
-        app.UseRouting();
+        // CORS must be before routing to handle preflight OPTIONS requests
         app.UseCors();
+        app.UseRouting();
         app.UseAuthentication();
         app.UseAbpOpenIddictValidation();
 
