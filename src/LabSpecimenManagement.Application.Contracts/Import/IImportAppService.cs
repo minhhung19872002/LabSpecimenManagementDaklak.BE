@@ -130,4 +130,31 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportStandardsWithIndicatorsAsync(byte[] fileBytes);
 
     #endregion
+
+    #region Organization + TestRequest Import (Legacy Data)
+
+    /// <summary>
+    /// Get Organization + TestRequest import template
+    /// Template columns: Tên cơ sở, Người liên hệ, Điện thoại, Địa chỉ, Tỉnh/thành, Phường/xã,
+    /// Mã số thuế, Số hợp đồng, Tên mẫu, Tình trạng, Mã số mẫu, Chỉ tiêu
+    /// </summary>
+    byte[] GetOrganizationTestRequestTemplate();
+
+    /// <summary>
+    /// Preview Organization + TestRequest import - validates data without saving
+    /// Organization upsert: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [DisableValidation]
+    Task<OrganizationTestRequestImportPreviewDto> PreviewOrganizationTestRequestsAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import Organization + TestRequest from Excel file
+    /// Organization upsert logic: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes);
+
+    #endregion
 }

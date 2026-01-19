@@ -231,6 +231,55 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Organization + TestRequest Import (Legacy Data)
+
+    /// <summary>
+    /// Get template for importing Organization + TestRequest from legacy system
+    /// </summary>
+    [HttpGet("organization-test-requests/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    public virtual IActionResult GetOrganizationTestRequestTemplate()
+    {
+        var bytes = _importAppService.GetOrganizationTestRequestTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CoSo_YeuCau.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Organization + TestRequest import - validates data without saving
+    /// Organization upsert: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [HttpPost("organization-test-requests/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    [DisableValidation]
+    public virtual async Task<OrganizationTestRequestImportPreviewDto> PreviewOrganizationTestRequestsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewOrganizationTestRequestsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Organization + TestRequest from Excel file
+    /// Organization upsert: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [HttpPost("organization-test-requests")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)

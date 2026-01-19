@@ -30,4 +30,10 @@
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
   </ItemGroup>
 
+  <!-- Copy Vietnam location data files to output -->
+  <ItemGroup>
+    <None Include="Data\provinces.json" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="Data\wards.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
