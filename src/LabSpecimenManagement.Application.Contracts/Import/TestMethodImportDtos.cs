@@ -20,7 +20,13 @@ public class TestMethodWithIndicatorImportRow
     public string TestMethodName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mô tả (FormattedName) - có thể bỏ trống
+    /// Tên phương pháp có định dạng HTML (bold, italic, underline từ Excel)
+    /// </summary>
+    [MaxLength(2000)]
+    public string? FormattedName { get; set; }
+
+    /// <summary>
+    /// Mô tả - có thể bỏ trống
     /// </summary>
     [MaxLength(2000)]
     public string? Description { get; set; }
@@ -93,12 +99,17 @@ public class TestMethodIndicatorImportItem
 public class TestMethodImportPreviewGroup
 {
     /// <summary>
-    /// Tên phương pháp
+    /// Tên phương pháp (plain text)
     /// </summary>
     public string TestMethodName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Mô tả (FormattedName)
+    /// Tên phương pháp có định dạng HTML (bold, italic, underline từ Excel)
+    /// </summary>
+    public string? FormattedName { get; set; }
+
+    /// <summary>
+    /// Mô tả
     /// </summary>
     public string? Description { get; set; }
 

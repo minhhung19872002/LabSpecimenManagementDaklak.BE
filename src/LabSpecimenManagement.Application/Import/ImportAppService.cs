@@ -751,7 +751,8 @@ public class ImportAppService : ApplicationService, IImportAppService
             var previewGroup = new TestMethodImportPreviewGroup
             {
                 TestMethodName = firstRow.TestMethodName?.Trim() ?? "",
-                Description = firstRow.Description,
+                FormattedName = firstRow.FormattedName,
+                Description = firstRow.Description?.Trim(),
                 Unit = firstRow.Unit?.Trim() ?? "",
                 IsNew = !testMethodDict.ContainsKey(testMethodKey)
             };
@@ -909,6 +910,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         var importedCount = 0;
         var updatedCount = 0;
+        var codeOffset = 0; // Track number of codes generated in this session
 
         try
         {
@@ -919,7 +921,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 if (group.IsNew)
                 {
                     // Create new TestMethod
-                    var code = await GenerateTestMethodCodeAsync();
+                    var code = await GenerateTestMethodCodeAsync(codeOffset);
+                    codeOffset++; // Increment offset for next code
                     testMethod = new TestMethod(
                         _guidGenerator.Create(),
                         code,
@@ -927,7 +930,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                         group.Unit
                     )
                     {
-                        FormattedName = group.Description
+                        // Use FormattedName (with HTML formatting) from Excel
+                        FormattedName = group.FormattedName
                     };
                     await _testMethodRepository.InsertAsync(testMethod);
                     importedCount++;
@@ -937,9 +941,10 @@ public class ImportAppService : ApplicationService, IImportAppService
                     // Update existing TestMethod
                     testMethod = await _testMethodRepository.GetAsync(group.ExistingId!.Value);
                     testMethod.Unit = group.Unit;
-                    if (!string.IsNullOrWhiteSpace(group.Description))
+                    // Update FormattedName if provided
+                    if (!string.IsNullOrWhiteSpace(group.FormattedName))
                     {
-                        testMethod.FormattedName = group.Description;
+                        testMethod.FormattedName = group.FormattedName;
                     }
                     await _testMethodRepository.UpdateAsync(testMethod);
                     updatedCount++;
@@ -993,29 +998,147 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     private List<TestMethodWithIndicatorImportRow> ReadExcelRowsWithVietnameseHeaders(Stream fileStream)
     {
-        var rows = fileStream.Query(useHeaderRow: true).ToList();
+        using var workbook = new XLWorkbook(fileStream);
+        var worksheet = workbook.Worksheet(1);
         var result = new List<TestMethodWithIndicatorImportRow>();
 
-        foreach (var row in rows)
-        {
-            var dict = (IDictionary<string, object>)row;
+        // Find header row and column indices
+        var headerRow = worksheet.Row(1);
+        var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
-            // Normalize keys for flexible matching
-            var normalizedDict = NormalizeKeys(dict);
+        foreach (var cell in headerRow.CellsUsed())
+        {
+            var headerName = cell.GetString()?.Trim().ToLowerInvariant() ?? "";
+            if (!string.IsNullOrEmpty(headerName))
+            {
+                columnMap[headerName] = cell.Address.ColumnNumber;
+            }
+        }
+
+        // Find column indices for each field
+        int testMethodCol = FindColumnIndex(columnMap, "tên phương pháp", "tenpp", "ten phuong phap", "tên pp", "ten pp");
+        int descriptionCol = FindColumnIndex(columnMap, "mô tả", "mo ta", "mota", "description");
+        int unitCol = FindColumnIndex(columnMap, "đơn vị tính", "don vi tinh", "dvt", "đơn vị", "don vi", "unit", "đvt");
+        int indicatorCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "chitieu", "indicator", "tên chỉ tiêu", "ten chi tieu");
+        int priceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "dongia", "gia", "giá", "unit price", "price");
+
+        // Read data rows (starting from row 2)
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (!row.CellsUsed().Any())
+                continue;
 
             var importRow = new TestMethodWithIndicatorImportRow
             {
-                TestMethodName = GetStringValueNormalized(normalizedDict, "tên phương pháp", "tenpp", "ten phuong phap", "tên pp", "ten pp"),
-                Description = GetStringValueNormalized(normalizedDict, "mô tả", "mo ta", "mota", "description"),
-                Unit = GetStringValueNormalized(normalizedDict, "đơn vị tính", "don vi tinh", "dvt", "đơn vị", "don vi", "unit", "đvt"),
-                IndicatorName = GetStringValueNormalized(normalizedDict, "chỉ tiêu", "chi tieu", "chitieu", "indicator", "tên chỉ tiêu", "ten chi tieu"),
-                UnitPrice = GetDecimalValueNormalized(normalizedDict, "đơn giá", "don gia", "dongia", "gia", "giá", "unit price", "price")
+                TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
+                FormattedName = testMethodCol > 0 ? GetCellRichTextAsHtml(row.Cell(testMethodCol)) : null,
+                Description = descriptionCol > 0 ? row.Cell(descriptionCol).GetString()?.Trim() : null,
+                Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
+                IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
+                UnitPrice = priceCol > 0 ? GetCellDecimalValue(row.Cell(priceCol)) : 0
             };
 
             result.Add(importRow);
         }
 
         return result;
+    }
+
+    private int FindColumnIndex(Dictionary<string, int> columnMap, params string[] possibleNames)
+    {
+        foreach (var name in possibleNames)
+        {
+            if (columnMap.TryGetValue(name.ToLowerInvariant(), out var index))
+            {
+                return index;
+            }
+        }
+        return 0;
+    }
+
+    private decimal GetCellDecimalValue(IXLCell cell)
+    {
+        if (cell.IsEmpty()) return 0;
+
+        if (cell.DataType == XLDataType.Number)
+        {
+            return (decimal)cell.GetDouble();
+        }
+
+        var strValue = cell.GetString()?.Trim() ?? "";
+        if (decimal.TryParse(strValue, out var result))
+        {
+            return result;
+        }
+        return 0;
+    }
+
+    /// <summary>
+    /// Convert Excel cell rich text to HTML (bold, italic, underline, subscript, superscript)
+    /// </summary>
+    private string? GetCellRichTextAsHtml(IXLCell cell)
+    {
+        if (cell.IsEmpty()) return null;
+
+        // Check if cell has rich text
+        if (!cell.HasRichText || cell.GetRichText().Count <= 1)
+        {
+            // Single format - check if the whole cell has formatting
+            var font = cell.Style.Font;
+            var text = cell.GetString()?.Trim() ?? "";
+
+            if (string.IsNullOrEmpty(text)) return null;
+
+            // Apply formatting if exists
+            var hasFormatting = font.Bold || font.Italic || font.Underline != XLFontUnderlineValues.None ||
+                               font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript ||
+                               font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript;
+
+            if (!hasFormatting) return text;
+
+            return ApplyHtmlFormatting(text, font.Bold, font.Italic,
+                font.Underline != XLFontUnderlineValues.None,
+                font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript,
+                font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript);
+        }
+
+        // Multiple rich text runs
+        var sb = new System.Text.StringBuilder();
+        foreach (var richText in cell.GetRichText())
+        {
+            var text = richText.Text;
+            if (string.IsNullOrEmpty(text)) continue;
+
+            var formatted = ApplyHtmlFormatting(text,
+                richText.Bold,
+                richText.Italic,
+                richText.Underline != XLFontUnderlineValues.None,
+                richText.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript,
+                richText.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript);
+
+            sb.Append(formatted);
+        }
+
+        var result = sb.ToString().Trim();
+        return string.IsNullOrEmpty(result) ? null : result;
+    }
+
+    private string ApplyHtmlFormatting(string text, bool bold, bool italic, bool underline, bool subscript, bool superscript)
+    {
+        // Escape HTML special characters
+        text = System.Web.HttpUtility.HtmlEncode(text);
+
+        if (subscript) text = $"<sub>{text}</sub>";
+        if (superscript) text = $"<sup>{text}</sup>";
+        if (underline) text = $"<u>{text}</u>";
+        if (italic) text = $"<i>{text}</i>";
+        if (bold) text = $"<b>{text}</b>";
+
+        return text;
     }
 
     private Dictionary<string, object> NormalizeKeys(IDictionary<string, object> dict)
@@ -1082,7 +1205,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         return 0;
     }
 
-    private async Task<string> GenerateTestMethodCodeAsync()
+    private async Task<string> GenerateTestMethodCodeAsync(int offset = 0)
     {
         var today = DateTime.Now;
         var datePrefix = $"PP{today:ddMMyyyy}";
@@ -1107,7 +1230,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            return $"{datePrefix}{nextNumber:D3}";
+            // Add offset to handle multiple inserts in the same batch/session
+            return $"{datePrefix}{(nextNumber + offset):D3}";
         }
     }
 
