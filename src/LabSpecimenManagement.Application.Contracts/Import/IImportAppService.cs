@@ -157,4 +157,30 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes);
 
     #endregion
+
+    #region IndicatorGroup + Indicator Import
+
+    /// <summary>
+    /// Get IndicatorGroup + Indicator import template
+    /// Template columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Tên chỉ tiêu
+    /// </summary>
+    byte[] GetIndicatorGroupTemplate();
+
+    /// <summary>
+    /// Preview IndicatorGroup + Indicator import - validates data without saving
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import IndicatorGroup + Indicator from Excel file
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportIndicatorGroupsAsync(byte[] fileBytes);
+
+    #endregion
 }

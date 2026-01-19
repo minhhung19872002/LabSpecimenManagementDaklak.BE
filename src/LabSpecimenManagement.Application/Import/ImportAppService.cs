@@ -35,6 +35,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<TestRequestSample, Guid> _testRequestSampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _testRequestSampleIndicatorRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
+    private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -53,6 +54,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<TestRequestSample, Guid> testRequestSampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> testRequestSampleIndicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -70,6 +72,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _testRequestSampleRepository = testRequestSampleRepository;
         _testRequestSampleIndicatorRepository = testRequestSampleIndicatorRepository;
         _organizationRepository = organizationRepository;
+        _indicatorGroupRepository = indicatorGroupRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -2979,6 +2982,459 @@ public class ImportAppService : ApplicationService, IImportAppService
         {
             ApplyErrorStyle(cell);
         }
+    }
+
+    #endregion
+
+    #region IndicatorGroup + Indicator Import
+
+    public byte[] GetIndicatorGroupTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "nhóm chỉ tiêu.xlsx");
+        return File.ReadAllBytes(templatePath);
+    }
+
+    public async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewIndicatorGroupsInternalAsync(memoryStream);
+    }
+
+    private async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadIndicatorGroupExcelRows(memoryStream);
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation
+        var indicatorGroups = await _indicatorGroupRepository.GetListAsync();
+        var indicatorGroupDict = indicatorGroups
+            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorDict = indicators
+            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var departments = await _departmentRepository.GetListAsync();
+        var departmentDict = departments
+            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var result = new IndicatorGroupImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var newGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+
+            var item = new IndicatorGroupImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                IndicatorGroupName = row.IndicatorGroupName?.Trim() ?? "",
+                DepartmentName = row.DepartmentName?.Trim(),
+                IndicatorName = row.IndicatorName?.Trim() ?? "",
+                FormattedIndicatorName = row.FormattedIndicatorName,
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(row.IndicatorGroupName))
+            {
+                item.IsValid = false;
+                var error = "Tên nhóm chỉ tiêu không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên nhóm chỉ tiêu",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (string.IsNullOrWhiteSpace(row.IndicatorName))
+            {
+                item.IsValid = false;
+                var error = "Tên chỉ tiêu không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên chỉ tiêu",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            // Check if IndicatorGroup exists
+            var groupKey = row.IndicatorGroupName?.Trim().ToLowerInvariant() ?? "";
+            if (!string.IsNullOrWhiteSpace(groupKey))
+            {
+                if (indicatorGroupDict.TryGetValue(groupKey, out var existingGroup))
+                {
+                    item.IsNewIndicatorGroup = false;
+                    item.ExistingIndicatorGroupId = existingGroup.Id;
+                    updateGroupNames.Add(groupKey);
+                }
+                else
+                {
+                    item.IsNewIndicatorGroup = true;
+                    newGroupNames.Add(groupKey);
+                }
+            }
+
+            // Check if Department exists (if provided)
+            if (!string.IsNullOrWhiteSpace(row.DepartmentName))
+            {
+                var deptKey = row.DepartmentName.Trim().ToLowerInvariant();
+                if (departmentDict.TryGetValue(deptKey, out var existingDept))
+                {
+                    item.DepartmentId = existingDept.Id;
+                    item.IsDepartmentInvalid = false;
+                }
+                else
+                {
+                    item.IsDepartmentInvalid = true;
+                    item.IsValid = false;
+                    var error = $"Khoa phòng '{row.DepartmentName}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Khoa phòng thực hiện",
+                        ErrorMessage = error,
+                        Value = row.DepartmentName
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+            }
+
+            // Check if Indicator exists
+            var indicatorKey = row.IndicatorName?.Trim().ToLowerInvariant() ?? "";
+            if (!string.IsNullOrWhiteSpace(indicatorKey))
+            {
+                if (indicatorDict.TryGetValue(indicatorKey, out var existingIndicator))
+                {
+                    item.IsNewIndicator = false;
+                    item.ExistingIndicatorId = existingIndicator.Id;
+                    updateIndicatorNames.Add(indicatorKey);
+                }
+                else
+                {
+                    item.IsNewIndicator = true;
+                    newIndicatorNames.Add(indicatorKey);
+                }
+            }
+
+            // Set combined error message
+            if (rowErrorMessages.Count > 0)
+            {
+                item.Errors = rowErrorMessages;
+            }
+
+            result.Items.Add(item);
+        }
+
+        result.ValidationResult = validationResult;
+        result.ValidationResult.ValidRows = rows.Count - validationResult.Errors.Select(e => e.RowNumber).Distinct().Count();
+        result.TotalRows = rows.Count;
+        result.ValidRows = result.ValidationResult.ValidRows;
+        result.InvalidRows = result.ValidationResult.InvalidRows;
+        result.NewIndicatorGroups = newGroupNames.Count;
+        result.UpdateIndicatorGroups = updateGroupNames.Count;
+        result.NewIndicators = newIndicatorNames.Count;
+        result.UpdateIndicators = updateIndicatorNames.Count;
+
+        // Generate error file if there are errors
+        if (!validationResult.IsValid && rowErrors.Count > 0)
+        {
+            var errorFileBytes = GenerateIndicatorGroupErrorFile(rows, rowErrors, validationResult.Errors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = $"Loi_Import_NhomChiTieu_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        }
+
+        return result;
+    }
+
+    public async Task<ImportResultDto> ImportIndicatorGroupsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewIndicatorGroupsInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newGroupCount = 0;
+        var updatedGroupCount = 0;
+        var newIndicatorCount = 0;
+        var updatedIndicatorCount = 0;
+
+        // Track processed entities to avoid duplicate operations in same batch
+        var processedGroups = new Dictionary<string, IndicatorGroup>(StringComparer.OrdinalIgnoreCase);
+        var processedIndicators = new Dictionary<string, Indicator>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Load existing data
+            var existingGroups = await _indicatorGroupRepository.GetListAsync();
+            foreach (var group in existingGroups)
+            {
+                var key = group.Name.Trim().ToLowerInvariant();
+                if (!processedGroups.ContainsKey(key))
+                {
+                    processedGroups[key] = group;
+                }
+            }
+
+            var existingIndicators = await _indicatorRepository.GetListAsync();
+            foreach (var indicator in existingIndicators)
+            {
+                var key = indicator.Name.Trim().ToLowerInvariant();
+                if (!processedIndicators.ContainsKey(key))
+                {
+                    processedIndicators[key] = indicator;
+                }
+            }
+
+            // Calculate next indicator sequence for code generation
+            var indicatorNextSequence = 1;
+            var existingIndicatorCodes = existingIndicators
+                .Where(x => x.Code != null && x.Code.StartsWith("CT-"))
+                .Select(x => x.Code)
+                .ToList();
+            if (existingIndicatorCodes.Any())
+            {
+                indicatorNextSequence = existingIndicatorCodes
+                    .Select(code =>
+                    {
+                        var numberPart = code.Replace("CT-", "");
+                        return int.TryParse(numberPart, out var num) ? num : 0;
+                    })
+                    .Max() + 1;
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            // Process each row
+            foreach (var item in validItems)
+            {
+                var groupKey = item.IndicatorGroupName.Trim().ToLowerInvariant();
+                var indicatorKey = item.IndicatorName.Trim().ToLowerInvariant();
+
+                IndicatorGroup indicatorGroup;
+
+                // IndicatorGroup upsert
+                if (processedGroups.TryGetValue(groupKey, out var existingGroup))
+                {
+                    // Update existing group
+                    if (item.DepartmentId.HasValue)
+                    {
+                        existingGroup.LaboratoryId = item.DepartmentId;
+                    }
+                    await _indicatorGroupRepository.UpdateAsync(existingGroup);
+                    indicatorGroup = existingGroup;
+
+                    if (item.IsNewIndicatorGroup)
+                    {
+                        newGroupCount++;
+                    }
+                    else
+                    {
+                        updatedGroupCount++;
+                    }
+                }
+                else
+                {
+                    // Create new group
+                    indicatorGroup = new IndicatorGroup(
+                        _guidGenerator.Create(),
+                        item.IndicatorGroupName,
+                        item.DepartmentId
+                    );
+                    await _indicatorGroupRepository.InsertAsync(indicatorGroup);
+                    processedGroups[groupKey] = indicatorGroup;
+                    newGroupCount++;
+                }
+
+                // Indicator upsert
+                if (processedIndicators.TryGetValue(indicatorKey, out var existingIndicator))
+                {
+                    // Update existing indicator - assign to group and update FormattedName if provided
+                    existingIndicator.IndicatorGroupId = indicatorGroup.Id;
+                    if (!string.IsNullOrWhiteSpace(item.FormattedIndicatorName))
+                    {
+                        existingIndicator.FormattedName = item.FormattedIndicatorName;
+                    }
+                    await _indicatorRepository.UpdateAsync(existingIndicator);
+                    updatedIndicatorCount++;
+                }
+                else
+                {
+                    // Create new indicator
+                    var code = _codeGenerator.GenerateCode("CT", indicatorNextSequence - 1);
+                    indicatorNextSequence++;
+                    var indicator = new Indicator(
+                        _guidGenerator.Create(),
+                        code,
+                        item.IndicatorName,
+                        indicatorGroup.Id
+                    )
+                    {
+                        // Set FormattedName from Excel rich text (bold, italic, underline)
+                        FormattedName = !string.IsNullOrWhiteSpace(item.FormattedIndicatorName)
+                            ? item.FormattedIndicatorName
+                            : item.IndicatorName
+                    };
+                    await _indicatorRepository.InsertAsync(indicator);
+                    processedIndicators[indicatorKey] = indicator;
+                    newIndicatorCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = validItems.Count,
+                Message = $"Import thành công: {newGroupCount} nhóm chỉ tiêu mới, {updatedGroupCount} nhóm cập nhật, {newIndicatorCount} chỉ tiêu mới, {updatedIndicatorCount} chỉ tiêu cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}. Đã rollback tất cả thay đổi."
+            };
+        }
+    }
+
+    private List<IndicatorGroupImportRow> ReadIndicatorGroupExcelRows(Stream fileStream)
+    {
+        using var workbook = new XLWorkbook(fileStream);
+        var worksheet = workbook.Worksheet(1);
+        var result = new List<IndicatorGroupImportRow>();
+
+        // Find header row and column indices
+        var headerRow = worksheet.Row(1);
+        var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var cell in headerRow.CellsUsed())
+        {
+            var headerName = cell.GetString()?.Trim().ToLowerInvariant() ?? "";
+            if (!string.IsNullOrEmpty(headerName))
+            {
+                columnMap[headerName] = cell.Address.ColumnNumber;
+            }
+        }
+
+        // Find column indices for each field
+        int groupNameCol = FindColumnIndex(columnMap, "tên nhóm chỉ tiêu", "ten nhom chi tieu", "nhóm chỉ tiêu", "nhom chi tieu", "indicator group", "group name");
+        int departmentCol = FindColumnIndex(columnMap, "khoa phòng thực hiện", "khoa phong thuc hien", "khoa phòng", "khoa phong", "department", "phòng", "phong");
+        int indicatorCol = FindColumnIndex(columnMap, "tên chỉ tiêu", "ten chi tieu", "chỉ tiêu", "chi tieu", "indicator", "indicator name");
+
+        // Read data rows (starting from row 2)
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (!row.CellsUsed().Any())
+                continue;
+
+            var importRow = new IndicatorGroupImportRow
+            {
+                IndicatorGroupName = groupNameCol > 0 ? row.Cell(groupNameCol).GetString()?.Trim() ?? "" : "",
+                DepartmentName = departmentCol > 0 ? row.Cell(departmentCol).GetString()?.Trim() : null,
+                IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
+                FormattedIndicatorName = indicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(indicatorCol)) : null
+            };
+
+            // Skip if all values are empty
+            if (string.IsNullOrWhiteSpace(importRow.IndicatorGroupName) &&
+                string.IsNullOrWhiteSpace(importRow.DepartmentName) &&
+                string.IsNullOrWhiteSpace(importRow.IndicatorName))
+            {
+                continue;
+            }
+
+            result.Add(importRow);
+        }
+
+        return result;
+    }
+
+    private byte[] GenerateIndicatorGroupErrorFile(
+        List<IndicatorGroupImportRow> rows,
+        Dictionary<int, List<string>> rowErrors,
+        List<ImportRowError> errors)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.AddWorksheet("Lỗi Import");
+
+        // Headers
+        worksheet.Cell(1, 1).Value = "Dòng";
+        worksheet.Cell(1, 2).Value = "Tên nhóm chỉ tiêu";
+        worksheet.Cell(1, 3).Value = "Khoa phòng thực hiện";
+        worksheet.Cell(1, 4).Value = "Tên chỉ tiêu";
+        worksheet.Cell(1, 5).Value = "Lỗi";
+
+        // Style headers
+        var headerRange = worksheet.Range(1, 1, 1, 5);
+        headerRange.Style.Font.Bold = true;
+        headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
+
+        // Data rows
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2;
+            var dataRow = i + 2;
+
+            worksheet.Cell(dataRow, 1).Value = rowNumber;
+            worksheet.Cell(dataRow, 2).Value = row.IndicatorGroupName;
+            worksheet.Cell(dataRow, 3).Value = row.DepartmentName ?? "";
+            worksheet.Cell(dataRow, 4).Value = row.IndicatorName;
+
+            if (rowErrors.TryGetValue(rowNumber, out var errorList))
+            {
+                worksheet.Cell(dataRow, 5).Value = string.Join("; ", errorList);
+                // Highlight error row
+                var errorRow = worksheet.Range(dataRow, 1, dataRow, 5);
+                errorRow.Style.Fill.BackgroundColor = XLColor.LightPink;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     #endregion

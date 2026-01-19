@@ -280,6 +280,55 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region IndicatorGroup + Indicator Import
+
+    /// <summary>
+    /// Get template for importing IndicatorGroup + Indicator
+    /// </summary>
+    [HttpGet("indicator-groups/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    public virtual IActionResult GetIndicatorGroupTemplate()
+    {
+        var bytes = _importAppService.GetIndicatorGroupTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_NhomChiTieu.xlsx");
+    }
+
+    /// <summary>
+    /// Preview IndicatorGroup + Indicator import - validates data without saving
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [HttpPost("indicator-groups/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewIndicatorGroupsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import IndicatorGroup + Indicator from Excel file
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [HttpPost("indicator-groups")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportIndicatorGroupsAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)
