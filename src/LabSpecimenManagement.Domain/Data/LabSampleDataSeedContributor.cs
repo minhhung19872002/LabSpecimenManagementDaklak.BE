@@ -177,6 +177,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var ind in indicators)
         {
             var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
+            indicator.FormattedName = ind.Name;
             indicator.SortOrder = ind.SortOrder;
             indicator.IsActive = true;
             await _indicatorRepository.InsertAsync(indicator, autoSave: true);
@@ -268,6 +269,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var method in methods)
         {
             var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name, method.Unit);
+            entity.FormattedName = method.Name;
             await _testMethodRepository.InsertAsync(entity, autoSave: true);
         }
     }
