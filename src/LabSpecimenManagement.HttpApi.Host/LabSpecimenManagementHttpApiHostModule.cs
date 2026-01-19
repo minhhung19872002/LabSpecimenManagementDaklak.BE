@@ -279,6 +279,15 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
+
+            // WOPI endpoints need permissive CORS for Collabora integration
+            options.AddPolicy("WopiPolicy", builder =>
+            {
+                builder
+                    .AllowAnyOrigin()
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            });
         });
     }
 

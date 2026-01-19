@@ -18,7 +18,7 @@ namespace LabSpecimenManagement.Controllers;
 /// </summary>
 [Route("wopi")]
 [ApiController]
-[EnableCors] // Enable CORS for this controller
+[EnableCors("WopiPolicy")] // Use permissive CORS policy for WOPI/Collabora integration
 [IgnoreAntiforgeryToken] // WOPI requests don't have CSRF tokens
 public class WopiController : ControllerBase
 {
