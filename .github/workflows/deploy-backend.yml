@@ -124,8 +124,12 @@ jobs:
             EOF
 
             echo "Stopping old containers..."
-            docker-compose stop backend collabora db-migrator || true
-            docker-compose rm -f backend collabora db-migrator || true
+            docker-compose stop backend collabora db-migrator onlyoffice || true
+            docker-compose rm -f backend collabora db-migrator onlyoffice || true
+
+            # Also stop any standalone onlyoffice container that might be running
+            docker stop lab-specimen-onlyoffice 2>/dev/null || true
+            docker rm lab-specimen-onlyoffice 2>/dev/null || true
 
             # echo "=============================================="
             # echo "🗄️ RESET DATABASE (DROP and RECREATE)"
