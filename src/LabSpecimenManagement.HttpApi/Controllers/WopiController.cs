@@ -3,7 +3,6 @@ using System.IO;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Authorization;
-using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Configuration;
@@ -18,7 +17,6 @@ namespace LabSpecimenManagement.Controllers;
 /// </summary>
 [Route("wopi")]
 [ApiController]
-[EnableCors("WopiPolicy")] // Use permissive CORS policy for WOPI/Collabora integration
 [IgnoreAntiforgeryToken] // WOPI requests don't have CSRF tokens
 public class WopiController : ControllerBase
 {

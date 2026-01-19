@@ -99,16 +99,19 @@ jobs:
 
             # Onlyoffice-config no longer needed (switched to Gotenberg)
 
-            # Setup Nginx reverse proxy if not already configured
+            # Setup Nginx reverse proxy - always update and reload
             if [ -f nginx-reverse-proxy.conf ]; then
               sudo cp nginx-reverse-proxy.conf /etc/nginx/sites-available/lab-specimen-management
               sudo ln -sf /etc/nginx/sites-available/lab-specimen-management /etc/nginx/sites-enabled/lab-specimen-management
               sudo rm -f /etc/nginx/sites-enabled/default
+              echo "Testing nginx configuration..."
               if sudo nginx -t; then
+                echo "Reloading nginx..."
                 sudo systemctl reload nginx
-                echo "Nginx reverse proxy configured and reloaded"
+                echo "✅ Nginx reverse proxy configured and reloaded"
               else
-                echo "Nginx configuration test failed"
+                echo "❌ Nginx configuration test failed"
+                sudo nginx -t
               fi
             fi
 
@@ -163,6 +166,9 @@ jobs:
 
             echo "Starting backend..."
             docker-compose up -d backend
+
+            echo "Restarting backend to ensure new config is loaded..."
+            docker-compose restart backend
 
             echo "Checking db-migrator logs..."
             docker-compose logs db-migrator || echo "No migrator logs available"
