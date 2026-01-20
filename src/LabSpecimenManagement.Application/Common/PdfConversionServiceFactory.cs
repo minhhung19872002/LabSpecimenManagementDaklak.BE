@@ -7,7 +7,7 @@ namespace LabSpecimenManagement.Common;
 
 /// <summary>
 /// Factory for creating PDF conversion service based on configuration
-/// Supports: Gotenberg (LibreOffice), OnlyOffice
+/// Supports: Gotenberg (LibreOffice), OnlyOffice, Collabora
 /// </summary>
 public static class PdfConversionServiceFactory
 {
@@ -22,6 +22,9 @@ public static class PdfConversionServiceFactory
         {
             case "onlyoffice":
                 services.AddTransient<IPdfConversionService, OnlyOfficePdfConversionService>();
+                break;
+            case "collabora":
+                services.AddTransient<IPdfConversionService, CollaboraPdfConversionService>();
                 break;
             case "gotenberg":
             default:

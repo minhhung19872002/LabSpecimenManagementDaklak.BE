@@ -466,21 +466,24 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         Dictionary<Guid, Indicator> indicatorDict,
         Dictionary<Guid, TestMethod> testMethodDict)
     {
+        // Get organization info if available
+        var org = quotation.Organization;
+
         return new QuotationDto
         {
             Id = quotation.Id,
             QuotationNumber = quotation.QuotationNumber,
             QuotationDate = quotation.QuotationDate,
             OrganizationId = quotation.OrganizationId,
-            OrganizationName = quotation.Organization?.Name,
+            OrganizationName = org?.Name,
             CustomerName = quotation.CustomerName,
-            ProvinceCode = quotation.ProvinceCode,
+            ProvinceCode = quotation.ProvinceCode ?? org?.ProvinceCode,
             DistrictCode = quotation.DistrictCode,
-            WardCode = quotation.WardCode,
-            Address = quotation.Address,
-            TaxCode = quotation.TaxCode,
-            ContactPerson = quotation.ContactPerson,
-            Phone = quotation.Phone,
+            WardCode = quotation.WardCode ?? org?.WardCode,
+            Address = quotation.Address ?? org?.Address,
+            TaxCode = quotation.TaxCode ?? org?.TaxCode,
+            ContactPerson = quotation.ContactPerson ?? org?.ContactPerson,
+            Phone = quotation.Phone ?? org?.Phone,
             TotalCost = quotation.TotalCost,
             Notes = quotation.Notes,
             Status = quotation.Status,
@@ -532,15 +535,19 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
             throw new UserFriendlyException("Vui lòng nhập địa chỉ email người nhận");
         }
 
-        if (input.Items == null || input.Items.Count == 0)
+        if (input.Samples == null || input.Samples.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng thêm ít nhất một chỉ tiêu vào báo giá");
+            throw new UserFriendlyException("Vui lòng thêm ít nhất một mẫu vào báo giá");
         }
+
+        // Get current user name
+        var currentUserName = await GetCurrentUserNameAsync();
 
         // Generate PDF
         var pdfData = await _pdfGenerator.GeneratePdfAsync(
             input.CustomerName ?? "Quý khách hàng",
-            input.Items,
+            currentUserName,
+            input.Samples,
             input.TotalPrice);
 
         var fileName = $"BaoGia_{_clock.Now:yyyyMMdd_HHmmss}.pdf";
@@ -557,16 +564,33 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
 
     public async Task<byte[]> GeneratePdfAsync(GenerateQuotationPdfDto input)
     {
-        if (input.Items == null || input.Items.Count == 0)
+        if (input.Samples == null || input.Samples.Count == 0)
         {
-            throw new UserFriendlyException("Vui lòng thêm ít nhất một chỉ tiêu vào báo giá");
+            throw new UserFriendlyException("Vui lòng thêm ít nhất một mẫu vào báo giá");
         }
+
+        // Get current user name
+        var currentUserName = await GetCurrentUserNameAsync();
 
         var pdfData = await _pdfGenerator.GeneratePdfAsync(
             input.CustomerName ?? "Quý khách hàng",
-            input.Items,
+            currentUserName,
+            input.Samples,
             input.TotalPrice);
 
         return pdfData;
+    }
+
+    private async Task<string> GetCurrentUserNameAsync()
+    {
+        if (CurrentUser.Id.HasValue)
+        {
+            var user = await _userRepository.FindAsync(CurrentUser.Id.Value);
+            if (user != null)
+            {
+                return user.Name ?? user.UserName ?? "Người dùng";
+            }
+        }
+        return "Người dùng";
     }
 }
