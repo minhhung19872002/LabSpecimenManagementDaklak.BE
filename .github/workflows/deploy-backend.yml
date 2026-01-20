@@ -141,6 +141,10 @@ jobs:
             DB_NAME="LabSpecimenManagement"
             DB_USER="postgres"
 
+            # Terminate all active connections to the database
+            echo "Terminating active connections to ${DB_NAME}..."
+            docker exec lab-specimen-postgres psql -U ${DB_USER} -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = '${DB_NAME}' AND pid <> pg_backend_pid();" || true
+
             # Drop and recreate database
             echo "Dropping database ${DB_NAME}..."
             docker exec lab-specimen-postgres psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";" || true
