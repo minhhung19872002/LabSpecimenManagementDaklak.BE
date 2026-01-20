@@ -358,6 +358,22 @@ public class ImportController : LabSpecimenManagementController
             "Template_PhieuThuNghiem.xlsx");
     }
 
+    /// <summary>
+    /// Preview Specimens for TestRequest import - validates data without saving
+    /// Groups rows by SampleName, validates Indicators exist
+    /// </summary>
+    [HttpPost("specimens-for-test-request/preview")]
+    [Authorize] // Any authenticated user can preview
+    [DisableValidation]
+    public virtual async Task<SpecimenForTestRequestImportPreviewDto> PreviewSpecimensForTestRequestAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewSpecimensForTestRequestAsync(fileBytes);
+    }
+
     #endregion
 
     #region Helper Methods

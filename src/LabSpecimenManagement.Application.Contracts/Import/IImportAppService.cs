@@ -183,4 +183,16 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportIndicatorGroupsAsync(byte[] fileBytes);
 
     #endregion
+
+    #region Specimen for TestRequest Import
+
+    /// <summary>
+    /// Preview Specimen for TestRequest import - validates data without saving
+    /// Groups rows by SampleName, validates Indicators exist
+    /// Template columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+    /// </summary>
+    [DisableValidation]
+    Task<SpecimenForTestRequestImportPreviewDto> PreviewSpecimensForTestRequestAsync(byte[] fileBytes);
+
+    #endregion
 }

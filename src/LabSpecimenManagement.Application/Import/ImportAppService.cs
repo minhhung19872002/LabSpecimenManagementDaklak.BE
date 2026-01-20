@@ -3438,4 +3438,308 @@ public class ImportAppService : ApplicationService, IImportAppService
     }
 
     #endregion
+
+    #region Specimen for TestRequest Import
+
+    public async Task<SpecimenForTestRequestImportPreviewDto> PreviewSpecimensForTestRequestAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var rows = ReadSpecimenForTestRequestExcelRows(memoryStream);
+
+        // Load indicators and their test methods for validation
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorDict = indicators
+            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // Load test method indicators to get default test method for each indicator
+        var testMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
+        var testMethods = await _testMethodRepository.GetListAsync();
+        var testMethodDict = testMethods.ToDictionary(t => t.Id);
+
+        // Build indicator -> default test method map (get first by SortOrder)
+        var indicatorTestMethodMap = testMethodIndicators
+            .GroupBy(tmi => tmi.IndicatorId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(x => x.SortOrder).FirstOrDefault()
+            );
+
+        var result = new SpecimenForTestRequestImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Group rows by SampleName
+        var specimenMap = new Dictionary<string, SpecimenImportPreviewItem>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+
+            var sampleName = row.SampleName?.Trim() ?? "";
+            var indicatorName = row.IndicatorName?.Trim() ?? "";
+
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(sampleName))
+            {
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên mẫu",
+                    ErrorMessage = "Tên mẫu là bắt buộc"
+                });
+                AddRowError(rowErrors, rowNumber, "Tên mẫu là bắt buộc");
+                continue;
+            }
+
+            if (string.IsNullOrWhiteSpace(indicatorName))
+            {
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Chỉ tiêu kiểm nghiệm",
+                    ErrorMessage = "Chỉ tiêu kiểm nghiệm là bắt buộc"
+                });
+                AddRowError(rowErrors, rowNumber, "Chỉ tiêu kiểm nghiệm là bắt buộc");
+                continue;
+            }
+
+            // Get or create specimen preview item
+            var specimenKey = sampleName.ToLowerInvariant();
+            if (!specimenMap.TryGetValue(specimenKey, out var specimen))
+            {
+                specimen = new SpecimenImportPreviewItem
+                {
+                    SampleName = sampleName,
+                    SpecimenTypeName = row.SpecimenTypeName?.Trim(),
+                    SamplingAddress = row.SamplingAddress?.Trim(),
+                    SampleQuantity = row.SampleQuantity?.Trim(),
+                    StatusText = row.StatusText?.Trim(),
+                    IsValid = true
+                };
+                specimenMap[specimenKey] = specimen;
+            }
+
+            // Check if indicator exists
+            var indicatorKey = indicatorName.ToLowerInvariant();
+            Indicator? indicator = null;
+            var indicatorIsValid = indicatorDict.TryGetValue(indicatorKey, out indicator);
+
+            if (!indicatorIsValid)
+            {
+                var errorMsg = $"Chỉ tiêu \"{indicatorName}\" không tồn tại trong hệ thống";
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Chỉ tiêu kiểm nghiệm",
+                    ErrorMessage = errorMsg,
+                    Value = indicatorName
+                });
+                AddRowError(rowErrors, rowNumber, errorMsg);
+            }
+
+            // Check duplicate indicator in same specimen
+            var existingIndicator = specimen.Indicators.FirstOrDefault(
+                ind => ind.IndicatorName.Equals(indicatorName, StringComparison.OrdinalIgnoreCase)
+            );
+            if (existingIndicator != null)
+            {
+                var errorMsg = $"Chỉ tiêu \"{indicatorName}\" bị trùng trong mẫu \"{sampleName}\"";
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Chỉ tiêu kiểm nghiệm",
+                    ErrorMessage = errorMsg,
+                    Value = indicatorName
+                });
+                AddRowError(rowErrors, rowNumber, errorMsg);
+                continue;
+            }
+
+            // Get default test method for indicator
+            Guid? testMethodId = null;
+            string? testMethodName = null;
+            if (indicator != null && indicatorTestMethodMap.TryGetValue(indicator.Id, out var defaultTmi) && defaultTmi != null)
+            {
+                testMethodId = defaultTmi.TestMethodId;
+                if (testMethodDict.TryGetValue(defaultTmi.TestMethodId, out var testMethod))
+                {
+                    testMethodName = testMethod.Name;
+                }
+            }
+
+            // Add indicator to specimen
+            var indicatorItem = new SpecimenIndicatorImportItem
+            {
+                RowNumber = rowNumber,
+                IndicatorName = indicatorName,
+                IndicatorId = indicator?.Id,
+                TestMethodId = testMethodId,
+                TestMethodName = testMethodName,
+                IsValid = indicatorIsValid,
+                ErrorMessage = indicatorIsValid ? null : "Chỉ tiêu không tồn tại"
+            };
+            specimen.Indicators.Add(indicatorItem);
+
+            // Update specimen validity
+            if (!indicatorIsValid)
+            {
+                specimen.IsValid = false;
+                specimen.Errors.Add($"Chỉ tiêu \"{indicatorName}\" không tồn tại");
+            }
+        }
+
+        // Build result
+        var specimens = specimenMap.Values.ToList();
+        result.Specimens = specimens;
+        result.ValidationResult = validationResult;
+        result.ValidationResult.ValidRows = rows.Count - validationResult.Errors.Select(e => e.RowNumber).Distinct().Count();
+        result.TotalRows = rows.Count;
+        result.TotalSpecimens = specimens.Count;
+        result.ValidSpecimens = specimens.Count(s => s.IsValid);
+        result.TotalIndicators = specimens.Sum(s => s.Indicators.Count);
+
+        // Generate error file if there are errors
+        if (!validationResult.IsValid && rowErrors.Count > 0)
+        {
+            var errorFileBytes = GenerateSpecimenForTestRequestErrorFile(rows, rowErrors, validationResult.Errors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = $"Loi_Import_Mau_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<SpecimenForTestRequestImportRow> ReadSpecimenForTestRequestExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<SpecimenForTestRequestImportRow>();
+
+        memoryStream.Position = 0;
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheets.First();
+
+        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 0;
+        if (lastRow < 2) return rows; // No data rows
+
+        // Expected columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+        for (int rowNum = 2; rowNum <= lastRow; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty()) continue;
+
+            var importRow = new SpecimenForTestRequestImportRow
+            {
+                SampleName = row.Cell(1).GetString()?.Trim() ?? "",
+                SpecimenTypeName = row.Cell(2).GetString()?.Trim(),
+                SamplingAddress = row.Cell(3).GetString()?.Trim(),
+                SampleQuantity = row.Cell(4).GetString()?.Trim(),
+                StatusText = row.Cell(5).GetString()?.Trim(),
+                IndicatorName = row.Cell(6).GetString()?.Trim() ?? ""
+            };
+
+            // Skip rows with no sample name and no indicator
+            if (string.IsNullOrWhiteSpace(importRow.SampleName) && string.IsNullOrWhiteSpace(importRow.IndicatorName))
+                continue;
+
+            rows.Add(importRow);
+        }
+
+        return rows;
+    }
+
+    private byte[] GenerateSpecimenForTestRequestErrorFile(
+        List<SpecimenForTestRequestImportRow> rows,
+        Dictionary<int, List<string>> rowErrors,
+        List<ImportRowError> allErrors)
+    {
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Import Errors");
+
+        // Column mapping: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm, Lỗi
+        var columns = new[] { "Tên mẫu", "Loại mẫu", "Địa chỉ lấy mẫu", "Lượng mẫu", "Tình trạng mẫu", "Chỉ tiêu kiểm nghiệm", "Lỗi" };
+
+        // Write header row with styling
+        for (int col = 0; col < columns.Length; col++)
+        {
+            var cell = worksheet.Cell(1, col + 1);
+            cell.Value = columns[col];
+            cell.Style.Font.Bold = true;
+            cell.Style.Fill.BackgroundColor = XLColor.LightGray;
+            cell.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+        }
+
+        // Build error lookup: rowNumber -> list of error column names
+        var errorColumnsByRow = new Dictionary<int, HashSet<string>>();
+        foreach (var error in allErrors)
+        {
+            if (!errorColumnsByRow.ContainsKey(error.RowNumber))
+            {
+                errorColumnsByRow[error.RowNumber] = new HashSet<string>();
+            }
+            errorColumnsByRow[error.RowNumber].Add(error.ColumnName);
+        }
+
+        // Write data rows
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var excelRowNumber = i + 2; // Excel row (1-based, header = 1)
+            var dataRowNumber = i + 2; // Row number used in validation
+
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+            var errorColumnsForRow = errorColumnsByRow.GetValueOrDefault(dataRowNumber, new HashSet<string>());
+
+            // Column 1: Tên mẫu
+            var cell1 = worksheet.Cell(excelRowNumber, 1);
+            cell1.Value = row.SampleName ?? "";
+            if (errorColumnsForRow.Contains("Tên mẫu"))
+            {
+                ApplyErrorStyle(cell1);
+            }
+
+            // Column 2: Loại mẫu
+            var cell2 = worksheet.Cell(excelRowNumber, 2);
+            cell2.Value = row.SpecimenTypeName ?? "";
+
+            // Column 3: Địa chỉ lấy mẫu
+            var cell3 = worksheet.Cell(excelRowNumber, 3);
+            cell3.Value = row.SamplingAddress ?? "";
+
+            // Column 4: Lượng mẫu
+            var cell4 = worksheet.Cell(excelRowNumber, 4);
+            cell4.Value = row.SampleQuantity ?? "";
+
+            // Column 5: Tình trạng mẫu
+            var cell5 = worksheet.Cell(excelRowNumber, 5);
+            cell5.Value = row.StatusText ?? "";
+
+            // Column 6: Chỉ tiêu kiểm nghiệm
+            var cell6 = worksheet.Cell(excelRowNumber, 6);
+            cell6.Value = row.IndicatorName ?? "";
+            if (errorColumnsForRow.Contains("Chỉ tiêu kiểm nghiệm"))
+            {
+                ApplyErrorStyle(cell6);
+            }
+
+            // Column 7: Lỗi
+            var cell7 = worksheet.Cell(excelRowNumber, 7);
+            if (hasError)
+            {
+                cell7.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                cell7.Style.Font.FontColor = XLColor.Red;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    #endregion
 }
