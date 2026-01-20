@@ -4,6 +4,7 @@ using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Import;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
@@ -17,10 +18,14 @@ namespace LabSpecimenManagement.Controllers;
 public class ImportController : LabSpecimenManagementController
 {
     private readonly IImportAppService _importAppService;
+    private readonly IWebHostEnvironment _webHostEnvironment;
 
-    public ImportController(IImportAppService importAppService)
+    public ImportController(
+        IImportAppService importAppService,
+        IWebHostEnvironment webHostEnvironment)
     {
         _importAppService = importAppService;
+        _webHostEnvironment = webHostEnvironment;
     }
 
     #region Preview Endpoints
@@ -325,6 +330,32 @@ public class ImportController : LabSpecimenManagementController
         await file.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
         return await _importAppService.ImportIndicatorGroupsAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Specimen Import for TestRequestForm
+
+    /// <summary>
+    /// Get template for importing Specimens in TestRequestForm
+    /// Template columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+    /// </summary>
+    [HttpGet("specimens-for-test-request/template")]
+    [Authorize] // Any authenticated user can download template
+    public virtual IActionResult GetSpecimenForTestRequestTemplate()
+    {
+        var templatePath = System.IO.Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "Phiếu thử nghiệm.xlsx");
+
+        if (!System.IO.File.Exists(templatePath))
+        {
+            return NotFound("Template file not found");
+        }
+
+        var bytes = System.IO.File.ReadAllBytes(templatePath);
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Template_PhieuThuNghiem.xlsx");
     }
 
     #endregion
