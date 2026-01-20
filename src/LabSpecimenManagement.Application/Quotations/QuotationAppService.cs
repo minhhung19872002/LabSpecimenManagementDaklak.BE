@@ -11,6 +11,7 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.Timing;
@@ -394,24 +395,27 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         var dateStr = today.ToString("yyyyMMdd");
         var prefix = $"BG-{dateStr}-";
 
-        // Find the last quotation number for today
-        var query = (await _quotationRepository.GetQueryableAsync())
-            .Where(x => x.QuotationNumber.StartsWith(prefix))
-            .OrderByDescending(x => x.QuotationNumber);
-
-        var lastQuotation = await AsyncExecuter.FirstOrDefaultAsync(query);
-
-        int nextNumber = 1;
-        if (lastQuotation != null)
+        // Find the last quotation number for today (including soft-deleted records)
+        using (DataFilter.Disable<Volo.Abp.ISoftDelete>())
         {
-            var lastNumberStr = lastQuotation.QuotationNumber.Replace(prefix, "");
-            if (int.TryParse(lastNumberStr, out int lastNumber))
-            {
-                nextNumber = lastNumber + 1;
-            }
-        }
+            var query = (await _quotationRepository.GetQueryableAsync())
+                .Where(x => x.QuotationNumber.StartsWith(prefix))
+                .OrderByDescending(x => x.QuotationNumber);
 
-        return $"{prefix}{nextNumber:D4}";
+            var lastQuotation = await AsyncExecuter.FirstOrDefaultAsync(query);
+
+            int nextNumber = 1;
+            if (lastQuotation != null)
+            {
+                var lastNumberStr = lastQuotation.QuotationNumber.Replace(prefix, "");
+                if (int.TryParse(lastNumberStr, out int lastNumber))
+                {
+                    nextNumber = lastNumber + 1;
+                }
+            }
+
+            return $"{prefix}{nextNumber:D4}";
+        }
     }
 
     private QuotationDto MapToDto(Quotation quotation)
