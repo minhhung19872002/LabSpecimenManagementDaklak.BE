@@ -24,5 +24,5 @@ public class QuotationDto : FullAuditedEntityDto<Guid>
     public decimal TotalCost { get; set; }
     public string? Notes { get; set; }
     public QuotationStatus Status { get; set; }
-    public List<QuotationItemDto> Items { get; set; } = new();
+    public List<QuotationSampleDto> Samples { get; set; } = new();
 }

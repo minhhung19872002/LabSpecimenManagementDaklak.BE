@@ -106,7 +106,8 @@ public class LabSpecimenManagementDbContext :
 
     // Quotation Entities
     public DbSet<Quotation> Quotations { get; set; }
-    public DbSet<QuotationItem> QuotationItems { get; set; }
+    public DbSet<QuotationSample> QuotationSamples { get; set; }
+    public DbSet<QuotationSampleIndicator> QuotationSampleIndicators { get; set; }
 
     // Receipt Entities
     public DbSet<Receipt> Receipts { get; set; }
@@ -1086,22 +1087,37 @@ public class LabSpecimenManagementDbContext :
                 .IsRequired(false);
         });
 
-        builder.Entity<QuotationItem>(b =>
+        builder.Entity<QuotationSample>(b =>
         {
-            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationItems", LabSpecimenManagementConsts.DbSchema);
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationSamples", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.SampleName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.TotalPrice).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.QuotationId);
+
+            b.HasOne(x => x.Quotation)
+                .WithMany(x => x.Samples)
+                .HasForeignKey(x => x.QuotationId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<QuotationSampleIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationSampleIndicators", LabSpecimenManagementConsts.DbSchema);
 
             b.Property(x => x.IndicatorName).IsRequired().HasMaxLength(256);
             b.Property(x => x.TestMethodName).IsRequired().HasMaxLength(256);
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
-            b.Property(x => x.TotalPrice).HasPrecision(18, 2);
 
-            b.HasIndex(x => x.QuotationId);
+            b.HasIndex(x => x.QuotationSampleId);
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.TestMethodId);
 
-            b.HasOne(x => x.Quotation)
-                .WithMany(x => x.Items)
-                .HasForeignKey(x => x.QuotationId)
+            b.HasOne(x => x.QuotationSample)
+                .WithMany(x => x.Indicators)
+                .HasForeignKey(x => x.QuotationSampleId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 

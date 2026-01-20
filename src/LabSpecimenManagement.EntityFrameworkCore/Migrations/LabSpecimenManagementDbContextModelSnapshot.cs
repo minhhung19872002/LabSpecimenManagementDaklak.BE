@@ -2408,7 +2408,34 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppQuotations", (string)null);
                 });
 
-            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationItem", b =>
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationSample", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("QuotationId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SampleName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal>("TotalPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("QuotationId");
+
+                    b.ToTable("AppQuotationSamples", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationSampleIndicator", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
@@ -2421,11 +2448,8 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<Guid>("QuotationId")
+                    b.Property<Guid>("QuotationSampleId")
                         .HasColumnType("uuid");
-
-                    b.Property<int>("SampleCount")
-                        .HasColumnType("integer");
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
@@ -2438,10 +2462,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<decimal>("TotalPrice")
-                        .HasPrecision(18, 2)
-                        .HasColumnType("numeric(18,2)");
-
                     b.Property<decimal>("UnitPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
@@ -2450,11 +2470,11 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("IndicatorId");
 
-                    b.HasIndex("QuotationId");
+                    b.HasIndex("QuotationSampleId");
 
                     b.HasIndex("TestMethodId");
 
-                    b.ToTable("AppQuotationItems", (string)null);
+                    b.ToTable("AppQuotationSampleIndicators", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Receipts.PaymentHistory", b =>
@@ -6107,7 +6127,18 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("Organization");
                 });
 
-            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationItem", b =>
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationSample", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.Quotations.Quotation", "Quotation")
+                        .WithMany("Samples")
+                        .HasForeignKey("QuotationId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Quotation");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationSampleIndicator", b =>
                 {
                     b.HasOne("LabSpecimenManagement.MasterData.Indicator", "Indicator")
                         .WithMany()
@@ -6115,9 +6146,9 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("LabSpecimenManagement.Quotations.Quotation", "Quotation")
-                        .WithMany("Items")
-                        .HasForeignKey("QuotationId")
+                    b.HasOne("LabSpecimenManagement.Quotations.QuotationSample", "QuotationSample")
+                        .WithMany("Indicators")
+                        .HasForeignKey("QuotationSampleId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -6129,7 +6160,7 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Navigation("Indicator");
 
-                    b.Navigation("Quotation");
+                    b.Navigation("QuotationSample");
 
                     b.Navigation("TestMethod");
                 });
@@ -6502,7 +6533,12 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.Entity("LabSpecimenManagement.Quotations.Quotation", b =>
                 {
-                    b.Navigation("Items");
+                    b.Navigation("Samples");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Quotations.QuotationSample", b =>
+                {
+                    b.Navigation("Indicators");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Receipts.Receipt", b =>

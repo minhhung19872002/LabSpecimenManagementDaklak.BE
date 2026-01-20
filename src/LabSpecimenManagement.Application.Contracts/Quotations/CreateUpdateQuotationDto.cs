@@ -42,5 +42,5 @@ public class CreateUpdateQuotationDto
 
     public QuotationStatus Status { get; set; } = QuotationStatus.Draft;
 
-    public List<CreateUpdateQuotationItemDto> Items { get; set; } = new();
+    public List<CreateUpdateQuotationSampleDto> Samples { get; set; } = new();
 }
