@@ -1004,6 +1004,117 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
+    /// Replace placeholders in header paragraphs while preserving PAGE/NUMPAGES field codes.
+    /// This handles the case where header has format: P{PAGE}/{NUMPAGES} - {{NumberOfSample}}
+    /// The field codes must be preserved for proper page numbering in the output document.
+    /// </summary>
+    private void ReplaceHeaderPlaceholdersPreservingFields(Paragraph para, Dictionary<string, string> placeholders)
+    {
+        var runs = para.Elements<Run>().ToList();
+        if (runs.Count == 0) return;
+
+        // Build a map of which runs contain field elements (skip these)
+        var fieldRunIndices = new HashSet<int>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (runs[i].Descendants<FieldChar>().Any() ||
+                runs[i].Descendants<FieldCode>().Any())
+            {
+                fieldRunIndices.Add(i);
+            }
+        }
+
+        // Collect text elements from non-field runs (keep reference to actual Text objects)
+        var textElements = new List<Text>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (fieldRunIndices.Contains(i)) continue;
+            textElements.AddRange(runs[i].Elements<Text>());
+        }
+
+        if (textElements.Count == 0) return;
+
+        // Get combined text from all non-field text elements
+        var combinedText = string.Concat(textElements.Select(t => t.Text ?? ""));
+
+        // Check each placeholder
+        foreach (var placeholder in placeholders)
+        {
+            if (!combinedText.Contains(placeholder.Key)) continue;
+
+            // Find position of placeholder in combined text
+            var placeholderPos = combinedText.IndexOf(placeholder.Key);
+            if (placeholderPos < 0) continue;
+
+            // Find which text elements contain the placeholder
+            int currentPos = 0;
+            int startElementIdx = -1;
+            int startPosInElement = -1;
+            int endElementIdx = -1;
+            int endPosInElement = -1;
+
+            for (int i = 0; i < textElements.Count; i++)
+            {
+                var elementText = textElements[i].Text ?? "";
+                var elementStart = currentPos;
+                var elementEnd = currentPos + elementText.Length;
+
+                // Check if placeholder starts in this element
+                if (startElementIdx < 0 && placeholderPos >= elementStart && placeholderPos < elementEnd)
+                {
+                    startElementIdx = i;
+                    startPosInElement = placeholderPos - elementStart;
+                }
+
+                // Check if placeholder ends in this element
+                var placeholderEndPos = placeholderPos + placeholder.Key.Length;
+                if (placeholderEndPos > elementStart && placeholderEndPos <= elementEnd)
+                {
+                    endElementIdx = i;
+                    endPosInElement = placeholderEndPos - elementStart;
+                    break;
+                }
+
+                currentPos = elementEnd;
+            }
+
+            if (startElementIdx < 0 || endElementIdx < 0) continue;
+
+            // Replace the placeholder
+            if (startElementIdx == endElementIdx)
+            {
+                // Placeholder is within a single text element
+                var text = textElements[startElementIdx].Text ?? "";
+                textElements[startElementIdx].Text =
+                    text.Substring(0, startPosInElement) +
+                    placeholder.Value +
+                    text.Substring(endPosInElement);
+            }
+            else
+            {
+                // Placeholder spans multiple text elements
+                // Put replacement value in first element, clear others
+                var firstText = textElements[startElementIdx].Text ?? "";
+                textElements[startElementIdx].Text =
+                    firstText.Substring(0, startPosInElement) + placeholder.Value;
+
+                // Clear middle elements completely
+                for (int i = startElementIdx + 1; i < endElementIdx; i++)
+                {
+                    textElements[i].Text = "";
+                }
+
+                // Keep only the part after the placeholder in last element
+                var lastText = textElements[endElementIdx].Text ?? "";
+                textElements[endElementIdx].Text = lastText.Substring(endPosInElement);
+            }
+
+            // Update combined text for next placeholder
+            combinedText = string.Concat(textElements.Select(t => t.Text ?? ""));
+        }
+    }
+
+    /// <summary>
     /// Replaces a placeholder in a Text element with formatted runs from HTML content.
     /// This allows rich text formatting (bold, italic, subscript, superscript) in Word documents.
     /// </summary>
@@ -2163,27 +2274,18 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ReplacePlaceholdersInElement(mainPart.Document.Body, placeholders);
         }
 
-        // Process headers
+        // Process headers - special handling for headers with PAGE/NUMPAGES fields
         foreach (var headerPart in mainPart.HeaderParts)
         {
             if (headerPart.Header != null)
             {
                 _logger.LogDebug("Processing header part, paragraphs count: {Count}",
                     headerPart.Header.Descendants<Paragraph>().Count());
-                ReplacePlaceholdersInElement(headerPart.Header, placeholders);
 
-                // Also process any text directly in header (not in paragraphs)
-                foreach (var text in headerPart.Header.Descendants<Text>())
+                // Special handling for headers with field codes (PAGE, NUMPAGES)
+                foreach (var para in headerPart.Header.Descendants<Paragraph>())
                 {
-                    if (string.IsNullOrEmpty(text.Text)) continue;
-                    foreach (var placeholder in placeholders)
-                    {
-                        if (text.Text.Contains(placeholder.Key))
-                        {
-                            _logger.LogDebug("Found placeholder {Key} in header Text element", placeholder.Key);
-                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
-                        }
-                    }
+                    ReplaceHeaderPlaceholdersPreservingFields(para, placeholders);
                 }
             }
         }
