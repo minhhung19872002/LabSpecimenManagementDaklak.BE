@@ -18,9 +18,14 @@ public class SampleAssignmentLogDto
     public Guid TestRequestId { get; set; }
 
     /// <summary>
-    /// Quality Management Task ID - used for detail navigation
+    /// Quality Management Task ID - used for detail navigation (QLCL page)
     /// </summary>
     public Guid QualityTaskId { get; set; }
+
+    /// <summary>
+    /// Laboratory Task ID - used for detail navigation (Testing page)
+    /// </summary>
+    public Guid LaboratoryTaskId { get; set; }
 
     /// <summary>
     /// Số hợp đồng - Contract Number

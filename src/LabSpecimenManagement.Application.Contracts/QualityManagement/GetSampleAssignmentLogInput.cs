@@ -28,6 +28,11 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     /// </summary>
     public DateTime? ToDate { get; set; }
 
+    /// <summary>
+    /// Filter by Laboratory ID (for technician view - only show indicators of their lab)
+    /// </summary>
+    public Guid? LaboratoryId { get; set; }
+
     public GetSampleAssignmentLogInput()
     {
         // Default sorting: RequestCompletionDate ascending

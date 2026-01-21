@@ -1688,7 +1688,13 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         // Status for highlighting
                         IndicatorApprovalStatus = li.ApprovalStatus,
                         QualityApprovalStatus = qi.ApprovalStatus,
-                        IsReportPublished = qi.IsPrinted
+                        IsReportPublished = qi.IsPrinted,
+
+                        // Laboratory info (for filtering)
+                        LaboratoryId = lt.LaboratoryId,
+
+                        // LaboratoryTask info (for navigation from Testing page)
+                        LaboratoryTaskId = lt.Id
                     };
 
         // Apply filters
@@ -1715,6 +1721,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         if (input.ToDate.HasValue)
         {
             query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        if (input.LaboratoryId.HasValue)
+        {
+            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
         }
 
         var totalCount = query.Count();
@@ -1768,7 +1779,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             // TestingStatus will be determined based on IndicatorApprovalStatus
             TestingStatus = DetermineTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
             QualityApprovalStatus = x.QualityApprovalStatus,
-            IsReportPublished = x.IsReportPublished
+            IsReportPublished = x.IsReportPublished,
+            LaboratoryTaskId = x.LaboratoryTaskId
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);

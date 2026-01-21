@@ -408,6 +408,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Then replace placeholders in entire document (including headers, footers, textboxes)
         ReplacePlaceholdersInDocument(mainPart, placeholders);
 
+        // Fix: Ensure all table cells have explicit vertical alignment
+        // This fixes the issue where watermark in document header causes LibreOffice/Collabora
+        // to incorrectly render vertical alignment (text pushed to top instead of center)
+        EnsureTableCellVerticalAlignment(body);
+
         mainPart.Document?.Save();
     }
 
@@ -3147,6 +3152,37 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var text in cell.Descendants<Text>().ToList())
         {
             text.Text = "";
+        }
+    }
+
+    /// <summary>
+    /// Re-apply vertical center alignment for cells that already have it set.
+    /// This fixes an issue where watermark/background images in document header
+    /// cause LibreOffice/Collabora to render text at the top of cells instead of center.
+    /// By removing and re-adding the alignment, we force Collabora to respect it.
+    /// Only affects cells that were already set to center - preserves other alignments.
+    /// </summary>
+    private void EnsureTableCellVerticalAlignment(Body body)
+    {
+        foreach (var table in body.Descendants<Table>())
+        {
+            foreach (var row in table.Elements<TableRow>())
+            {
+                foreach (var cell in row.Elements<TableCell>())
+                {
+                    var tcPr = cell.GetFirstChild<TableCellProperties>();
+                    if (tcPr == null) continue;
+
+                    // Check if vertical alignment is set to center
+                    var existingVAlign = tcPr.GetFirstChild<TableCellVerticalAlignment>();
+                    if (existingVAlign?.Val != null && existingVAlign.Val.Value == TableVerticalAlignmentValues.Center)
+                    {
+                        // Remove and re-add to force Collabora to respect it
+                        existingVAlign.Remove();
+                        tcPr.AppendChild(new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
+                    }
+                }
+            }
         }
     }
 
