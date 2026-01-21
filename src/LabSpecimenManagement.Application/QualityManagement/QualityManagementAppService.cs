@@ -1619,4 +1619,247 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     }
 
     #endregion
+
+    #region Sample Assignment Log
+
+    public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
+    {
+        // Build base query from QualityManagementIndicator with all necessary joins
+        var qualityIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var qualityTaskQuery = await _taskRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _masterIndicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var userQuery = await _userRepository.GetQueryableAsync();
+
+        // Join all tables to create flat list
+        var query = from qi in qualityIndicatorQuery
+                    join li in labIndicatorQuery on qi.LaboratoryTaskIndicatorId equals li.Id
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join qt in qualityTaskQuery on qi.QualityManagementTaskId equals qt.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
+                    from tm in tmJoin.DefaultIfEmpty()
+                    join techManager in userQuery on lt.TechnicalManagerId equals techManager.Id into techManagerJoin
+                    from techManager in techManagerJoin.DefaultIfEmpty()
+                    join technician in userQuery on li.TechnicianId equals technician.Id into technicianJoin
+                    from technician in technicianJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        // TestRequest info
+                        TestRequestId = tr.Id,
+                        QualityTaskId = qt.Id,
+                        ContractNumber = tr.ContractNumber,
+                        TestRequestStatus = tr.Status,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+
+                        // Sample info
+                        SampleId = s.Id,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        SampleQuantity = s.SampleQuantity,
+                        SampleStatusText = s.StatusText,
+
+                        // Indicator info
+                        IndicatorId = qi.Id,
+                        LaboratoryTaskIndicatorId = li.Id,
+                        IndicatorName = mi.Name,
+                        IndicatorFormattedName = mi.FormattedName,
+                        MethodName = tm != null ? tm.Name : null,
+                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        Unit = li.Unit,
+                        TransferDate = si.TransferDate,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+
+                        // Assignment info
+                        TechnicalManagerName = techManager != null ? (techManager.Name ?? techManager.UserName) : null,
+                        TechnicianName = technician != null ? (technician.Name ?? technician.UserName) : null,
+                        EntryDate = li.EntryDate,
+                        QlktApprovalDate = li.ApprovalDate,
+
+                        // Status for highlighting
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+                        QualityApprovalStatus = qi.ApprovalStatus,
+                        IsReportPublished = qi.IsPrinted
+                    };
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.TestRequestStatus.HasValue)
+        {
+            query = query.Where(x => x.TestRequestStatus == input.TestRequestStatus.Value);
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        var totalCount = query.Count();
+
+        // Apply sorting - default: RequestCompletionDate ASC, then by SampleId and IndicatorName for consistent grouping
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+
+        var sortedQuery = sortingKey switch
+        {
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+        };
+
+        // Pagination with sample-aware boundary snapping
+        // This ensures all indicators of the same sample are on the same page
+        var allItems = sortedQuery.ToList();
+        var items = GetSampleAwarePage(allItems, input.SkipCount, input.MaxResultCount);
+
+        // Map to DTOs
+        var dtos = items.Select(x => new SampleAssignmentLogDto
+        {
+            TestRequestId = x.TestRequestId,
+            QualityTaskId = x.QualityTaskId,
+            ContractNumber = x.ContractNumber,
+            TestRequestStatus = x.TestRequestStatus,
+            RequestCompletionDate = x.RequestCompletionDate,
+            SampleId = x.SampleId,
+            SampleCode = x.SampleCode,
+            SampleName = x.SampleName,
+            SampleQuantity = x.SampleQuantity,
+            SampleStatusText = x.SampleStatusText,
+            IndicatorId = x.IndicatorId,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            IndicatorName = x.IndicatorName,
+            IndicatorFormattedName = x.IndicatorFormattedName,
+            MethodName = x.MethodName,
+            MethodFormattedName = x.MethodFormattedName,
+            Unit = x.Unit,
+            TransferDate = x.TransferDate,
+            TestDate = x.TestDate,
+            Result = x.Result,
+            TechnicalManagerName = x.TechnicalManagerName,
+            TechnicianName = x.TechnicianName,
+            EntryDate = x.EntryDate,
+            QlktApprovalDate = x.QlktApprovalDate,
+            IndicatorApprovalStatus = x.IndicatorApprovalStatus,
+            // TestingStatus will be determined based on IndicatorApprovalStatus
+            TestingStatus = DetermineTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
+            QualityApprovalStatus = x.QualityApprovalStatus,
+            IsReportPublished = x.IsReportPublished
+        }).ToList();
+
+        return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);
+    }
+
+    /// <summary>
+    /// Determine TestingStatus based on IndicatorApprovalStatus and other fields
+    /// </summary>
+    private static TestingStatus? DetermineTestingStatus(
+        IndicatorApprovalStatus approvalStatus,
+        DateTime? testDate,
+        string? result)
+    {
+        // If already has result, it's completed or pending approval
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? TestingStatus.Completed
+                : TestingStatus.PendingApproval;
+        }
+
+        // If test date is set but no result, it's in progress
+        if (testDate.HasValue)
+        {
+            return TestingStatus.InProgress;
+        }
+
+        // Otherwise, not started
+        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
+            ? TestingStatus.NotStarted
+            : null;
+    }
+
+    /// <summary>
+    /// Get a page of items while ensuring all indicators of the same sample stay together.
+    /// If a sample spans across page boundary, include all its indicators on the current page.
+    /// </summary>
+    private static List<T> GetSampleAwarePage<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
+    {
+        if (allItems.Count == 0 || maxResultCount <= 0)
+            return new List<T>();
+
+        // Get SampleId property via reflection (works for anonymous types)
+        var sampleIdProperty = typeof(T).GetProperty("SampleId");
+        if (sampleIdProperty == null)
+        {
+            // Fallback to standard pagination if no SampleId property
+            return allItems.Skip(skipCount).Take(maxResultCount).ToList();
+        }
+
+        Func<T, Guid> getSampleId = item => (Guid)sampleIdProperty.GetValue(item)!;
+
+        // Find the actual start index (snap to sample boundary)
+        var actualSkip = skipCount;
+        if (skipCount > 0 && skipCount < allItems.Count)
+        {
+            var currentSampleId = getSampleId(allItems[skipCount]);
+            // Check if we're in the middle of a sample group
+            if (skipCount > 0 && getSampleId(allItems[skipCount - 1]) == currentSampleId)
+            {
+                // Move forward to find the start of next sample
+                while (actualSkip < allItems.Count && getSampleId(allItems[actualSkip]) == currentSampleId)
+                {
+                    actualSkip++;
+                }
+            }
+        }
+
+        // Take items, but include complete sample at the end
+        var result = new List<T>();
+        var taken = 0;
+        Guid? lastSampleId = null;
+
+        for (var i = actualSkip; i < allItems.Count && (taken < maxResultCount || (lastSampleId.HasValue && getSampleId(allItems[i]) == lastSampleId.Value)); i++)
+        {
+            var item = allItems[i];
+            var sampleId = getSampleId(item);
+
+            result.Add(item);
+            taken++;
+            lastSampleId = sampleId;
+
+            // If we've reached maxResultCount and the next item is a different sample, stop
+            if (taken >= maxResultCount && i + 1 < allItems.Count && getSampleId(allItems[i + 1]) != sampleId)
+            {
+                break;
+            }
+        }
+
+        return result;
+    }
+
+    #endregion
 }
