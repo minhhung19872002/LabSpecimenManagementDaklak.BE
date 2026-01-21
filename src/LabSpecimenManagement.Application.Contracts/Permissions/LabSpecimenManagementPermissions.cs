@@ -242,6 +242,13 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // Sync Permissions (Offline data synchronization)
+    public static class Sync
+    {
+        public const string Default = GroupName + ".Sync";
+        public const string TestRequests = Default + ".TestRequests";
+    }
+
     // Master Data - Sample Condition Permissions (Tình trạng mẫu)
     public static class SampleConditions
     {
