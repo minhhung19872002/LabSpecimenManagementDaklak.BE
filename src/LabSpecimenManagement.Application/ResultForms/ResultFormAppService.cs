@@ -419,6 +419,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeSplitPlaceholders(para);
         }
 
+        // Merge dots that follow placeholders into the same text element
+        foreach (var para in body.Descendants<Paragraph>())
+        {
+            MergeDotsWithPlaceholders(para);
+        }
+
         // Then replace placeholders
         foreach (var text in body.Descendants<Text>().ToList())
         {
@@ -455,20 +461,37 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             RemoveContainingCellHeightConstraint(text);
                         }
 
-                        // If placeholder has value, replace trailing dots with spaces (same count)
-                        // Template format: {{CustomerName}}...... -> "Công ty ABC      " (dots replaced by spaces)
+                        // If placeholder has value, replace placeholder + surrounding dots with value + padding spaces
+                        // Keep total length same as original (placeholder + dots) to maintain layout without line break
+                        // Template: "{{CustomerName}}......" (22 chars) -> "Công ty ABC           " (22 chars with spaces)
+                        // But if value is longer than original, just use value without extra spaces (no truncation)
                         if (!string.IsNullOrEmpty(placeholder.Value))
                         {
-                            // Pattern: placeholder followed by one or more dots - capture the dots
-                            var patternWithDots = placeholder.Key + @"(\.+)";
+                            // Extended dot/leader pattern - includes all possible dot-like characters
+                            var dotPattern = @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+";
+
+                            // Pattern: placeholder followed by dots (most common case)
+                            var patternTrailingDots = System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + dotPattern;
                             text.Text = System.Text.RegularExpressions.Regex.Replace(
                                 text.Text,
-                                patternWithDots,
+                                patternTrailingDots,
                                 match =>
                                 {
-                                    // Replace dots with same number of spaces
-                                    var dotsCount = match.Groups[1].Value.Length;
-                                    return placeholder.Value + new string(' ', dotsCount);
+                                    var originalLength = match.Value.Length;
+                                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                                    return placeholder.Value + new string(' ', paddingNeeded);
+                                });
+
+                            // Pattern: dots before placeholder + placeholder + optional dots after
+                            var patternLeadingDots = dotPattern + @"\s*" + System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"(?:" + dotPattern + @")?";
+                            text.Text = System.Text.RegularExpressions.Regex.Replace(
+                                text.Text,
+                                patternLeadingDots,
+                                match =>
+                                {
+                                    var originalLength = match.Value.Length;
+                                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                                    return placeholder.Value + new string(' ', paddingNeeded);
                                 });
                         }
 
@@ -638,6 +661,97 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
             afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
             checkboxRun.InsertAfterSelf(afterRun);
+        }
+    }
+
+    /// <summary>
+    /// Merge dots that follow placeholders (in separate runs) into the placeholder's text element
+    /// This ensures "{{CustomerName}}" + "..." becomes "{{CustomerName}}..." in one text element
+    /// </summary>
+    private void MergeDotsWithPlaceholders(Paragraph para)
+    {
+        var runs = para.Elements<Run>().ToList();
+        if (runs.Count < 2) return;
+
+        for (int i = 0; i < runs.Count - 1; i++)
+        {
+            var currentRun = runs[i];
+            var currentText = currentRun.GetFirstChild<Text>();
+            if (currentText == null || string.IsNullOrEmpty(currentText.Text)) continue;
+
+            // Check if current run ends with a placeholder pattern }}
+            if (!currentText.Text.EndsWith("}}")) continue;
+
+            // Look at next run(s) for dots
+            var dotsToMerge = new System.Text.StringBuilder();
+            var runsToRemove = new List<Run>();
+
+            for (int j = i + 1; j < runs.Count; j++)
+            {
+                var nextRun = runs[j];
+                var nextText = nextRun.GetFirstChild<Text>();
+                if (nextText == null || string.IsNullOrEmpty(nextText.Text)) continue;
+
+                var text = nextText.Text;
+                // Check if this run is only dots
+                var dotsOnly = true;
+                var dotsCount = 0;
+                foreach (var c in text)
+                {
+                    if (DotCharacters.Contains(c))
+                    {
+                        dotsCount++;
+                    }
+                    else
+                    {
+                        dotsOnly = false;
+                        break;
+                    }
+                }
+
+                if (dotsOnly && dotsCount > 0)
+                {
+                    // This run is all dots, merge it
+                    dotsToMerge.Append(text);
+                    runsToRemove.Add(nextRun);
+                }
+                else if (dotsCount > 0)
+                {
+                    // Run starts with dots but has other content
+                    // Take just the leading dots
+                    var leadingDots = "";
+                    foreach (var c in text)
+                    {
+                        if (DotCharacters.Contains(c))
+                            leadingDots += c;
+                        else
+                            break;
+                    }
+                    if (leadingDots.Length > 0)
+                    {
+                        dotsToMerge.Append(leadingDots);
+                        nextText.Text = text.Substring(leadingDots.Length);
+                    }
+                    break; // Stop looking for more dots
+                }
+                else
+                {
+                    // No dots found, stop
+                    break;
+                }
+            }
+
+            // Merge dots into current run
+            if (dotsToMerge.Length > 0)
+            {
+                currentText.Text += dotsToMerge.ToString();
+                foreach (var runToRemove in runsToRemove)
+                {
+                    runToRemove.Remove();
+                }
+                // Update runs list after removal
+                runs = para.Elements<Run>().ToList();
+            }
         }
     }
 
@@ -2104,6 +2218,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeSplitPlaceholders(para);
         }
 
+        // Merge dots that follow placeholders into the same text element
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            MergeDotsWithPlaceholders(para);
+        }
+
         // Process each paragraph to handle dots across multiple text runs
         foreach (var para in element.Descendants<Paragraph>())
         {
@@ -2203,8 +2323,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
     }
 
-    // Characters to trim: regular dot (.), Unicode ellipsis (…), and full-width dot (．)
-    private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•' };
+    // Characters to trim: all dot-like and leader characters
+    // . (period), … (ellipsis), · (middle dot), • (bullet), ․ (one dot leader), ‥ (two dot leader)
+    // ． (fullwidth period), ⋯ (midline ellipsis), ᠁ (mongolian ellipsis), ︙ (vertical ellipsis)
+    // _ (underscore), - (dash), ─ (box drawing), ━ (heavy box drawing)
+    private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•', '․', '‥', '⋯', '᠁', '︙', '_', '-', '─', '━' };
 
     /// <summary>
     /// Normalize placeholders by removing extra spaces inside {{ }}
@@ -2221,100 +2344,163 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             "{{$1}}");
     }
 
+    // Placeholders that should have dot leader tabs removed when replaced
+    // BM02 (Form trả KQ tổng hợp) and BM01 (Phiếu yêu cầu) placeholders
+    private static readonly HashSet<string> PlaceholdersWithDotLeaderRemoval = new HashSet<string>
+    {
+        // BM02 - Form trả KQ tổng hợp
+        "{{CustomerName}}",
+        "{{FullAddress}}",
+        "{{DateOfReceiving}}",
+        "{{TimeOfTesting}}",
+        "{{SampleDescription}}",
+        "{{Quantity}}",
+        "{{DateOfIssue}}",
+        // BM01 - Phiếu yêu cầu
+        "{{Customer}}",
+        "{{Adress}}",
+        "{{Ward}}",
+        "{{Province}}",
+        "{{TaxNo}}",
+        "{{ContactPerson}}",
+        "{{PhoneNumber}}"
+    };
+
     /// <summary>
     /// Replace placeholders in a paragraph, removing surrounding dots when placeholder has value
     /// This handles cases where dots and placeholders are in separate text runs
+    /// NEW APPROACH: Combine all text in paragraph, replace, then redistribute
+    /// ALSO: Remove Tab elements with dot leaders for specific placeholders only
     /// </summary>
     private void ReplacePlaceholdersInParagraphWithDotRemoval(Paragraph para, Dictionary<string, string> placeholders)
     {
-        var textElements = para.Descendants<Text>().ToList();
-        if (!textElements.Any()) return;
+        var runs = para.Elements<Run>().ToList();
+        if (!runs.Any()) return;
 
-        // First, normalize any placeholders with extra spaces in text elements
-        // e.g., "{{ CustomerTestMethod }}" -> "{{CustomerTestMethod}}"
-        foreach (var textElement in textElements)
-        {
-            if (string.IsNullOrEmpty(textElement.Text)) continue;
-            textElement.Text = NormalizePlaceholders(textElement.Text);
-        }
+        // Build full text from all runs
+        var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
+        if (string.IsNullOrEmpty(fullText)) return;
 
+        // Normalize placeholders
+        fullText = NormalizePlaceholders(fullText);
+
+        // Check if any placeholder exists in the full text
+        var hasPlaceholder = placeholders.Any(p => fullText.Contains(p.Key));
+        if (!hasPlaceholder) return;
+
+        // Track if we need to remove dot leader tabs (only for specific placeholders)
+        var shouldRemoveDotLeaderTabs = false;
+
+        // Process each placeholder with dot handling
         foreach (var placeholder in placeholders)
         {
-            // Find the text element containing this placeholder
-            var targetText = textElements.FirstOrDefault(t => t.Text?.Contains(placeholder.Key) == true);
-            if (targetText == null) continue;
+            if (!fullText.Contains(placeholder.Key)) continue;
+            if (string.IsNullOrEmpty(placeholder.Value)) continue;
 
-            // Special handling for {{Note}} placeholder with line breaks
-            if (placeholder.Key == "{{Note}}" && !string.IsNullOrEmpty(placeholder.Value) && placeholder.Value.Contains("\n"))
+            // Check if this placeholder should have dot leader tabs removed
+            if (PlaceholdersWithDotLeaderRemoval.Contains(placeholder.Key))
             {
-                RemoveContainingCellHeightConstraint(targetText);
-                SetNoteFontSize(targetText, 11);
-                ReplaceTextWithLineBreaks(targetText, placeholder.Key, placeholder.Value);
-                continue;
+                shouldRemoveDotLeaderTabs = true;
             }
 
-            // Replace the placeholder
-            targetText.Text = targetText.Text.Replace(placeholder.Key, placeholder.Value);
+            // Pattern: placeholder followed by ANY repeated non-alphanumeric chars (dots, underscores, dashes, etc.)
+            // This catches cases where Word uses special characters for leader lines
+            var patternTrailingAny = System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+";
+            fullText = System.Text.RegularExpressions.Regex.Replace(
+                fullText,
+                patternTrailingAny,
+                match =>
+                {
+                    var originalLength = match.Value.Length;
+                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                    return placeholder.Value + new string(' ', paddingNeeded);
+                });
 
-            // If placeholder has value, remove surrounding dots from adjacent text elements
-            if (!string.IsNullOrWhiteSpace(placeholder.Value))
+            // Pattern: dots/leaders before placeholder + placeholder + optional dots after
+            var patternWithDots = @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+\s*" + System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"(?:[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+)?";
+            fullText = System.Text.RegularExpressions.Regex.Replace(
+                fullText,
+                patternWithDots,
+                match =>
+                {
+                    var originalLength = match.Value.Length;
+                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                    return placeholder.Value + new string(' ', paddingNeeded);
+                });
+
+            // Standard replacement for placeholders without dots
+            fullText = fullText.Replace(placeholder.Key, placeholder.Value);
+        }
+
+        // Put the processed text in the first run, clear others
+        var firstRun = runs.First();
+        var firstText = firstRun.GetFirstChild<Text>();
+        if (firstText == null)
+        {
+            firstText = new Text();
+            firstRun.AppendChild(firstText);
+        }
+        firstText.Text = fullText;
+        firstText.Space = SpaceProcessingModeValues.Preserve;
+
+        // Clear text from other runs
+        for (int i = 1; i < runs.Count; i++)
+        {
+            foreach (var t in runs[i].Elements<Text>().ToList())
             {
-                var targetIndex = textElements.IndexOf(targetText);
+                t.Text = "";
+            }
 
-                // Remove trailing dots from previous text element(s)
-                for (int i = targetIndex - 1; i >= 0; i--)
+            // Only remove Tab elements for specific placeholders
+            if (shouldRemoveDotLeaderTabs)
+            {
+                foreach (var tab in runs[i].Elements<TabChar>().ToList())
                 {
-                    var prevText = textElements[i];
-                    if (string.IsNullOrEmpty(prevText.Text)) continue;
-
-                    var trimmed = TrimEndDots(prevText.Text);
-                    if (trimmed.Length < prevText.Text.Length)
-                    {
-                        prevText.Text = trimmed;
-                        // If we removed dots and there's still content, stop
-                        if (!string.IsNullOrEmpty(trimmed)) break;
-                    }
-                    else
-                    {
-                        // No dots found, stop looking
-                        break;
-                    }
-                }
-
-                // Remove leading dots from next text element(s)
-                for (int i = targetIndex + 1; i < textElements.Count; i++)
-                {
-                    var nextText = textElements[i];
-                    if (string.IsNullOrEmpty(nextText.Text)) continue;
-
-                    var trimmed = TrimStartDots(nextText.Text);
-                    if (trimmed.Length < nextText.Text.Length)
-                    {
-                        nextText.Text = trimmed;
-                        // If we removed dots and there's still content, stop
-                        if (!string.IsNullOrEmpty(trimmed)) break;
-                    }
-                    else
-                    {
-                        // No dots found, stop looking
-                        break;
-                    }
-                }
-
-                // Also check for dots within the same text element (before and after the replaced value)
-                var currentText = targetText.Text;
-                if (!string.IsNullOrEmpty(currentText))
-                {
-                    // Find position of the replacement value
-                    var valueIndex = currentText.IndexOf(placeholder.Value);
-                    if (valueIndex >= 0)
-                    {
-                        var before = TrimEndDots(currentText.Substring(0, valueIndex));
-                        var after = TrimStartDots(currentText.Substring(valueIndex + placeholder.Value.Length));
-                        targetText.Text = before + placeholder.Value + after;
-                    }
+                    tab.Remove();
                 }
             }
+        }
+
+        // Only remove tabs and dot leader tab stops for specific placeholders
+        if (shouldRemoveDotLeaderTabs)
+        {
+            // Also remove tabs from the first run if they come after the text
+            foreach (var tab in firstRun.Elements<TabChar>().ToList())
+            {
+                tab.Remove();
+            }
+
+            // Remove dot leader tab stops from paragraph properties
+            RemoveDotLeaderTabStops(para);
+        }
+    }
+
+    /// <summary>
+    /// Remove tab stops with dot leaders from paragraph properties
+    /// These cause the "......." lines in Word documents
+    /// </summary>
+    private void RemoveDotLeaderTabStops(Paragraph para)
+    {
+        var pPr = para.GetFirstChild<ParagraphProperties>();
+        if (pPr == null) return;
+
+        var tabs = pPr.GetFirstChild<Tabs>();
+        if (tabs == null) return;
+
+        // Find and remove tab stops with dot leaders
+        var dotLeaderTabs = tabs.Elements<TabStop>()
+            .Where(t => t.Leader != null && t.Leader.Value == TabStopLeaderCharValues.Dot)
+            .ToList();
+
+        foreach (var tab in dotLeaderTabs)
+        {
+            tab.Remove();
+        }
+
+        // If no tabs left, remove the Tabs element
+        if (!tabs.Elements<TabStop>().Any())
+        {
+            tabs.Remove();
         }
     }
 
@@ -2334,6 +2520,40 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         if (string.IsNullOrEmpty(text)) return text;
         return text.TrimStart(DotCharacters);
+    }
+
+    /// <summary>
+    /// Count dots at end of string (trailing dots)
+    /// </summary>
+    private static int CountTrailingDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        int count = 0;
+        for (int i = text.Length - 1; i >= 0; i--)
+        {
+            if (DotCharacters.Contains(text[i]))
+                count++;
+            else
+                break;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Count dots at start of string (leading dots)
+    /// </summary>
+    private static int CountLeadingDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        int count = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (DotCharacters.Contains(text[i]))
+                count++;
+            else
+                break;
+        }
+        return count;
     }
 
     /// <summary>
