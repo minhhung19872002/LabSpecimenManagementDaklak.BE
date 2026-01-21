@@ -58,5 +58,11 @@ public enum LaboratoryTaskStatus
     /// <summary>
     /// Đã gửi QL Chất lượng - Có ≥1 chỉ tiêu đã gửi cho QLCL
     /// </summary>
-    SentToQuality = 10
+    SentToQuality = 10,
+
+    /// <summary>
+    /// Chờ nhận mẫu chung - Task của Lab Hóa đang chờ Lab Vi Sinh hoàn thành và gửi mẫu
+    /// QLKT chỉ có thể xem readonly, không thực hiện action cho đến khi nhận mẫu
+    /// </summary>
+    WaitingSharedSample = 11
 }

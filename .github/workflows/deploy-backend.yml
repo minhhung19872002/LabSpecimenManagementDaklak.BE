@@ -99,16 +99,19 @@ jobs:
 
             # Onlyoffice-config no longer needed (switched to Gotenberg)
 
-            # Setup Nginx reverse proxy if not already configured
+            # Setup Nginx reverse proxy - always update and reload
             if [ -f nginx-reverse-proxy.conf ]; then
               sudo cp nginx-reverse-proxy.conf /etc/nginx/sites-available/lab-specimen-management
               sudo ln -sf /etc/nginx/sites-available/lab-specimen-management /etc/nginx/sites-enabled/lab-specimen-management
               sudo rm -f /etc/nginx/sites-enabled/default
+              echo "Testing nginx configuration..."
               if sudo nginx -t; then
+                echo "Reloading nginx..."
                 sudo systemctl reload nginx
-                echo "Nginx reverse proxy configured and reloaded"
+                echo "✅ Nginx reverse proxy configured and reloaded"
               else
-                echo "Nginx configuration test failed"
+                echo "❌ Nginx configuration test failed"
+                sudo nginx -t
               fi
             fi
 
@@ -124,30 +127,18 @@ jobs:
             EOF
 
             echo "Stopping old containers..."
-            docker-compose stop backend onlyoffice db-migrator || true
-            docker-compose rm -f backend onlyoffice db-migrator || true
+            docker-compose stop backend collabora db-migrator onlyoffice || true
+            docker-compose rm -f backend collabora db-migrator onlyoffice || true
 
-            echo "=============================================="
-            echo "🗄️ RESET DATABASE (DROP and RECREATE)"
-            echo "=============================================="
-            # Get database name from docker-compose or use default
-            DB_NAME="LabSpecimenManagement"
-            DB_USER="postgres"
+            # Also stop any standalone onlyoffice container that might be running
+            docker stop lab-specimen-onlyoffice 2>/dev/null || true
+            docker rm lab-specimen-onlyoffice 2>/dev/null || true
 
-            # Drop and recreate database
-            echo "Dropping database ${DB_NAME}..."
-            docker exec lab-specimen-postgres psql -U ${DB_USER} -c "DROP DATABASE IF EXISTS \"${DB_NAME}\";" || true
+            echo "Starting Collabora Online..."
+            docker-compose up -d collabora
 
-            echo "Creating database ${DB_NAME}..."
-            docker exec lab-specimen-postgres psql -U ${DB_USER} -c "CREATE DATABASE \"${DB_NAME}\";" || true
-
-            echo "✅ Database reset completed!"
-
-            echo "Starting OnlyOffice Document Server..."
-            docker-compose up -d onlyoffice
-
-            echo "Waiting for OnlyOffice to be ready..."
-            sleep 60
+            echo "Waiting for Collabora to be ready..."
+            sleep 30
 
             echo "Rebuilding db-migrator and backend..."
             docker-compose build --no-cache db-migrator backend
@@ -159,6 +150,9 @@ jobs:
 
             echo "Starting backend..."
             docker-compose up -d backend
+
+            echo "Restarting backend to ensure new config is loaded..."
+            docker-compose restart backend
 
             echo "Checking db-migrator logs..."
             docker-compose logs db-migrator || echo "No migrator logs available"
@@ -179,32 +173,32 @@ jobs:
 
             echo ""
             echo "=============================================="
-            echo "📄 ONLYOFFICE STATUS"
+            echo "📄 COLLABORA STATUS"
             echo "=============================================="
-            docker-compose ps onlyoffice
+            docker-compose ps collabora
 
             echo ""
             echo "=============================================="
-            echo "🌐 TESTING ONLYOFFICE CONNECTIVITY"
+            echo "🌐 TESTING COLLABORA CONNECTIVITY"
             echo "=============================================="
-            echo "Testing OnlyOffice from host (port 8090)..."
-            ONLYOFFICE_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8090/healthcheck || echo "FAILED")
-            echo "OnlyOffice HTTP Status (host): $ONLYOFFICE_STATUS"
-            if [ "$ONLYOFFICE_STATUS" = "200" ]; then
-              echo "✅ OnlyOffice is accessible on port 8090 (host)"
+            echo "Testing Collabora from host (port 8089)..."
+            COLLABORA_STATUS=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:8089/hosting/discovery || echo "FAILED")
+            echo "Collabora HTTP Status (host): $COLLABORA_STATUS"
+            if [ "$COLLABORA_STATUS" = "200" ]; then
+              echo "✅ Collabora is accessible on port 8089 (host)"
             else
-              echo "❌ OnlyOffice NOT accessible from host. Checking logs..."
-              docker-compose logs --tail=30 onlyoffice
+              echo "❌ Collabora NOT accessible from host. Checking logs..."
+              docker-compose logs --tail=30 collabora
             fi
 
             echo ""
-            echo "Testing OnlyOffice from backend container..."
-            ONLYOFFICE_DOCKER_STATUS=$(docker exec lab-specimen-backend curl -s -o /dev/null -w "%{http_code}" http://lab-specimen-onlyoffice:80/healthcheck || echo "FAILED")
-            echo "OnlyOffice HTTP Status (from backend): $ONLYOFFICE_DOCKER_STATUS"
-            if [ "$ONLYOFFICE_DOCKER_STATUS" = "200" ]; then
-              echo "✅ Backend can reach OnlyOffice via Docker network"
+            echo "Testing Collabora from backend container..."
+            COLLABORA_DOCKER_STATUS=$(docker exec lab-specimen-backend curl -s -o /dev/null -w "%{http_code}" http://lab-specimen-collabora:9980/hosting/discovery || echo "FAILED")
+            echo "Collabora HTTP Status (from backend): $COLLABORA_DOCKER_STATUS"
+            if [ "$COLLABORA_DOCKER_STATUS" = "200" ]; then
+              echo "✅ Backend can reach Collabora via Docker network"
             else
-              echo "❌ Backend cannot reach OnlyOffice. Check network configuration."
+              echo "❌ Backend cannot reach Collabora. Check network configuration."
             fi
 
             echo ""

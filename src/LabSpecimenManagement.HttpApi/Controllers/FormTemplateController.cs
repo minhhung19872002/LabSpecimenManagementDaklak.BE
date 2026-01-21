@@ -264,27 +264,13 @@ public class FormTemplateController : LabSpecimenManagementController
                 },
                 Customization = new OnlyOfficeCustomization
                 {
-                    Autosave = true,
+                    Autosave = false,
+                    ForceSave = false,
                     Chat = false,
                     Comments = false,
                     CompactHeader = true,
-                    CompactToolbar = false,
                     Feedback = false,
-                    ForceSave = false,
-                    Help = false,
-                    HideRightMenu = false,
-                    HideRulers = false,
-                    IntegrationMode = "embed",
-                    Logo = null,
-                    MacrosMode = "disable",
-                    MentionShare = false,
-                    Plugins = false,
-                    ReviewDisplay = "original",
-                    ToolbarHideFileName = false,
-                    ToolbarNoTabs = false,
-                    Uiicons = true,
-                    Unit = "cm",
-                    Zoom = 100
+                    Help = false
                 }
             },
             Height = "100%",
@@ -415,25 +401,13 @@ public class FormTemplateController : LabSpecimenManagementController
                 },
                 customization = new
                 {
-                    autosave = config.EditorConfig.Customization.Autosave,
-                    chat = config.EditorConfig.Customization.Chat,
-                    comments = config.EditorConfig.Customization.Comments,
-                    compactHeader = config.EditorConfig.Customization.CompactHeader,
-                    compactToolbar = config.EditorConfig.Customization.CompactToolbar,
-                    feedback = config.EditorConfig.Customization.Feedback,
-                    forcesave = config.EditorConfig.Customization.ForceSave,
-                    help = config.EditorConfig.Customization.Help,
-                    hideRightMenu = config.EditorConfig.Customization.HideRightMenu,
-                    hideRulers = config.EditorConfig.Customization.HideRulers,
-                    integrationMode = config.EditorConfig.Customization.IntegrationMode,
-                    macrosMode = config.EditorConfig.Customization.MacrosMode,
-                    mentionShare = config.EditorConfig.Customization.MentionShare,
-                    plugins = config.EditorConfig.Customization.Plugins,
-                    reviewDisplay = config.EditorConfig.Customization.ReviewDisplay,
-                    toolbarHideFileName = config.EditorConfig.Customization.ToolbarHideFileName,
-                    toolbarNoTabs = config.EditorConfig.Customization.ToolbarNoTabs,
-                    unit = config.EditorConfig.Customization.Unit,
-                    zoom = config.EditorConfig.Customization.Zoom
+                    autosave = false,
+                    forcesave = false,
+                    chat = false,
+                    comments = false,
+                    compactHeader = true,
+                    feedback = false,
+                    help = false
                 }
             },
             height = config.Height,

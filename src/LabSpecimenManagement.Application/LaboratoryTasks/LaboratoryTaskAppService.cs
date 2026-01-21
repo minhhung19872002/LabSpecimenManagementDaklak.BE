@@ -49,6 +49,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -75,7 +76,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
-        IRepository<Note, Guid> noteRepository)
+        IRepository<Note, Guid> noteRepository,
+        IRepository<Department, Guid> departmentRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -102,6 +104,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _noteRepository = noteRepository;
+        _departmentRepository = departmentRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -330,8 +333,28 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             Notes = task.Notes,
             ResultRejectionReason = task.ResultRejectionReason,
             CreationTime = task.CreationTime,
-            LastModificationTime = task.LastModificationTime
+            LastModificationTime = task.LastModificationTime,
+            // Shared Sample Fields
+            IsSharedSampleTask = task.IsSharedSampleTask,
+            IsWaitingForPriorLab = task.IsWaitingForPriorLab,
+            SampleSentToNextLab = task.SampleSentToNextLab,
+            SampleSentDate = task.SampleSentDate,
+            SampleReceivedDate = task.SampleReceivedDate,
+            SampleReceivedNote = task.SampleReceivedNote,
+            PriorLabTaskId = task.PriorLabTaskId,
+            // Check if prior lab has sent sample (for Lab Hóa waiting for Vi Sinh)
+            PriorLabSentSample = false // Will be set below if applicable
         };
+
+        // Check if prior lab has sent sample
+        if (task.PriorLabTaskId.HasValue && task.IsWaitingForPriorLab)
+        {
+            var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
+            if (priorTask != null)
+            {
+                dto.PriorLabSentSample = priorTask.SampleSentToNextLab;
+            }
+        }
 
         // Get TestRequest info
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -346,7 +369,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (laboratory != null)
         {
             dto.LaboratoryCode = laboratory.Code;
-            dto.LaboratoryName = laboratory.Name;
+            var department = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = department?.Name ?? "";
         }
 
         // Get Technical Manager name
@@ -623,7 +647,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Chỉ validate method + technician cho các chỉ tiêu hợp lệ
             if (!assignment.MethodId.HasValue || !assignment.TechnicianId.HasValue)
             {
-                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và kỹ thuật viên cho tất cả chỉ tiêu được chọn");
+                throw new ValidationException("assignment", "Vui lòng chọn phương pháp và Thử nghiệm viên cho tất cả chỉ tiêu được chọn");
             }
 
             validAssignments.Add(assignment);
@@ -696,7 +720,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     await _notificationCreator.NotifySingleIndicatorAssignedToTechnicianAsync(
                         technicianId,
                         contractNumber,
-                        task.TestRequestId,
+                        task.Id,
                         technicalManagerName,
                         sample?.SampleName ?? "",
                         indicator?.Name ?? "",
@@ -711,7 +735,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifyMultipleIndicatorsAssignedToTechnicianAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     indicatorCount,
                     task.RequestCompletionDate
                 );
@@ -760,12 +784,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var indicator = sampleIndicator != null ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId) : null;
             var method = taskIndicator.MethodId.HasValue ? await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value) : null;
 
-            var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+            var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Thử nghiệm viên";
 
             await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
                 task.TechnicalManagerId.Value,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                task.Id,
                 senderName,
                 1, // Single indicator
                 task.RequestCompletionDate,
@@ -892,7 +916,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
                     taskIndicator.EnteredById.Value,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName,
                     sample?.SampleName ?? "",
                     indicator?.Name ?? "",
@@ -986,12 +1010,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new ForbiddenAccessException("Bạn không có quyền cập nhật ghi chú");
         }
 
-        // Combine all indicator IDs that need to be updated
-        var allIds = input.AllIndicatorIds.Union(input.SelectedIndicatorIds).Distinct().ToList();
-
-        // Get indicators belonging to this task
+        // Get indicators belonging to this task - chỉ cần lấy selectedIndicatorIds
+        // Vì cả FreeTextNote và MasterDataNoteIds đều áp dụng cho từng chỉ tiêu được chọn
         var indicators = await _laboratoryTaskIndicatorRepository
-            .GetListAsync(x => allIds.Contains(x.Id) && x.LaboratoryTaskId == taskId);
+            .GetListAsync(x => input.SelectedIndicatorIds.Contains(x.Id) && x.LaboratoryTaskId == taskId);
 
         // Convert Master Data Note IDs to comma-separated string
         var masterDataNoteIdsString = input.MasterDataNoteIds != null && input.MasterDataNoteIds.Any()
@@ -1000,30 +1022,25 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         foreach (var indicator in indicators)
         {
-            // 1. Update FreeTextNote for ALL indicators in sample (AllIndicatorIds)
-            // FreeTextNote được cập nhật cho TẤT CẢ indicators bất kể ApprovalStatus
-            // vì FreeTextNote là thông tin chung cho cả sample
-            if (input.AllIndicatorIds.Contains(indicator.Id))
+            // Skip approved/cancelled indicators
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+                continue;
+
+            // 1. Update FreeTextNote for selected indicators only
+            if (input.AppendMode && !string.IsNullOrEmpty(indicator.FreeTextNote) && !string.IsNullOrEmpty(input.FreeTextNote))
             {
-                if (input.AppendMode && !string.IsNullOrEmpty(indicator.FreeTextNote) && !string.IsNullOrEmpty(input.FreeTextNote))
-                {
-                    indicator.FreeTextNote = $"{indicator.FreeTextNote}\n{input.FreeTextNote}";
-                }
-                else
-                {
-                    indicator.FreeTextNote = input.FreeTextNote;
-                }
+                indicator.FreeTextNote = $"{indicator.FreeTextNote}\n{input.FreeTextNote}";
+            }
+            else
+            {
+                indicator.FreeTextNote = input.FreeTextNote;
             }
 
-            // 2. Update MasterDataNoteIds for ONLY selected indicators (SelectedIndicatorIds)
-            // Skip approved indicators - chỉ skip cho MasterDataNoteIds, không skip cho FreeTextNote
+            // 2. Update MasterDataNoteIds for selected indicators
             // Skip if SkipMasterDataUpdate is true (giữ nguyên MasterDataNoteIds)
-            if (!input.SkipMasterDataUpdate && input.SelectedIndicatorIds.Contains(indicator.Id))
+            if (!input.SkipMasterDataUpdate)
             {
-                // Skip approved indicators for MasterDataNoteIds only
-                if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
-                    continue;
-
                 if (input.AppendMode && !string.IsNullOrEmpty(indicator.MasterDataNoteIds) && masterDataNoteIdsString != null)
                 {
                     // Append: Merge existing and new note IDs (avoid duplicates)
@@ -1053,9 +1070,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
 
-        // Filter out CustomerCancelled indicators - they should not block sending results
+        // Filter out finalized indicators - they should not block sending results
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận
         var activeIndicators = taskIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
         // Validate: Must have at least one active indicator
@@ -1090,7 +1110,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// - Nếu chưa có: thêm vào task hiện có hoặc tạo mới nếu chưa có task nào
     /// Mỗi TestRequest chỉ có DUY NHẤT 1 QualityManagementTask loại ResultApproval
     /// </summary>
-    private async Task CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators, Guid? qualityManagerId = null)
+    /// <returns>QualityManagementTask ID</returns>
+    private async Task<Guid> CreateQualityManagementTaskAsync(LaboratoryTask labTask, List<LaboratoryTaskIndicator> indicators, Guid? qualityManagerId = null)
     {
         var testRequest = await _testRequestRepository.GetAsync(labTask.TestRequestId);
 
@@ -1230,7 +1251,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                 await _qualityIndicatorRepository.InsertAsync(qualityIndicator, autoSave: true);
             }
+
+            return qualityTask.Id;
         }
+
+        // Return existing task ID (if no new indicators were created)
+        if (existingTask != null)
+        {
+            return existingTask.Id;
+        }
+
+        // Should not reach here, but return Guid.Empty as fallback
+        return Guid.Empty;
     }
 
     public async Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId)
@@ -1255,28 +1287,88 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId)
     {
-        // Get all users - later can filter by role or laboratory assignment
-        // If laboratoryId is null, return all technicians
+        // Get all active users with LabTechnician role
         var users = await _userRepository.GetListAsync();
-        var dtos = users
-            .Where(u => u.IsActive)
-            .Select(u => new UserLookupDto
-            {
-                Id = u.Id,
-                UserName = u.UserName,
-                Name = u.Name,
-                Surname = u.Surname,
-                DisplayName = !string.IsNullOrWhiteSpace(u.Name)
-                    ? $"{u.Surname} {u.Name}".Trim()
-                    : u.UserName,
-                Email = u.Email,
-                PhoneNumber = u.PhoneNumber,
-                IsActive = u.IsActive
-            })
-            .OrderBy(u => u.DisplayName)
-            .ToList();
+        var technicians = new List<UserLookupDto>();
 
-        return new ListResultDto<UserLookupDto>(dtos);
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // Filter by role: only LabTechnician
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            {
+                continue;
+            }
+
+            technicians.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return new ListResultDto<UserLookupDto>(technicians.OrderBy(u => u.DisplayName).ToList());
+    }
+
+    public async Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId)
+    {
+        // Get task to find QLKT's department
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+        Guid? qlktDepartmentId = null;
+
+        if (task.TechnicalManagerId.HasValue)
+        {
+            var qlktUser = await _userRepository.GetAsync(task.TechnicalManagerId.Value);
+            qlktDepartmentId = qlktUser.GetProperty<Guid?>("DepartmentId");
+        }
+
+        // Get all active users
+        var users = await _userRepository.GetListAsync();
+        var technicians = new List<UserLookupDto>();
+
+        foreach (var user in users.Where(u => u.IsActive))
+        {
+            // Filter by role: only LabTechnician
+            var userRoles = await _userRepository.GetRolesAsync(user.Id);
+            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            {
+                continue;
+            }
+
+            // Filter by same department as QLKT (if QLKT has department)
+            if (qlktDepartmentId.HasValue)
+            {
+                var userDepartmentId = user.GetProperty<Guid?>("DepartmentId");
+                if (!userDepartmentId.HasValue || userDepartmentId.Value != qlktDepartmentId.Value)
+                {
+                    continue;
+                }
+            }
+
+            technicians.Add(new UserLookupDto
+            {
+                Id = user.Id,
+                UserName = user.UserName,
+                Name = user.Name,
+                Surname = user.Surname,
+                DisplayName = !string.IsNullOrWhiteSpace(user.Name)
+                    ? $"{user.Surname} {user.Name}".Trim()
+                    : user.UserName,
+                Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
+                IsActive = user.IsActive
+            });
+        }
+
+        return new ListResultDto<UserLookupDto>(technicians.OrderBy(u => u.DisplayName).ToList());
     }
 
     #endregion
@@ -1305,12 +1397,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return;
         }
 
-        // Filter out CustomerCancelled indicators - they should not affect task status calculation
+        // Filter out CustomerCancelled and TestingRejected (with customer confirmation) indicators
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected with CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
+        // These should not affect task status calculation (considered as "completed/finalized")
         var activeIndicators = taskIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
-        // If all indicators are cancelled, keep current status or set to a default
+        // If all indicators are cancelled/rejected, keep current status or set to a default
         if (!activeIndicators.Any())
         {
             return;
@@ -1448,9 +1544,79 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         if (task.Status != newStatus)
         {
+            var oldStatus = task.Status;
             task.Status = newStatus;
             await _laboratoryTaskRepository.UpdateAsync(task);
+
+            // Send notifications for shared sample status changes
+            await SendSharedSampleStatusNotificationAsync(task, oldStatus, newStatus);
         }
+    }
+
+    /// <summary>
+    /// Gửi notification cho Lab Hóa khi Lab Vi Sinh thay đổi trạng thái (shared sample)
+    /// </summary>
+    private async Task SendSharedSampleStatusNotificationAsync(LaboratoryTask task, LaboratoryTaskStatus oldStatus, LaboratoryTaskStatus newStatus)
+    {
+        // Only send for shared sample tasks from microbiology lab
+        if (!task.IsSharedSampleTask)
+        {
+            return;
+        }
+
+        // Check if this is the microbiology lab (priority lab)
+        var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
+        var labDepartment = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+        var labName = labDepartment?.Name ?? "";
+        var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
+                                labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                                labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
+
+        if (!isMicrobiologyLab)
+        {
+            return; // Only microbiology lab sends notifications to other labs
+        }
+
+        // Get waiting tasks (Lab Hóa) that reference this task
+        var waitingTasks = await _laboratoryTaskRepository.GetListAsync(
+            t => t.PriorLabTaskId == task.Id);
+
+        if (!waitingTasks.Any())
+        {
+            return;
+        }
+
+        // Get sample codes for notification message
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequest.Id && s.IsSharedSample);
+        var sampleCodes = string.Join(", ", samples.Select(s => s.SampleCode));
+
+        // Determine notification message based on status change
+        string? notificationType = null;
+        string? title = null;
+        string? message = null;
+
+        if (newStatus == LaboratoryTaskStatus.UnderEvaluation && oldStatus != LaboratoryTaskStatus.UnderEvaluation)
+        {
+            notificationType = "SharedSampleUnderReview";
+            title = "Mẫu chung đang được xem xét";
+            message = $"{sampleCodes} mẫu chung đang được xem xét yêu cầu thử nghiệm";
+        }
+        else if (newStatus == LaboratoryTaskStatus.InProgress)
+        {
+            notificationType = "SharedSampleInProgress";
+            title = "Mẫu chung đang được thử nghiệm";
+            message = $"{sampleCodes} mẫu chung đang được thử nghiệm";
+        }
+        else if (newStatus == LaboratoryTaskStatus.Approved)
+        {
+            notificationType = "SharedSampleCompleted";
+            title = "Mẫu chung đã thử nghiệm xong";
+            message = $"{sampleCodes} mẫu chung đã thử nghiệm xong";
+        }
+
+        // TODO: Add notification for shared sample status change when INotificationCreator interface is updated
+        // Notification types: SharedSampleUnderReview, SharedSampleInProgress, SharedSampleCompleted
     }
 
     /// <summary>
@@ -1480,9 +1646,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
             ti => taskIds.Contains(ti.LaboratoryTaskId));
 
-        // Loại trừ các chỉ tiêu bị KH hủy
+        // Loại trừ các chỉ tiêu đã "finalized":
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận
         var activeIndicators = allIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
         if (!activeIndicators.Any()) return;
@@ -1865,7 +2034,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifySingleResultRejectedByTechnicalManagerAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName,
                     sample?.SampleName ?? "",
                     indicator?.Name ?? "",
@@ -1878,7 +2047,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 await _notificationCreator.NotifyMultipleResultsRejectedByTechnicalManagerAsync(
                     technicianId,
                     contractNumber,
-                    task.TestRequestId,
+                    task.Id,
                     technicalManagerName
                 );
             }
@@ -2019,10 +2188,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
             qualityManagerId,
             testRequest.ContractNumber ?? task.ContractNumber ?? "",
-            task.TestRequestId,
+            qualityTaskId,
             senderName,
             indicatorCount,
             sampleName,
@@ -2066,13 +2241,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             methodName = method?.Name;
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         // Notify all quality managers
         foreach (var qualityManagerId in qualityManagers)
         {
             await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
                 qualityManagerId,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                qualityTaskId,
                 senderName,
                 1, // Single indicator
                 sampleName,
@@ -2120,13 +2301,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
+        // Get QualityManagementTask ID for navigation
+        var qualityTask = (await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == task.TestRequestId && t.TaskType == QualityTaskType.ResultApproval))
+            .FirstOrDefault();
+        var qualityTaskId = qualityTask?.Id ?? Guid.Empty;
+
         // Notify all quality managers
         foreach (var qualityManagerId in qualityManagers)
         {
             await _notificationCreator.NotifyResultSubmittedToQualityManagerAsync(
                 qualityManagerId,
                 testRequest.ContractNumber ?? task.ContractNumber ?? "",
-                task.TestRequestId,
+                qualityTaskId,
                 senderName,
                 indicatorCount,
                 sampleName,

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -40,6 +41,11 @@ public interface ISpecimenTypeAppService : ICrudAppService<
     /// Xóa chỉ tiêu khỏi loại mẫu
     /// </summary>
     Task RemoveIndicatorAsync(Guid specimenTypeId, Guid indicatorId);
+
+    /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi loại mẫu
+    /// </summary>
+    Task<int> RemoveIndicatorsBatchAsync(Guid specimenTypeId, List<Guid> indicatorIds);
 
     /// <summary>
     /// Bật/tắt trạng thái hoạt động của chỉ tiêu trong loại mẫu

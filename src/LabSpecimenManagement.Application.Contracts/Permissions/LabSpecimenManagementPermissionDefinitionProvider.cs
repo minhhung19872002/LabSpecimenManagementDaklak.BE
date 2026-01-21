@@ -152,6 +152,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Specimens, L("Permission:Import.Specimens"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Customers, L("Permission:Import.Customers"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.TestMethods, L("Permission:Import.TestMethods"));
+        importPermission.AddChild(LabSpecimenManagementPermissions.Import.Standards, L("Permission:Import.Standards"));
 
         // User Management Permissions
         var userPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Users.Default, L("Permission:Users"));
@@ -173,6 +174,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         // Sync Permissions (Offline data synchronization)
         var syncPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Sync.Default, L("Permission:Sync"));
         syncPermission.AddChild(LabSpecimenManagementPermissions.Sync.TestRequests, L("Permission:Sync.TestRequests"));
+
+        // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+        var sampleConditionPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.SampleConditions.Default, L("Permission:SampleConditions"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Create, L("Permission:SampleConditions.Create"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Edit, L("Permission:SampleConditions.Edit"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Delete, L("Permission:SampleConditions.Delete"));
     }
 
     private static LocalizableString L(string name)

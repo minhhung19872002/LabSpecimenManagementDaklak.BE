@@ -19,17 +19,7 @@ public class SendQuotationEmailDto
     public string? CustomerName { get; set; }
 
     [Required]
-    public List<QuotationEmailItemDto> Items { get; set; } = new();
+    public List<QuotationPdfSampleDto> Samples { get; set; } = new();
 
     public decimal TotalPrice { get; set; }
-}
-
-public class QuotationEmailItemDto
-{
-    public int No { get; set; }
-    public string Parameter { get; set; } = string.Empty;
-    public string TestMethod { get; set; } = string.Empty;
-    public int NumberOfSample { get; set; }
-    public decimal UnitPrice { get; set; }
-    public decimal Price { get; set; }
 }

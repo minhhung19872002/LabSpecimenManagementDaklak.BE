@@ -221,6 +221,12 @@ public class UpdateTestRequestSampleDto
     /// Danh sách hình ảnh đính kèm (đã upload trước đó)
     /// </summary>
     public List<AttachmentInputDto>? Attachments { get; set; }
+
+    /// <summary>
+    /// Mẫu chung - Mẫu có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa
+    /// Khi true, Lab Vi Sinh sẽ xử lý trước, sau đó gửi mẫu cho Lab Hóa
+    /// </summary>
+    public bool IsSharedSample { get; set; }
 }
 
 public class UpdateTestRequestSampleIndicatorDto

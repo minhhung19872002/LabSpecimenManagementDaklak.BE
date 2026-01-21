@@ -128,6 +128,9 @@ public class OnlyOfficeCustomization
     [JsonPropertyName("autosave")]
     public bool Autosave { get; set; }
 
+    [JsonPropertyName("forcesave")]
+    public bool ForceSave { get; set; }
+
     [JsonPropertyName("chat")]
     public bool Chat { get; set; }
 
@@ -137,57 +140,14 @@ public class OnlyOfficeCustomization
     [JsonPropertyName("compactHeader")]
     public bool CompactHeader { get; set; }
 
-    [JsonPropertyName("compactToolbar")]
-    public bool CompactToolbar { get; set; }
-
     [JsonPropertyName("feedback")]
     public bool Feedback { get; set; }
-
-    [JsonPropertyName("forcesave")]
-    public bool ForceSave { get; set; }
 
     [JsonPropertyName("help")]
     public bool Help { get; set; }
 
-    [JsonPropertyName("hideRightMenu")]
-    public bool HideRightMenu { get; set; }
-
-    [JsonPropertyName("hideRulers")]
-    public bool HideRulers { get; set; }
-
-    [JsonPropertyName("integrationMode")]
-    public string IntegrationMode { get; set; } = "embed";
-
-    [JsonPropertyName("logo")]
-    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
-    public object? Logo { get; set; }
-
-    [JsonPropertyName("macrosMode")]
-    public string MacrosMode { get; set; } = "disable";
-
-    [JsonPropertyName("mentionShare")]
-    public bool MentionShare { get; set; }
-
-    [JsonPropertyName("plugins")]
-    public bool Plugins { get; set; }
-
-    [JsonPropertyName("reviewDisplay")]
-    public string ReviewDisplay { get; set; } = "original";
-
-    [JsonPropertyName("toolbarHideFileName")]
-    public bool ToolbarHideFileName { get; set; }
-
-    [JsonPropertyName("toolbarNoTabs")]
-    public bool ToolbarNoTabs { get; set; }
-
-    [JsonPropertyName("uiTheme")]
-    public bool Uiicons { get; set; }
-
-    [JsonPropertyName("unit")]
-    public string Unit { get; set; } = "cm";
-
-    [JsonPropertyName("zoom")]
-    public int Zoom { get; set; } = 100;
+    [JsonPropertyName("goback")]
+    public bool Goback { get; set; }
 }
 
 /// <summary>

@@ -69,6 +69,22 @@ public class AuthAppService : ApplicationService, IAuthAppService
             };
         }
 
+        // Check account expiration
+        var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+        if (expirationDate.HasValue && expirationDate.Value <= DateTime.Now)
+        {
+            // Auto-deactivate expired account
+            user.SetIsActive(false);
+            await _userManager.UpdateAsync(user);
+            Logger.LogInformation("Auto-deactivated expired account on login attempt: {Username}", user.UserName);
+
+            return new LoginResultDto
+            {
+                Success = false,
+                ErrorMessage = "Tài khoản đã hết hạn sử dụng. Vui lòng liên hệ quản trị viên."
+            };
+        }
+
         // Verify password
         var isPasswordValid = await _userManager.CheckPasswordAsync(user, input.Password);
         if (!isPasswordValid)

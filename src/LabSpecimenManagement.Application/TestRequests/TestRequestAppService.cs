@@ -63,6 +63,7 @@ public partial class TestRequestAppService :
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -71,6 +72,7 @@ public partial class TestRequestAppService :
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IIdentityUserRepository userRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -100,6 +102,7 @@ public partial class TestRequestAppService :
         _indicatorRepository = indicatorRepository;
         _organizationRepository = organizationRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _testMethodRepository = testMethodRepository;
         _userRepository = userRepository;
         _codeGenerator = codeGenerator;
@@ -195,7 +198,11 @@ public partial class TestRequestAppService :
                 if (indicator.LaboratoryId.HasValue)
                 {
                     var laboratory = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    laboratoryName = laboratory?.Name;
+                    if (laboratory != null)
+                    {
+                        var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+                        laboratoryName = labDept?.Name;
+                    }
                 }
 
                 // Get test method info if assigned
@@ -553,6 +560,7 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
 
@@ -806,6 +814,7 @@ public partial class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
+                    sample.IsSharedSample = sampleDto.IsSharedSample;
                     // Resolve SpecimenTypeName to ID (create new if not exists)
                     sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                 }
@@ -826,6 +835,7 @@ public partial class TestRequestAppService :
                     sample.ProcessingStatus = sampleDto.ProcessingStatus;
                     sample.Notes = sampleDto.Notes;
                     sample.StorageLocation = sampleDto.StorageLocation;
+                    sample.IsSharedSample = sampleDto.IsSharedSample;
                     // Resolve SpecimenTypeName to ID (create new if not exists)
                     sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                     await _sampleRepository.InsertAsync(sample, autoSave: true);
@@ -1068,8 +1078,10 @@ public partial class TestRequestAppService :
             var normalizedName = specimenTypeName.Trim();
 
             // Try to find existing SpecimenType by name (case-insensitive)
-            var existingSpecimenType = await _specimenTypeRepository.FirstOrDefaultAsync(
-                st => st.Name.ToLower() == normalizedName.ToLower());
+            // Load all and filter in memory to avoid ToLower() translation issues
+            var allSpecimenTypes = await _specimenTypeRepository.GetListAsync();
+            var existingSpecimenType = allSpecimenTypes.FirstOrDefault(
+                st => st.Name.Equals(normalizedName, StringComparison.OrdinalIgnoreCase));
 
             if (existingSpecimenType != null)
             {
@@ -1077,11 +1089,30 @@ public partial class TestRequestAppService :
             }
 
             // Create new SpecimenType with auto-generated code
-            var newCode = await GenerateSpecimenTypeCodeAsync();
-            var newSpecimenType = new SpecimenType(GuidGenerator.Create(), newCode, normalizedName);
-            await _specimenTypeRepository.InsertAsync(newSpecimenType, autoSave: true);
-
-            return newSpecimenType.Id;
+            // Use retry logic to handle race condition with unique constraint
+            const int maxRetries = 3;
+            for (int retry = 0; retry < maxRetries; retry++)
+            {
+                try
+                {
+                    var newCode = await GenerateSpecimenTypeCodeAsync();
+                    var newSpecimenType = new SpecimenType(GuidGenerator.Create(), newCode, normalizedName);
+                    await _specimenTypeRepository.InsertAsync(newSpecimenType, autoSave: true);
+                    return newSpecimenType.Id;
+                }
+                catch (Exception ex) when (ex.InnerException?.Message?.Contains("duplicate key") == true ||
+                                          ex.InnerException?.Message?.Contains("unique constraint") == true ||
+                                          ex.Message?.Contains("duplicate key") == true ||
+                                          ex.Message?.Contains("unique constraint") == true)
+                {
+                    // Duplicate code - retry with new code
+                    if (retry == maxRetries - 1)
+                    {
+                        throw; // Last retry failed, rethrow
+                    }
+                    await Task.Delay(100 * (retry + 1)); // Small delay before retry
+                }
+            }
         }
 
         // Fallback to existing ID if no name provided
@@ -1099,10 +1130,10 @@ public partial class TestRequestAppService :
     private async Task<string> GenerateSpecimenTypeCodeAsync()
     {
         const string prefix = "LM";
-        var allCodes = await _specimenTypeRepository.GetListAsync();
+        var allSpecimenTypes = await _specimenTypeRepository.GetListAsync();
         var maxNumber = 0;
 
-        foreach (var specimenType in allCodes)
+        foreach (var specimenType in allSpecimenTypes)
         {
             if (!string.IsNullOrEmpty(specimenType.Code) && specimenType.Code.StartsWith(prefix))
             {
@@ -1114,6 +1145,8 @@ public partial class TestRequestAppService :
             }
         }
 
+        // Add random suffix to avoid race condition
+        var timestamp = DateTime.UtcNow.Ticks % 1000;
         return $"{prefix}{(maxNumber + 1):D3}";
     }
 
@@ -1131,7 +1164,10 @@ public partial class TestRequestAppService :
         }
 
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample)>>();
+
+        // Track which samples are shared samples and which labs they have
+        var sharedSampleLabs = new Dictionary<Guid, HashSet<Guid>>(); // SampleId -> Set of LabIds
 
         foreach (var sample in samples)
         {
@@ -1143,12 +1179,54 @@ public partial class TestRequestAppService :
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample));
+
+                // Track labs for shared samples
+                if (sample.IsSharedSample)
+                {
+                    if (!sharedSampleLabs.ContainsKey(sample.Id))
+                    {
+                        sharedSampleLabs[sample.Id] = new HashSet<Guid>();
+                    }
+                    sharedSampleLabs[sample.Id].Add(labId);
+                }
             }
         }
+
+        // Identify Microbiology Lab (Lab Vi Sinh) - Priority lab for shared samples
+        // Check by Code = "LVS" or Name contains "Vi sinh" (case-insensitive)
+        Guid? microbiologyLabId = null;
+        foreach (var labId in indicatorsByLab.Keys)
+        {
+            var lab = await _laboratoryRepository.GetAsync(labId);
+            var labDept = await _departmentRepository.GetAsync(lab.DepartmentId);
+            var labName = labDept.Name;
+            if (lab.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
+                labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
+                labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase))
+            {
+                microbiologyLabId = labId;
+                break;
+            }
+        }
+
+        // Validate shared samples: If marked as shared but only has 1 lab, auto-correct
+        foreach (var (sampleId, labIds) in sharedSampleLabs)
+        {
+            if (labIds.Count < 2)
+            {
+                // Auto-correct: Set IsSharedSample = false
+                var sample = samples.First(s => s.Id == sampleId);
+                sample.IsSharedSample = false;
+                await _sampleRepository.UpdateAsync(sample, autoSave: true);
+            }
+        }
+
+        // Store created tasks for linking PriorLabTaskId
+        var createdTasks = new Dictionary<Guid, LaboratoryTask>(); // LabId -> Task
 
         // Create LaboratoryTask for each Laboratory
         foreach (var (labId, indicatorList) in indicatorsByLab)
@@ -1158,6 +1236,13 @@ public partial class TestRequestAppService :
 
             // Get TransferDate and RequestDate from first indicator (they should be the same for the group)
             var firstIndicator = indicatorList.First();
+
+            // Check if this task is for a shared sample
+            var hasSharedSample = indicatorList.Any(i => i.IsSharedSample);
+            var isSharedSampleTask = hasSharedSample && microbiologyLabId.HasValue;
+
+            // Determine if this lab should wait for prior lab (non-microbiology labs wait for microbiology)
+            var isWaitingForPriorLab = isSharedSampleTask && labId != microbiologyLabId;
 
             var task = new LaboratoryTask(
                 GuidGenerator.Create(),
@@ -1170,7 +1255,18 @@ public partial class TestRequestAppService :
                 firstIndicator.RequestDate
             );
 
+            // Set shared sample flags
+            task.IsSharedSampleTask = isSharedSampleTask;
+            task.IsWaitingForPriorLab = isWaitingForPriorLab;
+
+            // Set initial status based on shared sample
+            if (isWaitingForPriorLab)
+            {
+                task.Status = LaboratoryTaskStatus.WaitingSharedSample;
+            }
+
             await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
+            createdTasks[labId] = task;
 
             // Create junction records linking LaboratoryTask to TestRequestSampleIndicator
             foreach (var indicator in indicatorList)
@@ -1191,6 +1287,20 @@ public partial class TestRequestAppService :
                     }
                 }
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
+            }
+        }
+
+        // Link PriorLabTaskId for non-microbiology tasks that are waiting
+        if (microbiologyLabId.HasValue && createdTasks.ContainsKey(microbiologyLabId.Value))
+        {
+            var microbiologyTask = createdTasks[microbiologyLabId.Value];
+            foreach (var (labId, task) in createdTasks)
+            {
+                if (task.IsWaitingForPriorLab && labId != microbiologyLabId)
+                {
+                    task.PriorLabTaskId = microbiologyTask.Id;
+                    await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+                }
             }
         }
     }
@@ -1508,7 +1618,7 @@ public partial class TestRequestAppService :
                 await _notificationCreator.NotifySampleSentToLabAsync(
                     labTask.TechnicalManagerId.Value,
                     testRequest.ContractNumber ?? "",
-                    testRequest.Id,
+                    labTask.Id,
                     indicatorCount,
                     labTask.RequestCompletionDate
                 );
@@ -2063,6 +2173,7 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
             }
@@ -2082,6 +2193,7 @@ public partial class TestRequestAppService :
                 sample.ProcessingStatus = sampleDto.ProcessingStatus;
                 sample.Notes = sampleDto.Notes;
                 sample.StorageLocation = sampleDto.StorageLocation;
+                sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
@@ -2248,22 +2360,18 @@ public partial class TestRequestAppService :
         // Get all laboratory tasks for this test request
         var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == testRequest.Id);
 
-        // Group by technical manager to avoid duplicate notifications
-        var technicalManagerIds = labTasks
-            .Where(lt => lt.TechnicalManagerId.HasValue)
-            .Select(lt => lt.TechnicalManagerId!.Value)
-            .Distinct()
-            .ToList();
-
-        foreach (var managerId in technicalManagerIds)
+        // Notify each technical manager with their specific task ID
+        foreach (var labTask in labTasks.Where(lt => lt.TechnicalManagerId.HasValue))
         {
+            var managerId = labTask.TechnicalManagerId!.Value;
+
             // Case 8.1: Notify about new samples/indicators
             if (newSampleCount > 0 || newIndicatorCount > 0)
             {
                 await _notificationCreator.NotifyNewSamplesAddedAsync(
                     managerId,
                     testRequest.ContractNumber ?? "",
-                    testRequest.Id,
+                    labTask.Id,
                     newSampleCount,
                     newIndicatorCount
                 );
@@ -2278,7 +2386,7 @@ public partial class TestRequestAppService :
                     await _notificationCreator.NotifySamplesCancelledAsync(
                         managerId,
                         testRequest.ContractNumber ?? "",
-                        testRequest.Id,
+                        labTask.Id,
                         sampleCode,
                         indicatorCount
                     );
@@ -2783,9 +2891,14 @@ public partial class TestRequestAppService :
                 if (indicator.LaboratoryId.HasValue)
                 {
                     var lab = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    if (lab != null && !laboratories.Contains(lab.Name))
+                    if (lab != null)
                     {
-                        laboratories.Add(lab.Name);
+                        var labDept = await _departmentRepository.FindAsync(lab.DepartmentId);
+                        var labName = labDept?.Name ?? "";
+                        if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
+                        {
+                            laboratories.Add(labName);
+                        }
                     }
                 }
             }
@@ -2997,6 +3110,7 @@ public partial class TestRequestAppService :
             // Get lab info through LaboratoryTask
             var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
             var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+            var labDept = await _departmentRepository.GetAsync(laboratory.DepartmentId);
 
             // Get specimen type name if exists
             string? specimenTypeName = null;
@@ -3021,7 +3135,7 @@ public partial class TestRequestAppService :
                 Id = indicator.Id,
                 LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
                 LaboratoryId = laboratory.Id,
-                LaboratoryName = laboratory.Name,
+                LaboratoryName = labDept.Name,
                 SampleId = sample.Id,
                 SampleCode = sample.SampleCode,
                 SampleName = sample.SampleName,
@@ -3217,7 +3331,10 @@ public partial class TestRequestAppService :
         // Get laboratory names
         var labIds = indicatorsByLabSample.Keys.Select(k => k.LabId).Distinct().ToList();
         var laboratories = await _laboratoryRepository.GetListAsync(x => labIds.Contains(x.Id));
-        var labDict = laboratories.ToDictionary(l => l.Id, l => l.Name);
+        var deptIds = laboratories.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+        var labDict = laboratories.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
 
         var results = new List<PrintResultItemDto>();
 

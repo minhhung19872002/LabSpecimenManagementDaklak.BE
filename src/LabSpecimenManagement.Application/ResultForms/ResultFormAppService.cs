@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
@@ -645,12 +646,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var runs = para.Elements<Run>().ToList();
         if (runs.Count <= 1) return;
 
-        // Skip paragraphs containing Field elements (PAGE, NUMPAGES, etc.)
-        // Merging these would break the field codes
-        if (para.Descendants<FieldChar>().Any() || para.Descendants<FieldCode>().Any() || para.Descendants<SimpleField>().Any())
+        // Check if paragraph contains Field elements (PAGE, NUMPAGES, etc.)
+        var hasFieldElements = para.Descendants<FieldChar>().Any() ||
+                               para.Descendants<FieldCode>().Any() ||
+                               para.Descendants<SimpleField>().Any();
+
+        if (hasFieldElements)
         {
-            // For paragraphs with fields, only replace placeholders in individual Text elements
-            // without merging runs
+            // For paragraphs with fields, merge only NON-field runs that are consecutive
+            // This preserves field codes while still merging split placeholders
+            MergeSplitPlaceholdersWithFields(para, runs);
             return;
         }
 
@@ -660,7 +665,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // If no placeholder pattern, skip
         if (!fullText.Contains("{{")) return;
 
-        // Merge all text into first run's first text element
+        // Check if runs have different formatting (Bold, Italic, etc.)
+        // If so, use smart merge that preserves formatting
+        if (HasDifferentFormatting(runs))
+        {
+            MergeSplitPlaceholdersPreserveFormatting(para, runs);
+            return;
+        }
+
+        // All runs have same formatting - safe to merge all text into first run
         var firstRun = runs.First();
         var firstText = firstRun.GetFirstChild<Text>();
 
@@ -675,6 +688,194 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Remove text from other runs (but keep runs for formatting)
         for (int i = 1; i < runs.Count; i++)
+        {
+            foreach (var t in runs[i].Elements<Text>().ToList())
+            {
+                t.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Check if runs have different formatting (Bold, Italic, Underline, etc.)
+    /// </summary>
+    private bool HasDifferentFormatting(List<Run> runs)
+    {
+        if (runs.Count <= 1) return false;
+
+        bool? firstBold = null;
+        bool? firstItalic = null;
+
+        foreach (var run in runs)
+        {
+            var props = run.RunProperties;
+            var isBold = props?.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value);
+            var isItalic = props?.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value);
+
+            if (firstBold == null)
+            {
+                firstBold = isBold;
+                firstItalic = isItalic;
+            }
+            else if (isBold != firstBold || isItalic != firstItalic)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Merge split placeholders while preserving formatting of each run.
+    /// Only merges consecutive runs with the same formatting.
+    /// </summary>
+    private void MergeSplitPlaceholdersPreserveFormatting(Paragraph para, List<Run> runs)
+    {
+        // Group consecutive runs with same formatting
+        var groups = new List<(int startIndex, int endIndex, string formatting)>();
+        int groupStart = 0;
+        string currentFormatting = GetRunFormattingKey(runs[0]);
+
+        for (int i = 1; i <= runs.Count; i++)
+        {
+            string newFormatting = i < runs.Count ? GetRunFormattingKey(runs[i]) : "";
+            if (i == runs.Count || newFormatting != currentFormatting)
+            {
+                groups.Add((groupStart, i - 1, currentFormatting));
+                groupStart = i;
+                currentFormatting = newFormatting;
+            }
+        }
+
+        // Merge each group
+        foreach (var group in groups)
+        {
+            if (group.endIndex > group.startIndex)
+            {
+                // Merge runs in this group
+                var groupText = new StringBuilder();
+                for (int i = group.startIndex; i <= group.endIndex; i++)
+                {
+                    foreach (var text in runs[i].Elements<Text>())
+                    {
+                        groupText.Append(text.Text ?? "");
+                    }
+                }
+
+                // Put merged text in first run of group
+                var firstText = runs[group.startIndex].GetFirstChild<Text>();
+                if (firstText == null)
+                {
+                    firstText = new Text();
+                    runs[group.startIndex].AppendChild(firstText);
+                }
+                firstText.Text = groupText.ToString();
+                firstText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs in group
+                for (int i = group.startIndex + 1; i <= group.endIndex; i++)
+                {
+                    foreach (var t in runs[i].Elements<Text>().ToList())
+                    {
+                        t.Remove();
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get a key representing the formatting of a run (Bold, Italic, etc.)
+    /// </summary>
+    private string GetRunFormattingKey(Run run)
+    {
+        var props = run.RunProperties;
+        if (props == null) return "normal";
+
+        var parts = new List<string>();
+        if (props.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value)) parts.Add("B");
+        if (props.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value)) parts.Add("I");
+        if (props.Underline != null) parts.Add("U");
+
+        return parts.Count > 0 ? string.Join("", parts) : "normal";
+    }
+
+    /// <summary>
+    /// Merge split placeholders in paragraphs that contain field codes.
+    /// Only merges consecutive non-field runs to preserve PAGE/NUMPAGES fields.
+    /// </summary>
+    private void MergeSplitPlaceholdersWithFields(Paragraph para, List<Run> runs)
+    {
+        // Identify runs that contain field elements
+        var fieldRunIndices = new HashSet<int>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (runs[i].Descendants<FieldChar>().Any() ||
+                runs[i].Descendants<FieldCode>().Any() ||
+                runs[i].Descendants<SimpleField>().Any())
+            {
+                fieldRunIndices.Add(i);
+            }
+        }
+
+        // Find consecutive groups of non-field runs and merge them
+        int groupStart = -1;
+        for (int i = 0; i <= runs.Count; i++)
+        {
+            bool isFieldRun = i >= runs.Count || fieldRunIndices.Contains(i);
+
+            if (!isFieldRun && groupStart == -1)
+            {
+                // Start a new group
+                groupStart = i;
+            }
+            else if (isFieldRun && groupStart != -1)
+            {
+                // End current group and merge if it has multiple runs
+                int groupEnd = i - 1;
+                if (groupEnd > groupStart)
+                {
+                    MergeRunGroup(runs, groupStart, groupEnd);
+                }
+                groupStart = -1;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merge a group of consecutive runs into the first run
+    /// </summary>
+    private void MergeRunGroup(List<Run> runs, int startIndex, int endIndex)
+    {
+        // Get full text from runs in this group
+        var groupText = new StringBuilder();
+        for (int i = startIndex; i <= endIndex; i++)
+        {
+            foreach (var text in runs[i].Elements<Text>())
+            {
+                groupText.Append(text.Text ?? "");
+            }
+        }
+
+        // If no placeholder pattern in this group, skip
+        if (!groupText.ToString().Contains("{{")) return;
+
+        // Merge all text into first run's first text element
+        var firstRun = runs[startIndex];
+        var firstText = firstRun.GetFirstChild<Text>();
+
+        if (firstText == null)
+        {
+            firstText = new Text();
+            firstRun.AppendChild(firstText);
+        }
+
+        firstText.Text = groupText.ToString();
+        firstText.Space = SpaceProcessingModeValues.Preserve;
+
+        // Remove text from other runs in group (but keep runs for formatting)
+        for (int i = startIndex + 1; i <= endIndex; i++)
         {
             foreach (var t in runs[i].Elements<Text>().ToList())
             {
@@ -1526,36 +1727,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 8. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
+        // 8. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Test request form generated: {Path}", outputPath);
 
-            // 9. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log but don't fail if cleanup fails
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            // If PDF conversion fails, return the DOCX file as fallback
-            pdfFileName = fileName;
-        }
-
-        // 10. Update TestRequest status: New -> PendingPayment when printing
+        // 9. Update TestRequest status: New -> PendingPayment when printing
         if (testRequest.Status == TestRequestStatus.New)
         {
             testRequest.Status = TestRequestStatus.PendingPayment;
@@ -1565,7 +1741,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = testRequest.RequestNumber ?? "",
             ContractNumber = testRequest.ContractNumber ?? ""
         };
@@ -1612,36 +1788,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 6. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            // 7. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 6. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Preview test request form generated: {Path}", outputPath);
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = "Preview",
             ContractNumber = input.ContractNumber ?? ""
         };
@@ -1896,7 +2049,23 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             if (headerPart.Header != null)
             {
+                _logger.LogDebug("Processing header part, paragraphs count: {Count}",
+                    headerPart.Header.Descendants<Paragraph>().Count());
                 ReplacePlaceholdersInElement(headerPart.Header, placeholders);
+
+                // Also process any text directly in header (not in paragraphs)
+                foreach (var text in headerPart.Header.Descendants<Text>())
+                {
+                    if (string.IsNullOrEmpty(text.Text)) continue;
+                    foreach (var placeholder in placeholders)
+                    {
+                        if (text.Text.Contains(placeholder.Key))
+                        {
+                            _logger.LogDebug("Found placeholder {Key} in header Text element", placeholder.Key);
+                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                        }
+                    }
+                }
             }
         }
 
@@ -1906,6 +2075,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (footerPart.Footer != null)
             {
                 ReplacePlaceholdersInElement(footerPart.Footer, placeholders);
+
+                // Also process any text directly in footer (not in paragraphs)
+                foreach (var text in footerPart.Footer.Descendants<Text>())
+                {
+                    if (string.IsNullOrEmpty(text.Text)) continue;
+                    foreach (var placeholder in placeholders)
+                    {
+                        if (text.Text.Contains(placeholder.Key))
+                        {
+                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1926,6 +2108,98 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var para in element.Descendants<Paragraph>())
         {
             ReplacePlaceholdersInParagraphWithDotRemoval(para, placeholders);
+        }
+
+        // Fallback: Handle split placeholders across multiple Text elements
+        // This handles cases where Word splits {{Placeholder}} into multiple Text nodes
+        ReplaceSplitPlaceholdersInElement(element, placeholders);
+
+        // Final fallback: Direct replacement for any remaining complete placeholders
+        foreach (var placeholder in placeholders)
+        {
+            foreach (var text in element.Descendants<Text>())
+            {
+                if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains(placeholder.Key))
+                {
+                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Handle placeholders that are split across multiple Text elements.
+    /// For example: Text1="{{NumberOf", Text2="Sample}}"
+    /// This reconstructs the full text, replaces placeholders, and updates the elements.
+    /// </summary>
+    private void ReplaceSplitPlaceholdersInElement(OpenXmlElement element, Dictionary<string, string> placeholders)
+    {
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            var runs = para.Elements<Run>().ToList();
+            if (runs.Count <= 1) continue;
+
+            // Build full text from all runs
+            var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
+
+            // Check if any placeholder exists in the combined text but not in individual runs
+            // This means the placeholder is split across runs
+            foreach (var placeholder in placeholders)
+            {
+                if (!fullText.Contains(placeholder.Key)) continue;
+
+                // Check if placeholder is already in a single run (already handled)
+                var alreadyInSingleRun = runs.Any(r =>
+                    r.Elements<Text>().Any(t => t.Text?.Contains(placeholder.Key) == true));
+                if (alreadyInSingleRun) continue;
+
+                // Placeholder is split - find which runs contain parts of it
+                // and merge only those runs' text, keeping the formatting of the run containing "{{"
+                var placeholderStartIndex = fullText.IndexOf(placeholder.Key);
+                var placeholderEndIndex = placeholderStartIndex + placeholder.Key.Length;
+
+                // Find the run containing the start of placeholder "{{"
+                int charIndex = 0;
+                Run? targetRun = null;
+                foreach (var run in runs)
+                {
+                    var runText = string.Concat(run.Elements<Text>().Select(t => t.Text ?? ""));
+                    if (charIndex <= placeholderStartIndex && charIndex + runText.Length > placeholderStartIndex)
+                    {
+                        targetRun = run;
+                        break;
+                    }
+                    charIndex += runText.Length;
+                }
+
+                if (targetRun == null) continue;
+
+                // Replace in the full text
+                var replacedFullText = fullText.Replace(placeholder.Key, placeholder.Value);
+
+                // Put replaced text in target run, clear others
+                var targetText = targetRun.GetFirstChild<Text>();
+                if (targetText == null)
+                {
+                    targetText = new Text();
+                    targetRun.AppendChild(targetText);
+                }
+                targetText.Text = replacedFullText;
+                targetText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs
+                foreach (var run in runs)
+                {
+                    if (run == targetRun) continue;
+                    foreach (var t in run.Elements<Text>().ToList())
+                    {
+                        t.Text = "";
+                    }
+                }
+
+                // Update fullText for next placeholder
+                fullText = replacedFullText;
+            }
         }
     }
 
@@ -2339,18 +2613,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private void ProcessMixedResultDocument(string filePath, Dictionary<string, string> placeholders, List<MixedResultSampleRow> sampleData)
     {
         using var document = WordprocessingDocument.Open(filePath, true);
-        var body = document.MainDocumentPart?.Document?.Body;
-        if (body == null) return;
+        var mainPart = document.MainDocumentPart;
+        var body = mainPart?.Document?.Body;
+        if (body == null || mainPart == null) return;
 
         ConvertFloatingTablesToInline(document);
 
         // Process table with SubTable marker (not nested table)
         ProcessMixedResultTableWithSubTable(body, sampleData);
 
-        // Replace other placeholders
-        ReplacePlaceholdersInBody(body, placeholders);
+        // Replace placeholders in entire document (including headers, footers, textboxes)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
 
-        document.MainDocumentPart?.Document?.Save();
+        mainPart.Document?.Save();
     }
 
     /// <summary>
@@ -3292,8 +3567,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
         var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
 
-        // Merge notes from QLKT (lab) and QLCL (quality) for multiple indicators
-        var mergedNote = await GetMergedNotesForMultipleIndicatorsAsync(sampleIndicatorIds, input.Note);
+        // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
+        // nên không cần merge ở BE nữa, chỉ sử dụng input.Note trực tiếp
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -3312,7 +3587,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", mergedNote },
+            { "{{Note}}", input.Note ?? "" },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
             { "{{Date}}", now.Day.ToString("D2") },
@@ -3584,46 +3859,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessDocument(outputPath, placeholders, tableData);
         }
 
-        // 7. Convert to PDF
-        string pdfFileName;
-        try
-        {
-            _logger.LogInformation("Starting PDF conversion for: {Path}", outputPath);
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-            _logger.LogInformation("PDF conversion successful: {PdfPath}", pdfPath);
-
-            // DEBUG: Keep DOCX file for inspection - comment out delete
-            // try
-            // {
-            //     if (File.Exists(outputPath))
-            //     {
-            //         File.Delete(outputPath);
-            //     }
-            // }
-            // catch (Exception ex)
-            // {
-            //     _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            // }
-            _logger.LogInformation("DEBUG: Keeping DOCX file for inspection: {Path}", outputPath);
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF. Error: {Message}", ex.Message);
-            // Re-throw to show error to user instead of silently returning docx
-            throw new Common.Exceptions.InvalidOperationException($"Lỗi chuyển đổi PDF: {ex.Message}");
-        }
+        // 7. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed indicator result form generated: {Path}", outputPath);
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = firstSample?.SampleCode ?? ""
         };
     }
 
     /// <summary>
     /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
-    /// Used from TestRequestDetail page - combines indicators from multiple samples into one PDF
+    /// Used from TestRequestDetail page - combines indicators from multiple samples into one DOCX
     /// </summary>
     public async Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input)
     {
@@ -3789,30 +4038,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         ProcessDocument(outputPath, placeholders, tableData);
 
-        // 5. Convert to PDF
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 5. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed samples result form generated: {Path}", outputPath);
 
         // 6. Update TestRequest status to PendingApproval after printing
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -3823,7 +4051,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = sampleCodes
         };
     }

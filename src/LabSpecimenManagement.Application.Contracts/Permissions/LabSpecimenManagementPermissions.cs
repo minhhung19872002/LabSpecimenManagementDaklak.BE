@@ -213,6 +213,7 @@ public static class LabSpecimenManagementPermissions
         public const string Specimens = Default + ".Specimens";
         public const string Customers = Default + ".Customers";
         public const string TestMethods = Default + ".TestMethods";
+        public const string Standards = Default + ".Standards";
     }
 
     // User Management Permissions
@@ -246,5 +247,14 @@ public static class LabSpecimenManagementPermissions
     {
         public const string Default = GroupName + ".Sync";
         public const string TestRequests = Default + ".TestRequests";
+    }
+
+    // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+    public static class SampleConditions
+    {
+        public const string Default = GroupName + ".SampleConditions";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
     }
 }

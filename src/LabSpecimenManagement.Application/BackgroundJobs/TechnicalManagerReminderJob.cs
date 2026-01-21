@@ -68,7 +68,7 @@ public class TechnicalManagerReminderJob : ITransientDependency
                         await _notificationCreator.NotifyPendingWorkAssignmentAsync(
                             task.TechnicalManagerId!.Value,
                             task.ContractNumber ?? "",
-                            task.TestRequestId,
+                            task.Id,  // Pass taskId for navigation to task management detail
                             pendingIndicatorCount,
                             task.TransferDate!.Value
                         );

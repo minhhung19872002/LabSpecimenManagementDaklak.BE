@@ -116,6 +116,15 @@ public interface IQualityManagementAppService : IApplicationService
     Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync();
 
     #endregion
+
+    #region Sample Assignment Log
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - Flat indicator list với thông tin Sample, TestRequest, QLKT, KTV
+    /// </summary>
+    Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
+
+    #endregion
 }
 
 /// <summary>

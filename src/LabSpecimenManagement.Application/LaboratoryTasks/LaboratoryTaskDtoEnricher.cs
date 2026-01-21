@@ -18,6 +18,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _taskIndicatorRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
@@ -30,6 +31,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
     public LaboratoryTaskDtoEnricher(
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<LaboratoryTaskIndicator, Guid> taskIndicatorRepository,
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
@@ -41,6 +43,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
     {
         _testRequestRepository = testRequestRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _taskIndicatorRepository = taskIndicatorRepository;
         _supporterRepository = supporterRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
@@ -234,11 +237,17 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         return items.ToDictionary(x => x.Id);
     }
 
-    private async Task<Dictionary<Guid, Laboratory>> LoadLaboratoriesAsync(List<Guid> ids)
+    private async Task<Dictionary<Guid, (string Code, string Name)>> LoadLaboratoriesAsync(List<Guid> ids)
     {
-        if (ids.Count == 0) return new Dictionary<Guid, Laboratory>();
-        var items = await _laboratoryRepository.GetListAsync(x => ids.Contains(x.Id));
-        return items.ToDictionary(x => x.Id);
+        if (ids.Count == 0) return new Dictionary<Guid, (string Code, string Name)>();
+        var labs = await _laboratoryRepository.GetListAsync(x => ids.Contains(x.Id));
+        var departmentIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var departments = await _departmentRepository.GetListAsync(d => departmentIds.Contains(d.Id));
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        return labs.ToDictionary(
+            x => x.Id,
+            x => (x.Code, deptDict.TryGetValue(x.DepartmentId, out var name) ? name : ""));
     }
 
     private async Task<Dictionary<Guid, TestRequestSampleIndicator>> LoadSampleIndicatorsAsync(List<Guid> ids)

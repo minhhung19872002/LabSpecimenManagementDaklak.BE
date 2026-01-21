@@ -3,6 +3,8 @@ using LabSpecimenManagement.Files;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.MasterData.Organizations;
+using LabSpecimenManagement.MasterData.SampleTypeCategories;
+using LabSpecimenManagement.MasterData.SampleConditions;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
@@ -127,6 +129,14 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<IndicatorGroup, IndicatorGroupDto>();
         CreateMap<CreateUpdateIndicatorGroupDto, IndicatorGroup>();
 
+        // SampleTypeCategory mappings
+        CreateMap<SampleTypeCategory, SampleTypeCategoryDto>();
+        CreateMap<CreateUpdateSampleTypeCategoryDto, SampleTypeCategory>();
+
+        // SampleCondition mappings
+        CreateMap<SampleCondition, SampleConditionDto>();
+        CreateMap<CreateUpdateSampleConditionDto, SampleCondition>();
+
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()
             .ForMember(dest => dest.IndicatorGroupName, opt => opt.Ignore())
@@ -137,7 +147,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<CreateUpdateOrganizationDto, Organization>();
 
         // Laboratory mappings
+        // Note: Laboratory -> LaboratoryDto mapping is done manually in LaboratoryAppService
+        // because Name is computed from Department.Name via join
         CreateMap<Laboratory, LaboratoryDto>()
+            .ForMember(dest => dest.Name, opt => opt.Ignore())
             .ForMember(dest => dest.TechnicalManagerName, opt => opt.Ignore());
         CreateMap<CreateUpdateLaboratoryDto, Laboratory>();
     }

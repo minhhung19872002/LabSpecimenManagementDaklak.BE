@@ -173,4 +173,14 @@ public class QualityManagementIndicatorDto
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
     /// </summary>
     public List<IndicatorImageDto> Images { get; set; } = new();
+
+    /// <summary>
+    /// Ghi chú tự do từ QLKT - Free Text Note
+    /// </summary>
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách nội dung Master Data Notes
+    /// </summary>
+    public List<string> MasterDataNotes { get; set; } = new();
 }

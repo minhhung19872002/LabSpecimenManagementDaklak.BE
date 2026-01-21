@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -26,4 +27,7 @@ public interface ITestMethodAppService : IApplicationService
 
     // Toggle active status
     Task<TestMethodDto> ToggleActiveAsync(Guid id);
+
+    // Batch remove indicators
+    Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<Guid> indicatorIds);
 }

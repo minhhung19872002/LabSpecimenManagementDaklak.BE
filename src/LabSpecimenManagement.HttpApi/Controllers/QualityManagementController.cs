@@ -208,4 +208,17 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     #endregion
+
+    #region Sample Assignment Log
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - Flat indicator list với thông tin Sample, TestRequest, QLKT, KTV
+    /// </summary>
+    [HttpGet("sample-assignment-log")]
+    public virtual Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return _qualityManagementAppService.GetSampleAssignmentLogAsync(input);
+    }
+
+    #endregion
 }

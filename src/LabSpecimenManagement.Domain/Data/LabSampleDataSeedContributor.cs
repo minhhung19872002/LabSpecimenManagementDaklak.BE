@@ -177,6 +177,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var ind in indicators)
         {
             var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
+            indicator.FormattedName = ind.Name;
             indicator.SortOrder = ind.SortOrder;
             indicator.IsActive = true;
             await _indicatorRepository.InsertAsync(indicator, autoSave: true);
@@ -189,6 +190,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         var departments = new[]
         {
+            // Phòng ban chung
             new { Code = "QL", Name = "Quản lý" },
             new { Code = "BGD", Name = "Ban Giám đốc" },
             new { Code = "PHH", Name = "Phòng Hóa học" },
@@ -196,6 +198,16 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             new { Code = "PVL", Name = "Phòng Vật lý" },
             new { Code = "PMT", Name = "Phòng Môi trường" },
             new { Code = "TNM", Name = "Tiếp nhận mẫu" },
+            // Phòng ban cho Laboratories
+            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm" },
+            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký" },
+            new { Code = "LVS", Name = "Lab vi sinh" },
+            new { Code = "PNM", Name = "Phòng Nhận mẫu" },
+            new { Code = "KVK", Name = "Khoa vi khuẩn" },
+            new { Code = "HDP", Name = "Hợp đồng phụ" },
+            new { Code = "KKT", Name = "Khoa Kế Toán" },
+            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng" },
+            new { Code = "LH", Name = "Lab Hóa" },
         };
 
         foreach (var dept in departments)
@@ -257,6 +269,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         foreach (var method in methods)
         {
             var entity = new TestMethod(_guidGenerator.Create(), method.Code, method.Name, method.Unit);
+            entity.FormattedName = method.Name;
             await _testMethodRepository.InsertAsync(entity, autoSave: true);
         }
     }
@@ -648,26 +661,40 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         var labHoa = await _userRepository.FindByNormalizedUserNameAsync("LABHOA");
         var quanlychatluong = await _userRepository.FindByNormalizedUserNameAsync("QUANLYCHATLUONG");
 
+        // Lấy danh sách Departments để link với Laboratory (by Code)
+        var departments = (await _departmentRepository.GetListAsync()).ToDictionary(d => d.Code, d => d.Id);
+
+        // Helper function to get DepartmentId by code
+        Guid GetDepartmentId(string code)
+        {
+            if (departments.TryGetValue(code, out var id))
+                return id;
+            // Fallback: return first department if code not found
+            return departments.Values.FirstOrDefault();
+        }
+
         // Gán TechnicalManager cho từng phòng lab
         // labVisinh = Lab Vi Sinh - QLKT
         // labHoa = Lab Hóa - QLKT
         // quanlychatluong = Quản lý chất lượng
+        // Code của Laboratory = Code của Department (dùng để link)
         var laboratories = new[]
         {
-            new { Code = "TTKN", Name = "Trung tâm kiểm nghiệm", SortOrder = 1, TechnicalManagerId = quanlychatluong?.Id },
-            new { Code = "HLSK", Name = "Lab Hóa Lý sắc ký", SortOrder = 2, TechnicalManagerId = labHoa?.Id },
-            new { Code = "LVS", Name = "Lab vi sinh", SortOrder = 3, TechnicalManagerId = labVisinh?.Id },
-            new { Code = "PNM", Name = "Phòng Nhận mẫu", SortOrder = 4, TechnicalManagerId = quanlychatluong?.Id },
-            new { Code = "KVK", Name = "Khoa vi khuẩn", SortOrder = 5, TechnicalManagerId = labVisinh?.Id },
-            new { Code = "HDP", Name = "Hợp đồng phụ", SortOrder = 6, TechnicalManagerId = quanlychatluong?.Id },
-            new { Code = "KKT", Name = "Khoa Kế Toán", SortOrder = 7, TechnicalManagerId = quanlychatluong?.Id },
-            new { Code = "QTN-KLN", Name = "Quầy thu ngân - Kim loại nặng", SortOrder = 8, TechnicalManagerId = labHoa?.Id },
-            new { Code = "LH", Name = "Lab Hóa", SortOrder = 9, TechnicalManagerId = labHoa?.Id },
+            new { Code = "TTKN", DeptCode = "TTKN", SortOrder = 1, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "HLSK", DeptCode = "HLSK", SortOrder = 2, TechnicalManagerId = labHoa?.Id },
+            new { Code = "LVS", DeptCode = "LVS", SortOrder = 3, TechnicalManagerId = labVisinh?.Id },
+            new { Code = "PNM", DeptCode = "PNM", SortOrder = 4, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "KVK", DeptCode = "KVK", SortOrder = 5, TechnicalManagerId = labVisinh?.Id },
+            new { Code = "HDP", DeptCode = "HDP", SortOrder = 6, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "KKT", DeptCode = "KKT", SortOrder = 7, TechnicalManagerId = quanlychatluong?.Id },
+            new { Code = "QTN-KLN", DeptCode = "QTN-KLN", SortOrder = 8, TechnicalManagerId = labHoa?.Id },
+            new { Code = "LH", DeptCode = "LH", SortOrder = 9, TechnicalManagerId = labHoa?.Id },
         };
 
         foreach (var lab in laboratories)
         {
-            var entity = new Laboratory(_guidGenerator.Create(), lab.Code, lab.Name);
+            var departmentId = GetDepartmentId(lab.DeptCode);
+            var entity = new Laboratory(_guidGenerator.Create(), lab.Code, departmentId);
             entity.SortOrder = lab.SortOrder;
             entity.IsActive = true;
             entity.TechnicalManagerId = lab.TechnicalManagerId;

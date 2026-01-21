@@ -23,17 +23,20 @@ public class SpecimenTypeAppService :
     private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
+    private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
 
     public SpecimenTypeAppService(
         IRepository<SpecimenType, Guid> repository,
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
-        IRepository<IndicatorGroup, Guid> indicatorGroupRepository)
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
+        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository)
         : base(repository)
     {
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
+        _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
     }
 
     public override async Task<SpecimenTypeDto> CreateAsync(CreateUpdateSpecimenTypeDto input)
@@ -51,7 +54,23 @@ public class SpecimenTypeAppService :
             throw new SpecimenTypeValidationException(errors);
         }
 
-        return await base.CreateAsync(input);
+        var result = await base.CreateAsync(input);
+        await EnrichDtoAsync(result);
+        return result;
+    }
+
+    public override async Task<SpecimenTypeDto> GetAsync(Guid id)
+    {
+        var result = await base.GetAsync(id);
+        await EnrichDtoAsync(result);
+        return result;
+    }
+
+    public override async Task<PagedResultDto<SpecimenTypeDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    {
+        var result = await base.GetListAsync(input);
+        await EnrichDtosAsync(result.Items.ToList());
+        return result;
     }
 
     private async Task<string> GenerateCodeAsync()
@@ -138,9 +157,51 @@ public class SpecimenTypeAppService :
             .OrderBy(x => x.Name)
             .ToList();
 
-        return new ListResultDto<SpecimenTypeDto>(
-            ObjectMapper.Map<List<SpecimenType>, List<SpecimenTypeDto>>(items)
-        );
+        var dtos = ObjectMapper.Map<List<SpecimenType>, List<SpecimenTypeDto>>(items);
+        await EnrichDtosAsync(dtos);
+
+        return new ListResultDto<SpecimenTypeDto>(dtos);
+    }
+
+    /// <summary>
+    /// Enrich single DTO with category name
+    /// </summary>
+    private async Task EnrichDtoAsync(SpecimenTypeDto dto)
+    {
+        if (dto.SampleTypeCategoryId.HasValue)
+        {
+            var category = await _sampleTypeCategoryRepository.FindAsync(dto.SampleTypeCategoryId.Value);
+            dto.SampleTypeCategoryName = category?.Name;
+        }
+    }
+
+    /// <summary>
+    /// Enrich multiple DTOs with category names (batch operation to avoid N+1)
+    /// </summary>
+    private async Task EnrichDtosAsync(List<SpecimenTypeDto> dtos)
+    {
+        if (dtos.Count == 0) return;
+
+        var categoryIds = dtos
+            .Where(d => d.SampleTypeCategoryId.HasValue)
+            .Select(d => d.SampleTypeCategoryId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (categoryIds.Count == 0) return;
+
+        var categoryQuery = await _sampleTypeCategoryRepository.GetQueryableAsync();
+        var categoryNames = categoryQuery
+            .Where(c => categoryIds.Contains(c.Id))
+            .ToDictionary(c => c.Id, c => c.Name);
+
+        foreach (var dto in dtos)
+        {
+            if (dto.SampleTypeCategoryId.HasValue && categoryNames.TryGetValue(dto.SampleTypeCategoryId.Value, out var name))
+            {
+                dto.SampleTypeCategoryName = name;
+            }
+        }
     }
 
     #region Indicator Management
@@ -152,12 +213,29 @@ public class SpecimenTypeAppService :
         var indicators = await _indicatorRepository.GetListAsync();
         var indicatorGroups = await _indicatorGroupRepository.GetListAsync();
 
+        // Load all categories for enrichment
+        var categoryIds = specimenTypes
+            .Where(st => st.SampleTypeCategoryId.HasValue)
+            .Select(st => st.SampleTypeCategoryId!.Value)
+            .Distinct()
+            .ToList();
+        var categoryQuery = await _sampleTypeCategoryRepository.GetQueryableAsync();
+        var categoryNames = categoryQuery
+            .Where(c => categoryIds.Contains(c.Id))
+            .ToDictionary(c => c.Id, c => c.Name);
+
         var result = specimenTypes
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Name)
             .Select(st =>
             {
                 var dto = ObjectMapper.Map<SpecimenType, SpecimenTypeWithIndicatorsDto>(st);
+
+                // Enrich category name
+                if (st.SampleTypeCategoryId.HasValue && categoryNames.TryGetValue(st.SampleTypeCategoryId.Value, out var categoryName))
+                {
+                    dto.SampleTypeCategoryName = categoryName;
+                }
 
                 var stIndicators = specimenTypeIndicators
                     .Where(sti => sti.SpecimenTypeId == st.Id)
@@ -346,6 +424,27 @@ public class SpecimenTypeAppService :
         }
 
         await _specimenTypeIndicatorRepository.DeleteAsync(entity);
+    }
+
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid specimenTypeId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(sti => sti.SpecimenTypeId == specimenTypeId && indicatorIds.Contains(sti.IndicatorId))
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        await _specimenTypeIndicatorRepository.DeleteManyAsync(entities);
+        return entities.Count;
     }
 
     public async Task<SpecimenTypeIndicatorDto> ToggleIndicatorActiveAsync(Guid specimenTypeId, Guid indicatorId)

@@ -14,8 +14,8 @@ public class QuotationListDto : EntityDto<Guid>
     public string? Phone { get; set; }
     public decimal TotalCost { get; set; }
     public QuotationStatus Status { get; set; }
-    public int ItemCount { get; set; }
     public int SampleCount { get; set; }
+    public int IndicatorCount { get; set; }
     public DateTime CreationTime { get; set; }
     public string? CreatorUserName { get; set; }
 }

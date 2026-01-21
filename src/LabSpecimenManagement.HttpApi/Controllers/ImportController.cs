@@ -4,9 +4,11 @@ using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Import;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
+using Volo.Abp.Validation;
 
 namespace LabSpecimenManagement.Controllers;
 
@@ -16,10 +18,14 @@ namespace LabSpecimenManagement.Controllers;
 public class ImportController : LabSpecimenManagementController
 {
     private readonly IImportAppService _importAppService;
+    private readonly IWebHostEnvironment _webHostEnvironment;
 
-    public ImportController(IImportAppService importAppService)
+    public ImportController(
+        IImportAppService importAppService,
+        IWebHostEnvironment webHostEnvironment)
     {
         _importAppService = importAppService;
+        _webHostEnvironment = webHostEnvironment;
     }
 
     #region Preview Endpoints
@@ -134,6 +140,238 @@ public class ImportController : LabSpecimenManagementController
     {
         var bytes = _importAppService.GetTestMethodTemplate();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_PhuongPhapThuNghiem.xlsx");
+    }
+
+    /// <summary>
+    /// Get template for importing TestMethods with Indicators
+    /// </summary>
+    [HttpGet("test-methods-with-indicators/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    public virtual IActionResult GetTestMethodWithIndicatorsTemplate()
+    {
+        var bytes = _importAppService.GetTestMethodWithIndicatorsTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_PhuongPhapThu.xlsx");
+    }
+
+    #endregion
+
+    #region TestMethod with Indicators Import
+
+    /// <summary>
+    /// Preview TestMethod with Indicators import - validates data without saving
+    /// </summary>
+    [HttpPost("test-methods-with-indicators/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    [DisableValidation]
+    public virtual async Task<TestMethodImportPreviewDto> PreviewTestMethodsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        // Convert to byte array to avoid ABP validation issues with Stream
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewTestMethodsWithIndicatorsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import TestMethods with Indicators (upsert logic)
+    /// </summary>
+    [HttpPost("test-methods-with-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportTestMethodsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        // Convert to byte array to avoid ABP validation issues with Stream
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportTestMethodsWithIndicatorsAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Standard with Indicators Import
+
+    /// <summary>
+    /// Get template for importing Standards with Indicators
+    /// </summary>
+    [HttpGet("standards-with-indicators/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    public virtual IActionResult GetStandardWithIndicatorsTemplate()
+    {
+        var bytes = _importAppService.GetStandardWithIndicatorsTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_TieuChuan.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Standard with Indicators import - validates data without saving
+    /// </summary>
+    [HttpPost("standards-with-indicators/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    [DisableValidation]
+    public virtual async Task<StandardImportPreviewDto> PreviewStandardsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewStandardsWithIndicatorsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Standards with Indicators (upsert logic)
+    /// </summary>
+    [HttpPost("standards-with-indicators")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportStandardsWithIndicatorsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportStandardsWithIndicatorsAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Organization + TestRequest Import (Legacy Data)
+
+    /// <summary>
+    /// Get template for importing Organization + TestRequest from legacy system
+    /// </summary>
+    [HttpGet("organization-test-requests/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    public virtual IActionResult GetOrganizationTestRequestTemplate()
+    {
+        var bytes = _importAppService.GetOrganizationTestRequestTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CoSo_YeuCau.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Organization + TestRequest import - validates data without saving
+    /// Organization upsert: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [HttpPost("organization-test-requests/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    [DisableValidation]
+    public virtual async Task<OrganizationTestRequestImportPreviewDto> PreviewOrganizationTestRequestsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewOrganizationTestRequestsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Organization + TestRequest from Excel file
+    /// Organization upsert: match by OrganizationName (trim, case-insensitive)
+    /// TestRequest: always create new with status = Completed
+    /// </summary>
+    [HttpPost("organization-test-requests")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region IndicatorGroup + Indicator Import
+
+    /// <summary>
+    /// Get template for importing IndicatorGroup + Indicator
+    /// </summary>
+    [HttpGet("indicator-groups/template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    public virtual IActionResult GetIndicatorGroupTemplate()
+    {
+        var bytes = _importAppService.GetIndicatorGroupTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_NhomChiTieu.xlsx");
+    }
+
+    /// <summary>
+    /// Preview IndicatorGroup + Indicator import - validates data without saving
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [HttpPost("indicator-groups/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewIndicatorGroupsAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import IndicatorGroup + Indicator from Excel file
+    /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// </summary>
+    [HttpPost("indicator-groups")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportIndicatorGroupsAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Specimen Import for TestRequestForm
+
+    /// <summary>
+    /// Get template for importing Specimens in TestRequestForm
+    /// Template columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+    /// </summary>
+    [HttpGet("specimens-for-test-request/template")]
+    [Authorize] // Any authenticated user can download template
+    public virtual IActionResult GetSpecimenForTestRequestTemplate()
+    {
+        var templatePath = System.IO.Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "Phiếu thử nghiệm.xlsx");
+
+        if (!System.IO.File.Exists(templatePath))
+        {
+            return NotFound("Template file not found");
+        }
+
+        var bytes = System.IO.File.ReadAllBytes(templatePath);
+        return File(bytes,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            "Template_PhieuThuNghiem.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Specimens for TestRequest import - validates data without saving
+    /// Groups rows by SampleName, validates Indicators exist
+    /// </summary>
+    [HttpPost("specimens-for-test-request/preview")]
+    [Authorize] // Any authenticated user can preview
+    [DisableValidation]
+    public virtual async Task<SpecimenForTestRequestImportPreviewDto> PreviewSpecimensForTestRequestAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewSpecimensForTestRequestAsync(fileBytes);
     }
 
     #endregion

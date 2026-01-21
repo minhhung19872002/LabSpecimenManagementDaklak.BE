@@ -106,4 +106,14 @@ public class TestMethodController : LabSpecimenManagementController
     {
         return _testMethodAppService.ToggleActiveAsync(id);
     }
+
+    /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi phương pháp thử
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _testMethodAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
+    }
 }

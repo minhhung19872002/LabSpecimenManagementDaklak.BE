@@ -1,7 +1,7 @@
 namespace LabSpecimenManagement.Testing;
 
 /// <summary>
-/// Trạng thái công việc xét nghiệm ở Task level (góc nhìn kỹ thuật viên)
+/// Trạng thái công việc xét nghiệm ở Task level (góc nhìn Thử nghiệm viên)
 /// </summary>
 public enum TestingStatus
 {
