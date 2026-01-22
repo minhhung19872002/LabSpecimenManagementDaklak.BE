@@ -257,4 +257,23 @@ public static class LabSpecimenManagementPermissions
         public const string Edit = Default + ".Edit";
         public const string Delete = Default + ".Delete";
     }
+
+    // Role Management Permissions (Quản lý phân quyền)
+    public static class RoleManagement
+    {
+        public const string Default = GroupName + ".RoleManagement";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string ManagePermissions = Default + ".ManagePermissions";
+        public const string ManageUsers = Default + ".ManageUsers";
+    }
+
+    // Receipt Permissions (Phiếu thu)
+    public static class Receipts
+    {
+        public const string Default = GroupName + ".Receipts";
+        public const string View = Default + ".View";
+        public const string Confirm = Default + ".Confirm";
+    }
 }

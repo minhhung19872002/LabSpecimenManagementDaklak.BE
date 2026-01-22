@@ -21,8 +21,8 @@ public class CreateEmployeeDto
     [StringLength(24)]
     public string? Phone { get; set; }
 
-    [Required]
-    public string Role { get; set; } = string.Empty;
+    // Note: Role field removed - quản lý quyền thông qua "Quản lý phân quyền"
+    // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
     [Required]
     public Guid DepartmentId { get; set; }

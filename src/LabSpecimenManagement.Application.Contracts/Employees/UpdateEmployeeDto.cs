@@ -15,7 +15,8 @@ public class UpdateEmployeeDto
     [StringLength(24)]
     public string? Phone { get; set; }
 
-    public string? Role { get; set; }
+    // Note: Role field removed - quản lý quyền thông qua "Quản lý phân quyền"
+    // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
     public Guid? DepartmentId { get; set; }
 

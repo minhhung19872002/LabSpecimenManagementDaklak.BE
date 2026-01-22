@@ -200,11 +200,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             throw new ValidationException("user", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
-        // Assign role
-        if (!string.IsNullOrEmpty(input.Role))
-        {
-            await _userManager.AddToRoleAsync(user, input.Role);
-        }
+        // Note: Role assignment removed - quản lý quyền thông qua "Quản lý phân quyền"
+        // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
         // Send welcome email with credentials (only for auto-generated password)
         if (!input.UseManualPassword)
@@ -268,13 +265,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             user.SetProperty("Position", input.Position);
         }
 
-        // Update role if specified
-        if (!string.IsNullOrEmpty(input.Role))
-        {
-            var currentRoles = await _userManager.GetRolesAsync(user);
-            await _userManager.RemoveFromRolesAsync(user, currentRoles);
-            await _userManager.AddToRoleAsync(user, input.Role);
-        }
+        // Note: Role update removed - quản lý quyền thông qua "Quản lý phân quyền"
+        // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
         // Update account expiration
         if (input.IsTemporaryAccount.HasValue)
@@ -409,10 +401,12 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         }
 
         var roles = await _userManager.GetRolesAsync(user);
-        var primaryRole = roles.FirstOrDefault();
+        var rolesList = roles.ToList();
+        var primaryRole = rolesList.FirstOrDefault(); // Keep for backward compatibility
 
         var fullName = $"{user.Surname} {user.Name}".Trim();
 
+#pragma warning disable CS0618 // Type or member is obsolete - Role kept for backward compatibility
         return new EmployeeDto
         {
             Id = user.Id,
@@ -420,7 +414,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             FullName = string.IsNullOrWhiteSpace(fullName) ? user.UserName ?? string.Empty : fullName,
             Email = user.Email ?? string.Empty,
             Phone = user.PhoneNumber,
-            Role = primaryRole,
+            Role = primaryRole, // @deprecated - kept for backward compatibility
+            Roles = rolesList, // Danh sách nhóm quyền của nhân viên
             Department = departmentName,
             DepartmentId = departmentId,
             Position = user.GetProperty<string>("Position"),
@@ -429,6 +424,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             LastLogin = user.GetProperty<DateTime?>("LastLoginTime"),
             AccountExpirationDate = user.GetProperty<DateTime?>("AccountExpirationDate")
         };
+#pragma warning restore CS0618
     }
 
     private string GenerateRandomPassword()

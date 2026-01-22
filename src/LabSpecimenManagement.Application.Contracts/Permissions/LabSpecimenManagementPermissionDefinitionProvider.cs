@@ -180,6 +180,19 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Create, L("Permission:SampleConditions.Create"));
         sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Edit, L("Permission:SampleConditions.Edit"));
         sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Delete, L("Permission:SampleConditions.Delete"));
+
+        // Role Management Permissions (Quản lý phân quyền)
+        var roleManagementPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.RoleManagement.Default, L("Permission:RoleManagement"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Create, L("Permission:RoleManagement.Create"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Edit, L("Permission:RoleManagement.Edit"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Delete, L("Permission:RoleManagement.Delete"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManagePermissions, L("Permission:RoleManagement.ManagePermissions"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManageUsers, L("Permission:RoleManagement.ManageUsers"));
+
+        // Receipt Permissions (Phiếu thu)
+        var receiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Receipts.Default, L("Permission:Receipts"));
+        receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.View, L("Permission:Receipts.View"));
+        receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.Confirm, L("Permission:Receipts.Confirm"));
     }
 
     private static LocalizableString L(string name)
