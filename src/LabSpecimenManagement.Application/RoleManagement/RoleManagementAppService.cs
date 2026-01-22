@@ -132,57 +132,12 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
         // ==================== DỮ LIỆU CHỦ (MASTER DATA) ====================
         new PermissionGroupConfig("MasterData", "Dữ liệu chủ", new[]
         {
-            // Chỉ tiêu (Indicators)
-            (LabSpecimenManagementPermissions.Indicators.Default, "Xem chỉ tiêu"),
-            (LabSpecimenManagementPermissions.Indicators.Create, "Tạo chỉ tiêu"),
-            (LabSpecimenManagementPermissions.Indicators.Edit, "Sửa chỉ tiêu"),
-            (LabSpecimenManagementPermissions.Indicators.Delete, "Xóa chỉ tiêu"),
-            (LabSpecimenManagementPermissions.Indicators.Import, "Import chỉ tiêu"),
-            // Nhóm chỉ tiêu (Indicator Groups)
-            (LabSpecimenManagementPermissions.IndicatorGroups.Default, "Xem nhóm chỉ tiêu"),
-            (LabSpecimenManagementPermissions.IndicatorGroups.Create, "Tạo nhóm chỉ tiêu"),
-            (LabSpecimenManagementPermissions.IndicatorGroups.Edit, "Sửa nhóm chỉ tiêu"),
-            (LabSpecimenManagementPermissions.IndicatorGroups.Delete, "Xóa nhóm chỉ tiêu"),
-            // Loại mẫu (Specimen Types)
-            (LabSpecimenManagementPermissions.SpecimenTypes.Default, "Xem loại mẫu"),
-            (LabSpecimenManagementPermissions.SpecimenTypes.Create, "Tạo loại mẫu"),
-            (LabSpecimenManagementPermissions.SpecimenTypes.Edit, "Sửa loại mẫu"),
-            (LabSpecimenManagementPermissions.SpecimenTypes.Delete, "Xóa loại mẫu"),
-            // Tiêu chuẩn (Standards)
-            (LabSpecimenManagementPermissions.Standards.Default, "Xem tiêu chuẩn"),
-            (LabSpecimenManagementPermissions.Standards.Create, "Tạo tiêu chuẩn"),
-            (LabSpecimenManagementPermissions.Standards.Edit, "Sửa tiêu chuẩn"),
-            (LabSpecimenManagementPermissions.Standards.Delete, "Xóa tiêu chuẩn"),
-            // Phương pháp thử (Test Methods)
-            (LabSpecimenManagementPermissions.TestMethods.Default, "Xem phương pháp thử"),
-            (LabSpecimenManagementPermissions.TestMethods.Create, "Tạo phương pháp thử"),
-            (LabSpecimenManagementPermissions.TestMethods.Edit, "Sửa phương pháp thử"),
-            (LabSpecimenManagementPermissions.TestMethods.Delete, "Xóa phương pháp thử"),
-            // Vị trí lưu trữ (Storage Locations)
-            (LabSpecimenManagementPermissions.StorageLocations.Default, "Xem vị trí lưu trữ"),
-            (LabSpecimenManagementPermissions.StorageLocations.Create, "Tạo vị trí lưu trữ"),
-            (LabSpecimenManagementPermissions.StorageLocations.Edit, "Sửa vị trí lưu trữ"),
-            (LabSpecimenManagementPermissions.StorageLocations.Delete, "Xóa vị trí lưu trữ"),
-            // Khách hàng (Customers)
-            (LabSpecimenManagementPermissions.Customers.Default, "Xem khách hàng"),
-            (LabSpecimenManagementPermissions.Customers.Create, "Tạo khách hàng"),
-            (LabSpecimenManagementPermissions.Customers.Edit, "Sửa khách hàng"),
-            (LabSpecimenManagementPermissions.Customers.Delete, "Xóa khách hàng"),
-            // Phòng ban (Departments)
-            (LabSpecimenManagementPermissions.Departments.Default, "Xem phòng ban"),
-            (LabSpecimenManagementPermissions.Departments.Create, "Tạo phòng ban"),
-            (LabSpecimenManagementPermissions.Departments.Edit, "Sửa phòng ban"),
-            (LabSpecimenManagementPermissions.Departments.Delete, "Xóa phòng ban"),
-            // Khoa phòng/Lab (Laboratories)
-            (LabSpecimenManagementPermissions.Laboratories.Default, "Xem khoa phòng"),
-            (LabSpecimenManagementPermissions.Laboratories.Create, "Tạo khoa phòng"),
-            (LabSpecimenManagementPermissions.Laboratories.Edit, "Sửa khoa phòng"),
-            (LabSpecimenManagementPermissions.Laboratories.Delete, "Xóa khoa phòng"),
-            // Tình trạng mẫu (Sample Conditions)
-            (LabSpecimenManagementPermissions.SampleConditions.Default, "Xem tình trạng mẫu"),
-            (LabSpecimenManagementPermissions.SampleConditions.Create, "Tạo tình trạng mẫu"),
-            (LabSpecimenManagementPermissions.SampleConditions.Edit, "Sửa tình trạng mẫu"),
-            (LabSpecimenManagementPermissions.SampleConditions.Delete, "Xóa tình trạng mẫu"),
+            (LabSpecimenManagementPermissions.MasterData.Default, "Xem dữ liệu chủ"),
+            (LabSpecimenManagementPermissions.MasterData.View, "Xem chi tiết"),
+            (LabSpecimenManagementPermissions.MasterData.Create, "Tạo mới"),
+            (LabSpecimenManagementPermissions.MasterData.Edit, "Chỉnh sửa"),
+            (LabSpecimenManagementPermissions.MasterData.Delete, "Xóa"),
+            (LabSpecimenManagementPermissions.MasterData.Import, "Import dữ liệu"),
         }),
 
         // ==================== QUẢN TRỊ HỆ THỐNG ====================
@@ -208,16 +163,6 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
             (LabSpecimenManagementPermissions.AuditLogs.Default, "Xem lịch sử thay đổi"),
         }),
 
-        // ==================== IMPORT DỮ LIỆU ====================
-        new PermissionGroupConfig("Import", "Import dữ liệu", new[]
-        {
-            (LabSpecimenManagementPermissions.Import.Default, "Quyền import"),
-            (LabSpecimenManagementPermissions.Import.TestRequests, "Import phiếu yêu cầu"),
-            (LabSpecimenManagementPermissions.Import.Specimens, "Import mẫu"),
-            (LabSpecimenManagementPermissions.Import.Customers, "Import khách hàng"),
-            (LabSpecimenManagementPermissions.Import.TestMethods, "Import phương pháp thử"),
-            (LabSpecimenManagementPermissions.Import.Standards, "Import tiêu chuẩn"),
-        }),
     };
 
     public RoleManagementAppService(

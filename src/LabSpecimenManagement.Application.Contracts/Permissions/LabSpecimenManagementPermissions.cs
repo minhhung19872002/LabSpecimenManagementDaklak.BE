@@ -116,7 +116,18 @@ public static class LabSpecimenManagementPermissions
         public const string Export = Default + ".Export";
     }
 
-    // Master Data - Department Permissions
+    // Master Data - Unified Permissions (for all master data features)
+    public static class MasterData
+    {
+        public const string Default = GroupName + ".MasterData";
+        public const string View = Default + ".View";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Import = Default + ".Import"; // For Indicators & IndicatorGroups
+    }
+
+    // Master Data - Department Permissions (DEPRECATED - use MasterData instead)
     public static class Departments
     {
         public const string Default = GroupName + ".Departments";

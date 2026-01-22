@@ -12,7 +12,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/laboratories")]
-[Authorize(LabSpecimenManagementPermissions.Laboratories.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class LaboratoryController : LabSpecimenManagementController
 {
     private readonly ILaboratoryAppService _laboratoryAppService;
@@ -35,21 +35,21 @@ public class LaboratoryController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.Laboratories.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<LaboratoryDto> CreateAsync([FromBody] CreateUpdateLaboratoryDto input)
     {
         return _laboratoryAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Laboratories.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<LaboratoryDto> UpdateAsync(Guid id, [FromBody] CreateUpdateLaboratoryDto input)
     {
         return _laboratoryAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Laboratories.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _laboratoryAppService.DeleteAsync(id);

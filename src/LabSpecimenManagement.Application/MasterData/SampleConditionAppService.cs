@@ -14,7 +14,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.SampleConditions.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class SampleConditionAppService :
     CrudAppService<
         SampleCondition,
@@ -27,11 +27,11 @@ public class SampleConditionAppService :
     public SampleConditionAppService(IRepository<SampleCondition, Guid> repository)
         : base(repository)
     {
-        GetPolicyName = LabSpecimenManagementPermissions.SampleConditions.Default;
-        GetListPolicyName = LabSpecimenManagementPermissions.SampleConditions.Default;
-        CreatePolicyName = LabSpecimenManagementPermissions.SampleConditions.Create;
-        UpdatePolicyName = LabSpecimenManagementPermissions.SampleConditions.Edit;
-        DeletePolicyName = LabSpecimenManagementPermissions.SampleConditions.Delete;
+        GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
+        UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
+        DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
     }
 
     public async Task<ListResultDto<SampleConditionDto>> GetActiveConditionsAsync()

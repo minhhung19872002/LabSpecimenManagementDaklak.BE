@@ -19,7 +19,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.Indicators.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorAppService : ApplicationService, IIndicatorAppService
 {
     private const string CodePrefix = "CT";
@@ -101,7 +101,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<IndicatorDto> CreateAsync(CreateIndicatorDto input)
     {
         // Validate group exists
@@ -120,7 +120,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<List<IndicatorDto>> CreateBulkAsync(CreateBulkIndicatorsDto input)
     {
         // Validate group exists
@@ -168,7 +168,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtosAsync(results);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<IndicatorDto> UpdateAsync(Guid id, UpdateIndicatorDto input)
     {
         var entity = await _indicatorRepository.GetAsync(id);
@@ -187,7 +187,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public async Task DeleteAsync(Guid id)
     {
         var canDelete = await CanDeleteAsync(id);
@@ -207,7 +207,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return !query.Any(x => x.IndicatorId == id);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<IndicatorDto> ToggleActiveAsync(Guid id)
     {
         var entity = await _indicatorRepository.GetAsync(id);
@@ -240,7 +240,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtosAsync(items);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public async Task<ImportIndicatorsResultDto> ImportFromExcelAsync(Stream fileStream, string fileName)
     {
         var result = new ImportIndicatorsResultDto();
@@ -528,7 +528,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return dtos;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public async Task<BatchOperationResultDto> DeleteBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto
@@ -570,7 +570,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return result;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<BatchOperationResultDto> DeactivateBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto
@@ -591,7 +591,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return result;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<BatchOperationResultDto> ActivateBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto

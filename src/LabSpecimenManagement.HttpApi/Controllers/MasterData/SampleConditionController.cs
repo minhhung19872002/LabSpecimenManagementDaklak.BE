@@ -12,7 +12,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/sample-conditions")]
-[Authorize(LabSpecimenManagementPermissions.SampleConditions.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class SampleConditionController : LabSpecimenManagementController
 {
     private readonly ISampleConditionAppService _sampleConditionAppService;
@@ -41,21 +41,21 @@ public class SampleConditionController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.SampleConditions.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<SampleConditionDto> CreateAsync([FromBody] CreateUpdateSampleConditionDto input)
     {
         return _sampleConditionAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SampleConditions.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<SampleConditionDto> UpdateAsync(Guid id, [FromBody] CreateUpdateSampleConditionDto input)
     {
         return _sampleConditionAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SampleConditions.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _sampleConditionAppService.DeleteAsync(id);

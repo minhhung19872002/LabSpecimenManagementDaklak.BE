@@ -14,7 +14,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class SampleTypeCategoryAppService :
     CrudAppService<
         SampleTypeCategory,
@@ -33,11 +33,11 @@ public class SampleTypeCategoryAppService :
     {
         _specimenTypeRepository = specimenTypeRepository;
 
-        GetPolicyName = LabSpecimenManagementPermissions.SpecimenTypes.Default;
-        GetListPolicyName = LabSpecimenManagementPermissions.SpecimenTypes.Default;
-        CreatePolicyName = LabSpecimenManagementPermissions.SpecimenTypes.Create;
-        UpdatePolicyName = LabSpecimenManagementPermissions.SpecimenTypes.Edit;
-        DeletePolicyName = LabSpecimenManagementPermissions.SpecimenTypes.Delete;
+        GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
+        UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
+        DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
     }
 
     public async Task<ListResultDto<SampleTypeCategoryDto>> GetActiveCategoriesAsync()

@@ -15,7 +15,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorGroupAppService :
     CrudAppService<
         IndicatorGroup,
@@ -40,11 +40,11 @@ public class IndicatorGroupAppService :
         _laboratoryRepository = laboratoryRepository;
         _departmentRepository = departmentRepository;
 
-        GetPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
-        GetListPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
-        CreatePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Create;
-        UpdatePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Edit;
-        DeletePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Delete;
+        GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
+        UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
+        DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
     }
 
     public async Task<ListResultDto<IndicatorGroupDto>> GetActiveGroupsAsync()
@@ -107,7 +107,7 @@ public class IndicatorGroupAppService :
         return Task.CompletedTask;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public async Task<ImportIndicatorGroupsResultDto> ImportFromExcelAsync(Stream fileStream, string fileName)
     {
         var result = new ImportIndicatorGroupsResultDto();

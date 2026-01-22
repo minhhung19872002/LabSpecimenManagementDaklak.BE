@@ -87,7 +87,15 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var statisticsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Statistics.Default, L("Permission:Statistics"));
         statisticsPermission.AddChild(LabSpecimenManagementPermissions.Statistics.Export, L("Permission:Statistics.Export"));
 
-        // Master Data - Department Permissions
+        // Master Data - Unified Permissions (for all master data features)
+        var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.View, L("Permission:MasterData.View"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Create, L("Permission:MasterData.Create"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Edit, L("Permission:MasterData.Edit"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Delete, L("Permission:MasterData.Delete"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Import, L("Permission:MasterData.Import"));
+
+        // Master Data - Department Permissions (DEPRECATED - keeping for backward compatibility)
         var departmentPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Departments.Default, L("Permission:Departments"));
         departmentPermission.AddChild(LabSpecimenManagementPermissions.Departments.Create, L("Permission:Departments.Create"));
         departmentPermission.AddChild(LabSpecimenManagementPermissions.Departments.Edit, L("Permission:Departments.Edit"));

@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/specimen-types")]
-[Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class SpecimenTypeController : LabSpecimenManagementController
 {
     private readonly ISpecimenTypeAppService _specimenTypeAppService;
@@ -42,21 +42,21 @@ public class SpecimenTypeController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual async Task<SpecimenTypeDto> CreateAsync([FromBody] CreateUpdateSpecimenTypeDto input)
     {
         return await _specimenTypeAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual async Task<SpecimenTypeDto> UpdateAsync(Guid id, [FromBody] CreateUpdateSpecimenTypeDto input)
     {
         return await _specimenTypeAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _specimenTypeAppService.DeleteAsync(id);
@@ -101,7 +101,7 @@ public class SpecimenTypeController : LabSpecimenManagementController
     /// Thêm chỉ tiêu vào loại mẫu
     /// </summary>
     [HttpPost("{id}/indicators")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task AddIndicatorsAsync(Guid id, [FromBody] AddIndicatorsToSpecimenTypeDto input)
     {
         return _specimenTypeAppService.AddIndicatorsAsync(id, input);
@@ -111,7 +111,7 @@ public class SpecimenTypeController : LabSpecimenManagementController
     /// Xóa chỉ tiêu khỏi loại mẫu
     /// </summary>
     [HttpDelete("{id}/indicators/{indicatorId}")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)
     {
         return _specimenTypeAppService.RemoveIndicatorAsync(id, indicatorId);
@@ -121,7 +121,7 @@ public class SpecimenTypeController : LabSpecimenManagementController
     /// Xóa hàng loạt chỉ tiêu khỏi loại mẫu
     /// </summary>
     [HttpPost("{id}/indicators/batch-remove")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
     {
         return _specimenTypeAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
@@ -131,7 +131,7 @@ public class SpecimenTypeController : LabSpecimenManagementController
     /// Bật/tắt trạng thái hoạt động của chỉ tiêu trong loại mẫu
     /// </summary>
     [HttpPost("{id}/indicators/{indicatorId}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<SpecimenTypeIndicatorDto> ToggleIndicatorActiveAsync(Guid id, Guid indicatorId)
     {
         return _specimenTypeAppService.ToggleIndicatorActiveAsync(id, indicatorId);

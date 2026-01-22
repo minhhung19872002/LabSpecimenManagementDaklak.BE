@@ -12,7 +12,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/sample-type-categories")]
-[Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class SampleTypeCategoryController : LabSpecimenManagementController
 {
     private readonly ISampleTypeCategoryAppService _sampleTypeCategoryAppService;
@@ -41,21 +41,21 @@ public class SampleTypeCategoryController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<SampleTypeCategoryDto> CreateAsync([FromBody] CreateUpdateSampleTypeCategoryDto input)
     {
         return _sampleTypeCategoryAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<SampleTypeCategoryDto> UpdateAsync(Guid id, [FromBody] CreateUpdateSampleTypeCategoryDto input)
     {
         return _sampleTypeCategoryAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _sampleTypeCategoryAppService.DeleteAsync(id);
@@ -74,7 +74,7 @@ public class SampleTypeCategoryController : LabSpecimenManagementController
     }
 
     [HttpPost("{id}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.SpecimenTypes.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task ToggleActiveAsync(Guid id)
     {
         return _sampleTypeCategoryAppService.ToggleActiveAsync(id);
