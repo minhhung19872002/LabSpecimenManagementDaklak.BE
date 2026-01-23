@@ -12,6 +12,7 @@ public interface INCRAppService : ICrudAppService<
     CreateNCRDto,
     UpdateNCRDto>
 {
+    Task<PagedResultDto<NCRDto>> GetFilteredListAsync(GetNCRListDto input);
     Task<NCRDto> CloseAsync(Guid id);
     Task<ListResultDto<NCRDto>> GetOpenNCRsAsync();
     Task<NCRDto> AssignAsync(Guid id, Guid assignedToId);

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
+using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using Volo.Abp;
@@ -32,6 +34,45 @@ public class NCRAppService :
     {
         _currentUser = currentUser;
         _codeGenerator = codeGenerator;
+    }
+
+    public async Task<PagedResultDto<NCRDto>> GetFilteredListAsync(GetNCRListDto input)
+    {
+        var query = await Repository.GetQueryableAsync();
+
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.ToLower();
+            query = query.Where(x =>
+                x.NCRNumber.ToLower().Contains(search) ||
+                x.Title.ToLower().Contains(search) ||
+                (x.Department != null && x.Department.ToLower().Contains(search)));
+        }
+
+        if (input.Status.HasValue)
+        {
+            query = query.Where(x => x.Status == input.Status.Value);
+        }
+
+        var totalCount = query.Count();
+
+        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        {
+            query = query.OrderBy(input.Sorting);
+        }
+        else
+        {
+            query = query.OrderByDescending(x => x.CreationTime);
+        }
+
+        query = query
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount);
+
+        var entities = query.ToList();
+        var dtos = ObjectMapper.Map<List<NCR>, List<NCRDto>>(entities);
+
+        return new PagedResultDto<NCRDto>(totalCount, dtos);
     }
 
     protected override async Task<NCR> MapToEntityAsync(CreateNCRDto createInput)

@@ -1,4 +1,3 @@
-using LabSpecimenManagement.Common;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -23,15 +22,9 @@ public class NCRController : LabSpecimenManagementController
     }
 
     [HttpGet]
-    public virtual async Task<PagedResultDto<NCRDto>> GetListAsync([FromQuery] PagedRequestDto input)
+    public virtual async Task<PagedResultDto<NCRDto>> GetListAsync([FromQuery] GetNCRListDto input)
     {
-        var abpInput = new PagedAndSortedResultRequestDto
-        {
-            SkipCount = input.SkipCount,
-            MaxResultCount = input.MaxResultCount,
-            Sorting = input.Sorting
-        };
-        return await _ncrAppService.GetListAsync(abpInput);
+        return await _ncrAppService.GetFilteredListAsync(input);
     }
 
     [HttpGet("{id}")]
