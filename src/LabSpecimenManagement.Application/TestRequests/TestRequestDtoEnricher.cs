@@ -268,6 +268,7 @@ public class TestRequestDtoEnricher : ITransientDependency
             TestMethodName = testMethod?.Name,
             TestMethodFormattedName = testMethod?.FormattedName,
             UnitPrice = indicatorLink.UnitPrice,
+            OriginalUnitPrice = indicatorLink.OriginalUnitPrice,
             Notes = indicatorLink.Notes,
             LaboratoryId = indicatorLink.LaboratoryId,
             LaboratoryName = laboratory?.Name,

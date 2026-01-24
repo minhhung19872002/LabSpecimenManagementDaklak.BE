@@ -265,6 +265,7 @@ public partial class TestRequestAppService :
                     TestMethodName = testMethodName,
                     TestMethodFormattedName = testMethodFormattedName,
                     UnitPrice = indicator.UnitPrice,
+                    OriginalUnitPrice = indicator.OriginalUnitPrice,
                     Notes = indicator.Notes,
                     LaboratoryId = indicator.LaboratoryId,
                     LaboratoryName = laboratoryName,
@@ -578,6 +579,7 @@ public partial class TestRequestAppService :
                             indicatorDto.IndicatorId
                         );
                         sampleIndicator.UnitPrice = indicatorDto.UnitPrice;
+                        sampleIndicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         sampleIndicator.Notes = indicatorDto.Notes;
                         sampleIndicator.TestMethodId = indicatorDto.TestMethodId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
@@ -890,6 +892,7 @@ public partial class TestRequestAppService :
                             // Update existing indicator
                             var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
                             indicator.UnitPrice = indicatorDto.UnitPrice;
+                            indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                             indicator.Notes = indicatorDto.Notes;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
@@ -907,6 +910,7 @@ public partial class TestRequestAppService :
                                 indicatorDto.IndicatorId
                             );
                             indicator.UnitPrice = indicatorDto.UnitPrice;
+                            indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                             indicator.Notes = indicatorDto.Notes;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
                             indicator.TransferDate = indicatorDto.TransferDate;
@@ -2246,6 +2250,7 @@ public partial class TestRequestAppService :
                         // Update existing indicator
                         var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
                         indicator.UnitPrice = indicatorDto.UnitPrice;
+                        indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         indicator.Notes = indicatorDto.Notes;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
@@ -2260,6 +2265,7 @@ public partial class TestRequestAppService :
                             indicatorDto.IndicatorId
                         );
                         indicator.UnitPrice = indicatorDto.UnitPrice;
+                        indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         indicator.Notes = indicatorDto.Notes;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;

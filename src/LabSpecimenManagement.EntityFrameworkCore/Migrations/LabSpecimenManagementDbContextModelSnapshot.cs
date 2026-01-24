@@ -4044,6 +4044,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<decimal?>("OriginalUnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<DateTime?>("RequestDate")
                         .HasColumnType("timestamp without time zone");
 

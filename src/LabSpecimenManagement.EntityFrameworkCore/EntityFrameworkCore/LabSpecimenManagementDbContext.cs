@@ -239,6 +239,7 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestSampleIndicators", LabSpecimenManagementConsts.DbSchema);
 
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.OriginalUnitPrice).HasPrecision(18, 2);
             b.Property(x => x.Notes).HasMaxLength(500);
 
             b.HasIndex(x => x.TestRequestSampleId);

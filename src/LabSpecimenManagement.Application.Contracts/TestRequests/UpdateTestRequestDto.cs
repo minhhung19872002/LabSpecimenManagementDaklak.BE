@@ -247,6 +247,7 @@ public class UpdateTestRequestSampleIndicatorDto
     public Guid? LaboratoryId { get; set; }
 
     public decimal UnitPrice { get; set; }
+    public decimal? OriginalUnitPrice { get; set; }
 
     [StringLength(500)]
     public string? Notes { get; set; }

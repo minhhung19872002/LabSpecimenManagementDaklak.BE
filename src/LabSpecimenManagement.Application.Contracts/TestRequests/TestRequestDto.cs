@@ -178,6 +178,10 @@ public class TestRequestSampleIndicatorDto
     public Guid? IndicatorGroupLaboratoryId { get; set; }
 
     public decimal UnitPrice { get; set; }
+    /// <summary>
+    /// Giá gốc trước khi áp dụng combo giảm giá (null nếu không có giảm giá)
+    /// </summary>
+    public decimal? OriginalUnitPrice { get; set; }
     public string? Notes { get; set; }
 
     /// <summary>

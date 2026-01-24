@@ -35,6 +35,11 @@ public class TestRequestSampleIndicator : Entity<Guid>
     public decimal UnitPrice { get; set; }
 
     /// <summary>
+    /// Giá gốc trước khi áp dụng combo giảm giá (chỉ có khi được miễn phí do combo kim loại nặng)
+    /// </summary>
+    public decimal? OriginalUnitPrice { get; set; }
+
+    /// <summary>
     /// Ghi chú cho chỉ tiêu này
     /// </summary>
     public string? Notes { get; set; }
