@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.QualityManagement;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -112,4 +113,10 @@ public interface ITestingAppService : IApplicationService
     /// Xóa hình ảnh rejection history
     /// </summary>
     Task DeleteRejectionHistoryImageAsync(Guid imageId);
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - query từ LaboratoryTaskIndicator
+    /// (Không yêu cầu QualityManagementTask đã tạo)
+    /// </summary>
+    Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
 }

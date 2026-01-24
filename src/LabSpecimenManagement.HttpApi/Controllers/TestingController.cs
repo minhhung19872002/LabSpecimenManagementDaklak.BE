@@ -1,5 +1,6 @@
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Testing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -38,6 +39,15 @@ public class TestingController : LabSpecimenManagementController
     public virtual async Task<PagedResultDto<TestingListDto>> GetListAsync([FromQuery] GetTestingListInput input)
     {
         return await _testingAppService.GetListAsync(input);
+    }
+
+    /// <summary>
+    /// Get sample assignment log for testing page (query from LaboratoryTaskIndicator)
+    /// </summary>
+    [HttpGet("sample-assignment-log")]
+    public virtual async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return await _testingAppService.GetSampleAssignmentLogAsync(input);
     }
 
     /// <summary>
