@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Volo.Abp.DependencyInjection;
 using Volo.Abp.Domain.Repositories;
@@ -15,6 +17,11 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationHubService? _notificationHubService;
 
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
     public NotificationCreator(
         IRepository<Notification, Guid> notificationRepository,
         IGuidGenerator guidGenerator,
@@ -23,6 +30,23 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         _notificationRepository = notificationRepository;
         _guidGenerator = guidGenerator;
         _notificationHubService = notificationHubService;
+    }
+
+    /// <summary>
+    /// Helper method to serialize additional data to JSON
+    /// </summary>
+    private static string SerializeAdditionalData(Dictionary<string, object?> data)
+    {
+        // Remove null values
+        var cleanData = new Dictionary<string, object>();
+        foreach (var kvp in data)
+        {
+            if (kvp.Value != null)
+            {
+                cleanData[kvp.Key] = kvp.Value;
+            }
+        }
+        return JsonSerializer.Serialize(cleanData, JsonOptions);
     }
 
     /// <summary>
@@ -58,23 +82,35 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string title;
         string message;
         NotificationType type;
+        Dictionary<string, object?> additionalData;
 
         if (indicatorCount == 1 && !string.IsNullOrEmpty(sampleName))
         {
             // Case 6: Single indicator
-            title = $"Hợp đồng {contractNumber}";
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"{senderName} đã gửi kết quả chỉ tiêu cần bạn phê duyệt";
+            title = "Chờ phê duyệt";
+            message = $"{sampleName} - {indicatorName} - {methodName}";
             type = NotificationType.SingleIndicatorSubmitted;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["sampleName"] = sampleName,
+                ["indicatorName"] = indicatorName,
+                ["methodName"] = methodName,
+                ["senderName"] = senderName
+            };
         }
         else
         {
             // Case 1: Multiple indicators
-            title = $"Hợp đồng {contractNumber}";
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{senderName} đã gửi <b>{indicatorCount} chỉ tiêu</b> cần bạn phê duyệt";
+            title = "Chờ phê duyệt";
+            message = $"{indicatorCount} chỉ tiêu từ {senderName}";
             type = NotificationType.MultipleIndicatorsSubmitted;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["indicatorCount"] = indicatorCount,
+                ["senderName"] = senderName
+            };
         }
 
         var notification = new Notification(
@@ -87,7 +123,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             deadline,
             senderName,
-            indicatorCount
+            indicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -103,9 +140,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         int indicatorCount,
         DateTime? deadline)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có <b>{indicatorCount} chỉ tiêu</b> cần khoa phòng của bạn thử nghiệm";
+        var title = "Mẫu mới cần thử nghiệm";
+        var message = $"{indicatorCount} chỉ tiêu cần thực hiện";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["indicatorCount"] = indicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -117,7 +158,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             deadline,
             null,
-            indicatorCount
+            indicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -133,9 +175,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         int pendingIndicatorCount,
         DateTime sentDate)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có <b>{pendingIndicatorCount} chỉ tiêu</b> chưa phân công công việc";
+        var title = "Nhắc nhở phân công";
+        var message = $"{pendingIndicatorCount} chỉ tiêu chưa phân công";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["indicatorCount"] = pendingIndicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -147,7 +193,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             null,
             null,
-            pendingIndicatorCount
+            pendingIndicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -166,24 +213,36 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string? indicatorName = null,
         string? methodName = null)
     {
-        string title = $"Hợp đồng {contractNumber}";
+        string title = "Kết quả bị từ chối";
         string message;
         NotificationType type;
+        Dictionary<string, object?> additionalData;
 
         if (rejectedCount == 1 && !string.IsNullOrEmpty(sampleName))
         {
             // Case 4: Single rejection
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"Quản lý chất lượng <b>{qualityManagerName}</b> đã từ chối kết quả của bạn";
+            message = $"{sampleName} - {indicatorName} - {methodName}";
             type = NotificationType.SingleResultRejectedByQM;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["sampleName"] = sampleName,
+                ["indicatorName"] = indicatorName,
+                ["methodName"] = methodName,
+                ["senderName"] = qualityManagerName
+            };
         }
         else
         {
             // Case 5: Multiple rejections
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Quản lý chất lượng <b>{qualityManagerName}</b> đã từ chối kết quả của bạn";
+            message = $"{rejectedCount} chỉ tiêu bị từ chối";
             type = NotificationType.MultipleResultsRejectedByQM;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["rejectedCount"] = rejectedCount,
+                ["senderName"] = qualityManagerName
+            };
         }
 
         var notification = new Notification(
@@ -196,7 +255,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             null,
             qualityManagerName,
-            rejectedCount
+            rejectedCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -214,19 +274,30 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string? indicatorName = null,
         string? methodName = null)
     {
-        var title = $"Hợp đồng {contractNumber}";
+        var title = "Kết quả đã duyệt";
         string message;
+        Dictionary<string, object?> additionalData;
 
         if (!string.IsNullOrEmpty(sampleName))
         {
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"Kết quả của bạn đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+            message = $"{sampleName} - {indicatorName} - {methodName}";
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["sampleName"] = sampleName,
+                ["indicatorName"] = indicatorName,
+                ["methodName"] = methodName,
+                ["senderName"] = qualityManagerName
+            };
         }
         else
         {
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Kết quả của bạn đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+            message = "Kết quả đã được phê duyệt";
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["senderName"] = qualityManagerName
+            };
         }
 
         var notification = new Notification(
@@ -238,7 +309,9 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             taskId.ToString(),
             "LaboratoryTask",
             null,
-            qualityManagerName
+            qualityManagerName,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -254,9 +327,14 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         int newSampleCount,
         int newIndicatorCount)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có thêm {newSampleCount} mẫu và {newIndicatorCount} chỉ tiêu cần thực hiện thêm";
+        var title = "Mẫu/chỉ tiêu mới";
+        var message = $"Thêm {newSampleCount} mẫu, {newIndicatorCount} chỉ tiêu";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["newSampleCount"] = newSampleCount,
+            ["newIndicatorCount"] = newIndicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -268,7 +346,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             null,
             null,
-            newIndicatorCount
+            newIndicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -284,9 +363,14 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string sampleCode,
         int cancelledIndicatorCount)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Khách hàng đã hủy {cancelledIndicatorCount} chỉ tiêu của mẫu {sampleCode}";
+        var title = "Mẫu bị hủy";
+        var message = $"{sampleCode} - {cancelledIndicatorCount} chỉ tiêu";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["sampleCode"] = sampleCode,
+            ["cancelledCount"] = cancelledIndicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -298,7 +382,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "LaboratoryTask",
             null,
             null,
-            cancelledIndicatorCount
+            cancelledIndicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -321,24 +406,36 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string? indicatorName = null,
         string? methodName = null)
     {
-        string title = $"Hợp đồng {contractNumber}";
+        string title = "Chờ phê duyệt";
         string message;
         NotificationType type;
+        Dictionary<string, object?> additionalData;
 
         if (indicatorCount == 1 && !string.IsNullOrEmpty(sampleName))
         {
             // Case 2 QLCL: Single indicator
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"{senderName} đã gửi kết quả chỉ tiêu cần bạn phê duyệt";
+            message = $"{sampleName} - {indicatorName} - {methodName}";
             type = NotificationType.SingleResultSubmittedToQM;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["sampleName"] = sampleName,
+                ["indicatorName"] = indicatorName,
+                ["methodName"] = methodName,
+                ["senderName"] = senderName
+            };
         }
         else
         {
             // Case 1 QLCL: Multiple indicators
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{senderName} đã gửi <b>{indicatorCount} kết quả chỉ tiêu</b> cần bạn phê duyệt";
+            message = $"{indicatorCount} kết quả từ {senderName}";
             type = NotificationType.MultipleResultsSubmittedToQM;
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["indicatorCount"] = indicatorCount,
+                ["senderName"] = senderName
+            };
         }
 
         var notification = new Notification(
@@ -351,7 +448,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "QualityManagement",
             null,
             senderName,
-            indicatorCount
+            indicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -366,9 +464,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         Guid qualityTaskId,
         DateTime deadline)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Hợp đồng {contractNumber} gần tới hạn yêu cầu trả kết quả";
+        var title = "Sắp đến hạn";
+        var message = "Hợp đồng gần đến hạn trả kết quả";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -378,7 +479,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.DeadlineReminder,
             qualityTaskId.ToString(),
             "QualityManagement",
-            deadline
+            deadline,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -393,9 +497,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         Guid qualityTaskId,
         DateTime approvedDate)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Hợp đồng {contractNumber} cần bàn giao cho bộ phận nhận/ trả mẫu";
+        var title = "Cần bàn giao";
+        var message = "Hợp đồng cần bàn giao cho bộ phận nhận/trả mẫu";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -405,7 +512,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.HandoverReminder,
             qualityTaskId.ToString(),
             "QualityManagement",
-            null
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -419,9 +529,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string contractNumber,
         Guid testRequestId)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Thay đổi cho hợp đồng {contractNumber} cần được phê duyệt";
+        var title = "Thay đổi cần duyệt";
+        var message = "Thay đổi phiếu yêu cầu cần phê duyệt";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -430,8 +543,11 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             message,
             NotificationType.TestRequestChangePendingApproval,
             testRequestId.ToString(),
-            "TestRequest",  // Navigate to test request detail to approve changes
-            null
+            "TestRequest",
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -449,9 +565,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string contractNumber,
         Guid testRequestId)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Phiếu yêu cầu {contractNumber} đang có điều chỉnh";
+        var title = "Phiếu đang điều chỉnh";
+        var message = "Phiếu yêu cầu đang có điều chỉnh";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -461,7 +580,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.TestRequestChangeRequested,
             testRequestId.ToString(),
             "TestRequest",
-            null
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -479,9 +601,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string contractNumber,
         Guid testRequestId)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Thay đổi cho hợp đồng {contractNumber} đã được phê duyệt";
+        var title = "Thay đổi đã duyệt";
+        var message = "Thay đổi phiếu đã được phê duyệt";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -491,7 +616,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.ChangeApproved,
             testRequestId.ToString(),
             "TestRequest",
-            null
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -505,9 +633,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string contractNumber,
         Guid testRequestId)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Thay đổi cho hợp đồng {contractNumber} đã bị từ chối";
+        var title = "Thay đổi bị từ chối";
+        var message = "Thay đổi phiếu đã bị từ chối";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -517,7 +648,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.ChangeRejected,
             testRequestId.ToString(),
             "TestRequest",
-            null
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -532,9 +666,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         Guid testRequestId,
         int sampleCount)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có <b>{sampleCount} mẫu</b> cần gửi tới khoa phòng thử nghiệm";
+        var title = "Mẫu cần gửi";
+        var message = $"{sampleCount} mẫu cần gửi tới khoa phòng";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["sampleCount"] = sampleCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -546,7 +684,8 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             "TestRequest",
             null,
             null,
-            sampleCount
+            sampleCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -560,9 +699,12 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string contractNumber,
         Guid testRequestId)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Hợp đồng {contractNumber} cần trả mẫu cho khách hàng";
+        var title = "Nhắc trả mẫu";
+        var message = "Hợp đồng cần trả mẫu cho khách hàng";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -572,7 +714,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.SampleReturnReminder,
             testRequestId.ToString(),
             "TestRequest",
-            null
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -590,19 +735,30 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string? indicatorName = null,
         string? methodName = null)
     {
-        var title = $"Hợp đồng {contractNumber}";
+        var title = "Kết quả đã duyệt";
         string message;
+        Dictionary<string, object?> additionalData;
 
         if (!string.IsNullOrEmpty(sampleName))
         {
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"Kết quả đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+            message = $"{sampleName} - {indicatorName} - {methodName}";
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["sampleName"] = sampleName,
+                ["indicatorName"] = indicatorName,
+                ["methodName"] = methodName,
+                ["senderName"] = qualityManagerName
+            };
         }
         else
         {
-            message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Kết quả đã được Quản lý chất lượng <b>{qualityManagerName}</b> phê duyệt";
+            message = "Kết quả đã được phê duyệt";
+            additionalData = new Dictionary<string, object?>
+            {
+                ["contractNumber"] = contractNumber,
+                ["senderName"] = qualityManagerName
+            };
         }
 
         var notification = new Notification(
@@ -612,9 +768,11 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             message,
             NotificationType.ResultApprovedNotification,
             testRequestId.ToString(),
-            "TestRequest",  // SampleReceiver should navigate to test request detail
+            "TestRequest",
             null,
-            qualityManagerName
+            qualityManagerName,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -634,9 +792,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         int indicatorCount,
         DateTime? deadline)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có <b>{indicatorCount} chỉ tiêu</b> cần thực hiện";
+        var title = "Công việc mới";
+        var message = $"{indicatorCount} chỉ tiêu cần thực hiện";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["indicatorCount"] = indicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -646,7 +808,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.MultipleIndicatorsAssignedToTechnician,
             taskId.ToString(),
             "Testing",
-            deadline
+            deadline,
+            null,
+            indicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -665,9 +830,16 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string methodName,
         DateTime? deadline)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Quản lý kỹ thuật {technicalManagerName} phân công cho bạn thử nghiệm {sampleName} - {indicatorName} - {methodName}";
+        var title = "Công việc mới";
+        var message = $"{sampleName} - {indicatorName} - {methodName}";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["sampleName"] = sampleName,
+            ["indicatorName"] = indicatorName,
+            ["methodName"] = methodName,
+            ["senderName"] = technicalManagerName
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -677,7 +849,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.SingleIndicatorAssignedToTechnician,
             taskId.ToString(),
             "Testing",
-            deadline
+            deadline,
+            technicalManagerName,
+            1,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -692,9 +867,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         Guid taskId,
         int pendingIndicatorCount)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Bạn có <b>{pendingIndicatorCount} chỉ tiêu</b> chưa thực hiện";
+        var title = "Nhắc nhở thực hiện";
+        var message = $"{pendingIndicatorCount} chỉ tiêu chưa thực hiện";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["indicatorCount"] = pendingIndicatorCount
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -704,7 +883,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.PendingIndicatorReminder,
             taskId.ToString(),
             "Testing",
-            null
+            null,
+            null,
+            pendingIndicatorCount,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -719,9 +901,13 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         Guid taskId,
         string technicalManagerName)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"Quản lý kỹ thuật {technicalManagerName} đã từ chối kết quả của bạn";
+        var title = "Kết quả bị từ chối";
+        var message = $"Kết quả bị {technicalManagerName} từ chối";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["senderName"] = technicalManagerName
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -731,7 +917,10 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.MultipleResultsRejectedByTechnicalManager,
             taskId.ToString(),
             "Testing",
-            null
+            null,
+            technicalManagerName,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);
@@ -749,10 +938,16 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         string indicatorName,
         string methodName)
     {
-        var title = $"Hợp đồng {contractNumber}";
-        var message = $"<b>Hợp đồng {contractNumber}</b>\n" +
-                      $"{sampleName} - {indicatorName} - {methodName}\n" +
-                      $"{technicalManagerName} đã từ chối kết quả của bạn";
+        var title = "Kết quả bị từ chối";
+        var message = $"{sampleName} - {indicatorName} - {methodName}";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["sampleName"] = sampleName,
+            ["indicatorName"] = indicatorName,
+            ["methodName"] = methodName,
+            ["senderName"] = technicalManagerName
+        };
 
         var notification = new Notification(
             _guidGenerator.Create(),
@@ -762,7 +957,48 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
             NotificationType.SingleResultRejectedByTechnicalManager,
             taskId.ToString(),
             "Testing",
-            null
+            null,
+            technicalManagerName,
+            1,
+            SerializeAdditionalData(additionalData)
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    /// <summary>
+    /// Case 6 KTV: KTV báo không thể thử nghiệm chỉ tiêu (gửi cho QLKT)
+    /// </summary>
+    public async Task NotifyCannotTestAsync(
+        Guid technicalManagerId,
+        string contractNumber,
+        Guid taskId,
+        string technicianName,
+        string sampleName,
+        string indicatorName)
+    {
+        var title = "Báo không TN được";
+        var message = $"{sampleName} - {indicatorName}";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["contractNumber"] = contractNumber,
+            ["sampleName"] = sampleName,
+            ["indicatorName"] = indicatorName,
+            ["senderName"] = technicianName
+        };
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            technicalManagerId,
+            title,
+            message,
+            NotificationType.CannotTest,
+            taskId.ToString(),
+            "LaboratoryTask",
+            null,
+            technicianName,
+            null,
+            SerializeAdditionalData(additionalData)
         );
 
         await InsertNotificationAndPushAsync(notification);

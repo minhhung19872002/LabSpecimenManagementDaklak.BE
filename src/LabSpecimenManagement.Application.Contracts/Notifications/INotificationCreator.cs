@@ -250,5 +250,16 @@ public interface INotificationCreator
         string indicatorName,
         string methodName);
 
+    /// <summary>
+    /// Case 6 KTV: KTV báo không thể thử nghiệm chỉ tiêu (gửi cho QLKT)
+    /// </summary>
+    Task NotifyCannotTestAsync(
+        Guid technicalManagerId,
+        string contractNumber,
+        Guid taskId,
+        string technicianName,
+        string sampleName,
+        string indicatorName);
+
     #endregion
 }
