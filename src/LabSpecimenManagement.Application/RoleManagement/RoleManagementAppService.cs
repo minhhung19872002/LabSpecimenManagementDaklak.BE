@@ -500,7 +500,7 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
 
     #region Users
 
-    public async Task<PagedResultDto<RoleUserDto>> GetRoleUsersAsync(Guid roleId, GetRoleUsersInput input)
+    public async Task<List<RoleUserDto>> GetRoleUsersAsync(Guid roleId)
     {
         var role = await _roleRepository.GetAsync(roleId);
         if (role == null)
@@ -521,18 +521,6 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
                 var departmentId = user.GetProperty<Guid?>("DepartmentId");
                 var fullName = $"{user.Surname} {user.Name}".Trim();
 
-                // Filter by search text
-                if (!string.IsNullOrWhiteSpace(input.Filter))
-                {
-                    var filter = input.Filter.ToLowerInvariant();
-                    if (!user.UserName!.ToLowerInvariant().Contains(filter) &&
-                        !fullName.ToLowerInvariant().Contains(filter) &&
-                        !(user.Email?.ToLowerInvariant().Contains(filter) ?? false))
-                    {
-                        continue;
-                    }
-                }
-
                 roleUsers.Add(new RoleUserDto
                 {
                     Id = user.Id,
@@ -549,25 +537,7 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
             }
         }
 
-        var totalCount = roleUsers.Count;
-
-        // Sort
-        roleUsers = input.Sorting?.ToLowerInvariant() switch
-        {
-            "username" => roleUsers.OrderBy(u => u.UserName).ToList(),
-            "username desc" => roleUsers.OrderByDescending(u => u.UserName).ToList(),
-            "fullname" => roleUsers.OrderBy(u => u.FullName).ToList(),
-            "fullname desc" => roleUsers.OrderByDescending(u => u.FullName).ToList(),
-            _ => roleUsers.OrderBy(u => u.UserName).ToList()
-        };
-
-        // Pagination
-        var pagedUsers = roleUsers
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount)
-            .ToList();
-
-        return new PagedResultDto<RoleUserDto>(totalCount, pagedUsers);
+        return roleUsers.OrderBy(u => u.UserName).ToList();
     }
 
     [Authorize(LabSpecimenManagementPermissions.RoleManagement.ManageUsers)]

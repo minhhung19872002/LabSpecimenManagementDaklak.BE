@@ -1,11 +1,8 @@
-using Volo.Abp.Application.Dtos;
-
 namespace LabSpecimenManagement.RoleManagement;
 
 /// <summary>
-/// Input for getting paginated users in a role
+/// Input for getting users in a role (no pagination, filtering done on client-side)
 /// </summary>
-public class GetRoleUsersInput : PagedAndSortedResultRequestDto
+public class GetRoleUsersInput
 {
-    public string? Filter { get; set; }
 }

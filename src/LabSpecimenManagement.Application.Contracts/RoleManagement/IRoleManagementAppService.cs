@@ -62,9 +62,9 @@ public interface IRoleManagementAppService : IApplicationService
     #region Users
 
     /// <summary>
-    /// Get paginated list of users in a role
+    /// Get list of users in a role
     /// </summary>
-    Task<PagedResultDto<RoleUserDto>> GetRoleUsersAsync(Guid roleId, GetRoleUsersInput input);
+    Task<List<RoleUserDto>> GetRoleUsersAsync(Guid roleId);
 
     /// <summary>
     /// Add a user to a role

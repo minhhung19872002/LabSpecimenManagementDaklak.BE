@@ -109,12 +109,12 @@ public class RoleManagementController : LabSpecimenManagementController
     #region Users
 
     /// <summary>
-    /// Get paginated list of users in a role
+    /// Get list of users in a role
     /// </summary>
     [HttpGet("{roleId:guid}/users")]
-    public virtual Task<PagedResultDto<RoleUserDto>> GetRoleUsersAsync(Guid roleId, [FromQuery] GetRoleUsersInput input)
+    public virtual Task<List<RoleUserDto>> GetRoleUsersAsync(Guid roleId)
     {
-        return _roleManagementAppService.GetRoleUsersAsync(roleId, input);
+        return _roleManagementAppService.GetRoleUsersAsync(roleId);
     }
 
     /// <summary>
