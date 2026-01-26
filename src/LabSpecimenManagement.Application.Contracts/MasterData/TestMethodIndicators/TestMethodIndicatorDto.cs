@@ -13,4 +13,9 @@ public class TestMethodIndicatorDto
     public decimal UnitPrice { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc)
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
 }

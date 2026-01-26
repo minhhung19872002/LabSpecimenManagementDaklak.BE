@@ -174,7 +174,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                             IndicatorFormattedName = indicator?.FormattedName,
                             UnitPrice = tmi.UnitPrice,
                             IsActive = indicator?.IsActive ?? false,
-                            SortOrder = tmi.SortOrder
+                            SortOrder = tmi.SortOrder,
+                            ParentIndicatorId = indicator?.ParentIndicatorId
                         };
                     })
                     .ToList();
@@ -219,7 +220,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
-                SortOrder = tmi.SortOrder
+                SortOrder = tmi.SortOrder,
+                ParentIndicatorId = indicator?.ParentIndicatorId
             };
         }).ToList();
 
@@ -255,7 +257,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
-                SortOrder = tmi.SortOrder
+                SortOrder = tmi.SortOrder,
+                ParentIndicatorId = indicator?.ParentIndicatorId
             };
         }).ToList();
     }

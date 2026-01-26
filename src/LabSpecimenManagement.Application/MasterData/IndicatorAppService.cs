@@ -298,12 +298,15 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     public async Task<List<IndicatorDto>> GetActiveIndicatorsAsync()
     {
         var query = await _indicatorRepository.GetQueryableAsync();
-        var items = query
+        // Only get parent indicators (no parentIndicatorId)
+        var parentIndicators = query
+            .Where(x => x.ParentIndicatorId == null)
             .WhereActive()
             .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
-        return await MapToDtosAsync(items);
+        // Map with sub-indicators included
+        return await MapToDtosWithSubIndicatorsAsync(parentIndicators);
     }
 
     [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
