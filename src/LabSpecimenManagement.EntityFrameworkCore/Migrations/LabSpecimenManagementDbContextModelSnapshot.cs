@@ -834,6 +834,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<Guid?>("ParentIndicatorId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -845,6 +848,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("IndicatorGroupId");
 
                     b.HasIndex("IsActive");
+
+                    b.HasIndex("ParentIndicatorId");
 
                     b.ToTable("AppIndicators", (string)null);
                 });
