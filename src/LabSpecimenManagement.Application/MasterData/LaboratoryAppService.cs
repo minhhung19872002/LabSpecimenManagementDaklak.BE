@@ -175,7 +175,8 @@ public class LaboratoryAppService :
             {
                 TechnicalManagerId = input.TechnicalManagerId,
                 IsActive = input.IsActive,
-            });
+            },
+            autoSave: true);
 
         return await GetAsync(entity.Id);
     }
