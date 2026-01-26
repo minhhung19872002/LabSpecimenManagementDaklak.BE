@@ -554,6 +554,7 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);
             b.HasIndex(x => x.IsActive);
+            b.HasIndex(x => x.ParentIndicatorId);
         });
 
         // Organization configuration
