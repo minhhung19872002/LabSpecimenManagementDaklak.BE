@@ -10,6 +10,7 @@ public class StandardIndicatorDto
     public string IndicatorCode { get; set; }
     public string IndicatorName { get; set; }
     public string? IndicatorFormattedName { get; set; }
+    public Guid? ParentIndicatorId { get; set; }
     public Guid TestMethodId { get; set; }
     public string TestMethodCode { get; set; }
     public string TestMethodName { get; set; }
