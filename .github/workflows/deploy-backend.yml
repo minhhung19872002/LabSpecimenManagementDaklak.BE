@@ -134,6 +134,25 @@ jobs:
             docker stop lab-specimen-onlyoffice 2>/dev/null || true
             docker rm lab-specimen-onlyoffice 2>/dev/null || true
 
+            # ⚠️ DROP AND RECREATE DATABASE
+            echo ""
+            echo "=============================================="
+            echo "⚠️  DROPPING AND RECREATING DATABASE"
+            echo "=============================================="
+
+            # Ensure PostgreSQL container is running
+            docker-compose up -d postgres
+            sleep 10
+
+            echo "Dropping existing database..."
+            docker exec lab-specimen-postgres psql -U postgres -c "DROP DATABASE IF EXISTS \"LabSpecimenManagement\" WITH (FORCE);" || true
+
+            echo "Creating new database..."
+            docker exec lab-specimen-postgres psql -U postgres -c "CREATE DATABASE \"LabSpecimenManagement\" OWNER postgres;"
+
+            echo "✅ Database has been reset!"
+            echo ""
+
             echo "Starting Collabora Online..."
             docker-compose up -d collabora
 
