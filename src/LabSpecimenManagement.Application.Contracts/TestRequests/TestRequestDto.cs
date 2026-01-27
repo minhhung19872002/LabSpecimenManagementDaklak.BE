@@ -245,6 +245,12 @@ public class TestRequestSampleIndicatorDto
     /// Hình ảnh của chỉ tiêu (từ IndicatorImage)
     /// </summary>
     public List<Testing.IndicatorImageDto>? Images { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc)
+    /// Dùng để hiển thị cấu trúc cha-con trên giao diện
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
 }
 
 // ============= Workflow Redesign - BPGN Confirmation DTOs =============
