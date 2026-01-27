@@ -274,6 +274,7 @@ public partial class TestRequestAppService :
                     SentToDepartment = indicator.SentToDepartment,
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
+                    ParentIndicatorId = indicatorEntity.ParentIndicatorId,
                     Images = indicatorImages
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
