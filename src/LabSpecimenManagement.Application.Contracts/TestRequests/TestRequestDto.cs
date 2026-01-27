@@ -132,6 +132,11 @@ public class TestRequestSampleDto
     public bool IsCustomerCancelled { get; set; }
 
     /// <summary>
+    /// Mẫu chung - Mẫu có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa
+    /// </summary>
+    public bool IsSharedSample { get; set; }
+
+    /// <summary>
     /// Loại mẫu ID
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }
