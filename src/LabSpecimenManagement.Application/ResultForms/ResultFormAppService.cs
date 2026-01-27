@@ -465,6 +465,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                         }
+                        // For Customer placeholder, remove height constraint to allow long customer names
+                        if (placeholder.Key == "{{Customer}}" && !string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            RemoveContainingCellHeightConstraint(text);
+                        }
 
                         // If placeholder has value, replace placeholder + surrounding dots with value + padding spaces
                         // Keep total length same as original (placeholder + dots) to maintain layout without line break
@@ -511,6 +516,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Remove fixed height constraint from the table cell and row containing the text element
     /// This allows the cell to auto-expand when content is long
+    /// Also handles nested tables by removing height constraints from all parent rows
     /// </summary>
     private void RemoveContainingCellHeightConstraint(Text textElement)
     {
@@ -518,16 +524,38 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var cell = textElement.Ancestors<TableCell>().FirstOrDefault();
         if (cell == null) return;
 
-        // Remove cell height constraint (from TableCellProperties)
+        // Enable text wrapping in the cell (remove NoWrap if exists)
         var cellProps = cell.GetFirstChild<TableCellProperties>();
-        // Note: TableCellProperties doesn't have height, it's on TableCellVerticalAlignment
-        // The height is usually set on TableRowHeight
+        if (cellProps != null)
+        {
+            var noWrap = cellProps.GetFirstChild<NoWrap>();
+            if (noWrap != null)
+            {
+                noWrap.Remove();
+            }
+        }
 
-        // Find parent TableRow and remove its height constraint
-        var row = cell.Ancestors<TableRow>().FirstOrDefault();
-        if (row != null)
+        // Remove height constraints from ALL parent rows (including nested table parents)
+        // This is critical for cells inside nested tables where parent rows also have fixed height
+        foreach (var row in textElement.Ancestors<TableRow>())
         {
             RemoveRowHeightConstraint(row);
+            AllowPageBreakInRow(row);
+        }
+
+        // Also remove height constraints from all parent cells (for deeply nested structures)
+        foreach (var parentCell in textElement.Ancestors<TableCell>())
+        {
+            var parentCellProps = parentCell.GetFirstChild<TableCellProperties>();
+            if (parentCellProps != null)
+            {
+                // Remove NoWrap from parent cells too
+                var parentNoWrap = parentCellProps.GetFirstChild<NoWrap>();
+                if (parentNoWrap != null)
+                {
+                    parentNoWrap.Remove();
+                }
+            }
         }
     }
 
@@ -1468,18 +1496,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
     /// <summary>
     /// Remove fixed height constraint from a table row to allow auto-expansion
+    /// Changes height rule from "exact" to "atLeast" so row can grow with content
     /// </summary>
     private void RemoveRowHeightConstraint(TableRow row)
     {
         var rowProps = row.GetFirstChild<TableRowProperties>();
         if (rowProps != null)
         {
-            // Remove TableRowHeight element which constrains the row height
             var rowHeight = rowProps.GetFirstChild<TableRowHeight>();
             if (rowHeight != null)
             {
-                rowHeight.Remove();
+                // Change from "exact" to "atLeast" - this allows row to expand
+                // "exact" = fixed height (content gets clipped)
+                // "atLeast" = minimum height, can grow if content needs more space
+                // "auto" = automatic height based on content
+                if (rowHeight.HeightType?.Value == HeightRuleValues.Exact)
+                {
+                    rowHeight.HeightType = HeightRuleValues.AtLeast;
+                }
+                else if (rowHeight.HeightType == null)
+                {
+                    // If no rule specified, set to atLeast to ensure expansion
+                    rowHeight.HeightType = HeightRuleValues.AtLeast;
+                }
             }
+        }
+        else
+        {
+            // If no row properties, create with auto height
+            rowProps = new TableRowProperties();
+            row.InsertAt(rowProps, 0);
         }
     }
 
@@ -1528,32 +1574,35 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
-    /// Copy cell borders from template row to new row.
-    /// This ensures border styles (dashed, solid, etc.) are preserved when cloning rows.
+    /// Apply consistent dashed gray border style to all cells in new row.
+    /// Style: dashSmallGap, size 4, color 7F7F7F (gray)
+    /// This ensures all data rows have the same professional appearance.
     /// </summary>
     private void CopyCellBordersFromTemplate(TableRow newRow, TableRow templateRow)
     {
-        var templateCells = templateRow.Elements<TableCell>().ToList();
         var newCells = newRow.Elements<TableCell>().ToList();
 
-        for (int i = 0; i < Math.Min(templateCells.Count, newCells.Count); i++)
+        foreach (var cell in newCells)
         {
-            var templateCellProps = templateCells[i].GetFirstChild<TableCellProperties>();
-            var templateBorders = templateCellProps?.GetFirstChild<TableCellBorders>();
-
-            if (templateBorders != null)
+            var cellProps = cell.GetFirstChild<TableCellProperties>();
+            if (cellProps == null)
             {
-                var newCellProps = newCells[i].GetFirstChild<TableCellProperties>();
-                if (newCellProps == null)
-                {
-                    newCellProps = new TableCellProperties();
-                    newCells[i].InsertAt(newCellProps, 0);
-                }
-
-                // Remove existing borders and add template borders
-                newCellProps.GetFirstChild<TableCellBorders>()?.Remove();
-                newCellProps.Append(templateBorders.CloneNode(true));
+                cellProps = new TableCellProperties();
+                cell.InsertAt(cellProps, 0);
             }
+
+            // Remove existing borders
+            cellProps.GetFirstChild<TableCellBorders>()?.Remove();
+
+            // Create consistent dashed gray borders for left, bottom, right only
+            // Note: No TopBorder to preserve header's bottom border style
+            var borders = new TableCellBorders(
+                new LeftBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" },
+                new BottomBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" },
+                new RightBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" }
+            );
+
+            cellProps.Append(borders);
         }
     }
 
@@ -2794,6 +2843,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var newRow = (TableRow)template.CloneNode(true);
 
+        // Remove fixed row height to allow row to auto-expand with content
+        RemoveRowHeightConstraint(newRow);
+
+        // Allow page break inside row for long content
+        AllowPageBreakInRow(newRow);
+
+        // Enable text wrapping in all cells to prevent content overflow
+        EnableTextWrappingInRow(newRow);
+
         // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
         CopyCellBordersFromTemplate(newRow, template);
 
@@ -3108,6 +3166,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Remove row height constraints
         RemoveRowHeightConstraint(newRow);
+
+        // Allow page break inside row for long content
+        AllowPageBreakInRow(newRow);
+
+        // Enable text wrapping in all cells to prevent content overflow
+        EnableTextWrappingInRow(newRow);
 
         // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
         CopyCellBordersFromTemplate(newRow, template);
@@ -3837,6 +3901,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
+        // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
         // 6. Convert to PDF
@@ -4256,6 +4321,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 }
             }
 
+            // Process document
             ProcessDocument(outputPath, placeholders, tableData);
         }
 
@@ -4436,6 +4502,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
+        // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
         // 5. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
