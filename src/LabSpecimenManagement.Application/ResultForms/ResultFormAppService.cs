@@ -1284,6 +1284,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Enable text wrapping in all cells to prevent content overflow
         EnableTextWrappingInRow(newRow);
 
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
+
         // IMPORTANT: Merge split placeholders before replacing
         // Word often splits placeholders like {{TestMethod}} into multiple Text elements
         foreach (var para in newRow.Descendants<Paragraph>())
@@ -1520,6 +1523,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (noWrap != null)
             {
                 noWrap.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Copy cell borders from template row to new row.
+    /// This ensures border styles (dashed, solid, etc.) are preserved when cloning rows.
+    /// </summary>
+    private void CopyCellBordersFromTemplate(TableRow newRow, TableRow templateRow)
+    {
+        var templateCells = templateRow.Elements<TableCell>().ToList();
+        var newCells = newRow.Elements<TableCell>().ToList();
+
+        for (int i = 0; i < Math.Min(templateCells.Count, newCells.Count); i++)
+        {
+            var templateCellProps = templateCells[i].GetFirstChild<TableCellProperties>();
+            var templateBorders = templateCellProps?.GetFirstChild<TableCellBorders>();
+
+            if (templateBorders != null)
+            {
+                var newCellProps = newCells[i].GetFirstChild<TableCellProperties>();
+                if (newCellProps == null)
+                {
+                    newCellProps = new TableCellProperties();
+                    newCells[i].InsertAt(newCellProps, 0);
+                }
+
+                // Remove existing borders and add template borders
+                newCellProps.GetFirstChild<TableCellBorders>()?.Remove();
+                newCellProps.Append(templateBorders.CloneNode(true));
             }
         }
     }
@@ -2761,6 +2794,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var newRow = (TableRow)template.CloneNode(true);
 
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
+
         // First, merge split placeholders in all paragraphs within the row
         foreach (var para in newRow.Descendants<Paragraph>())
         {
@@ -2857,6 +2893,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var indicator in indicatorDetails)
         {
             var newRow = (TableRow)templateClone.CloneNode(true);
+
+            // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+            CopyCellBordersFromTemplate(newRow, templateClone);
 
             // Merge split placeholders
             foreach (var para in newRow.Descendants<Paragraph>())
@@ -3069,6 +3108,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Remove row height constraints
         RemoveRowHeightConstraint(newRow);
+
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
 
         // Merge split placeholders
         foreach (var para in newRow.Descendants<Paragraph>())
