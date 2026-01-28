@@ -15,9 +15,10 @@ public class Laboratory : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Code { get; set; }
 
     /// <summary>
-    /// Tên khoa phòng - Laboratory Name (unique)
+    /// Phòng ban liên kết - Department ID
+    /// Name lấy từ Department.Name khi query
     /// </summary>
-    public string Name { get; set; }
+    public Guid DepartmentId { get; set; }
 
     /// <summary>
     /// ID Quản lý kỹ thuật - Technical Manager User ID
@@ -38,10 +39,10 @@ public class Laboratory : FullAuditedAggregateRoot<Guid>, IHasActive
     {
     }
 
-    public Laboratory(Guid id, string code, string name) : base(id)
+    public Laboratory(Guid id, string code, Guid departmentId) : base(id)
     {
         Code = code;
-        Name = name;
+        DepartmentId = departmentId;
         IsActive = true;
         SortOrder = 0;
     }

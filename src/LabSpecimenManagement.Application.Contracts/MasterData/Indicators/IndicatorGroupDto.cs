@@ -13,6 +13,11 @@ public class IndicatorGroupDto : FullAuditedEntityDto<Guid>
     public string Name { get; set; }
     public bool IsActive { get; set; }
     public int IndicatorCount { get; set; }
+    /// <summary>
+    /// Khoa phòng thực hiện (để auto-fill khi gửi QLKT)
+    /// </summary>
+    public Guid? LaboratoryId { get; set; }
+    public string? LaboratoryName { get; set; }
 }
 
 /// <summary>
@@ -25,6 +30,11 @@ public class CreateUpdateIndicatorGroupDto
     public string Name { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    /// <summary>
+    /// Khoa phòng thực hiện (không bắt buộc) - để auto-fill khi gửi QLKT
+    /// </summary>
+    public Guid? LaboratoryId { get; set; }
 }
 
 /// <summary>

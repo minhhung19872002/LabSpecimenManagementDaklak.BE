@@ -38,11 +38,13 @@ public partial class TestRequestAppService
         foreach (var task in tasks)
         {
             // Get all indicators that need customer confirmation
-            // Status: MethodChangeRequested or TestingRejected
+            // Status: MethodChangeRequested, TestingRejected, or SupplementaryRequested AND not yet confirmed
             var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
                 ti => ti.LaboratoryTaskId == task.Id &&
+                      !ti.CustomerConfirmationDate.HasValue && // Chưa được xác nhận
                       (ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested ||
-                       ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected));
+                       ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected ||
+                       ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested));
 
             foreach (var indicator in taskIndicators)
             {
@@ -206,6 +208,25 @@ public partial class TestRequestAppService
                     indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
                 }
                 break;
+
+            case IndicatorApprovalStatus.SupplementaryRequested:
+                if (confirmed)
+                {
+                    // KH đồng ý cung cấp bổ sung → quay về Pending để tiếp tục TN
+                    // (Giống như đổi PP được đồng ý - chỉ tiêu quay về trạng thái chờ TN)
+                    // Clear supplementary request info
+                    indicator.SupplementaryRequestReason = null;
+                    indicator.SupplementaryRequestDate = null;
+                    indicator.SupplementaryRequestedById = null;
+                    indicator.SupplementaryRequestedByName = null;
+                    indicator.ApprovalStatus = IndicatorApprovalStatus.Pending;
+                }
+                else
+                {
+                    // KH từ chối cung cấp bổ sung → hủy chỉ tiêu
+                    indicator.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                }
+                break;
         }
     }
 
@@ -246,6 +267,7 @@ public partial class TestRequestAppService
         // Kiểm tra còn chỉ tiêu chờ xác nhận không
         var hasPendingConfirmation = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested ||
             (ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && !ti.CustomerConfirmationDate.HasValue));
 
         if (hasPendingConfirmation)
@@ -254,20 +276,27 @@ public partial class TestRequestAppService
             return;
         }
 
-        // Kiểm tra có chỉ tiêu quay về Pending không (KH không đồng ý từ chối)
+        // Kiểm tra có chỉ tiêu quay về Pending hoặc AcceptedForTesting (từ SupplementaryRequested) không
         var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
-        if (hasPending)
+        var hasAcceptedForTestingNeedReassign = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            ti.CustomerConfirmationDate.HasValue); // Đã được KH xác nhận bổ sung
+
+        if (hasPending || hasAcceptedForTestingNeedReassign)
         {
-            // Có chỉ tiêu quay về Pending → Task quay về UnderEvaluation để QLKT đánh giá lại
+            // Có chỉ tiêu quay về Pending hoặc AcceptedForTesting (sau khi KH đồng ý bổ sung)
+            // → Task quay về UnderEvaluation để QLKT phân công lại
             task.Status = LaboratoryTaskStatus.UnderEvaluation;
             await _laboratoryTaskRepository.UpdateAsync(task);
             return;
         }
 
         // Tính toán trạng thái cuối cùng
+        // Bao gồm cả Approved vì có thể một số chỉ tiêu đã hoàn thành trước đó
         var hasAccepted = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var hasRejected = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
         var allRejected = activeIndicators.All(ti =>
@@ -459,6 +488,7 @@ public partial class TestRequestAppService
 
         // Get laboratory info
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
+        var labDept = laboratory != null ? await _departmentRepository.FindAsync(laboratory.DepartmentId) : null;
 
         // Get method change history if applicable
         string? oldMethodName = null;
@@ -484,6 +514,11 @@ public partial class TestRequestAppService
             requestedByName = indicator.TestingRejectedByName;
             requestedDate = indicator.TestingRejectionDate;
         }
+        else if (indicator.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested)
+        {
+            requestedByName = indicator.SupplementaryRequestedByName;
+            requestedDate = indicator.SupplementaryRequestDate;
+        }
 
         return new IndicatorPendingConfirmationDto
         {
@@ -492,14 +527,19 @@ public partial class TestRequestAppService
             SampleName = sample?.SampleName,
             IndicatorCode = indicatorInfo?.Code,
             IndicatorName = indicatorInfo?.Name,
-            LaboratoryName = laboratory?.Name,
+            IndicatorFormattedName = indicatorInfo?.FormattedName,
+            LaboratoryName = labDept?.Name,
             ApprovalStatus = indicator.ApprovalStatus,
             TestingRejectionReason = indicator.TestingRejectionReason,
             OldMethodName = oldMethodName,
             NewMethodName = newMethodName,
             MethodChangeReason = methodChangeReason,
             RequestedByName = requestedByName,
-            RequestedDate = requestedDate
+            RequestedDate = requestedDate,
+            // Supplementary request fields
+            SupplementaryRequestReason = indicator.SupplementaryRequestReason,
+            SupplementaryRequestDate = indicator.SupplementaryRequestDate,
+            SupplementaryRequestedByName = indicator.SupplementaryRequestedByName
         };
     }
 

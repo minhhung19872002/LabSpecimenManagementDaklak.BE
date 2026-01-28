@@ -53,6 +53,27 @@ public class BulkIdsDto
 }
 
 /// <summary>
+/// Common result DTO for batch operations (delete, activate, deactivate)
+/// </summary>
+public class BatchOperationResult
+{
+    public int TotalCount { get; set; }
+    public int SuccessCount { get; set; }
+    public int FailedCount { get; set; }
+    public List<BatchOperationError> Errors { get; set; } = new();
+}
+
+/// <summary>
+/// Common error DTO for batch operations
+/// </summary>
+public class BatchOperationError
+{
+    public Guid Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string ErrorMessage { get; set; } = string.Empty;
+}
+
+/// <summary>
 /// Common input DTO for bulk approval operations
 /// </summary>
 public class BulkApprovalDto

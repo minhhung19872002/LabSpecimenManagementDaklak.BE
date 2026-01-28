@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/standards")]
-[Authorize(LabSpecimenManagementPermissions.Standards.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class StandardController : LabSpecimenManagementController
 {
     private readonly IStandardAppService _standardAppService;
@@ -42,21 +42,21 @@ public class StandardController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<StandardDto> CreateAsync([FromBody] CreateStandardDto input)
     {
         return _standardAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<StandardDto> UpdateAsync(Guid id, [FromBody] UpdateStandardDto input)
     {
         return _standardAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _standardAppService.DeleteAsync(id);
@@ -69,7 +69,7 @@ public class StandardController : LabSpecimenManagementController
     }
 
     [HttpPost("{id}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<StandardDto> ToggleActiveAsync(Guid id)
     {
         return _standardAppService.ToggleActiveAsync(id);
@@ -94,30 +94,60 @@ public class StandardController : LabSpecimenManagementController
     }
 
     [HttpPost("{id}/indicators")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task AddIndicatorsAsync(Guid id, [FromBody] AddIndicatorsToStandardDto input)
     {
         return _standardAppService.AddIndicatorsAsync(id, input);
     }
 
     [HttpPut("{id}/indicators/{indicatorId}")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<StandardIndicatorDto> UpdateIndicatorAsync(Guid id, Guid indicatorId, [FromBody] UpdateStandardIndicatorDto input)
     {
         return _standardAppService.UpdateIndicatorAsync(id, indicatorId, input);
     }
 
     [HttpDelete("{id}/indicators/{indicatorId}")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)
     {
         return _standardAppService.RemoveIndicatorAsync(id, indicatorId);
     }
 
     [HttpPost("{id}/indicators/{indicatorId}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.Standards.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<StandardIndicatorDto> ToggleIndicatorActiveAsync(Guid id, Guid indicatorId)
     {
         return _standardAppService.ToggleIndicatorActiveAsync(id, indicatorId);
+    }
+
+    /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
+    }
+
+    /// <summary>
+    /// Kích hoạt hàng loạt chỉ tiêu trong tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-activate")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> ActivateIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.ActivateIndicatorsBatchAsync(id, input.Ids);
+    }
+
+    /// <summary>
+    /// Ngừng kích hoạt hàng loạt chỉ tiêu trong tiêu chuẩn
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-deactivate")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> DeactivateIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _standardAppService.DeactivateIndicatorsBatchAsync(id, input.Ids);
     }
 }

@@ -65,4 +65,13 @@ public class UserLookupController : LabSpecimenManagementController
     {
         return await _userLookupAppService.GetByIdsAsync(ids);
     }
+
+    /// <summary>
+    /// Lấy danh sách users có chức vụ Phó Giám đốc
+    /// </summary>
+    [HttpGet("lookup/vice-presidents")]
+    public async Task<ListResultDto<UserLookupDto>> GetVicePresidentsAsync()
+    {
+        return await _userLookupAppService.GetVicePresidentsAsync();
+    }
 }

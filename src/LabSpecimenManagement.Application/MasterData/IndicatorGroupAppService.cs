@@ -15,7 +15,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorGroupAppService :
     CrudAppService<
         IndicatorGroup,
@@ -26,19 +26,25 @@ public class IndicatorGroupAppService :
     IIndicatorGroupAppService
 {
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public IndicatorGroupAppService(
         IRepository<IndicatorGroup, Guid> repository,
-        IRepository<Indicator, Guid> indicatorRepository)
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository)
         : base(repository)
     {
         _indicatorRepository = indicatorRepository;
+        _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
 
-        GetPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
-        GetListPolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Default;
-        CreatePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Create;
-        UpdatePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Edit;
-        DeletePolicyName = LabSpecimenManagementPermissions.IndicatorGroups.Delete;
+        GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
+        UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
+        DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
     }
 
     public async Task<ListResultDto<IndicatorGroupDto>> GetActiveGroupsAsync()
@@ -50,7 +56,7 @@ public class IndicatorGroupAppService :
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-        await EnrichWithIndicatorCountsAsync(dtos);
+        await EnrichDtosAsync(dtos);
 
         return new ListResultDto<IndicatorGroupDto>(dtos);
     }
@@ -63,7 +69,7 @@ public class IndicatorGroupAppService :
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-        await EnrichWithIndicatorCountsAsync(dtos);
+        await EnrichDtosAsync(dtos);
 
         return new ListResultDto<IndicatorGroupDto>(dtos);
     }
@@ -80,14 +86,14 @@ public class IndicatorGroupAppService :
             .ToList();
 
         var dtos = ObjectMapper.Map<List<IndicatorGroup>, List<IndicatorGroupDto>>(items);
-        await EnrichWithIndicatorCountsAsync(dtos);
+        await EnrichDtosAsync(dtos);
 
         return new PagedResultDto<IndicatorGroupDto>(totalCount, dtos);
     }
 
     protected override Task<IndicatorGroup> MapToEntityAsync(CreateUpdateIndicatorGroupDto createInput)
     {
-        return Task.FromResult(new IndicatorGroup(GuidGenerator.Create(), createInput.Name)
+        return Task.FromResult(new IndicatorGroup(GuidGenerator.Create(), createInput.Name, createInput.LaboratoryId)
         {
             IsActive = createInput.IsActive
         });
@@ -97,10 +103,11 @@ public class IndicatorGroupAppService :
     {
         entity.Name = updateInput.Name;
         entity.IsActive = updateInput.IsActive;
+        entity.LaboratoryId = updateInput.LaboratoryId;
         return Task.CompletedTask;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public async Task<ImportIndicatorGroupsResultDto> ImportFromExcelAsync(Stream fileStream, string fileName)
     {
         var result = new ImportIndicatorGroupsResultDto();
@@ -171,24 +178,46 @@ public class IndicatorGroupAppService :
     }
 
     /// <summary>
-    /// Enriches DTOs with indicator counts (batch operation to avoid N+1)
+    /// Enriches DTOs with indicator counts and laboratory names (batch operation to avoid N+1)
     /// </summary>
-    private async Task EnrichWithIndicatorCountsAsync(List<IndicatorGroupDto> dtos)
+    private async Task EnrichDtosAsync(List<IndicatorGroupDto> dtos)
     {
         if (dtos.Count == 0) return;
 
         var groupIds = dtos.Select(d => d.Id).ToList();
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
 
+        // Load indicator counts
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var counts = indicatorQuery
             .Where(x => groupIds.Contains(x.IndicatorGroupId))
             .GroupBy(x => x.IndicatorGroupId)
             .Select(g => new { GroupId = g.Key, Count = g.Count() })
             .ToDictionary(x => x.GroupId, x => x.Count);
 
+        // Load laboratory names
+        var laboratoryIds = dtos
+            .Where(d => d.LaboratoryId.HasValue)
+            .Select(d => d.LaboratoryId!.Value)
+            .Distinct()
+            .ToList();
+
+        var laboratoryNames = new Dictionary<Guid, string>();
+        if (laboratoryIds.Count > 0)
+        {
+            var labs = await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id));
+            var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+            var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+            var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+            laboratoryNames = labs.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
+        }
+
         foreach (var dto in dtos)
         {
             dto.IndicatorCount = counts.GetValueOrDefault(dto.Id, 0);
+            if (dto.LaboratoryId.HasValue && laboratoryNames.TryGetValue(dto.LaboratoryId.Value, out var name))
+            {
+                dto.LaboratoryName = name;
+            }
         }
     }
 

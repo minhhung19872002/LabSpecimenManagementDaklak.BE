@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Volo.Abp.Domain.Entities.Auditing;
 
 namespace LabSpecimenManagement.Receipts;
@@ -38,6 +39,11 @@ public class Receipt : FullAuditedAggregateRoot<Guid>
     /// Navigation property - Phiếu yêu cầu thử nghiệm
     /// </summary>
     public virtual TestRequests.TestRequest TestRequest { get; set; } = null!;
+
+    /// <summary>
+    /// Navigation property - Lịch sử thanh toán
+    /// </summary>
+    public virtual ICollection<PaymentHistory> PaymentHistories { get; set; } = new List<PaymentHistory>();
 
     protected Receipt()
     {
@@ -88,6 +94,18 @@ public class Receipt : FullAuditedAggregateRoot<Guid>
     public void Cancel(string? notes = null)
     {
         Status = ReceiptStatus.Cancelled;
+        if (notes != null)
+        {
+            Notes = notes;
+        }
+    }
+
+    /// <summary>
+    /// Đánh dấu đã thanh toán 1 phần
+    /// </summary>
+    public void MarkAsPartiallyPaid(string? notes = null)
+    {
+        Status = ReceiptStatus.PartiallyPaid;
         if (notes != null)
         {
             Notes = notes;

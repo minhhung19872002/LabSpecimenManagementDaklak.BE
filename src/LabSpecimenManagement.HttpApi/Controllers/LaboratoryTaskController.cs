@@ -103,7 +103,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     #region Phase 6 - Workflow Endpoints
 
     /// <summary>
-    /// Gán phương pháp và kỹ thuật viên cho các chỉ tiêu của một mẫu
+    /// Gán phương pháp và Thử nghiệm viên cho các chỉ tiêu của một mẫu
     /// </summary>
     [HttpPost("{taskId}/samples/{sampleId}/assign")]
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -164,6 +164,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [HttpPut("{taskId}/indicators/bulk-note")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task BulkUpdateIndicatorNoteAsync(
+        Guid taskId,
+        [FromBody] BulkUpdateNoteDto input)
+    {
+        return _laboratoryTaskAppService.BulkUpdateIndicatorNoteAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]
@@ -183,12 +195,21 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Lấy danh sách kỹ thuật viên theo khoa phòng
+    /// Lấy danh sách Thử nghiệm viên theo khoa phòng
     /// </summary>
     [HttpGet("technicians-lookup")]
     public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync([FromQuery] Guid? laboratoryId)
     {
         return _laboratoryTaskAppService.GetTechniciansByLaboratoryAsync(laboratoryId);
+    }
+
+    /// <summary>
+    /// Lấy danh sách Thử nghiệm viên theo phòng ban của QLKT (role LabTechnician + cùng DepartmentId với QLKT của task)
+    /// </summary>
+    [HttpGet("{taskId}/technicians")]
+    public virtual Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.GetTechniciansByTaskAsync(taskId);
     }
 
     #endregion
@@ -356,6 +377,34 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     public virtual Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId)
     {
         return _laboratoryTaskAppService.ApproveAllRemainingIndicatorsAsync(taskId);
+    }
+
+    #endregion
+
+    #region Shared Sample (Mẫu chung)
+
+    /// <summary>
+    /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
+    /// </summary>
+    [HttpPost("{id}/send-shared-sample")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> SendSharedSampleAsync(
+        Guid id,
+        [FromBody] SendSharedSampleDto input)
+    {
+        return _laboratoryTaskAppService.SendSharedSampleAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
+    /// </summary>
+    [HttpPost("{id}/receive-shared-sample")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(
+        Guid id,
+        [FromBody] ReceiveSharedSampleDto input)
+    {
+        return _laboratoryTaskAppService.ReceiveSharedSampleAsync(id, input);
     }
 
     #endregion

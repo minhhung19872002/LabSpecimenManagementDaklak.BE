@@ -1,7 +1,7 @@
 namespace LabSpecimenManagement.Testing;
 
 /// <summary>
-/// Trạng thái công việc xét nghiệm ở Task level (góc nhìn kỹ thuật viên)
+/// Trạng thái công việc xét nghiệm ở Task level (góc nhìn Thử nghiệm viên)
 /// </summary>
 public enum TestingStatus
 {
@@ -28,5 +28,10 @@ public enum TestingStatus
     /// <summary>
     /// Hoàn thành - Tất cả chỉ tiêu đã được QLKT duyệt
     /// </summary>
-    Completed = 4
+    Completed = 4,
+
+    /// <summary>
+    /// Không TN được - Có chỉ tiêu KTV báo không thể thử nghiệm
+    /// </summary>
+    CannotTest = 5
 }

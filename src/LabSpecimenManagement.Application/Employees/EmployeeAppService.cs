@@ -165,8 +165,34 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         user.SetProperty("DepartmentId", input.DepartmentId);
         user.SetProperty("Position", input.Position ?? string.Empty);
 
-        // Generate a random password
-        var password = GenerateRandomPassword();
+        // Set account expiration if temporary account
+        if (input.IsTemporaryAccount && input.AccountExpirationDate.HasValue)
+        {
+            // Store expiration date as end of day (23:59:59) for proper comparison
+            var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
+            user.SetProperty("AccountExpirationDate", expirationDate);
+        }
+
+        // Determine password based on mode
+        string password;
+        if (input.UseManualPassword)
+        {
+            // Validate manual password
+            if (string.IsNullOrEmpty(input.Password))
+            {
+                throw new ValidationException("password", "Vui lòng nhập mật khẩu");
+            }
+            if (input.Password != input.ConfirmPassword)
+            {
+                throw new ValidationException("confirmPassword", "Mật khẩu xác nhận không khớp");
+            }
+            password = input.Password;
+        }
+        else
+        {
+            // Auto-generate password
+            password = GenerateRandomPassword();
+        }
 
         var result = await _userManager.CreateAsync(user, password);
         if (!result.Succeeded)
@@ -174,26 +200,26 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             throw new ValidationException("user", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
-        // Assign role
-        if (!string.IsNullOrEmpty(input.Role))
-        {
-            await _userManager.AddToRoleAsync(user, input.Role);
-        }
+        // Note: Role assignment removed - quản lý quyền thông qua "Quản lý phân quyền"
+        // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
-        // Send welcome email with credentials
-        try
+        // Send welcome email with credentials (only for auto-generated password)
+        if (!input.UseManualPassword)
         {
-            await _emailService.SendAccountCreatedEmailAsync(
-                input.Email,
-                input.FullName,
-                input.Username,
-                password
-            );
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to send welcome email to {Email}", input.Email);
-            // Don't throw - user was created successfully, just email failed
+            try
+            {
+                await _emailService.SendAccountCreatedEmailAsync(
+                    input.Email,
+                    input.FullName,
+                    input.Username,
+                    password
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send welcome email to {Email}", input.Email);
+                // Don't throw - user was created successfully, just email failed
+            }
         }
 
         var departments = await _departmentRepository.GetListAsync();
@@ -239,12 +265,40 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             user.SetProperty("Position", input.Position);
         }
 
-        // Update role if specified
-        if (!string.IsNullOrEmpty(input.Role))
+        // Note: Role update removed - quản lý quyền thông qua "Quản lý phân quyền"
+        // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
+
+        // Update account expiration
+        if (input.IsTemporaryAccount.HasValue)
         {
-            var currentRoles = await _userManager.GetRolesAsync(user);
-            await _userManager.RemoveFromRolesAsync(user, currentRoles);
-            await _userManager.AddToRoleAsync(user, input.Role);
+            if (input.IsTemporaryAccount.Value)
+            {
+                // Set expiration date
+                if (input.AccountExpirationDate.HasValue)
+                {
+                    // Store expiration date as end of day (23:59:59) for proper comparison
+                    var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
+                    user.SetProperty("AccountExpirationDate", expirationDate);
+                }
+                else
+                {
+                    throw new ValidationException("accountExpirationDate", "Vui lòng chọn ngày hết hạn cho tài khoản tạm thời");
+                }
+            }
+            else
+            {
+                // Remove expiration (make permanent)
+                user.RemoveProperty("AccountExpirationDate");
+            }
+        }
+        else if (input.AccountExpirationDate.HasValue)
+        {
+            // Update expiration date only
+            if (input.AccountExpirationDate.Value <= DateTime.Now)
+            {
+                throw new ValidationException("accountExpirationDate", "Ngày hết hạn phải lớn hơn ngày hiện tại");
+            }
+            user.SetProperty("AccountExpirationDate", input.AccountExpirationDate.Value);
         }
 
         await _userManager.UpdateAsync(user);
@@ -276,10 +330,30 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
     }
 
     [Authorize(LabSpecimenManagementPermissions.Users.Edit)]
-    public async Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id)
+    public async Task<ResetPasswordResultDto> ResetPasswordAsync(Guid id, ResetPasswordDto input)
     {
         var user = await _userRepository.GetAsync(id);
-        var newPassword = GenerateRandomPassword();
+
+        // Determine password based on mode
+        string newPassword;
+        if (input.UseManualPassword)
+        {
+            // Validate manual password
+            if (string.IsNullOrEmpty(input.Password))
+            {
+                throw new ValidationException("password", "Vui lòng nhập mật khẩu");
+            }
+            if (input.Password != input.ConfirmPassword)
+            {
+                throw new ValidationException("confirmPassword", "Mật khẩu xác nhận không khớp");
+            }
+            newPassword = input.Password;
+        }
+        else
+        {
+            // Auto-generate password
+            newPassword = GenerateRandomPassword();
+        }
 
         var token = await _userManager.GeneratePasswordResetTokenAsync(user);
         var result = await _userManager.ResetPasswordAsync(user, token, newPassword);
@@ -289,26 +363,29 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             throw new ValidationException("password", string.Join(", ", result.Errors.Select(e => e.Description)));
         }
 
-        // Send password reset email
-        var fullName = $"{user.Surname} {user.Name}".Trim();
-        if (string.IsNullOrWhiteSpace(fullName))
+        // Send password reset email (only for auto-generated password)
+        if (!input.UseManualPassword)
         {
-            fullName = user.UserName ?? "User";
-        }
+            var fullName = $"{user.Surname} {user.Name}".Trim();
+            if (string.IsNullOrWhiteSpace(fullName))
+            {
+                fullName = user.UserName ?? "User";
+            }
 
-        try
-        {
-            await _emailService.SendPasswordResetEmailAsync(
-                user.Email!,
-                fullName,
-                user.UserName!,
-                newPassword
-            );
-        }
-        catch (Exception ex)
-        {
-            Logger.LogWarning(ex, "Failed to send password reset email to {Email}", user.Email);
-            // Don't throw - password was reset successfully, just email failed
+            try
+            {
+                await _emailService.SendPasswordResetEmailAsync(
+                    user.Email!,
+                    fullName,
+                    user.UserName!,
+                    newPassword
+                );
+            }
+            catch (Exception ex)
+            {
+                Logger.LogWarning(ex, "Failed to send password reset email to {Email}", user.Email);
+                // Don't throw - password was reset successfully, just email failed
+            }
         }
 
         return new ResetPasswordResultDto { Password = newPassword };
@@ -324,10 +401,12 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         }
 
         var roles = await _userManager.GetRolesAsync(user);
-        var primaryRole = roles.FirstOrDefault();
+        var rolesList = roles.ToList();
+        var primaryRole = rolesList.FirstOrDefault(); // Keep for backward compatibility
 
         var fullName = $"{user.Surname} {user.Name}".Trim();
 
+#pragma warning disable CS0618 // Type or member is obsolete - Role kept for backward compatibility
         return new EmployeeDto
         {
             Id = user.Id,
@@ -335,14 +414,17 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             FullName = string.IsNullOrWhiteSpace(fullName) ? user.UserName ?? string.Empty : fullName,
             Email = user.Email ?? string.Empty,
             Phone = user.PhoneNumber,
-            Role = primaryRole,
+            Role = primaryRole, // @deprecated - kept for backward compatibility
+            Roles = rolesList, // Danh sách nhóm quyền của nhân viên
             Department = departmentName,
             DepartmentId = departmentId,
             Position = user.GetProperty<string>("Position"),
             IsActive = user.IsActive,
             CreatedAt = user.CreationTime,
-            LastLogin = user.GetProperty<DateTime?>("LastLoginTime")
+            LastLogin = user.GetProperty<DateTime?>("LastLoginTime"),
+            AccountExpirationDate = user.GetProperty<DateTime?>("AccountExpirationDate")
         };
+#pragma warning restore CS0618
     }
 
     private string GenerateRandomPassword()
@@ -370,5 +452,57 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
         // Shuffle
         return new string(password.OrderBy(_ => random.Next()).ToArray());
+    }
+
+    /// <summary>
+    /// Deactivate all accounts that have expired.
+    /// Called by background job.
+    /// </summary>
+    public async Task<int> DeactivateExpiredAccountsAsync()
+    {
+        var allUsers = await _userRepository.GetListAsync();
+        var now = DateTime.Now;
+        var deactivatedCount = 0;
+
+        foreach (var user in allUsers)
+        {
+            if (!user.IsActive) continue;
+
+            var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+            if (expirationDate.HasValue && expirationDate.Value <= now)
+            {
+                user.SetIsActive(false);
+                await _userManager.UpdateAsync(user);
+                deactivatedCount++;
+                Logger.LogInformation("Deactivated expired account: {Username} (expired at {ExpirationDate})",
+                    user.UserName, expirationDate.Value);
+            }
+        }
+
+        return deactivatedCount;
+    }
+
+    /// <summary>
+    /// Check if a user's account has expired.
+    /// Returns true if expired, false if still valid or no expiration set.
+    /// </summary>
+    public async Task<bool> IsAccountExpiredAsync(Guid userId)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+
+        if (!expirationDate.HasValue) return false;
+
+        var isExpired = expirationDate.Value <= DateTime.Now;
+
+        // Auto-deactivate if expired
+        if (isExpired && user.IsActive)
+        {
+            user.SetIsActive(false);
+            await _userManager.UpdateAsync(user);
+            Logger.LogInformation("Auto-deactivated expired account on access check: {Username}", user.UserName);
+        }
+
+        return isExpired;
     }
 }

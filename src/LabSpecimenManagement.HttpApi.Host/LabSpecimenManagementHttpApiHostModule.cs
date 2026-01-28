@@ -15,6 +15,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.EntityFrameworkCore;
 using LabSpecimenManagement.Filters;
@@ -109,8 +110,11 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureSignalR(context);
         ConfigureClock();
 
-        // Register HttpClient for OnlyOffice integration
+        // Register HttpClient for PDF conversion services
         context.Services.AddHttpClient();
+
+        // Register PDF conversion service based on configuration (Gotenberg or OnlyOffice)
+        context.Services.AddPdfConversionService(configuration);
     }
 
     /// <summary>
@@ -157,7 +161,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
     private void ConfigureEmail(ServiceConfigurationContext context, IConfiguration configuration)
     {
-        context.Services.Configure<EmailSettings>(configuration.GetSection("Email"));
+        context.Services.Configure<EmailSettings>(configuration.GetSection("EmailSettings"));
     }
 
     private void ConfigureAuthentication(ServiceConfigurationContext context)
@@ -275,6 +279,15 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                     .AllowAnyMethod()
                     .AllowCredentials();
             });
+
+            // WOPI endpoints need permissive CORS for Collabora integration
+            options.AddPolicy("WopiPolicy", builder =>
+            {
+                builder
+                    .AllowAnyOrigin()
+                    .AllowAnyHeader()
+                    .AllowAnyMethod();
+            });
         });
     }
 
@@ -320,8 +333,9 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         //     RequestPath = "/uploads"
         // });
 
-        app.UseRouting();
+        // CORS must be before routing to handle preflight OPTIONS requests
         app.UseCors();
+        app.UseRouting();
         app.UseAuthentication();
         app.UseAbpOpenIddictValidation();
 
@@ -442,6 +456,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             "orphaned-file-cleanup-job",
             job => job.ExecuteAsync(),
             "0 2 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Account expiration check - deactivate expired accounts
+        // CRON: "0 1 * * *" = At 01:00 every day
+        RecurringJob.AddOrUpdate<AccountExpirationJob>(
+            "account-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 1 * * *",
             new RecurringJobOptions
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")

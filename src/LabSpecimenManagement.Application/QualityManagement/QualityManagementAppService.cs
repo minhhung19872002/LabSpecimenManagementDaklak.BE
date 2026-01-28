@@ -46,6 +46,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly IResultFormAppService _resultFormAppService;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -59,6 +61,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<Indicator, Guid> masterIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Standard, Guid> standardRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
@@ -70,7 +73,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         INotificationCreator notificationCreator,
         IResultFormAppService resultFormAppService,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
-        IPublishedReportRepository publishedReportRepository)
+        IPublishedReportRepository publishedReportRepository,
+        IRepository<Note, Guid> noteRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -83,6 +87,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _masterIndicatorRepository = masterIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _testMethodRepository = testMethodRepository;
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
@@ -95,6 +100,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _resultFormAppService = resultFormAppService;
         _indicatorImageRepository = indicatorImageRepository;
         _publishedReportRepository = publishedReportRepository;
+        _noteRepository = noteRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -615,6 +621,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             QualityManagementIndicatorId = h.QualityManagementIndicatorId,
             IndicatorCode = masterIndicator.Code,
             IndicatorName = masterIndicator.Name,
+            IndicatorFormattedName = masterIndicator.FormattedName,
             OldStatus = h.OldStatus,
             NewStatus = h.NewStatus,
             Comment = h.Comment,
@@ -774,6 +781,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     IndicatorId = indicator.Id,
                     IndicatorCode = masterIndicator.Code,
                     IndicatorName = masterIndicator.Name,
+                    IndicatorFormattedName = masterIndicator.FormattedName,
                     SampleCode = sample.SampleCode,
                     SampleName = sample.SampleName
                 };
@@ -788,6 +796,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityManagementIndicatorId = h.QualityManagementIndicatorId,
                         IndicatorCode = masterIndicator.Code,
                         IndicatorName = masterIndicator.Name,
+                        IndicatorFormattedName = masterIndicator.FormattedName,
                         OldStatus = h.OldStatus,
                         NewStatus = h.NewStatus,
                         Comment = h.Comment,
@@ -804,7 +813,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return response;
     }
 
-    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
@@ -820,7 +829,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TaskId = taskId,
             IndicatorId = indicatorId,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -849,7 +859,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicatorsToPrint = new List<QualityManagementIndicator>();
@@ -870,7 +880,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TaskId = taskId,
             IndicatorIds = indicatorIds,
             Note = note,
-            TemplateName = templateName
+            TemplateName = templateName,
+            VicePresidentId = vicePresidentId
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -899,6 +910,111 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return new PrintResultOutputDto
         {
             FileName = result.FileName
+        };
+    }
+
+    public async Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input)
+    {
+        var task = await _taskRepository.GetAsync(taskId);
+
+        // Get all selected indicators
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _indicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            }
+            indicatorsToPrint.Add(indicator);
+        }
+
+        // Build mapping: indicator -> (labId, labName, sampleId, sampleCode, sampleName)
+        var indicatorMapping = new Dictionary<Guid, (Guid LabId, string LabName, Guid SampleId, string SampleCode, string SampleName)>();
+
+        foreach (var indicator in indicatorsToPrint)
+        {
+            // Get laboratory from LaboratoryTaskIndicator
+            var labTaskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
+            var labTask = await _laboratoryTaskRepository.GetAsync(labTaskIndicator.LaboratoryTaskId);
+            var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+            var labDepartment = await _departmentRepository.GetAsync(laboratory.DepartmentId);
+
+            // Get sample from TestRequestSampleIndicator
+            var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labTaskIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
+
+            indicatorMapping[indicator.Id] = (laboratory.Id, labDepartment.Name, sample.Id, sample.SampleCode, sample.SampleName);
+        }
+
+        // Group indicators by (laboratoryId, sampleId)
+        var labSampleGroups = indicatorsToPrint
+            .GroupBy(ind => (indicatorMapping[ind.Id].LabId, indicatorMapping[ind.Id].SampleId))
+            .ToDictionary(g => g.Key, g => g.Select(ind => ind.Id).ToList());
+
+        // Generate PDFs for each (lab × sample × template) combination
+        var results = new List<PrintResultItemDto>();
+
+        foreach (var labSampleGroup in labSampleGroups)
+        {
+            var (labId, sampleId) = labSampleGroup.Key;
+            var labSampleIndicatorIds = labSampleGroup.Value;
+
+            // Get lab and sample info from first indicator
+            var firstIndicatorId = labSampleIndicatorIds.First();
+            var (_, labName, _, sampleCode, sampleName) = indicatorMapping[firstIndicatorId];
+
+            foreach (var templateName in input.TemplateNames)
+            {
+                // Generate PDF for this lab + sample + template
+                var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
+                {
+                    TaskId = taskId,
+                    IndicatorIds = labSampleIndicatorIds,
+                    Note = input.Note,
+                    TemplateName = templateName,
+                    VicePresidentId = input.VicePresidentId
+                });
+
+                results.Add(new PrintResultItemDto
+                {
+                    FileName = result.FileName,
+                    LaboratoryId = labId,
+                    LaboratoryName = labName,
+                    SampleId = sampleId,
+                    SampleCode = sampleCode,
+                    SampleName = sampleName,
+                    TemplateName = templateName
+                });
+
+                // Tạo record PublishedReport (log lịch sử in)
+                var publishedReport = new PublishedReport(
+                    GuidGenerator.Create(),
+                    task.TestRequestId,
+                    task.Id,
+                    result.FileName,
+                    "Single",
+                    input.Note,
+                    JsonSerializer.Serialize(labSampleIndicatorIds)
+                );
+                await _publishedReportRepository.InsertAsync(publishedReport);
+            }
+        }
+
+        // Đánh dấu tất cả indicators đã in (phát hành)
+        foreach (var indicator in indicatorsToPrint)
+        {
+            indicator.IsPrinted = true;
+            indicator.PrintedDate = DateTime.Now;
+            await _indicatorRepository.UpdateAsync(indicator);
+        }
+
+        // Cập nhật task status dựa vào số chỉ tiêu đã in
+        await UpdateTaskStatusAfterPrintAsync(task);
+
+        return new PrintMultiResultOutputDto
+        {
+            Results = results
         };
     }
 
@@ -1130,7 +1246,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => lt.TestRequestId == task.TestRequestId);
         var labIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
         var labs = await _laboratoryRepository.GetListAsync(l => labIds.Contains(l.Id));
-        var labNames = string.Join(", ", labs.Select(l => l.Name));
+        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+        var labNames = string.Join(", ", labs.Select(l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : ""));
 
         // Get technical manager names
         var managerIds = labTasks.Where(lt => lt.TechnicalManagerId.HasValue).Select(lt => lt.TechnicalManagerId!.Value).Distinct().ToList();
@@ -1209,19 +1328,53 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
         var lab = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
+        var labDept = await _departmentRepository.GetAsync(lab.DepartmentId);
 
         string? methodName = null;
+        string? methodFormattedName = null;
         if (labIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
             methodName = method?.Name;
+            methodFormattedName = method?.FormattedName;
         }
 
         string? standardName = null;
-        if (indicator.StandardId.HasValue)
+        string? comparisonOperator = null;
+        string? allowedLimit = null;
+
+        // Try to get standard info from LaboratoryTaskIndicator first (KTV's selection)
+        var standardId = labIndicator.StandardId ?? indicator.StandardId;
+        if (standardId.HasValue)
         {
-            var standard = await _standardRepository.FindAsync(indicator.StandardId.Value);
+            var standard = await _standardRepository.FindAsync(standardId.Value);
             standardName = standard?.Name;
+
+            // Get comparison operator and allowed limit from StandardIndicator
+            StandardIndicator? standardIndicator = null;
+
+            if (labIndicator.MethodId.HasValue)
+            {
+                // First try with exact method match
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                    si.StandardId == standardId.Value &&
+                    si.IndicatorId == sampleIndicator.IndicatorId &&
+                    si.TestMethodId == labIndicator.MethodId.Value);
+            }
+
+            // If not found with method, try matching by indicator only
+            if (standardIndicator == null)
+            {
+                standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                    si.StandardId == standardId.Value &&
+                    si.IndicatorId == sampleIndicator.IndicatorId);
+            }
+
+            if (standardIndicator != null)
+            {
+                comparisonOperator = standardIndicator.ComparisonOperator;
+                allowedLimit = standardIndicator.AllowedLimit;
+            }
         }
 
         var approvedByName = await _userNameProvider.GetUserNameAsync(indicator.ApprovedById);
@@ -1242,7 +1395,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             Id = indicator.Id,
             LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
             LaboratoryId = lab.Id,
-            LaboratoryName = lab.Name,
+            LaboratoryName = labDept.Name,
             SampleId = sample.Id,
             SampleCode = sample.SampleCode,
             SampleName = sample.SampleName,
@@ -1250,15 +1403,19 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorId = masterIndicator.Id,
             IndicatorCode = masterIndicator.Code,
             IndicatorName = masterIndicator.Name,
+            IndicatorFormattedName = masterIndicator.FormattedName,
             MethodId = labIndicator.MethodId,
             MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
             Unit = labIndicator.Unit,
             Result = labIndicator.Result,
             ResultSentDate = labIndicator.EntryDate,
             ApprovalDate = indicator.ApprovalDate,
-            StandardId = indicator.StandardId,
+            StandardId = standardId,
             StandardName = standardName,
             ReferenceLimit = indicator.ReferenceLimit,
+            ComparisonOperator = comparisonOperator,
+            AllowedLimit = allowedLimit,
             ApprovalStatus = indicator.ApprovalStatus,
             RejectionReason = indicator.RejectionReason,
             IsResultSent = indicator.IsResultSent,
@@ -1277,8 +1434,42 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 Url = $"/api/v1/files/{x.FileId}",
                 CreationTime = x.CreationTime,
                 CreatorId = x.CreatorId
-            }).ToList()
+            }).ToList(),
+            FreeTextNote = labIndicator.FreeTextNote,
+            MasterDataNotes = await GetMasterDataNotesAsync(labIndicator.MasterDataNoteIds)
         };
+    }
+
+    /// <summary>
+    /// Parse MasterDataNoteIds and get note contents
+    /// </summary>
+    private async Task<List<string>> GetMasterDataNotesAsync(string? masterDataNoteIds)
+    {
+        if (string.IsNullOrWhiteSpace(masterDataNoteIds))
+        {
+            return new List<string>();
+        }
+
+        var noteContents = new List<string>();
+
+        // Parse comma-separated or JSON array format
+        var noteIdStrings = masterDataNoteIds.Contains("[")
+            ? JsonSerializer.Deserialize<List<string>>(masterDataNoteIds) ?? new List<string>()
+            : masterDataNoteIds.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(s => s.Trim()).ToList();
+
+        foreach (var idStr in noteIdStrings)
+        {
+            if (Guid.TryParse(idStr, out var noteId))
+            {
+                var note = await _noteRepository.FindAsync(noteId);
+                if (note != null && !string.IsNullOrWhiteSpace(note.Content))
+                {
+                    noteContents.Add(note.Content);
+                }
+            }
+        }
+
+        return noteContents;
     }
 
     private async Task UpdateTaskStatusAsync(Guid taskId)
@@ -1334,6 +1525,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
     /// <summary>
     /// Cập nhật trạng thái task sau khi in kết quả
+    /// Đồng thời cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
     /// </summary>
     private async Task UpdateTaskStatusAfterPrintAsync(QualityManagementTask task)
     {
@@ -1365,6 +1557,17 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         await _taskRepository.UpdateAsync(task);
+
+        // Cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
+        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest.Status != TestRequestStatus.ReportPublished)
+        {
+            testRequest.Status = TestRequestStatus.ReportPublished;
+            testRequest.ReportPublishedDate = DateTime.Now;
+            testRequest.ReportPublishedByUserId = CurrentUser.Id;
+            testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
     }
 
     /// <summary>
@@ -1413,6 +1616,274 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     testRequest.Id);
             }
         }
+    }
+
+    #endregion
+
+    #region Sample Assignment Log
+
+    public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
+    {
+        // Build base query starting from TestRequestSampleIndicator (để lấy TẤT CẢ phiếu yêu cầu)
+        var qualityIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var qualityTaskQuery = await _taskRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _masterIndicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var userQuery = await _userRepository.GetQueryableAsync();
+
+        // Join all tables starting from TestRequestSampleIndicator with LEFT JOINs
+        // Điều này cho phép hiển thị TẤT CẢ phiếu yêu cầu, kể cả chưa gửi KTN/QLKT
+        var query = from si in sampleIndicatorQuery
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on s.TestRequestId equals tr.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    // LEFT JOIN với LaboratoryTaskIndicator (có thể chưa gửi KTN)
+                    join li in labIndicatorQuery on si.Id equals li.TestRequestSampleIndicatorId into liJoin
+                    from li in liJoin.DefaultIfEmpty()
+                    // LEFT JOIN với LaboratoryTask
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id into ltJoin
+                    from lt in ltJoin.DefaultIfEmpty()
+                    // LEFT JOIN với QualityManagementIndicator (có thể chưa gửi QLKT)
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
+                    // LEFT JOIN với QualityManagementTask
+                    join qt in qualityTaskQuery on qi.QualityManagementTaskId equals qt.Id into qtJoin
+                    from qt in qtJoin.DefaultIfEmpty()
+                    // LEFT JOIN với TestMethod
+                    join tm in testMethodQuery on (li != null ? li.MethodId : si.TestMethodId) equals tm.Id into tmJoin
+                    from tm in tmJoin.DefaultIfEmpty()
+                    // LEFT JOIN với User (TechnicalManager)
+                    join techManager in userQuery on lt.TechnicalManagerId equals techManager.Id into techManagerJoin
+                    from techManager in techManagerJoin.DefaultIfEmpty()
+                    // LEFT JOIN với User (Technician)
+                    join technician in userQuery on li.TechnicianId equals technician.Id into technicianJoin
+                    from technician in technicianJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        // TestRequest info
+                        TestRequestId = tr.Id,
+                        QualityTaskId = qt != null ? (Guid?)qt.Id : null,
+                        LaboratoryTaskId = lt != null ? (Guid?)lt.Id : null,
+                        ContractNumber = tr.ContractNumber,
+                        TestRequestStatus = tr.Status,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
+
+                        // Sample info
+                        SampleId = s.Id,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        SampleQuantity = s.SampleQuantity,
+                        SampleStatusText = s.StatusText,
+
+                        // Indicator info
+                        TestRequestSampleIndicatorId = si.Id,
+                        LaboratoryTaskIndicatorId = li != null ? (Guid?)li.Id : null,
+                        IndicatorName = mi.Name,
+                        IndicatorFormattedName = mi.FormattedName,
+                        MethodName = tm != null ? tm.Name : null,
+                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        Unit = li != null ? li.Unit : null,
+                        TransferDate = si.TransferDate,
+                        TestDate = li != null ? li.TestDate : null,
+                        Result = li != null ? li.Result : null,
+
+                        // Assignment info
+                        TechnicalManagerName = techManager != null ? (techManager.Name ?? techManager.UserName) : null,
+                        TechnicianName = technician != null ? (technician.Name ?? technician.UserName) : null,
+                        EntryDate = li != null ? li.EntryDate : null,
+                        QlktApprovalDate = li != null ? li.ApprovalDate : null,
+
+                        // Status for highlighting
+                        IndicatorApprovalStatus = li != null ? (IndicatorApprovalStatus?)li.ApprovalStatus : null,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        IsReportPublished = qi != null && qi.IsPrinted,
+
+                        // Laboratory info (for filtering)
+                        LaboratoryId = lt != null ? (Guid?)lt.LaboratoryId : null
+                    };
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.TestRequestStatus.HasValue)
+        {
+            query = query.Where(x => x.TestRequestStatus == input.TestRequestStatus.Value);
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        if (input.LaboratoryId.HasValue)
+        {
+            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+        }
+
+        var totalCount = query.Count();
+
+        // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
+        // The secondary sort key (RequestCompletionDate, TransferDate) determines the order within contract groups
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+
+        var sortedQuery = sortingKey switch
+        {
+            "requestcompletiondate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName),
+            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.TransferDate).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.TransferDate).ThenBy(x => x.IndicatorName),
+            _ => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName)
+        };
+
+        // Pagination with sample-aware boundary snapping
+        // This ensures all indicators of the same sample are on the same page
+        var allItems = sortedQuery.ToList();
+        var items = GetSampleAwarePage(allItems, input.SkipCount, input.MaxResultCount);
+
+        // Map to DTOs
+        var dtos = items.Select(x => new SampleAssignmentLogDto
+        {
+            TestRequestId = x.TestRequestId,
+            QualityTaskId = x.QualityTaskId,
+            LaboratoryTaskId = x.LaboratoryTaskId,
+            ContractNumber = x.ContractNumber,
+            TestRequestStatus = x.TestRequestStatus,
+            RequestCompletionDate = x.RequestCompletionDate,
+            SampleId = x.SampleId,
+            SampleCode = x.SampleCode,
+            SampleName = x.SampleName,
+            SampleQuantity = x.SampleQuantity,
+            SampleStatusText = x.SampleStatusText,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            IndicatorName = x.IndicatorName,
+            IndicatorFormattedName = x.IndicatorFormattedName,
+            MethodName = x.MethodName,
+            MethodFormattedName = x.MethodFormattedName,
+            Unit = x.Unit,
+            TransferDate = x.TransferDate,
+            TestDate = x.TestDate,
+            Result = x.Result,
+            TechnicalManagerName = x.TechnicalManagerName,
+            TechnicianName = x.TechnicianName,
+            EntryDate = x.EntryDate,
+            QlktApprovalDate = x.QlktApprovalDate,
+            IndicatorApprovalStatus = x.IndicatorApprovalStatus,
+            // TestingStatus will be determined based on IndicatorApprovalStatus
+            TestingStatus = x.IndicatorApprovalStatus.HasValue
+                ? DetermineTestingStatus(x.IndicatorApprovalStatus.Value, x.TestDate, x.Result)
+                : null,
+            QualityApprovalStatus = x.QualityApprovalStatus,
+            IsReportPublished = x.IsReportPublished
+        }).ToList();
+
+        return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);
+    }
+
+    /// <summary>
+    /// Determine TestingStatus based on IndicatorApprovalStatus and other fields
+    /// </summary>
+    private static TestingStatus? DetermineTestingStatus(
+        IndicatorApprovalStatus approvalStatus,
+        DateTime? testDate,
+        string? result)
+    {
+        // If already has result, it's completed or pending approval
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? TestingStatus.Completed
+                : TestingStatus.PendingApproval;
+        }
+
+        // If test date is set but no result, it's in progress
+        if (testDate.HasValue)
+        {
+            return TestingStatus.InProgress;
+        }
+
+        // Otherwise, not started
+        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
+            ? TestingStatus.NotStarted
+            : null;
+    }
+
+    /// <summary>
+    /// Get a page of items while ensuring all indicators of the same sample stay together.
+    /// If a sample spans across page boundary, include all its indicators on the current page.
+    /// </summary>
+    private static List<T> GetSampleAwarePage<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
+    {
+        if (allItems.Count == 0 || maxResultCount <= 0)
+            return new List<T>();
+
+        // Get SampleId property via reflection (works for anonymous types)
+        var sampleIdProperty = typeof(T).GetProperty("SampleId");
+        if (sampleIdProperty == null)
+        {
+            // Fallback to standard pagination if no SampleId property
+            return allItems.Skip(skipCount).Take(maxResultCount).ToList();
+        }
+
+        Func<T, Guid> getSampleId = item => (Guid)sampleIdProperty.GetValue(item)!;
+
+        // Find the actual start index (snap to sample boundary)
+        var actualSkip = skipCount;
+        if (skipCount > 0 && skipCount < allItems.Count)
+        {
+            var currentSampleId = getSampleId(allItems[skipCount]);
+            // Check if we're in the middle of a sample group
+            if (skipCount > 0 && getSampleId(allItems[skipCount - 1]) == currentSampleId)
+            {
+                // Move forward to find the start of next sample
+                while (actualSkip < allItems.Count && getSampleId(allItems[actualSkip]) == currentSampleId)
+                {
+                    actualSkip++;
+                }
+            }
+        }
+
+        // Take items, but include complete sample at the end
+        var result = new List<T>();
+        var taken = 0;
+        Guid? lastSampleId = null;
+
+        for (var i = actualSkip; i < allItems.Count && (taken < maxResultCount || (lastSampleId.HasValue && getSampleId(allItems[i]) == lastSampleId.Value)); i++)
+        {
+            var item = allItems[i];
+            var sampleId = getSampleId(item);
+
+            result.Add(item);
+            taken++;
+            lastSampleId = sampleId;
+
+            // If we've reached maxResultCount and the next item is a different sample, stop
+            if (taken >= maxResultCount && i + 1 < allItems.Count && getSampleId(allItems[i + 1]) != sampleId)
+            {
+                break;
+            }
+        }
+
+        return result;
     }
 
     #endregion

@@ -41,10 +41,33 @@ public partial class LaboratoryTaskAppService
                 "Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
         }
 
-        // Validate: Indicator must be in Pending status
-        if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+        // Validate: Indicator must be in Pending or CannotTest status
+        // Riêng RequestSupplementary chỉ cho phép khi CannotTest
+        if (input.Action == IndicatorEvaluationAction.RequestSupplementary)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu đã được đánh giá hoặc không ở trạng thái chờ đánh giá", "indicator");
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+            {
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Chỉ có thể yêu cầu bổ sung khi chỉ tiêu ở trạng thái 'Không TN được'", "indicator");
+            }
+        }
+        else if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                 taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+        {
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.AcceptedForTesting &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+            {
+                throw new Common.Exceptions.InvalidOperationException(
+                    "Chỉ có thể yêu cầu bổ sung cho chỉ tiêu đã chấp nhận TN hoặc không TN được", "indicator");
+            }
+        }
+        else
+        {
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu đã được đánh giá hoặc không ở trạng thái chờ đánh giá", "indicator");
+            }
         }
 
         switch (input.Action)
@@ -73,11 +96,19 @@ public partial class LaboratoryTaskAppService
                 await RejectIndicatorForTestingAsync(taskIndicator, input.Reason);
                 break;
 
+            case IndicatorEvaluationAction.RequestSupplementary:
+                if (string.IsNullOrWhiteSpace(input.Reason))
+                {
+                    throw new ValidationException("reason", "Vui lòng nhập nội dung yêu cầu bổ sung");
+                }
+                RequestSupplementaryForIndicator(taskIndicator, input.Reason);
+                break;
+
             default:
                 throw new ValidationException("action", "Hành động không hợp lệ");
         }
 
-        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
 
         // Check and update task/TR status after evaluation
         await UpdateTaskAndTestRequestStatusAfterEvaluationAsync(task);
@@ -127,14 +158,15 @@ public partial class LaboratoryTaskAppService
                 continue;
             }
 
-            // Validate: Indicator must be in Pending status
-            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+            // Validate: Indicator must be in Pending or CannotTest status
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
             {
                 continue;
             }
 
             await RequestMethodChangeForIndicatorAsync(taskIndicator, item.NewMethodId, input.Reason);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
             results.Add(await MapToIndicatorDtoWithHistoryAsync(taskIndicator));
         }
 
@@ -186,14 +218,15 @@ public partial class LaboratoryTaskAppService
                 continue;
             }
 
-            // Validate: Indicator must be in Pending status
-            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending)
+            // Validate: Indicator must be in Pending or CannotTest status
+            if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
+                taskIndicator.ApprovalStatus != IndicatorApprovalStatus.CannotTest)
             {
                 continue;
             }
 
             await RejectIndicatorForTestingAsync(taskIndicator, input.Reason);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
             results.Add(await MapToIndicatorDtoWithHistoryAsync(taskIndicator));
         }
 
@@ -238,7 +271,7 @@ public partial class LaboratoryTaskAppService
         foreach (var indicator in pendingIndicators)
         {
             await AcceptIndicatorForTestingAsync(indicator);
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
         }
 
         // Check and update task/TR status after evaluation
@@ -253,11 +286,12 @@ public partial class LaboratoryTaskAppService
 
     /// <summary>
     /// Chấp nhận chỉ tiêu cho thử nghiệm
+    /// ApprovalDate không được set ở đây - chỉ set khi duyệt kết quả (Approved)
     /// </summary>
     private Task AcceptIndicatorForTestingAsync(LaboratoryTaskIndicator indicator)
     {
         indicator.ApprovalStatus = IndicatorApprovalStatus.AcceptedForTesting;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
         return Task.CompletedTask;
     }
@@ -298,7 +332,7 @@ public partial class LaboratoryTaskAppService
 
         // Update indicator status
         indicator.ApprovalStatus = IndicatorApprovalStatus.MethodChangeRequested;
-        indicator.ApprovalDate = Clock.Now;
+        // Không set ApprovalDate - chỉ set khi QLKT duyệt kết quả (Approved)
         indicator.ApprovedById = CurrentUser.Id;
     }
 
@@ -313,6 +347,19 @@ public partial class LaboratoryTaskAppService
         indicator.TestingRejectedById = CurrentUser.Id;
         indicator.TestingRejectedByName = CurrentUser.Name ?? CurrentUser.UserName;
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// Yêu cầu KH cung cấp thông tin bổ sung (chờ KH xác nhận)
+    /// Chỉ áp dụng khi chỉ tiêu đang ở trạng thái CannotTest
+    /// </summary>
+    private void RequestSupplementaryForIndicator(LaboratoryTaskIndicator indicator, string reason)
+    {
+        indicator.ApprovalStatus = IndicatorApprovalStatus.SupplementaryRequested;
+        indicator.SupplementaryRequestReason = reason;
+        indicator.SupplementaryRequestDate = Clock.Now;
+        indicator.SupplementaryRequestedById = CurrentUser.Id;
+        indicator.SupplementaryRequestedByName = CurrentUser.Name ?? CurrentUser.UserName;
     }
 
     /// <summary>
@@ -342,9 +389,11 @@ public partial class LaboratoryTaskAppService
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
         var hasTestingRejected = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
+        var hasSupplementaryRequested = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested);
 
-        // Có chỉ tiêu cần KH xác nhận (đổi PP hoặc từ chối) → chuyển ngay sang WaitingCustomerResponse
-        if (hasMethodChangeRequested || hasTestingRejected)
+        // Có chỉ tiêu cần KH xác nhận (đổi PP, từ chối, hoặc YC bổ sung) → chuyển ngay sang WaitingCustomerResponse
+        if (hasMethodChangeRequested || hasTestingRejected || hasSupplementaryRequested)
         {
             task.Status = LaboratoryTaskStatus.WaitingCustomerResponse;
             await _laboratoryTaskRepository.UpdateAsync(task);
@@ -354,22 +403,27 @@ public partial class LaboratoryTaskAppService
             return;
         }
 
-        // Kiểm tra còn chỉ tiêu Pending không
-        var hasPending = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+        // Kiểm tra còn chỉ tiêu cần đánh giá không (Pending hoặc CannotTest)
+        var hasPendingOrCannotTest = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
 
-        if (hasPending)
+        if (hasPendingOrCannotTest)
         {
             // Còn chỉ tiêu chờ đánh giá và không có chỉ tiêu cần KH xác nhận - giữ nguyên UnderEvaluation
             return;
         }
 
         // Tất cả chỉ tiêu đã được xử lý - kiểm tra để chuyển trạng thái
+        // Bao gồm cả Approved (đã duyệt KQ) vì có thể một số chỉ tiêu đã hoàn thành trước đó
         var hasAccepted = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
         var allAccepted = activeIndicators.All(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged);
+            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         // Tất cả chỉ tiêu được chấp nhận
         if (allAccepted)
@@ -400,8 +454,10 @@ public partial class LaboratoryTaskAppService
     {
         var testRequest = await _testRequestRepository.GetAsync(testRequestId);
 
-        // Chỉ cập nhật khi đang ở UnderReview
-        if (testRequest.Status == TestRequestStatus.UnderReview)
+        // Cập nhật khi đang ở UnderReview hoặc RequestApproved
+        // (RequestApproved có thể xảy ra khi QLKT đánh giá lại sau khi đã duyệt)
+        if (testRequest.Status == TestRequestStatus.UnderReview ||
+            testRequest.Status == TestRequestStatus.RequestApproved)
         {
             testRequest.Status = TestRequestStatus.WaitingCustomerConfirm;
             await _testRequestRepository.UpdateAsync(testRequest);
@@ -480,6 +536,12 @@ public partial class LaboratoryTaskAppService
         dto.CustomerConfirmationDate = taskIndicator.CustomerConfirmationDate;
         dto.CustomerConfirmedById = taskIndicator.CustomerConfirmedById;
         dto.CustomerConfirmedByName = taskIndicator.CustomerConfirmedByName;
+
+        // Add supplementary request fields
+        dto.SupplementaryRequestReason = taskIndicator.SupplementaryRequestReason;
+        dto.SupplementaryRequestDate = taskIndicator.SupplementaryRequestDate;
+        dto.SupplementaryRequestedById = taskIndicator.SupplementaryRequestedById;
+        dto.SupplementaryRequestedByName = taskIndicator.SupplementaryRequestedByName;
 
         // Get method change histories
         var histories = await _methodChangeHistoryRepository.GetListAsync(h => h.IndicatorId == taskIndicator.Id);

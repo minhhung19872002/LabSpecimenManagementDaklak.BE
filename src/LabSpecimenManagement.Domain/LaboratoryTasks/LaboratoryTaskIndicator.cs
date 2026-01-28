@@ -8,7 +8,7 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 
 /// <summary>
 /// Bảng trung gian liên kết LaboratoryTask với TestRequestSampleIndicator
-/// Bao gồm thông tin gán phương pháp, kỹ thuật viên, kết quả và duyệt
+/// Bao gồm thông tin gán phương pháp, Thử nghiệm viên, kết quả và duyệt
 /// </summary>
 public class LaboratoryTaskIndicator : Entity<Guid>
 {
@@ -28,12 +28,12 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? MethodId { get; set; }
 
     /// <summary>
-    /// Kỹ thuật viên thực hiện - Technician ID
+    /// Thử nghiệm viên thực hiện - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Ngày giao việc cho kỹ thuật viên - Assigned Date
+    /// Ngày giao việc cho Thử nghiệm viên - Assigned Date
     /// </summary>
     public DateTime? AssignedDate { get; set; }
 
@@ -126,9 +126,38 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public string? CustomerConfirmedByName { get; set; }
 
     /// <summary>
+    /// Nội dung yêu cầu bổ sung (QLKT yêu cầu KH cung cấp)
+    /// </summary>
+    [MaxLength(2000)]
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// Người yêu cầu bổ sung - QLKT User ID
+    /// </summary>
+    public Guid? SupplementaryRequestedById { get; set; }
+
+    /// <summary>
+    /// Tên người yêu cầu bổ sung
+    /// </summary>
+    [MaxLength(256)]
+    public string? SupplementaryRequestedByName { get; set; }
+
+    /// <summary>
     /// Đã gửi cho QLCL chưa - Is Sent To Quality
     /// </summary>
     public bool IsSentToQuality { get; set; }
+
+    /// <summary>
+    /// Chỉ tiêu này đang chờ mẫu chung từ lab khác (Vi Sinh)
+    /// Chỉ áp dụng cho các chỉ tiêu thuộc mẫu chung (IsSharedSample = true)
+    /// Khi Lab Vi Sinh hoàn thành, flag này sẽ được set = false
+    /// </summary>
+    public bool IsWaitingForSharedSample { get; set; }
 
     /// <summary>
     /// Tiêu chuẩn so sánh - Standard ID (để so sánh kết quả với giới hạn cho phép)
@@ -136,10 +165,17 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? StandardId { get; set; }
 
     /// <summary>
-    /// Ghi chú của kỹ thuật viên khi nhập kết quả
+    /// Ghi chú tự do (free text) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>
-    [MaxLength(500)]
-    public string? Note { get; set; }
+    [MaxLength(2000)]
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách ID của Master Data Notes (lưu dạng JSON array hoặc comma-separated)
+    /// Ví dụ: "guid1,guid2,guid3"
+    /// </summary>
+    [MaxLength(2000)]
+    public string? MasterDataNoteIds { get; set; }
 
     /// <summary>
     /// Navigation property to LaboratoryTask

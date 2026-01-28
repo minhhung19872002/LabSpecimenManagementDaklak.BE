@@ -109,6 +109,50 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Current user là Supporter của task này hay không
     /// </summary>
     public bool IsCurrentUserSupporter { get; set; }
+
+    // ====== Shared Sample Fields ======
+
+    /// <summary>
+    /// Task này thuộc về mẫu chung (có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa)
+    /// </summary>
+    public bool IsSharedSampleTask { get; set; }
+
+    /// <summary>
+    /// Task này đang chờ lab trước hoàn thành (dành cho Lab Hóa chờ Vi Sinh)
+    /// </summary>
+    public bool IsWaitingForPriorLab { get; set; }
+
+    /// <summary>
+    /// Đã gửi mẫu cho lab tiếp theo (dành cho Lab Vi Sinh đã gửi cho Hóa)
+    /// </summary>
+    public bool SampleSentToNextLab { get; set; }
+
+    /// <summary>
+    /// Ngày gửi mẫu cho lab tiếp theo
+    /// </summary>
+    public DateTime? SampleSentDate { get; set; }
+
+    /// <summary>
+    /// Ngày nhận mẫu từ lab trước (dành cho Lab Hóa nhận từ Vi Sinh)
+    /// </summary>
+    public DateTime? SampleReceivedDate { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi nhận mẫu
+    /// </summary>
+    public string? SampleReceivedNote { get; set; }
+
+    /// <summary>
+    /// ID của Task lab trước (dành cho Lab Hóa reference đến Task Vi Sinh)
+    /// </summary>
+    public Guid? PriorLabTaskId { get; set; }
+
+    /// <summary>
+    /// Lab trước đã gửi mẫu chưa (dành cho Lab Hóa kiểm tra Vi Sinh đã gửi mẫu)
+    /// True = Vi Sinh đã gửi, có thể nhận mẫu
+    /// False = Vi Sinh chưa gửi, chờ đợi
+    /// </summary>
+    public bool PriorLabSentSample { get; set; }
 }
 
 /// <summary>
@@ -157,6 +201,11 @@ public class LaboratoryTaskIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên nhóm chỉ tiêu - Indicator Group Name
     /// </summary>
     public string? IndicatorGroupName { get; set; }
@@ -179,12 +228,17 @@ public class LaboratoryTaskIndicatorDto
     public string? MethodName { get; set; }
 
     /// <summary>
-    /// ID kỹ thuật viên - Technician ID
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
+
+    /// <summary>
+    /// ID Thử nghiệm viên - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Tên kỹ thuật viên - Technician Name
+    /// Tên Thử nghiệm viên - Technician Name
     /// </summary>
     public string? TechnicianName { get; set; }
 
@@ -204,9 +258,19 @@ public class LaboratoryTaskIndicatorDto
     public string? Result { get; set; }
 
     /// <summary>
-    /// Ghi chú từ KTV - Note
+    /// Ghi chú tự do (free text) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>
-    public string? Note { get; set; }
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách ID của Master Data Notes (comma-separated GUIDs)
+    /// </summary>
+    public string? MasterDataNoteIds { get; set; }
+
+    /// <summary>
+    /// Danh sách nội dung Master Data Notes (để hiển thị trên UI)
+    /// </summary>
+    public List<string>? MasterDataNoteContents { get; set; }
 
     /// <summary>
     /// Đơn vị tính - Unit
@@ -258,6 +322,11 @@ public class LaboratoryTaskIndicatorDto
     /// </summary>
     public bool IsSentToQuality { get; set; }
 
+    /// <summary>
+    /// Chỉ tiêu này đang chờ mẫu chung từ lab khác (Vi Sinh)
+    /// </summary>
+    public bool IsWaitingForSharedSample { get; set; }
+
     // ====== Standard Comparison Fields (Phase 7) ======
 
     /// <summary>
@@ -279,6 +348,26 @@ public class LaboratoryTaskIndicatorDto
     /// Giới hạn cho phép - Allowed Limit
     /// </summary>
     public string? AllowedLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh cận dưới (dùng cho khoảng): >, >=
+    /// </summary>
+    public string? LowerOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận dưới (dùng cho khoảng)
+    /// </summary>
+    public string? LowerLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh cận trên (dùng cho khoảng): <, <=
+    /// </summary>
+    public string? UpperOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận trên (dùng cho khoảng)
+    /// </summary>
+    public string? UpperLimit { get; set; }
 
     /// <summary>
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
@@ -328,6 +417,28 @@ public class LaboratoryTaskIndicatorDto
     /// Lịch sử yêu cầu đổi phương pháp
     /// </summary>
     public List<MethodChangeHistoryDto> MethodChangeHistories { get; set; } = new();
+
+    // ====== Workflow Redesign - Supplementary Request Fields ======
+
+    /// <summary>
+    /// Nội dung yêu cầu bổ sung (QLKT yêu cầu KH cung cấp)
+    /// </summary>
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// ID người yêu cầu bổ sung - QLKT User ID
+    /// </summary>
+    public Guid? SupplementaryRequestedById { get; set; }
+
+    /// <summary>
+    /// Tên người yêu cầu bổ sung
+    /// </summary>
+    public string? SupplementaryRequestedByName { get; set; }
 }
 
 /// <summary>
@@ -476,7 +587,12 @@ public enum IndicatorEvaluationAction
     /// <summary>
     /// Từ chối thử nghiệm
     /// </summary>
-    Reject = 2
+    Reject = 2,
+
+    /// <summary>
+    /// Yêu cầu KH cung cấp thông tin bổ sung
+    /// </summary>
+    RequestSupplementary = 3
 }
 
 /// <summary>
@@ -546,4 +662,31 @@ public class MethodChangeHistoryDto
     public Guid? ConfirmedByUserId { get; set; }
     public string? ConfirmedByUserName { get; set; }
     public bool? IsApproved { get; set; }
+}
+
+/// <summary>
+/// DTO cho việc gửi mẫu chung (Lab Vi Sinh gửi cho Lab Hóa)
+/// </summary>
+public class SendSharedSampleDto
+{
+    /// <summary>
+    /// Ghi chú khi gửi mẫu (optional)
+    /// </summary>
+    public string? Note { get; set; }
+}
+
+/// <summary>
+/// DTO cho việc nhận mẫu chung (Lab Hóa nhận từ Lab Vi Sinh)
+/// </summary>
+public class ReceiveSharedSampleDto
+{
+    /// <summary>
+    /// Ngày nhận mẫu (default: ngày hiện tại)
+    /// </summary>
+    public DateTime? ReceivedDate { get; set; }
+
+    /// <summary>
+    /// Ghi chú khi nhận mẫu
+    /// </summary>
+    public string? Note { get; set; }
 }

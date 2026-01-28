@@ -48,5 +48,15 @@ public enum IndicatorApprovalStatus
     /// <summary>
     /// Chấp nhận thử nghiệm - QLKT chấp nhận chỉ tiêu này để TN
     /// </summary>
-    AcceptedForTesting = 8
+    AcceptedForTesting = 8,
+
+    /// <summary>
+    /// Không TN được - KTV báo không thể thử nghiệm
+    /// </summary>
+    CannotTest = 9,
+
+    /// <summary>
+    /// Yêu cầu bổ sung - QLKT yêu cầu KH cung cấp thông tin bổ sung
+    /// </summary>
+    SupplementaryRequested = 10
 }

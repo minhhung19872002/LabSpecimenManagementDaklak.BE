@@ -15,7 +15,8 @@ public class UpdateEmployeeDto
     [StringLength(24)]
     public string? Phone { get; set; }
 
-    public string? Role { get; set; }
+    // Note: Role field removed - quản lý quyền thông qua "Quản lý phân quyền"
+    // Nhân viên được gán quyền bằng cách thêm vào nhóm quyền trong Role Management
 
     public Guid? DepartmentId { get; set; }
 
@@ -23,4 +24,16 @@ public class UpdateEmployeeDto
     public string? Position { get; set; }
 
     public bool? IsActive { get; set; }
+
+    /// <summary>
+    /// If true, this is a temporary account with expiration date.
+    /// If false, remove expiration (make permanent).
+    /// </summary>
+    public bool? IsTemporaryAccount { get; set; }
+
+    /// <summary>
+    /// Account expiration date (required when IsTemporaryAccount = true).
+    /// After this date, the account will be automatically deactivated.
+    /// </summary>
+    public DateTime? AccountExpirationDate { get; set; }
 }

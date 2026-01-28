@@ -16,7 +16,7 @@ public interface INotificationCreator
     Task NotifyIndicatorSubmittedToTechnicalManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string senderName,
         int indicatorCount,
         DateTime? deadline,
@@ -30,7 +30,7 @@ public interface INotificationCreator
     Task NotifySampleSentToLabAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int indicatorCount,
         DateTime? deadline);
 
@@ -40,7 +40,7 @@ public interface INotificationCreator
     Task NotifyPendingWorkAssignmentAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int pendingIndicatorCount,
         DateTime sentDate);
 
@@ -50,7 +50,7 @@ public interface INotificationCreator
     Task NotifyResultRejectedByQualityManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string qualityManagerName,
         int rejectedCount,
         string? sampleName = null,
@@ -63,7 +63,7 @@ public interface INotificationCreator
     Task NotifyResultApprovedByQualityManagerAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string qualityManagerName,
         string? sampleName = null,
         string? indicatorName = null,
@@ -75,7 +75,7 @@ public interface INotificationCreator
     Task NotifyNewSamplesAddedAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int newSampleCount,
         int newIndicatorCount);
 
@@ -85,7 +85,7 @@ public interface INotificationCreator
     Task NotifySamplesCancelledAsync(
         Guid technicalManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string sampleCode,
         int cancelledIndicatorCount);
 
@@ -99,7 +99,7 @@ public interface INotificationCreator
     Task NotifyResultSubmittedToQualityManagerAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         string senderName,
         int indicatorCount,
         string? sampleName = null,
@@ -112,7 +112,7 @@ public interface INotificationCreator
     Task NotifyDeadlineReminderAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         DateTime deadline);
 
     /// <summary>
@@ -121,7 +121,7 @@ public interface INotificationCreator
     Task NotifyHandoverReminderAsync(
         Guid qualityManagerId,
         string contractNumber,
-        Guid testRequestId,
+        Guid qualityTaskId,
         DateTime approvedDate);
 
     /// <summary>
@@ -203,7 +203,7 @@ public interface INotificationCreator
     Task NotifyMultipleIndicatorsAssignedToTechnicianAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int indicatorCount,
         DateTime? deadline);
 
@@ -213,7 +213,7 @@ public interface INotificationCreator
     Task NotifySingleIndicatorAssignedToTechnicianAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName,
         string sampleName,
         string indicatorName,
@@ -226,7 +226,7 @@ public interface INotificationCreator
     Task NotifyPendingIndicatorReminderAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         int pendingIndicatorCount);
 
     /// <summary>
@@ -235,7 +235,7 @@ public interface INotificationCreator
     Task NotifyMultipleResultsRejectedByTechnicalManagerAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName);
 
     /// <summary>
@@ -244,11 +244,22 @@ public interface INotificationCreator
     Task NotifySingleResultRejectedByTechnicalManagerAsync(
         Guid technicianId,
         string contractNumber,
-        Guid testRequestId,
+        Guid taskId,
         string technicalManagerName,
         string sampleName,
         string indicatorName,
         string methodName);
+
+    /// <summary>
+    /// Case 6 KTV: KTV báo không thể thử nghiệm chỉ tiêu (gửi cho QLKT)
+    /// </summary>
+    Task NotifyCannotTestAsync(
+        Guid technicalManagerId,
+        string contractNumber,
+        Guid taskId,
+        string technicianName,
+        string sampleName,
+        string indicatorName);
 
     #endregion
 }

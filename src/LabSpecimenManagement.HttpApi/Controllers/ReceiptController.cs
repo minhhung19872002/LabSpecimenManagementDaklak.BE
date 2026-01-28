@@ -75,4 +75,33 @@ public class ReceiptController : LabSpecimenManagementController
     {
         await _receiptAppService.MarkAsUnpaidAsync(id);
     }
+
+    /// <summary>
+    /// Lấy thông tin thanh toán cho modal - tự động tạo Receipt nếu chưa có
+    /// </summary>
+    [HttpGet("payment-info/{testRequestId}")]
+    public async Task<PaymentInfoDto> GetPaymentInfoAsync(Guid testRequestId)
+    {
+        return await _receiptAppService.GetPaymentInfoAsync(testRequestId);
+    }
+
+    /// <summary>
+    /// Xử lý thanh toán mới
+    /// </summary>
+    [HttpPost("{receiptId}/payments")]
+    public async Task<PaymentResultDto> ProcessPaymentAsync(Guid receiptId, [FromBody] CreatePaymentInput input)
+    {
+        return await _receiptAppService.ProcessPaymentAsync(receiptId, input);
+    }
+
+    /// <summary>
+    /// Xuất danh sách thanh toán ra Excel
+    /// </summary>
+    [HttpGet("export-payment-history")]
+    public async Task<IActionResult> ExportPaymentHistoryAsync([FromQuery] ExportPaymentHistoryInput input)
+    {
+        var fileBytes = await _receiptAppService.ExportPaymentHistoryAsync(input);
+        var fileName = $"danh-sach-thanh-toan_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+        return File(fileBytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName);
+    }
 }

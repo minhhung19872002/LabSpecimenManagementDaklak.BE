@@ -62,10 +62,13 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Customer> Customers { get; set; }
     public DbSet<IndicatorGroup> IndicatorGroups { get; set; }
     public DbSet<Indicator> Indicators { get; set; }
+    public DbSet<SampleTypeCategory> SampleTypeCategories { get; set; }
+    public DbSet<SampleCondition> SampleConditions { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
     public DbSet<StandardIndicator> StandardIndicators { get; set; }
+    public DbSet<SpecimenTypeIndicator> SpecimenTypeIndicators { get; set; }
 
     // Junction Tables
     public DbSet<TestRequestIndicator> TestRequestIndicators { get; set; }
@@ -86,6 +89,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
     public DbSet<LaboratoryTaskSampleReceived> LaboratoryTaskSampleReceiveds { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
+    public DbSet<RejectionHistoryImage> RejectionHistoryImages { get; set; }
     public DbSet<MethodChangeHistory> MethodChangeHistories { get; set; }
     public DbSet<SampleTestingImage> SampleTestingImages { get; set; }
     public DbSet<IndicatorImage> IndicatorImages { get; set; }
@@ -102,10 +106,12 @@ public class LabSpecimenManagementDbContext :
 
     // Quotation Entities
     public DbSet<Quotation> Quotations { get; set; }
-    public DbSet<QuotationItem> QuotationItems { get; set; }
+    public DbSet<QuotationSample> QuotationSamples { get; set; }
+    public DbSet<QuotationSampleIndicator> QuotationSampleIndicators { get; set; }
 
     // Receipt Entities
     public DbSet<Receipt> Receipts { get; set; }
+    public DbSet<PaymentHistory> PaymentHistories { get; set; }
 
     // Published Report Entities
     public DbSet<PublishedReport> PublishedReports { get; set; }
@@ -233,6 +239,7 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestSampleIndicators", LabSpecimenManagementConsts.DbSchema);
 
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.OriginalUnitPrice).HasPrecision(18, 2);
             b.Property(x => x.Notes).HasMaxLength(500);
 
             b.HasIndex(x => x.TestRequestSampleId);
@@ -385,6 +392,31 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Code).IsUnique();
         });
 
+        // SampleTypeCategory configuration
+        builder.Entity<SampleTypeCategory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SampleTypeCategories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Description).HasMaxLength(500);
+
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // SampleCondition configuration
+        builder.Entity<SampleCondition>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SampleConditions", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Description).HasMaxLength(500);
+
+            b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.IsActive);
+        });
+
         // SpecimenType configuration
         builder.Entity<SpecimenType>(b =>
         {
@@ -396,6 +428,23 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.DefaultStorageCondition).HasMaxLength(256);
 
             b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.SampleTypeCategoryId);
+
+            // FK to SampleTypeCategory
+            b.HasOne<SampleTypeCategory>()
+                .WithMany()
+                .HasForeignKey(x => x.SampleTypeCategoryId)
+                .IsRequired(false);
+        });
+
+        // SpecimenTypeIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<SpecimenTypeIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SpecimenTypeIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => new { x.SpecimenTypeId, x.IndicatorId }).IsUnique();
         });
 
         // TestMethod configuration
@@ -500,10 +549,12 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.FormattedName).HasMaxLength(1000);
 
             b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.IndicatorGroupId);
             b.HasIndex(x => x.IsActive);
+            b.HasIndex(x => x.ParentIndicatorId);
         });
 
         // Organization configuration
@@ -525,10 +576,10 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(20);
-            b.Property(x => x.Name).IsRequired().HasMaxLength(100);
+            b.Property(x => x.DepartmentId).IsRequired();
 
             b.HasIndex(x => x.Code).IsUnique();
-            b.HasIndex(x => x.Name).IsUnique();
+            b.HasIndex(x => x.DepartmentId);
             b.HasIndex(x => x.IsActive);
         });
 
@@ -554,6 +605,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
             b.Property(x => x.ComparisonOperator).HasMaxLength(10);
             b.Property(x => x.AllowedLimit).HasMaxLength(256);
+            b.Property(x => x.LowerOperator).HasMaxLength(10);
+            b.Property(x => x.LowerLimit).HasMaxLength(256);
+            b.Property(x => x.UpperOperator).HasMaxLength(10);
+            b.Property(x => x.UpperLimit).HasMaxLength(256);
 
             b.HasIndex(x => x.StandardId);
             b.HasIndex(x => x.IndicatorId);
@@ -805,14 +860,36 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.RejectionReason).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.ReportedByRole).HasMaxLength(50);
 
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.RejectedDate);
+            b.HasIndex(x => x.IsCannotTest);
 
             b.HasOne(x => x.Indicator)
                 .WithMany(x => x.RejectionHistories)
                 .HasForeignKey(x => x.IndicatorId)
                 .IsRequired();
+        });
+
+        // ============ REJECTION HISTORY IMAGE CONFIGURATION ============
+
+        builder.Entity<RejectionHistoryImage>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "RejectionHistoryImages", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(100);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(255);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.RejectionHistoryId);
+
+            b.HasOne(x => x.RejectionHistory)
+                .WithMany(x => x.Images)
+                .HasForeignKey(x => x.RejectionHistoryId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ METHOD CHANGE HISTORY CONFIGURATION ============
@@ -1012,22 +1089,37 @@ public class LabSpecimenManagementDbContext :
                 .IsRequired(false);
         });
 
-        builder.Entity<QuotationItem>(b =>
+        builder.Entity<QuotationSample>(b =>
         {
-            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationItems", LabSpecimenManagementConsts.DbSchema);
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationSamples", LabSpecimenManagementConsts.DbSchema);
+
+            b.Property(x => x.SampleName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.TotalPrice).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.QuotationId);
+
+            b.HasOne(x => x.Quotation)
+                .WithMany(x => x.Samples)
+                .HasForeignKey(x => x.QuotationId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<QuotationSampleIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "QuotationSampleIndicators", LabSpecimenManagementConsts.DbSchema);
 
             b.Property(x => x.IndicatorName).IsRequired().HasMaxLength(256);
             b.Property(x => x.TestMethodName).IsRequired().HasMaxLength(256);
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
-            b.Property(x => x.TotalPrice).HasPrecision(18, 2);
 
-            b.HasIndex(x => x.QuotationId);
+            b.HasIndex(x => x.QuotationSampleId);
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.TestMethodId);
 
-            b.HasOne(x => x.Quotation)
-                .WithMany(x => x.Items)
-                .HasForeignKey(x => x.QuotationId)
+            b.HasOne(x => x.QuotationSample)
+                .WithMany(x => x.Indicators)
+                .HasForeignKey(x => x.QuotationSampleId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
 
@@ -1061,6 +1153,28 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ============ PAYMENT HISTORY CONFIGURATION ============
+
+        builder.Entity<PaymentHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PaymentHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Amount).HasPrecision(18, 2);
+            b.Property(x => x.RemainingAmountBeforePayment).HasPrecision(18, 2);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.ReceiptId);
+            b.HasIndex(x => x.PaymentNumber);
+            b.HasIndex(x => x.PaymentDate);
+
+            b.HasOne(x => x.Receipt)
+                .WithMany(x => x.PaymentHistories)
+                .HasForeignKey(x => x.ReceiptId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
         });
 
         // ============ PUBLISHED REPORT CONFIGURATION ============

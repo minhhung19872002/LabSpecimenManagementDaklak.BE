@@ -210,6 +210,12 @@ public class CreateTestRequestSampleDto
     /// Danh sách hình ảnh đính kèm (đã upload trước đó)
     /// </summary>
     public List<AttachmentInputDto>? Attachments { get; set; }
+
+    /// <summary>
+    /// Mẫu chung - Mẫu có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa
+    /// Khi true, Lab Vi Sinh sẽ xử lý trước, sau đó gửi mẫu cho Lab Hóa
+    /// </summary>
+    public bool IsSharedSample { get; set; }
 }
 
 public class CreateTestRequestSampleIndicatorDto
@@ -228,6 +234,7 @@ public class CreateTestRequestSampleIndicatorDto
     public Guid? LaboratoryId { get; set; }
 
     public decimal UnitPrice { get; set; }
+    public decimal? OriginalUnitPrice { get; set; }
 
     [StringLength(500)]
     public string? Notes { get; set; }
@@ -264,6 +271,7 @@ public class SampleChangeDto
     public string? StorageLocation { get; set; }
     public Guid? SpecimenTypeId { get; set; }
     public string? SpecimenTypeName { get; set; }
+    public bool IsSharedSample { get; set; }
     public List<IndicatorChangeDto>? Indicators { get; set; }
     public List<AttachmentChangeDto>? Attachments { get; set; }
 }
@@ -288,5 +296,6 @@ public class IndicatorChangeDto
     public Guid? TestMethodId { get; set; }
     public Guid? LaboratoryId { get; set; }
     public decimal UnitPrice { get; set; }
+    public decimal? OriginalUnitPrice { get; set; }
     public string? Notes { get; set; }
 }

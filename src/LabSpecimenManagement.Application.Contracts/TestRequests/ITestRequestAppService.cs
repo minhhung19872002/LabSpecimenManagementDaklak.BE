@@ -113,12 +113,20 @@ public interface ITestRequestAppService :
     /// <summary>
     /// In kết quả đơn (1 chỉ tiêu)
     /// </summary>
-    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// In kết quả hỗn hợp (nhiều chỉ tiêu)
     /// </summary>
-    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
+
+    /// <summary>
+    /// In kết quả đơn với nhiều chỉ tiêu và nhiều templates (batch processing)
+    /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
+    /// </summary>
+    /// <param name="id">TestRequest ID</param>
+    /// <param name="input">Input chứa danh sách indicator IDs và template names</param>
+    Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid id, PrintMultiSingleDto input);
 
     /// <summary>
     /// Gửi kế toán - Tạo Receipt tự động và cập nhật SentToAccounting = true

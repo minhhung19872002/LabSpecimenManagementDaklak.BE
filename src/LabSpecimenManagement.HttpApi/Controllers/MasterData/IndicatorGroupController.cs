@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/indicator-groups")]
-[Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorGroupController : LabSpecimenManagementController
 {
     private readonly IIndicatorGroupAppService _indicatorGroupAppService;
@@ -42,21 +42,21 @@ public class IndicatorGroupController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<IndicatorGroupDto> CreateAsync([FromBody] CreateUpdateIndicatorGroupDto input)
     {
         return _indicatorGroupAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<IndicatorGroupDto> UpdateAsync(Guid id, [FromBody] CreateUpdateIndicatorGroupDto input)
     {
         return _indicatorGroupAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _indicatorGroupAppService.DeleteAsync(id);
@@ -75,7 +75,7 @@ public class IndicatorGroupController : LabSpecimenManagementController
     }
 
     [HttpPost("import")]
-    [Authorize(LabSpecimenManagementPermissions.IndicatorGroups.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public virtual async Task<ImportIndicatorGroupsResultDto> ImportFromExcelAsync(IFormFile file)
     {
         using var stream = file.OpenReadStream();

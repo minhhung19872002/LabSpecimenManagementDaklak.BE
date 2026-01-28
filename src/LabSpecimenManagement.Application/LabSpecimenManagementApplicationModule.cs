@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.DependencyInjection;
+using LabSpecimenManagement.Sync;
+using LabSpecimenManagement.Sync.Handlers;
+using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Account;
 using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.AutoMapper;
@@ -29,6 +31,15 @@ public class LabSpecimenManagementApplicationModule : AbpModule
         {
             options.AddMaps<LabSpecimenManagementApplicationModule>();
         });
+
+        // Register sync handlers for offline-first functionality
+        context.Services.AddTransient<ISyncEntityHandler, TestRequestSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, QuotationSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, NCRSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, SpecimenSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, SubcontractorSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, EmployeeSyncHandler>();
+        context.Services.AddTransient<ISyncEntityHandler, TestResultSyncHandler>();
 
         // TODO: Remove this in production - Bypass all permission checks for development
         context.Services.AddSingleton<IPermissionChecker, AlwaysAllowPermissionChecker>();

@@ -3,7 +3,7 @@ using System;
 namespace LabSpecimenManagement.LaboratoryTasks;
 
 /// <summary>
-/// DTO để gán phương pháp và kỹ thuật viên cho chỉ tiêu
+/// DTO để gán phương pháp và Thử nghiệm viên cho chỉ tiêu
 /// </summary>
 public class AssignIndicatorDto
 {
@@ -18,7 +18,7 @@ public class AssignIndicatorDto
     public Guid? MethodId { get; set; }
 
     /// <summary>
-    /// ID kỹ thuật viên thực hiện (nullable để validate)
+    /// ID Thử nghiệm viên thực hiện (nullable để validate)
     /// </summary>
     public Guid? TechnicianId { get; set; }
 }

@@ -65,9 +65,19 @@ public class QualityManagementIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên phương pháp - Method Name
     /// </summary>
     public string? MethodName { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
 
     /// <summary>
     /// Method ID
@@ -105,9 +115,19 @@ public class QualityManagementIndicatorDto
     public string? StandardName { get; set; }
 
     /// <summary>
-    /// Giới hạn tham khảo - Reference Limit
+    /// Giới hạn tham khảo - Reference Limit (deprecated - use ComparisonOperator + AllowedLimit)
     /// </summary>
     public string? ReferenceLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh - Comparison Operator (<=, >=, <, >, =)
+    /// </summary>
+    public string? ComparisonOperator { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép - Allowed Limit
+    /// </summary>
+    public string? AllowedLimit { get; set; }
 
     /// <summary>
     /// Trạng thái phê duyệt - Approval Status
@@ -153,4 +173,14 @@ public class QualityManagementIndicatorDto
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
     /// </summary>
     public List<IndicatorImageDto> Images { get; set; } = new();
+
+    /// <summary>
+    /// Ghi chú tự do từ QLKT - Free Text Note
+    /// </summary>
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Danh sách nội dung Master Data Notes
+    /// </summary>
+    public List<string> MasterDataNotes { get; set; } = new();
 }

@@ -15,8 +15,10 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Testing;
 
@@ -38,10 +40,15 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<LaboratoryTaskSampleReceived, Guid> _sampleReceivedRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IRepository<RejectionHistoryImage, Guid> _rejectionHistoryImageRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IGuidGenerator _guidGenerator;
     private readonly INotificationCreator _notificationCreator;
     private readonly ITestResultValueAppService _testResultValueAppService;
+    private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IIdentityUserRepository _identityUserRepository;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -52,16 +59,21 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<TestRequestSampleAttachment, Guid> sampleAttachmentRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<LaboratoryTaskSampleReceived, Guid> sampleReceivedRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IRepository<RejectionHistoryImage, Guid> rejectionHistoryImageRepository,
         IUserNameProvider userNameProvider,
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
-        ITestResultValueAppService testResultValueAppService)
+        ITestResultValueAppService testResultValueAppService,
+        IIdentityUserRepository identityUserRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -71,16 +83,21 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _sampleAttachmentRepository = sampleAttachmentRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _indicatorImageRepository = indicatorImageRepository;
         _supporterRepository = supporterRepository;
         _sampleReceivedRepository = sampleReceivedRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
+        _rejectionHistoryImageRepository = rejectionHistoryImageRepository;
         _userNameProvider = userNameProvider;
         _guidGenerator = guidGenerator;
         _notificationCreator = notificationCreator;
         _testResultValueAppService = testResultValueAppService;
+        _identityUserRepository = identityUserRepository;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -100,7 +117,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // - Admin: xem tất cả
         // - QLKT: xem được tất cả task của phòng ban họ quản lý (Laboratory.TechnicalManagerId) hoặc task họ được gán làm TechnicalManager
         // - Người hỗ trợ: xem được task mà họ là supporter
-        // - KTV: chỉ xem được task mà họ được assign làm KTV
+        // - KTV: chỉ xem được task của Lab họ thuộc về (qua DepartmentId)
         var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
         if (currentUserId.HasValue && !isAdmin)
         {
@@ -116,15 +133,38 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
+            // Lấy DepartmentId của user hiện tại để filter task của Lab họ thuộc về
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            // Lấy danh sách LaboratoryId có cùng DepartmentId với user (Lab họ thuộc về)
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id)
+                    .ToHashSet();
+            }
+
             // User có thể xem task nếu:
             // 1. Task thuộc phòng ban mà họ là QLKT (Laboratory.TechnicalManagerId)
             // 2. Họ là TechnicalManager của task cụ thể (LaboratoryTask.TechnicalManagerId)
             // 3. Họ là Supporter của task
-            // 4. Họ được assign làm KTV cho ít nhất 1 indicator
+            // 4. Task thuộc Lab có cùng DepartmentId với user (Lab họ thuộc về)
             taskQuery = taskQuery.Where(x =>
                 managedLaboratoryIds.Contains(x.Task.LaboratoryId) ||
                 x.Task.TechnicalManagerId == currentUserId.Value ||
                 supporterTaskIds.Contains(x.Task.Id) ||
+                userLabIds.Contains(x.Task.LaboratoryId));
+        }
+
+        // Apply Tab filter:
+        // - MyAssignments: Chỉ hiển thị task mà user được assign làm KTV (có ít nhất 1 indicator)
+        // - All: Hiển thị tất cả task mà user có quyền xem (đã filter ở trên)
+        if (input.Tab == TestingTabType.MyAssignments && currentUserId.HasValue)
+        {
+            taskQuery = taskQuery.Where(x =>
                 x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
         }
 
@@ -245,10 +285,22 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             indicator.MethodId = result.MethodId;
             indicator.Unit = result.Unit;
             indicator.Result = result.Result;
-            indicator.Note = result.Note;
 
-            // Auto-set entry date when result is entered
-            if (!string.IsNullOrWhiteSpace(result.Result) && !indicator.EntryDate.HasValue)
+            // Chỉ update FreeTextNote nếu có giá trị mới được truyền vào
+            // Nếu result.Note là null thì giữ nguyên FreeTextNote hiện tại
+            if (result.Note != null)
+            {
+                indicator.FreeTextNote = result.Note;
+            }
+
+            // Update TestDate if provided
+            if (result.TestDate.HasValue)
+            {
+                indicator.TestDate = result.TestDate;
+            }
+
+            // Auto-set entry date when result is entered or testDate is set
+            if ((!string.IsNullOrWhiteSpace(result.Result) || result.TestDate.HasValue) && !indicator.EntryDate.HasValue)
             {
                 indicator.EntryDate = DateTime.Now;
                 indicator.EnteredById = currentUserId;
@@ -259,6 +311,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Update task status
         await UpdateTaskStatusAsync(task);
+
+        // Update TestRequest status to InProgress when KTV sets testDate
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
     }
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
@@ -318,6 +373,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var userNames = await _userNameProvider.GetUserNamesAsync(
                 orderedHistories.Select(h => (Guid?)h.RejectedById));
 
+            // Batch fetch images for all histories
+            var historyIds = orderedHistories.Select(h => h.Id).ToList();
+            var allImages = await _rejectionHistoryImageRepository.GetListAsync(x => historyIds.Contains(x.RejectionHistoryId));
+            var imagesByHistory = allImages.GroupBy(x => x.RejectionHistoryId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
             return orderedHistories.Select(history => new RejectionHistoryDto
             {
                 Id = history.Id,
@@ -325,7 +386,22 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 RejectionReason = history.RejectionReason,
                 RejectedDate = history.RejectedDate,
                 RejectedById = history.RejectedById,
-                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null
+                RejectedByName = userNames.TryGetValue(history.RejectedById, out var name) ? name : null,
+                IsCannotTest = history.IsCannotTest,
+                ReportedByRole = history.ReportedByRole,
+                Images = imagesByHistory.TryGetValue(history.Id, out var images)
+                    ? images.OrderBy(x => x.CreationTime).Select(x => new RejectionHistoryImageDto
+                    {
+                        Id = x.Id,
+                        RejectionHistoryId = x.RejectionHistoryId,
+                        FileId = x.FileId,
+                        FileName = x.FileName,
+                        FileSize = x.FileSize,
+                        Url = $"/{x.FilePath.Replace("\\", "/")}",
+                        CreationTime = x.CreationTime,
+                        CreatorId = x.CreatorId
+                    }).ToList()
+                    : new List<RejectionHistoryImageDto>()
             }).ToList();
         }
         catch
@@ -362,7 +438,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.Completed;
         }
 
-        // "Bị từ chối" = Có ≥1 chỉ tiêu bị từ chối
+        // "Bị từ chối" = Có ≥1 chỉ tiêu bị từ chối (kết quả)
         var anyRejected = activeIndicators.Any(i =>
             i.ApprovalStatus == IndicatorApprovalStatus.Rejected);
 
@@ -380,10 +456,27 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return TestingStatus.PendingApproval;
         }
 
-        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã check-in (TestDate != null) và đang Pending
-        // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved (đã hoàn thành)
+        // "Không TN được" = Có ≥1 chỉ tiêu KTV báo không thể thử nghiệm
+        var anyCannotTest = activeIndicators.Any(i =>
+            i.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        if (anyCannotTest)
+        {
+            return TestingStatus.CannotTest;
+        }
+
+        // "Đang thử nghiệm" = Có ≥1 chỉ tiêu đã bắt đầu làm (TestDate hoặc EntryDate)
+        // và đang ở các trạng thái cho phép thử nghiệm
+        // - TestDate: KTV đã chọn ngày thử nghiệm
+        // - EntryDate: KTV đã nhập kết quả
+        var inProgressStatuses = new[]
+        {
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.MethodChanged,      // KH đã đồng ý đổi PP
+            IndicatorApprovalStatus.AcceptedForTesting  // QLKT đã chấp nhận TN
+        };
         var anyInProgress = activeIndicators.Any(i =>
-            i.TestDate.HasValue && i.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            (i.TestDate.HasValue || i.EntryDate.HasValue) && inProgressStatuses.Contains(i.ApprovalStatus));
 
         if (anyInProgress)
         {
@@ -434,9 +527,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     {
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
-        // Loại trừ các chỉ tiêu bị KH hủy khi tính toán trạng thái
+        // Loại trừ các chỉ tiêu đã "finalized" khi tính toán trạng thái:
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
         var activeIndicators = allTaskIndicators.Where(ti =>
-            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+            !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue)).ToList();
 
         if (!activeIndicators.Any())
         {
@@ -446,6 +542,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Check conditions for status calculation - ĐỒNG BỘ VỚI LaboratoryTaskAppService
         // Logic mới: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành tất cả mới lên status cao hơn)
         // Ngoại trừ PendingApproval - cần hiển thị ngay khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
+        // Ngoại trừ CannotTest/SupplementaryRequested - cần QLKT đánh giá
 
         // TẤT CẢ chỉ tiêu đã gửi QLCL
         var allSentToQuality = activeIndicators.All(ti =>
@@ -456,6 +553,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
         var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu CannotTest hoặc SupplementaryRequested - cần QLKT đánh giá
+        var anyNeedEvaluation = activeIndicators.Any(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest ||
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested);
 
         // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
         var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
@@ -468,10 +570,16 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         LaboratoryTaskStatus newStatus;
 
         // Logic ưu tiên:
-        // 1. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
-        // 2. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
+        // 1. CannotTest/SupplementaryRequested ưu tiên cao nhất - cần QLKT đánh giá ngay
+        // 2. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
+        // 3. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
 
-        if (anyEntered)
+        if (anyNeedEvaluation)
+        {
+            // Có ≥1 chỉ tiêu CannotTest/SupplementaryRequested - cần QLKT đánh giá
+            newStatus = LaboratoryTaskStatus.UnderEvaluation;
+        }
+        else if (anyEntered)
         {
             // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
             newStatus = LaboratoryTaskStatus.WaitingApproval;
@@ -509,6 +617,76 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
+    /// <summary>
+    /// Tính status của task từ danh sách indicators đã có sẵn (không fetch lại từ DB)
+    /// Dùng khi đã có indicators trong memory để tránh re-fetch và tracking issues
+    /// </summary>
+    private LaboratoryTaskStatus CalculateTaskStatusFromIndicators(List<LaboratoryTaskIndicator> allIndicators)
+    {
+        // Loại trừ các chỉ tiêu đã "finalized" khi tính toán trạng thái:
+        // - CustomerCancelled: KH đã hủy chỉ tiêu
+        // - TestingRejected với CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
+        var activeIndicators = allIndicators.Where(ti =>
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+            !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue)).ToList();
+
+        if (!activeIndicators.Any())
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+
+        // TẤT CẢ chỉ tiêu đã gửi QLCL
+        var allSentToQuality = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
+
+        // TẤT CẢ chỉ tiêu đã được duyệt (Approved)
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+
+        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Có ≥1 chỉ tiêu KTV báo không TN được - cần QLKT xử lý
+        var anyCannotTest = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
+        var allAssigned = activeIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
+
+        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending)
+        var anyTesting = activeIndicators.Any(ti =>
+            ti.TestDate.HasValue && ti.ApprovalStatus == IndicatorApprovalStatus.Pending);
+
+        // Logic ưu tiên (đồng bộ với UpdateTaskStatusAsync)
+        // 1. CannotTest được ưu tiên CAO NHẤT - cần QLKT xử lý trước khi tiếp tục
+        if (anyCannotTest)
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+        else if (anyEntered)
+        {
+            return LaboratoryTaskStatus.WaitingApproval;
+        }
+        else if (allSentToQuality)
+        {
+            return LaboratoryTaskStatus.SentToQuality;
+        }
+        else if (allApproved)
+        {
+            return LaboratoryTaskStatus.Approved;
+        }
+        else if (allAssigned && anyTesting)
+        {
+            return LaboratoryTaskStatus.InProgress;
+        }
+        else if (allAssigned)
+        {
+            return LaboratoryTaskStatus.Assigned;
+        }
+        else
+        {
+            return LaboratoryTaskStatus.UnderEvaluation;
+        }
+    }
+
     private async Task<TestingListDto> MapToListDtoAsync(
         LaboratoryTask task,
         List<LaboratoryTaskIndicator> indicators,
@@ -531,7 +709,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Get laboratory name
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        dto.LaboratoryName = laboratory?.Name;
+        if (laboratory != null)
+        {
+            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = labDept?.Name;
+        }
 
         // Get customer name from test request
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -645,7 +827,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Get laboratory name
         var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        dto.LaboratoryName = laboratory?.Name;
+        if (laboratory != null)
+        {
+            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
+            dto.LaboratoryName = labDept?.Name;
+        }
 
         // Get customer name
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -768,6 +954,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             // Map indicator
             var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
             string? methodName = null;
+            string? methodFormattedName = null;
             string? technicianName = null;
             string? unit = taskIndicator.Unit;
 
@@ -775,6 +962,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+                methodFormattedName = method?.FormattedName;
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
@@ -800,6 +988,35 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 // Table may not exist yet - migration not applied
             }
 
+            // Get standard info (set by QLKT)
+            string? standardName = null;
+            string? limitDescription = null;
+            string? comparisonOperator = null;
+            string? allowedLimit = null;
+            if (taskIndicator.StandardId.HasValue)
+            {
+                var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
+                if (standard != null)
+                {
+                    standardName = standard.Name;
+                    limitDescription = standard.LimitDescription;
+
+                    // Get StandardIndicator for ComparisonOperator and AllowedLimit
+                    if (taskIndicator.MethodId.HasValue)
+                    {
+                        var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                            si.StandardId == taskIndicator.StandardId.Value &&
+                            si.IndicatorId == sampleIndicator.IndicatorId &&
+                            si.TestMethodId == taskIndicator.MethodId.Value);
+                        if (standardIndicator != null)
+                        {
+                            comparisonOperator = standardIndicator.ComparisonOperator;
+                            allowedLimit = standardIndicator.AllowedLimit;
+                        }
+                    }
+                }
+            }
+
             // Determine if can edit
             var hasPermission = await CanEditIndicatorAsync(taskIndicator, task, CurrentUser.Id);
             var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
@@ -819,11 +1036,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                              !taskIndicator.TestDate.HasValue;
 
             // Determine if can submit (Gửi kết quả)
-            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending hoặc Rejected, có kết quả
+            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending/Rejected/Entered, có kết quả
             var canSubmit = hasPermission &&
                             taskIndicator.TestDate.HasValue &&
                             (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected) &&
+                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
+                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered) && // Cho phép gửi lại khi đang chờ phê duyệt
                             !string.IsNullOrWhiteSpace(taskIndicator.Result);
 
             // Calculate indicator testing status
@@ -839,14 +1057,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
                 IndicatorId = sampleIndicator.IndicatorId,
                 IndicatorName = indicator?.Name,
+                IndicatorFormattedName = indicator?.FormattedName,
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
+                MethodFormattedName = methodFormattedName,
                 Unit = unit,
                 Result = taskIndicator.Result,
-                Note = taskIndicator.Note,
+                Note = taskIndicator.FreeTextNote,
                 EntryDate = taskIndicator.EntryDate,
                 AssignedDate = taskIndicator.AssignedDate,
-                StartDate = taskIndicator.TestDate,
+                StartDate = taskIndicator.TestDate,  // Deprecated, use TestDate
+                TestDate = taskIndicator.TestDate,
                 SubmitDate = taskIndicator.SubmitDate,
                 CompletionDate = taskIndicator.ApprovalDate,
                 ApprovalStatus = taskIndicator.ApprovalStatus,
@@ -868,7 +1089,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     Url = $"/api/v1/files/{x.FileId}",
                     CreationTime = x.CreationTime,
                     CreatorId = x.CreatorId
-                }).ToList()
+                }).ToList(),
+                StandardId = taskIndicator.StandardId,
+                StandardName = standardName,
+                LimitDescription = limitDescription,
+                ComparisonOperator = comparisonOperator,
+                AllowedLimit = allowedLimit
             });
         }
 
@@ -1008,18 +1234,50 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
         }
 
-        if (input.IndicatorIds == null || !input.IndicatorIds.Any())
+        if (input.Indicators == null || !input.Indicators.Any())
         {
-            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất 1 chỉ tiêu");
+            throw new ValidationException("indicators", "Vui lòng chọn ít nhất 1 chỉ tiêu");
         }
 
         var errors = new List<string>();
         var submittedIndicators = new List<LaboratoryTaskIndicator>();
 
-        foreach (var indicatorId in input.IndicatorIds)
+        // Fetch TẤT CẢ indicators của task một lần để:
+        // 1. Tránh multiple queries
+        // 2. Dùng để tính task status sau khi update
+        // 3. Tránh EF tracking issues khi re-fetch
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
+        var indicatorMap = allTaskIndicators.ToDictionary(i => i.Id);
+
+        // Collect unique text values để tránh race condition khi batch submit có nhiều indicator với cùng text result
+        var textValuesToCreate = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var inputIndicatorIds = input.Indicators.Select(i => i.IndicatorId).ToHashSet();
+
+        foreach (var indicatorId in inputIndicatorIds)
         {
-            var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
-            if (indicator == null) continue;
+            if (indicatorMap.TryGetValue(indicatorId, out var indicator))
+            {
+                // Collect text values cần tạo (không phải numeric/formula)
+                if (!string.IsNullOrWhiteSpace(indicator.Result) && !IsNumericOrFormulaValue(indicator.Result))
+                {
+                    textValuesToCreate.Add(indicator.Result.Trim());
+                }
+            }
+        }
+
+        // Pre-create all unique text values TRƯỚC khi process indicators
+        // Điều này tránh race condition khi có nhiều indicator với cùng text value
+        foreach (var textValue in textValuesToCreate)
+        {
+            await _testResultValueAppService.GetOrCreateByNameAsync(textValue);
+        }
+
+        foreach (var indicatorInput in input.Indicators)
+        {
+            if (!indicatorMap.TryGetValue(indicatorInput.IndicatorId, out var indicator))
+            {
+                continue;
+            }
 
             // Kiểm tra quyền
             if (!await CanEditIndicatorAsync(indicator, task, currentUserId))
@@ -1027,16 +1285,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Chỉ submit indicators đã check-in (có TestDate) và chưa submit
-            if (!indicator.TestDate.HasValue)
+            // Chỉ submit nếu status phù hợp (Pending, Rejected, Entered (cho phép gửi lại), hoặc các status cho phép thử nghiệm)
+            var allowedStatuses = new[]
             {
-                errors.Add($"Chỉ tiêu chưa được thực hiện (check-in)");
-                continue;
-            }
+                IndicatorApprovalStatus.Pending,
+                IndicatorApprovalStatus.Rejected,
+                IndicatorApprovalStatus.MethodChanged,
+                IndicatorApprovalStatus.AcceptedForTesting,
+                IndicatorApprovalStatus.Entered // Cho phép TNV gửi lại kết quả khi đang chờ phê duyệt
+            };
 
-            // Chỉ submit nếu status = Pending hoặc Rejected
-            if (indicator.ApprovalStatus != IndicatorApprovalStatus.Pending &&
-                indicator.ApprovalStatus != IndicatorApprovalStatus.Rejected)
+            if (!allowedStatuses.Contains(indicator.ApprovalStatus))
             {
                 continue;
             }
@@ -1048,13 +1307,27 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Auto-create TestResultValue for text values (not numeric/formula)
-            // This allows user to enter new text values like "Đạt", "Không đạt"
-            // which will be saved to master data for future autocomplete
-            if (!IsNumericOrFormulaValue(indicator.Result))
+            // Validate TestDate - bắt buộc
+            if (indicatorInput.TestDate == default)
             {
-                await _testResultValueAppService.GetOrCreateByNameAsync(indicator.Result);
+                errors.Add($"Vui lòng chọn ngày thử nghiệm");
+                continue;
             }
+
+            // Nếu indicator bị từ chối trước đó, testDate phải >= ngày hiện tại
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+            {
+                if (indicatorInput.TestDate.Date < DateTime.Today)
+                {
+                    errors.Add($"Ngày thử nghiệm không chính xác. Vui lòng chọn ngày thử nghiệm mới (>= ngày hiện tại)");
+                    continue;
+                }
+            }
+
+            // Text values đã được tạo ở trên, không cần gọi GetOrCreateByNameAsync nữa
+
+            // Set TestDate từ input
+            indicator.TestDate = indicatorInput.TestDate;
 
             // Set SubmitDate và ApprovalStatus = Entered
             indicator.SubmitDate = DateTime.Now;
@@ -1062,7 +1335,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             indicator.EnteredById ??= currentUserId;
             indicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
 
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: false);
             submittedIndicators.Add(indicator);
         }
 
@@ -1071,8 +1344,22 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", string.Join("; ", errors.Distinct()));
         }
 
-        // Update task status
-        await UpdateTaskStatusAsync(task);
+        if (!submittedIndicators.Any())
+        {
+            throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
+        }
+
+        // Update task status (sử dụng TẤT CẢ indicators đã cached, không fetch lại từ DB)
+        // allTaskIndicators đã được update trong memory nên sẽ có ApprovalStatus mới
+        var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
+        if (task.Status != newTaskStatus)
+        {
+            task.Status = newTaskStatus;
+            await _laboratoryTaskRepository.UpdateAsync(task, autoSave: false);
+        }
+
+        // Update TestRequest status to InProgress when KTV submits results
+        await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
 
         // Notify QLKT about submitted results (Case 1 & 6)
         if (task.TechnicalManagerId.HasValue && submittedIndicators.Any())
@@ -1087,7 +1374,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private async Task NotifyTechnicalManagerOnSubmitAsync(LaboratoryTask task, List<LaboratoryTaskIndicator> submittedIndicators)
     {
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Kỹ thuật viên";
+        var senderName = CurrentUser.Name ?? CurrentUser.UserName ?? "Thử nghiệm viên";
         var indicatorCount = submittedIndicators.Count;
 
         // Get sample/indicator/method info for single indicator case
@@ -1136,6 +1423,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             return IndicatorTestingStatus.Cancelled; // KH đã hủy
         }
 
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.CannotTest)
+        {
+            return IndicatorTestingStatus.CannotTest; // KTV báo không TN được
+        }
+
         if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
         {
             return IndicatorTestingStatus.Done;
@@ -1161,11 +1453,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (testableStatuses.Contains(indicator.ApprovalStatus))
         {
-            if (indicator.TestDate.HasValue)
+            // Đã bắt đầu nhập (có EntryDate hoặc TestDate) → Testing
+            if (indicator.EntryDate.HasValue || indicator.TestDate.HasValue)
             {
-                return IndicatorTestingStatus.Testing; // Đã check-in
+                return IndicatorTestingStatus.Testing;
             }
-            return IndicatorTestingStatus.Todo; // Chưa check-in
+            return IndicatorTestingStatus.Todo; // Chưa làm gì
         }
 
         // Các trạng thái khác (MethodChangeRequested, TestingRejected) - chờ KH xác nhận
@@ -1539,6 +1832,515 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var received = await _sampleReceivedRepository.FirstOrDefaultAsync(x =>
             x.LaboratoryTaskId == laboratoryTaskId && x.SampleId == sampleId);
         return received != null;
+    }
+
+    /// <summary>
+    /// KTV báo không thể thử nghiệm chỉ tiêu
+    /// </summary>
+    public async Task<TestingIndicatorDto> MarkCannotTestAsync(Guid laboratoryTaskId, Guid indicatorId, CannotTestDto input)
+    {
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Người dùng chưa đăng nhập");
+        }
+
+        // Get laboratory task
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        if (task == null)
+        {
+            throw new EntityNotFoundException("LaboratoryTask", laboratoryTaskId);
+        }
+
+        // Get indicator
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        if (indicator == null || indicator.LaboratoryTaskId != laboratoryTaskId)
+        {
+            throw new EntityNotFoundException("LaboratoryTaskIndicator", indicatorId);
+        }
+
+        // Validate indicator can be marked as cannot test
+        // Allow for: Pending, Rejected (KQ bị từ chối), MethodChanged, AcceptedForTesting, TestingRejected
+        var allowedStatuses = new[]
+        {
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.Rejected,           // KQ bị từ chối - cần làm lại
+            IndicatorApprovalStatus.MethodChanged,      // Đã đổi PP - đang làm
+            IndicatorApprovalStatus.AcceptedForTesting, // Đã được chấp nhận TN - đang làm
+            IndicatorApprovalStatus.TestingRejected     // QLKT từ chối TN - có thể KTV vẫn muốn báo lý do
+        };
+
+        if (!allowedStatuses.Contains(indicator.ApprovalStatus))
+        {
+            throw new ValidationException("indicatorId", $"Chỉ tiêu đang ở trạng thái không thể báo 'Không TN được'. Trạng thái hiện tại: {indicator.ApprovalStatus}");
+        }
+
+        // Create rejection history with IsCannotTest = true
+        var rejectionHistory = new IndicatorRejectionHistory(
+            _guidGenerator.Create(),
+            indicatorId,
+            input.Reason,
+            currentUserId.Value,
+            DateTime.Now,
+            isCannotTest: true,
+            reportedByRole: "Technician"
+        );
+
+        await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
+
+        // Update indicator status to CannotTest
+        indicator.ApprovalStatus = IndicatorApprovalStatus.CannotTest;
+        indicator.RejectionReason = input.Reason;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
+
+        // Update task status to UnderEvaluation (chuyển về QLKT đánh giá)
+        task.Status = LaboratoryTaskStatus.UnderEvaluation;
+        await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+
+        // Send notification to Technical Manager
+        if (task.TechnicalManagerId.HasValue)
+        {
+            // Get indicator info through TestRequestSampleIndicator
+            var sampleIndicator = await _sampleIndicatorRepository.FirstOrDefaultAsync(x => x.Id == indicator.TestRequestSampleIndicatorId);
+            var indicatorEntity = sampleIndicator != null
+                ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
+                : null;
+            var indicatorName = indicatorEntity?.Name ?? "Không xác định";
+            var senderName = await _userNameProvider.GetUserNameAsync(currentUserId.Value) ?? "KTV";
+
+            // Get sample info for notification
+            var sample = sampleIndicator != null
+                ? await _sampleRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.TestRequestSampleId)
+                : null;
+            var sampleName = sample?.SampleName ?? "";
+
+            var methodName = indicator.MethodId.HasValue
+                ? (await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == indicator.MethodId.Value))?.Name ?? ""
+                : "";
+
+            // Use existing notification method for single indicator
+            await _notificationCreator.NotifyIndicatorSubmittedToTechnicalManagerAsync(
+                task.TechnicalManagerId.Value,
+                task.ContractNumber ?? "",
+                task.TestRequestId,
+                senderName,
+                1,
+                task.RequestCompletionDate,
+                sampleName,
+                $"[Không TN được] {indicatorName}",
+                methodName
+            );
+        }
+
+        // Build and return indicator DTO
+        return await BuildIndicatorDtoAsync(indicator, task);
+    }
+
+    /// <summary>
+    /// Upload hình ảnh cho rejection history
+    /// </summary>
+    public async Task<RejectionHistoryImageDto> UploadRejectionHistoryImageAsync(
+        Guid rejectionHistoryId,
+        string fileId,
+        string fileName,
+        string filePath,
+        long fileSize)
+    {
+        // Validate rejection history exists
+        var rejectionHistory = await _rejectionHistoryRepository.FirstOrDefaultAsync(x => x.Id == rejectionHistoryId);
+        if (rejectionHistory == null)
+        {
+            throw new EntityNotFoundException("IndicatorRejectionHistory", rejectionHistoryId);
+        }
+
+        // Check max images (5)
+        var existingImages = await _rejectionHistoryImageRepository.GetListAsync(x => x.RejectionHistoryId == rejectionHistoryId);
+        if (existingImages.Count >= 5)
+        {
+            throw new ValidationException("images", "Số lượng hình ảnh tối đa là 5");
+        }
+
+        // Create image record
+        var image = new RejectionHistoryImage(
+            _guidGenerator.Create(),
+            rejectionHistoryId,
+            fileId,
+            fileName,
+            filePath,
+            fileSize
+        );
+
+        await _rejectionHistoryImageRepository.InsertAsync(image);
+
+        return new RejectionHistoryImageDto
+        {
+            Id = image.Id,
+            RejectionHistoryId = image.RejectionHistoryId,
+            FileId = image.FileId,
+            FileName = image.FileName,
+            FileSize = image.FileSize,
+            Url = $"/{image.FilePath.Replace("\\", "/")}",
+            CreationTime = image.CreationTime,
+            CreatorId = image.CreatorId
+        };
+    }
+
+    /// <summary>
+    /// Xóa hình ảnh rejection history
+    /// </summary>
+    public async Task DeleteRejectionHistoryImageAsync(Guid imageId)
+    {
+        var image = await _rejectionHistoryImageRepository.FirstOrDefaultAsync(x => x.Id == imageId);
+        if (image == null)
+        {
+            throw new EntityNotFoundException("RejectionHistoryImage", imageId);
+        }
+
+        await _rejectionHistoryImageRepository.DeleteAsync(image);
+    }
+
+    /// <summary>
+    /// Build indicator DTO from entity
+    /// </summary>
+    private async Task<TestingIndicatorDto> BuildIndicatorDtoAsync(LaboratoryTaskIndicator taskIndicator, LaboratoryTask task)
+    {
+        // Get related data
+        var sampleIndicator = await _sampleIndicatorRepository.FirstOrDefaultAsync(x =>
+            x.Id == taskIndicator.TestRequestSampleIndicatorId);
+
+        var indicator = sampleIndicator != null
+            ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
+            : null;
+
+        var method = taskIndicator.MethodId.HasValue
+            ? await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.MethodId.Value)
+            : null;
+        var methodName = method?.Name;
+        var methodFormattedName = method?.FormattedName;
+
+        var technicianName = taskIndicator.TechnicianId.HasValue
+            ? await _userNameProvider.GetUserNameAsync(taskIndicator.TechnicianId.Value)
+            : null;
+
+        // Get rejection histories
+        var rejectionHistories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == taskIndicator.Id);
+        var latestRejection = rejectionHistories.OrderByDescending(h => h.RejectedDate).FirstOrDefault();
+
+        // Get indicator images
+        var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
+        // Get standard info
+        string? standardName = null;
+        string? limitDescription = null;
+        string? comparisonOperator = null;
+        string? allowedLimit = null;
+
+        if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
+        {
+            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.StandardId.Value);
+            standardName = standard?.Name;
+
+            var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(x =>
+                x.StandardId == taskIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+
+            if (standardIndicator != null)
+            {
+                // Build limitDescription from ComparisonOperator and AllowedLimit
+                if (!string.IsNullOrEmpty(standardIndicator.ComparisonOperator) && !string.IsNullOrEmpty(standardIndicator.AllowedLimit))
+                {
+                    limitDescription = $"{standardIndicator.ComparisonOperator} {standardIndicator.AllowedLimit}";
+                }
+                comparisonOperator = standardIndicator.ComparisonOperator;
+                allowedLimit = standardIndicator.AllowedLimit;
+            }
+        }
+
+        // Get unit from standardIndicator or taskIndicator
+        string? unit = null;
+        if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
+        {
+            var standardIndicatorForUnit = await _standardIndicatorRepository.FirstOrDefaultAsync(x =>
+                x.StandardId == taskIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+            unit = standardIndicatorForUnit?.Unit;
+        }
+
+        // Calculate testing status
+        var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
+
+        return new TestingIndicatorDto
+        {
+            Id = taskIndicator.Id,
+            TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
+            IndicatorId = sampleIndicator?.IndicatorId ?? Guid.Empty,
+            IndicatorName = indicator?.Name,
+            IndicatorFormattedName = indicator?.FormattedName,
+            MethodId = taskIndicator.MethodId,
+            MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
+            Unit = unit,
+            Result = taskIndicator.Result,
+            Note = taskIndicator.FreeTextNote,
+            EntryDate = taskIndicator.EntryDate,
+            AssignedDate = taskIndicator.AssignedDate,
+            StartDate = taskIndicator.TestDate,
+            TestDate = taskIndicator.TestDate,
+            SubmitDate = taskIndicator.SubmitDate,
+            CompletionDate = taskIndicator.ApprovalDate,
+            ApprovalStatus = taskIndicator.ApprovalStatus,
+            TestingStatus = indicatorTestingStatus,
+            LatestRejectionReason = latestRejection?.RejectionReason ?? taskIndicator.RejectionReason,
+            RejectionHistoryCount = rejectionHistories.Count,
+            TechnicianId = taskIndicator.TechnicianId,
+            TechnicianName = technicianName,
+            CanEdit = false, // Cannot edit after marking cannot test
+            CanCheckIn = false,
+            CanSubmit = false,
+            Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList(),
+            StandardId = taskIndicator.StandardId,
+            StandardName = standardName,
+            LimitDescription = limitDescription,
+            ComparisonOperator = comparisonOperator,
+            AllowedLimit = allowedLimit
+        };
+    }
+
+    #endregion
+
+    #region Sample Assignment Log
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - query từ LaboratoryTaskIndicator
+    /// Không yêu cầu QualityManagementTask đã tạo
+    /// </summary>
+    public async Task<PagedResultDto<QualityManagement.SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(QualityManagement.GetSampleAssignmentLogInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        // Get queryables
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+
+        // Build base query from LaboratoryTaskIndicator (without user joins - resolve names later)
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
+                    from tm in tmJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        // TestRequest info
+                        TestRequestId = tr.Id,
+                        LaboratoryTaskId = lt.Id,
+                        ContractNumber = tr.ContractNumber,
+                        TestRequestStatus = tr.Status,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+
+                        // Sample info
+                        SampleId = s.Id,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        SampleQuantity = s.SampleQuantity,
+                        SampleStatusText = s.StatusText,
+
+                        // Indicator info
+                        TestRequestSampleIndicatorId = si.Id,
+                        LaboratoryTaskIndicatorId = li.Id,
+                        IndicatorName = mi.Name,
+                        IndicatorFormattedName = mi.FormattedName,
+                        MethodName = tm != null ? tm.Name : null,
+                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        Unit = li.Unit,
+                        TransferDate = si.TransferDate,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+
+                        // Assignment info (user IDs - resolve names later)
+                        TechnicalManagerId = lt.TechnicalManagerId,
+                        TechnicianId = li.TechnicianId,
+                        EntryDate = li.EntryDate,
+                        QlktApprovalDate = li.ApprovalDate,
+
+                        // Status
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+
+                        // Laboratory info (for filtering)
+                        LaboratoryId = lt.LaboratoryId
+                    };
+
+        // Apply user access control (same as GetListAsync)
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(
+                s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id)
+                    .ToHashSet();
+            }
+
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                userLabIds.Contains(x.LaboratoryId));
+        }
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.TestRequestStatus.HasValue)
+        {
+            query = query.Where(x => x.TestRequestStatus == input.TestRequestStatus.Value);
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        if (input.LaboratoryId.HasValue)
+        {
+            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+        }
+
+        var totalCount = query.Count();
+
+        // Apply sorting
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+
+        var sortedQuery = sortingKey switch
+        {
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+        };
+
+        // Pagination
+        var items = sortedQuery.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+
+        // Resolve user names
+        var userIds = items
+            .SelectMany(x => new[] { x.TechnicalManagerId, x.TechnicianId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var userNameMap = new Dictionary<Guid, string>();
+        foreach (var userId in userIds)
+        {
+            var userName = await _userNameProvider.GetUserNameAsync(userId);
+            if (userName != null) userNameMap[userId] = userName;
+        }
+
+        // Map to DTOs
+        var dtos = items.Select(x => new QualityManagement.SampleAssignmentLogDto
+        {
+            TestRequestId = x.TestRequestId,
+            QualityTaskId = Guid.Empty,
+            LaboratoryTaskId = x.LaboratoryTaskId,
+            ContractNumber = x.ContractNumber,
+            TestRequestStatus = x.TestRequestStatus,
+            RequestCompletionDate = x.RequestCompletionDate,
+            SampleId = x.SampleId,
+            SampleCode = x.SampleCode,
+            SampleName = x.SampleName,
+            SampleQuantity = x.SampleQuantity,
+            SampleStatusText = x.SampleStatusText,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            IndicatorName = x.IndicatorName,
+            IndicatorFormattedName = x.IndicatorFormattedName,
+            MethodName = x.MethodName,
+            MethodFormattedName = x.MethodFormattedName,
+            Unit = x.Unit,
+            TransferDate = x.TransferDate,
+            TestDate = x.TestDate,
+            Result = x.Result,
+            TechnicalManagerName = x.TechnicalManagerId.HasValue && userNameMap.ContainsKey(x.TechnicalManagerId.Value)
+                ? userNameMap[x.TechnicalManagerId.Value] : null,
+            TechnicianName = x.TechnicianId.HasValue && userNameMap.ContainsKey(x.TechnicianId.Value)
+                ? userNameMap[x.TechnicianId.Value] : null,
+            EntryDate = x.EntryDate,
+            QlktApprovalDate = x.QlktApprovalDate,
+            IndicatorApprovalStatus = x.IndicatorApprovalStatus,
+            TestingStatus = MapTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
+            QualityApprovalStatus = null,
+            IsReportPublished = false
+        }).ToList();
+
+        return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalCount, dtos);
+    }
+
+    private static TestingStatus? MapTestingStatus(
+        IndicatorApprovalStatus approvalStatus,
+        DateTime? testDate,
+        string? result)
+    {
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? TestingStatus.Completed
+                : TestingStatus.PendingApproval;
+        }
+
+        if (testDate.HasValue)
+        {
+            return TestingStatus.InProgress;
+        }
+
+        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
+            ? TestingStatus.NotStarted
+            : null;
     }
 
     #endregion

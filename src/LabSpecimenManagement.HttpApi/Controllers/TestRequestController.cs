@@ -212,7 +212,7 @@ public class TestRequestController : LabSpecimenManagementController
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
     public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, [FromBody] PrintSingleDto input)
     {
-        return _testRequestAppService.PrintSingleResultAsync(id, input.IndicatorId, input.Note, input.TemplateName);
+        return _testRequestAppService.PrintSingleResultAsync(id, input.IndicatorId, input.Note, input.TemplateName, input.VicePresidentId);
     }
 
     /// <summary>
@@ -222,7 +222,18 @@ public class TestRequestController : LabSpecimenManagementController
     [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
     public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, [FromBody] PrintMixedDto input)
     {
-        return _testRequestAppService.PrintMixedResultAsync(id, input.IndicatorIds, input.Note, input.TemplateName);
+        return _testRequestAppService.PrintMixedResultAsync(id, input.IndicatorIds, input.Note, input.TemplateName, input.VicePresidentId);
+    }
+
+    /// <summary>
+    /// Print multiple indicators with multiple templates (batch processing)
+    /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
+    /// </summary>
+    [HttpPost("{id}/print-multi-single")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid id, [FromBody] PrintMultiSingleDto input)
+    {
+        return _testRequestAppService.PrintMultiSingleResultAsync(id, input);
     }
 
     /// <summary>

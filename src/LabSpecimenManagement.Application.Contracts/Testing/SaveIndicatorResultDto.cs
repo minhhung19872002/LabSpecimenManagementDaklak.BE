@@ -32,6 +32,11 @@ public class SaveIndicatorResultDto
     /// Ghi chú - Note
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Ngày thử nghiệm - Test Date (bắt buộc khi gửi duyệt)
+    /// </summary>
+    public DateTime? TestDate { get; set; }
 }
 
 /// <summary>
@@ -83,9 +88,25 @@ public class SubmitResultsInput
     public Guid SampleId { get; set; }
 
     /// <summary>
-    /// Danh sách indicator IDs cần gửi kết quả
+    /// Danh sách indicator cần gửi kết quả (bao gồm TestDate)
     /// </summary>
-    public List<Guid> IndicatorIds { get; set; } = new();
+    public List<SubmitIndicatorInput> Indicators { get; set; } = new();
+}
+
+/// <summary>
+/// Input for single indicator submission
+/// </summary>
+public class SubmitIndicatorInput
+{
+    /// <summary>
+    /// LaboratoryTaskIndicator ID
+    /// </summary>
+    public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// Ngày thử nghiệm - bắt buộc
+    /// </summary>
+    public DateTime TestDate { get; set; }
 }
 
 /// <summary>

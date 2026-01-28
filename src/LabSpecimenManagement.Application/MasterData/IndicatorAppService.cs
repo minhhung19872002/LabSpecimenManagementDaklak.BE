@@ -19,7 +19,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.Indicators.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorAppService : ApplicationService, IIndicatorAppService
 {
     private const string CodePrefix = "CT";
@@ -54,6 +54,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var query = await _indicatorRepository.GetQueryableAsync();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+
+        // Filter: Only get root indicators (ParentIndicatorId == null)
+        query = query.Where(x => x.ParentIndicatorId == null);
 
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
@@ -90,7 +93,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             .Take(input.MaxResultCount)
             .ToList();
 
-        var dtos = await MapToDtosAsync(items);
+        var dtos = await MapToDtosWithSubIndicatorsAsync(items);
 
         return new PagedResultDto<IndicatorDto>(totalCount, dtos);
     }
@@ -101,7 +104,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<IndicatorDto> CreateAsync(CreateIndicatorDto input)
     {
         // Validate group exists
@@ -111,7 +114,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var entity = new Indicator(GuidGenerator.Create(), code, input.Name, input.IndicatorGroupId)
         {
             IsActive = input.IsActive,
-            SortOrder = input.SortOrder
+            SortOrder = input.SortOrder,
+            FormattedName = SanitizeHtml(input.FormattedName)
         };
 
         await _indicatorRepository.InsertAsync(entity);
@@ -119,7 +123,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<List<IndicatorDto>> CreateBulkAsync(CreateBulkIndicatorsDto input)
     {
         // Validate group exists
@@ -143,28 +147,66 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 .Max() + 1;
         }
 
-        for (int i = 0; i < input.Indicators.Count; i++)
+        foreach (var item in input.Indicators)
         {
-            var item = input.Indicators[i];
-
-            // Generate code and add to existingCodes to prevent duplicates in same batch
-            var code = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
-            existingCodes.Add(code);
+            // 1. Create parent indicator
+            var parentCode = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
+            existingCodes.Add(parentCode);
             nextSequence++;
 
-            var entity = new Indicator(GuidGenerator.Create(), code, item.Name, input.IndicatorGroupId)
+            var parentEntity = new Indicator(
+                GuidGenerator.Create(),
+                parentCode,
+                item.Name,
+                input.IndicatorGroupId,
+                parentIndicatorId: null
+            )
             {
-                IsActive = true
+                IsActive = true,
+                FormattedName = !string.IsNullOrWhiteSpace(item.FormattedName)
+                    ? SanitizeHtml(item.FormattedName)
+                    : item.Name
             };
 
-            await _indicatorRepository.InsertAsync(entity, autoSave: true);
-            results.Add(entity);
+            await _indicatorRepository.InsertAsync(parentEntity, autoSave: true);
+            results.Add(parentEntity);
+
+            // 2. Create sub-indicators if any
+            if (item.SubIndicators != null && item.SubIndicators.Count > 0)
+            {
+                var subSequence = 1;
+
+                foreach (var subItem in item.SubIndicators)
+                {
+                    var subCode = GenerateSubIndicatorCode(parentCode, subSequence);
+                    existingCodes.Add(subCode);
+                    subSequence++;
+
+                    var subEntity = new Indicator(
+                        GuidGenerator.Create(),
+                        subCode,
+                        subItem.Name,
+                        input.IndicatorGroupId,
+                        parentIndicatorId: parentEntity.Id
+                    )
+                    {
+                        IsActive = true,
+                        FormattedName = !string.IsNullOrWhiteSpace(subItem.FormattedName)
+                            ? SanitizeHtml(subItem.FormattedName)
+                            : subItem.Name,
+                        SortOrder = subSequence
+                    };
+
+                    await _indicatorRepository.InsertAsync(subEntity, autoSave: true);
+                    results.Add(subEntity);
+                }
+            }
         }
 
         return await MapToDtosAsync(results);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<IndicatorDto> UpdateAsync(Guid id, UpdateIndicatorDto input)
     {
         var entity = await _indicatorRepository.GetAsync(id);
@@ -173,6 +215,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
 
         entity.Name = input.Name;
+        entity.FormattedName = SanitizeHtml(input.FormattedName);
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
         entity.SortOrder = input.SortOrder;
@@ -182,9 +225,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtoAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public async Task DeleteAsync(Guid id)
     {
+        var indicator = await _indicatorRepository.GetAsync(id);
+
+        // Check if can delete
         var canDelete = await CanDeleteAsync(id);
         if (!canDelete)
         {
@@ -193,6 +239,31 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 "id");
         }
 
+        // If this is a parent, delete all sub-indicators first
+        if (indicator.ParentIndicatorId == null)
+        {
+            var query = await _indicatorRepository.GetQueryableAsync();
+            var subIndicators = query.Where(x => x.ParentIndicatorId == id).ToList();
+
+            // Check if any sub-indicator is used
+            foreach (var sub in subIndicators)
+            {
+                var canDeleteSub = await CanDeleteAsync(sub.Id);
+                if (!canDeleteSub)
+                {
+                    throw new UserFriendlyException(
+                        $"Không thể xóa vì chỉ tiêu phụ '{sub.Name}' đã được sử dụng trong phiếu yêu cầu.");
+                }
+            }
+
+            // Delete all sub-indicators
+            foreach (var sub in subIndicators)
+            {
+                await _indicatorRepository.DeleteAsync(sub.Id);
+            }
+        }
+
+        // Delete parent or standalone indicator
         await _indicatorRepository.DeleteAsync(id);
     }
 
@@ -202,7 +273,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return !query.Any(x => x.IndicatorId == id);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<IndicatorDto> ToggleActiveAsync(Guid id)
     {
         var entity = await _indicatorRepository.GetAsync(id);
@@ -227,15 +298,18 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     public async Task<List<IndicatorDto>> GetActiveIndicatorsAsync()
     {
         var query = await _indicatorRepository.GetQueryableAsync();
-        var items = query
+        // Only get parent indicators (no parentIndicatorId)
+        var parentIndicators = query
+            .Where(x => x.ParentIndicatorId == null)
             .WhereActive()
             .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
-        return await MapToDtosAsync(items);
+        // Map with sub-indicators included
+        return await MapToDtosWithSubIndicatorsAsync(parentIndicators);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public async Task<ImportIndicatorsResultDto> ImportFromExcelAsync(Stream fileStream, string fileName)
     {
         var result = new ImportIndicatorsResultDto();
@@ -434,6 +508,38 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     }
 
     /// <summary>
+    /// Generate code for sub-indicator: CT-0001 → CT-0001-01
+    /// </summary>
+    private string GenerateSubIndicatorCode(string parentCode, int sequenceNumber)
+    {
+        return $"{parentCode}-{sequenceNumber.ToString("D2")}";
+    }
+
+    /// <summary>
+    /// Get next sub-indicator sequence for a parent
+    /// </summary>
+    private async Task<int> GetNextSubIndicatorSequenceAsync(Guid parentIndicatorId)
+    {
+        var query = await _indicatorRepository.GetQueryableAsync();
+
+        var maxSequence = query
+            .Where(x => x.ParentIndicatorId == parentIndicatorId)
+            .Select(x => x.Code)
+            .ToList()
+            .Select(code =>
+            {
+                var parts = code.Split('-');
+                if (parts.Length == 3 && int.TryParse(parts[2], out var num))
+                    return num;
+                return 0;
+            })
+            .DefaultIfEmpty(0)
+            .Max();
+
+        return maxSequence + 1;
+    }
+
+    /// <summary>
     /// Get all existing codes including soft deleted records to avoid duplicate code violation
     /// </summary>
     private async Task<HashSet<string>> GetAllExistingCodesAsync()
@@ -523,7 +629,69 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return dtos;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    /// <summary>
+    /// Map parent indicators with their sub-indicators
+    /// </summary>
+    private async Task<List<IndicatorDto>> MapToDtosWithSubIndicatorsAsync(List<Indicator> parentIndicators)
+    {
+        var parentIds = parentIndicators.Select(x => x.Id).ToList();
+
+        // Load all sub-indicators in one query (avoid N+1)
+        var subIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var allSubIndicators = subIndicatorQuery
+            .Where(x => x.ParentIndicatorId.HasValue && parentIds.Contains(x.ParentIndicatorId.Value))
+            .OrderBy(x => x.SortOrder)
+            .ThenBy(x => x.Code)
+            .ToList();
+
+        // Group by parent
+        var subIndicatorsByParent = allSubIndicators
+            .GroupBy(x => x.ParentIndicatorId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Get group names
+        var groupIds = parentIndicators.Select(x => x.IndicatorGroupId).Distinct().ToList();
+        var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+        var groups = groupQuery.Where(x => groupIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name);
+
+        // Check deletability for all indicators (parents + subs)
+        var allIndicatorIds = parentIds.Concat(allSubIndicators.Select(x => x.Id)).ToList();
+        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        var usedIndicatorIds = testRequestIndicatorQuery
+            .Where(x => allIndicatorIds.Contains(x.IndicatorId))
+            .Select(x => x.IndicatorId)
+            .Distinct()
+            .ToList();
+
+        var dtos = new List<IndicatorDto>();
+
+        foreach (var parent in parentIndicators)
+        {
+            var dto = ObjectMapper.Map<Indicator, IndicatorDto>(parent);
+            dto.IndicatorGroupName = groups.GetValueOrDefault(parent.IndicatorGroupId, "");
+            dto.CanDelete = !usedIndicatorIds.Contains(parent.Id);
+            dto.HasSubIndicators = subIndicatorsByParent.ContainsKey(parent.Id);
+
+            // Map sub-indicators
+            if (subIndicatorsByParent.TryGetValue(parent.Id, out var subs))
+            {
+                dto.SubIndicators = subs.Select(sub =>
+                {
+                    var subDto = ObjectMapper.Map<Indicator, IndicatorDto>(sub);
+                    subDto.IndicatorGroupName = groups.GetValueOrDefault(sub.IndicatorGroupId, "");
+                    subDto.CanDelete = !usedIndicatorIds.Contains(sub.Id);
+                    subDto.ParentIndicatorCode = parent.Code;
+                    return subDto;
+                }).ToList();
+            }
+
+            dtos.Add(dto);
+        }
+
+        return dtos;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public async Task<BatchOperationResultDto> DeleteBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto
@@ -565,7 +733,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return result;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<BatchOperationResultDto> DeactivateBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto
@@ -586,7 +754,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return result;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<BatchOperationResultDto> ActivateBatchAsync(BatchIndicatorIdsDto input)
     {
         var result = new BatchOperationResultDto
@@ -654,6 +822,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 Id = indicator.Id,
                 Code = indicator.Code,
                 Name = indicator.Name,
+                FormattedName = indicator.FormattedName,
                 IndicatorGroupId = indicator.IndicatorGroupId,
                 IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId, ""),
                 IsActive = indicator.IsActive,
@@ -687,5 +856,67 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Sanitize HTML to only allow safe formatting tags (bold, italic, underline, sub, sup)
+    /// </summary>
+    private static string? SanitizeHtml(string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            return null;
+        }
+
+        // Allowed tags for text formatting
+        var allowedTags = new[] { "b", "strong", "i", "em", "u", "sub", "sup", "br" };
+
+        // Simple sanitization: remove all tags except allowed ones
+        // For production, consider using HtmlSanitizer library
+        var result = html;
+
+        // Remove script tags and their content
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"<script[^>]*>[\s\S]*?</script>",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove style tags and their content
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"<style[^>]*>[\s\S]*?</style>",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove event handlers (onclick, onerror, etc.)
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"\s*on\w+\s*=\s*[""'][^""']*[""']",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Remove javascript: protocol
+        result = System.Text.RegularExpressions.Regex.Replace(
+            result,
+            @"javascript\s*:",
+            "",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+
+        // Only keep allowed tags - remove others but keep their content
+        var tagPattern = @"</?([a-zA-Z][a-zA-Z0-9]*)[^>]*>";
+        result = System.Text.RegularExpressions.Regex.Replace(result, tagPattern, match =>
+        {
+            var tagName = match.Groups[1].Value.ToLower();
+            if (allowedTags.Contains(tagName))
+            {
+                // Keep allowed tags but remove any attributes
+                var isClosing = match.Value.StartsWith("</");
+                return isClosing ? $"</{tagName}>" : $"<{tagName}>";
+            }
+            return ""; // Remove disallowed tags
+        });
+
+        return result.Trim();
     }
 }

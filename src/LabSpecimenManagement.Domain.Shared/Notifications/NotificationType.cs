@@ -146,7 +146,12 @@ public enum NotificationType
     /// <summary>
     /// QLKT từ chối nhiều kết quả thử nghiệm của KTV
     /// </summary>
-    MultipleResultsRejectedByTechnicalManager = 34
+    MultipleResultsRejectedByTechnicalManager = 34,
+
+    /// <summary>
+    /// KTV báo không thể thử nghiệm chỉ tiêu (gửi cho QLKT)
+    /// </summary>
+    CannotTest = 35
 
     #endregion
 }

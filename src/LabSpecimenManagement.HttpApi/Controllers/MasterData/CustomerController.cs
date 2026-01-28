@@ -12,7 +12,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/customers")]
-[Authorize(LabSpecimenManagementPermissions.Customers.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class CustomerController : LabSpecimenManagementController
 {
     private readonly ICustomerAppService _customerAppService;
@@ -41,21 +41,21 @@ public class CustomerController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.Customers.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<CustomerDto> CreateAsync([FromBody] CreateUpdateCustomerDto input)
     {
         return _customerAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Customers.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<CustomerDto> UpdateAsync(Guid id, [FromBody] CreateUpdateCustomerDto input)
     {
         return _customerAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Customers.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _customerAppService.DeleteAsync(id);

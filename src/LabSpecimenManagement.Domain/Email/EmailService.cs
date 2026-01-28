@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Mail;
 using System.Threading.Tasks;
@@ -21,6 +24,27 @@ public class EmailService : IEmailService, ITransientDependency
 
     public async Task SendEmailAsync(string to, string subject, string body, bool isHtml = true)
     {
+        await SendEmailAsync(new[] { to }, null, subject, body, isHtml);
+    }
+
+    public async Task SendEmailAsync(IEnumerable<string> to, IEnumerable<string>? cc, string subject, string body, bool isHtml = true)
+    {
+        await SendEmailWithAttachmentAsync(to, cc, subject, body, null, null, isHtml);
+    }
+
+    public async Task SendEmailWithAttachmentAsync(IEnumerable<string> to, IEnumerable<string>? cc, string subject, string body, byte[]? attachmentData, string? attachmentFileName, bool isHtml = true)
+    {
+        // Validate email settings
+        if (string.IsNullOrWhiteSpace(_settings.FromEmail))
+        {
+            throw new InvalidOperationException("Email settings chưa được cấu hình. Vui lòng kiểm tra cấu hình EmailSettings:FromEmail trong appsettings.json");
+        }
+
+        if (string.IsNullOrWhiteSpace(_settings.SmtpHost))
+        {
+            throw new InvalidOperationException("Email settings chưa được cấu hình. Vui lòng kiểm tra cấu hình EmailSettings:SmtpHost trong appsettings.json");
+        }
+
         try
         {
             using var client = new SmtpClient(_settings.SmtpHost, _settings.SmtpPort)
@@ -36,14 +60,40 @@ public class EmailService : IEmailService, ITransientDependency
                 Body = body,
                 IsBodyHtml = isHtml
             };
-            mailMessage.To.Add(to);
+
+            foreach (var toEmail in to)
+            {
+                if (!string.IsNullOrWhiteSpace(toEmail))
+                {
+                    mailMessage.To.Add(toEmail.Trim());
+                }
+            }
+
+            if (cc != null)
+            {
+                foreach (var ccEmail in cc)
+                {
+                    if (!string.IsNullOrWhiteSpace(ccEmail))
+                    {
+                        mailMessage.CC.Add(ccEmail.Trim());
+                    }
+                }
+            }
+
+            // Add attachment if provided
+            if (attachmentData != null && !string.IsNullOrEmpty(attachmentFileName))
+            {
+                var stream = new MemoryStream(attachmentData);
+                var attachment = new Attachment(stream, attachmentFileName, "application/pdf");
+                mailMessage.Attachments.Add(attachment);
+            }
 
             await client.SendMailAsync(mailMessage);
-            _logger.LogInformation("Email sent successfully to {Email}", to);
+            _logger.LogInformation("Email sent successfully to {Emails}", string.Join(", ", to));
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Failed to send email to {Email}", to);
+            _logger.LogError(ex, "Failed to send email to {Emails}", string.Join(", ", to));
             throw;
         }
     }

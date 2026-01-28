@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
@@ -19,7 +20,9 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
 using Volo.Abp.Users;
 
 namespace LabSpecimenManagement.ResultForms;
@@ -34,6 +37,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<SampleIndicatorNote, Guid> _sampleIndicatorNoteRepository;
@@ -43,6 +48,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly ICurrentUser _currentUser;
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<ResultFormAppService> _logger;
+    private readonly IIdentityUserRepository _userRepository;
 
     // Template constants are defined in TemplateConstants class
     // Use TemplateConstants.StandardBasedTemplates for single indicator templates
@@ -55,6 +61,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<QualityManagementTask, Guid> qualityTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
@@ -63,7 +71,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         INotificationCreator notificationCreator,
         ICurrentUser currentUser,
         IPdfConversionService pdfConversionService,
-        ILogger<ResultFormAppService> logger)
+        ILogger<ResultFormAppService> logger,
+        IIdentityUserRepository userRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -72,6 +81,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
         _qualityTaskRepository = qualityTaskRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _sampleIndicatorNoteRepository = sampleIndicatorNoteRepository;
@@ -81,6 +92,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _currentUser = currentUser;
         _pdfConversionService = pdfConversionService;
         _logger = logger;
+        _userRepository = userRepository;
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -144,8 +156,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
-            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" }
+            { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
+            { "{{Conclude}}", "" }
         };
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // 3. Build table data
         var tableData = new List<ResultFormTableRow>();
@@ -166,8 +191,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = taskIndicator?.Unit ?? "",
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",  // Standards removed from TestMethod entity
                 Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
@@ -229,10 +256,68 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
+    /// Get Vice President full name by user ID
+    /// Returns empty string if not provided or user not found
+    /// </summary>
+    private async Task<string> GetVicePresidentFullNameAsync(Guid? vicePresidentId)
+    {
+        if (!vicePresidentId.HasValue)
+        {
+            return "";
+        }
+
+        var user = await _userRepository.FindAsync(vicePresidentId.Value);
+        if (user == null)
+        {
+            return "";
+        }
+
+        var fullName = $"{user.Surname} {user.Name}".Trim();
+        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+    }
+
+    /// <summary>
+    /// Get Officer In Charge name from LaboratoryTaskIndicators
+    /// Logic:
+    /// - Get all unique ApprovedById from selected indicators
+    /// - If exactly 1 approver: return full name (Surname + Name)
+    /// - If 0 or multiple approvers: return empty string
+    /// </summary>
+    private async Task<string> GetOfficerInChargeNameAsync(IEnumerable<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (taskIndicators == null || !taskIndicators.Any())
+        {
+            return "";
+        }
+
+        var approverIds = taskIndicators
+            .Where(i => i.ApprovedById.HasValue)
+            .Select(i => i.ApprovedById!.Value)
+            .Distinct()
+            .ToList();
+
+        // Only show name if exactly 1 approver
+        if (approverIds.Count != 1)
+        {
+            return "";
+        }
+
+        var user = await _userRepository.FindAsync(approverIds[0]);
+        if (user == null)
+        {
+            return "";
+        }
+
+        var fullName = $"{user.Surname} {user.Name}".Trim();
+        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+    }
+
+    /// <summary>
     /// Calculate TimeOfTesting from a list of LaboratoryTaskIndicators
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
-    /// - Start date = Min(TestDate) of all indicators
-    /// - End date = Max(SubmitDate) of all indicators
+    /// - Start date = Min(TestDate) of all indicators (thời gian thử nghiệm gần nhất)
+    /// - End date = Max(TestDate) of all indicators (thời gian thử nghiệm xa nhất)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
     /// </summary>
     private string CalculateTimeOfTesting(List<LaboratoryTaskIndicator> taskIndicators)
     {
@@ -241,41 +326,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             return "";
         }
 
-        // Get Min TestDate (ngày bắt đầu thử nghiệm sớm nhất)
+        // Get Min TestDate (ngày thử nghiệm sớm nhất - chỉ tiêu gần nhất)
         var minTestDate = taskIndicators
             .Where(ti => ti.TestDate.HasValue)
             .Select(ti => ti.TestDate!.Value)
             .DefaultIfEmpty()
             .Min();
 
-        // Get Max SubmitDate (ngày gửi kết quả muộn nhất)
-        var maxSubmitDate = taskIndicators
-            .Where(ti => ti.SubmitDate.HasValue)
-            .Select(ti => ti.SubmitDate!.Value)
+        // Get Max TestDate (ngày thử nghiệm muộn nhất - chỉ tiêu xa nhất)
+        var maxTestDate = taskIndicators
+            .Where(ti => ti.TestDate.HasValue)
+            .Select(ti => ti.TestDate!.Value)
             .DefaultIfEmpty()
             .Max();
 
-        // Format result
-        if (minTestDate == default && maxSubmitDate == default)
+        // Format result - always show both dates
+        if (minTestDate == default && maxTestDate == default)
         {
             return "";
         }
         else if (minTestDate == default)
         {
-            return maxSubmitDate.ToString("dd/MM/yyyy");
+            // Only have max date, show it twice
+            return $"{maxTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
         }
-        else if (maxSubmitDate == default)
+        else if (maxTestDate == default)
         {
-            return minTestDate.ToString("dd/MM/yyyy");
-        }
-        else if (minTestDate.Date == maxSubmitDate.Date)
-        {
-            // Same date, show only one
-            return minTestDate.ToString("dd/MM/yyyy");
+            // Only have min date, show it twice
+            return $"{minTestDate:dd/MM/yyyy} - {minTestDate:dd/MM/yyyy}";
         }
         else
         {
-            return $"{minTestDate:dd/MM/yyyy} - {maxSubmitDate:dd/MM/yyyy}";
+            // Always show both dates (even if same day: "07/01/2025 - 07/01/2025")
+            return $"{minTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
         }
     }
 
@@ -283,7 +366,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Calculate TimeOfTesting for a single LaboratoryTaskIndicator
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
     /// - Start date = TestDate
-    /// - End date = SubmitDate
+    /// - End date = TestDate (same as start for single indicator)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
     /// </summary>
     private string CalculateTimeOfTestingForSingleIndicator(LaboratoryTaskIndicator taskIndicator)
     {
@@ -293,37 +377,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         var testDate = taskIndicator.TestDate;
-        var submitDate = taskIndicator.SubmitDate;
 
-        // Format result
-        if (!testDate.HasValue && !submitDate.HasValue)
+        // Format result - always show both dates (same for single indicator)
+        if (!testDate.HasValue)
         {
             return "";
         }
-        else if (!testDate.HasValue)
-        {
-            return submitDate!.Value.ToString("dd/MM/yyyy");
-        }
-        else if (!submitDate.HasValue)
-        {
-            return testDate.Value.ToString("dd/MM/yyyy");
-        }
-        else if (testDate.Value.Date == submitDate.Value.Date)
-        {
-            // Same date, show only one
-            return testDate.Value.ToString("dd/MM/yyyy");
-        }
         else
         {
-            return $"{testDate.Value:dd/MM/yyyy} - {submitDate.Value:dd/MM/yyyy}";
+            // Always show both dates (same date for single indicator: "07/01/2025 - 07/01/2025")
+            return $"{testDate.Value:dd/MM/yyyy} - {testDate.Value:dd/MM/yyyy}";
         }
     }
 
     private void ProcessDocument(string filePath, Dictionary<string, string> placeholders, List<ResultFormTableRow> tableData)
     {
         using var document = WordprocessingDocument.Open(filePath, true);
-        var body = document.MainDocumentPart?.Document?.Body;
-        if (body == null) return;
+        var mainPart = document.MainDocumentPart;
+        var body = mainPart?.Document?.Body;
+        if (body == null || mainPart == null) return;
 
         // Convert floating tables to inline so they flow with content
         // This fixes the issue where "Ghi chú" and footnotes overlay the data table
@@ -333,10 +405,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // This ensures the table structure is intact when we find and clone template rows
         ProcessTable(body, tableData);
 
-        // Then replace simple placeholders in all text elements
-        ReplacePlaceholdersInBody(body, placeholders);
+        // Then replace placeholders in entire document (including headers, footers, textboxes)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
 
-        document.MainDocumentPart?.Document?.Save();
+        // Fix: Ensure all table cells have explicit vertical alignment
+        // This fixes the issue where watermark in document header causes LibreOffice/Collabora
+        // to incorrectly render vertical alignment (text pushed to top instead of center)
+        EnsureTableCellVerticalAlignment(body);
+
+        mainPart.Document?.Save();
     }
 
     private void ReplacePlaceholdersInBody(Body body, Dictionary<string, string> placeholders)
@@ -345,6 +422,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var para in body.Descendants<Paragraph>())
         {
             MergeSplitPlaceholders(para);
+        }
+
+        // Merge dots that follow placeholders into the same text element
+        foreach (var para in body.Descendants<Paragraph>())
+        {
+            MergeDotsWithPlaceholders(para);
         }
 
         // Then replace placeholders
@@ -382,6 +465,47 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         {
                             RemoveContainingCellHeightConstraint(text);
                         }
+                        // For Customer placeholder, remove height constraint to allow long customer names
+                        if (placeholder.Key == "{{Customer}}" && !string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            RemoveContainingCellHeightConstraint(text);
+                        }
+
+                        // If placeholder has value, replace placeholder + surrounding dots with value + padding spaces
+                        // Keep total length same as original (placeholder + dots) to maintain layout without line break
+                        // Template: "{{CustomerName}}......" (22 chars) -> "Công ty ABC           " (22 chars with spaces)
+                        // But if value is longer than original, just use value without extra spaces (no truncation)
+                        if (!string.IsNullOrEmpty(placeholder.Value))
+                        {
+                            // Extended dot/leader pattern - includes all possible dot-like characters
+                            var dotPattern = @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+";
+
+                            // Pattern: placeholder followed by dots (most common case)
+                            var patternTrailingDots = System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + dotPattern;
+                            text.Text = System.Text.RegularExpressions.Regex.Replace(
+                                text.Text,
+                                patternTrailingDots,
+                                match =>
+                                {
+                                    var originalLength = match.Value.Length;
+                                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                                    return placeholder.Value + new string(' ', paddingNeeded);
+                                });
+
+                            // Pattern: dots before placeholder + placeholder + optional dots after
+                            var patternLeadingDots = dotPattern + @"\s*" + System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"(?:" + dotPattern + @")?";
+                            text.Text = System.Text.RegularExpressions.Regex.Replace(
+                                text.Text,
+                                patternLeadingDots,
+                                match =>
+                                {
+                                    var originalLength = match.Value.Length;
+                                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                                    return placeholder.Value + new string(' ', paddingNeeded);
+                                });
+                        }
+
+                        // Standard replacement (for cases without dots or when value is empty)
                         text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
                     }
                 }
@@ -392,6 +516,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Remove fixed height constraint from the table cell and row containing the text element
     /// This allows the cell to auto-expand when content is long
+    /// Also handles nested tables by removing height constraints from all parent rows
     /// </summary>
     private void RemoveContainingCellHeightConstraint(Text textElement)
     {
@@ -399,16 +524,38 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var cell = textElement.Ancestors<TableCell>().FirstOrDefault();
         if (cell == null) return;
 
-        // Remove cell height constraint (from TableCellProperties)
+        // Enable text wrapping in the cell (remove NoWrap if exists)
         var cellProps = cell.GetFirstChild<TableCellProperties>();
-        // Note: TableCellProperties doesn't have height, it's on TableCellVerticalAlignment
-        // The height is usually set on TableRowHeight
+        if (cellProps != null)
+        {
+            var noWrap = cellProps.GetFirstChild<NoWrap>();
+            if (noWrap != null)
+            {
+                noWrap.Remove();
+            }
+        }
 
-        // Find parent TableRow and remove its height constraint
-        var row = cell.Ancestors<TableRow>().FirstOrDefault();
-        if (row != null)
+        // Remove height constraints from ALL parent rows (including nested table parents)
+        // This is critical for cells inside nested tables where parent rows also have fixed height
+        foreach (var row in textElement.Ancestors<TableRow>())
         {
             RemoveRowHeightConstraint(row);
+            AllowPageBreakInRow(row);
+        }
+
+        // Also remove height constraints from all parent cells (for deeply nested structures)
+        foreach (var parentCell in textElement.Ancestors<TableCell>())
+        {
+            var parentCellProps = parentCell.GetFirstChild<TableCellProperties>();
+            if (parentCellProps != null)
+            {
+                // Remove NoWrap from parent cells too
+                var parentNoWrap = parentCellProps.GetFirstChild<NoWrap>();
+                if (parentNoWrap != null)
+                {
+                    parentNoWrap.Remove();
+                }
+            }
         }
     }
 
@@ -550,10 +697,114 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
     }
 
+    /// <summary>
+    /// Merge dots that follow placeholders (in separate runs) into the placeholder's text element
+    /// This ensures "{{CustomerName}}" + "..." becomes "{{CustomerName}}..." in one text element
+    /// </summary>
+    private void MergeDotsWithPlaceholders(Paragraph para)
+    {
+        var runs = para.Elements<Run>().ToList();
+        if (runs.Count < 2) return;
+
+        for (int i = 0; i < runs.Count - 1; i++)
+        {
+            var currentRun = runs[i];
+            var currentText = currentRun.GetFirstChild<Text>();
+            if (currentText == null || string.IsNullOrEmpty(currentText.Text)) continue;
+
+            // Check if current run ends with a placeholder pattern }}
+            if (!currentText.Text.EndsWith("}}")) continue;
+
+            // Look at next run(s) for dots
+            var dotsToMerge = new System.Text.StringBuilder();
+            var runsToRemove = new List<Run>();
+
+            for (int j = i + 1; j < runs.Count; j++)
+            {
+                var nextRun = runs[j];
+                var nextText = nextRun.GetFirstChild<Text>();
+                if (nextText == null || string.IsNullOrEmpty(nextText.Text)) continue;
+
+                var text = nextText.Text;
+                // Check if this run is only dots
+                var dotsOnly = true;
+                var dotsCount = 0;
+                foreach (var c in text)
+                {
+                    if (DotCharacters.Contains(c))
+                    {
+                        dotsCount++;
+                    }
+                    else
+                    {
+                        dotsOnly = false;
+                        break;
+                    }
+                }
+
+                if (dotsOnly && dotsCount > 0)
+                {
+                    // This run is all dots, merge it
+                    dotsToMerge.Append(text);
+                    runsToRemove.Add(nextRun);
+                }
+                else if (dotsCount > 0)
+                {
+                    // Run starts with dots but has other content
+                    // Take just the leading dots
+                    var leadingDots = "";
+                    foreach (var c in text)
+                    {
+                        if (DotCharacters.Contains(c))
+                            leadingDots += c;
+                        else
+                            break;
+                    }
+                    if (leadingDots.Length > 0)
+                    {
+                        dotsToMerge.Append(leadingDots);
+                        nextText.Text = text.Substring(leadingDots.Length);
+                    }
+                    break; // Stop looking for more dots
+                }
+                else
+                {
+                    // No dots found, stop
+                    break;
+                }
+            }
+
+            // Merge dots into current run
+            if (dotsToMerge.Length > 0)
+            {
+                currentText.Text += dotsToMerge.ToString();
+                foreach (var runToRemove in runsToRemove)
+                {
+                    runToRemove.Remove();
+                }
+                // Update runs list after removal
+                runs = para.Elements<Run>().ToList();
+            }
+        }
+    }
+
     private void MergeSplitPlaceholders(Paragraph para)
     {
         var runs = para.Elements<Run>().ToList();
         if (runs.Count <= 1) return;
+
+        // Check if paragraph contains Field elements (PAGE, NUMPAGES, etc.)
+        var hasFieldElements = para.Descendants<FieldChar>().Any() ||
+                               para.Descendants<FieldCode>().Any() ||
+                               para.Descendants<SimpleField>().Any();
+
+        if (hasFieldElements)
+        {
+            // For paragraphs with fields, merge only NON-field runs that are consecutive
+            // This preserves field codes while still merging split placeholders
+            MergeSplitPlaceholdersWithFields(para, runs);
+            return;
+        }
 
         // Get full text from all runs
         var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
@@ -561,7 +812,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // If no placeholder pattern, skip
         if (!fullText.Contains("{{")) return;
 
-        // Merge all text into first run's first text element
+        // Check if runs have different formatting (Bold, Italic, etc.)
+        // If so, use smart merge that preserves formatting
+        if (HasDifferentFormatting(runs))
+        {
+            MergeSplitPlaceholdersPreserveFormatting(para, runs);
+            return;
+        }
+
+        // All runs have same formatting - safe to merge all text into first run
         var firstRun = runs.First();
         var firstText = firstRun.GetFirstChild<Text>();
 
@@ -581,6 +840,358 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 t.Remove();
             }
+        }
+    }
+
+    /// <summary>
+    /// Check if runs have different formatting (Bold, Italic, Underline, etc.)
+    /// </summary>
+    private bool HasDifferentFormatting(List<Run> runs)
+    {
+        if (runs.Count <= 1) return false;
+
+        bool? firstBold = null;
+        bool? firstItalic = null;
+
+        foreach (var run in runs)
+        {
+            var props = run.RunProperties;
+            var isBold = props?.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value);
+            var isItalic = props?.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value);
+
+            if (firstBold == null)
+            {
+                firstBold = isBold;
+                firstItalic = isItalic;
+            }
+            else if (isBold != firstBold || isItalic != firstItalic)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Merge split placeholders while preserving formatting of each run.
+    /// Only merges consecutive runs with the same formatting.
+    /// </summary>
+    private void MergeSplitPlaceholdersPreserveFormatting(Paragraph para, List<Run> runs)
+    {
+        // Group consecutive runs with same formatting
+        var groups = new List<(int startIndex, int endIndex, string formatting)>();
+        int groupStart = 0;
+        string currentFormatting = GetRunFormattingKey(runs[0]);
+
+        for (int i = 1; i <= runs.Count; i++)
+        {
+            string newFormatting = i < runs.Count ? GetRunFormattingKey(runs[i]) : "";
+            if (i == runs.Count || newFormatting != currentFormatting)
+            {
+                groups.Add((groupStart, i - 1, currentFormatting));
+                groupStart = i;
+                currentFormatting = newFormatting;
+            }
+        }
+
+        // Merge each group
+        foreach (var group in groups)
+        {
+            if (group.endIndex > group.startIndex)
+            {
+                // Merge runs in this group
+                var groupText = new StringBuilder();
+                for (int i = group.startIndex; i <= group.endIndex; i++)
+                {
+                    foreach (var text in runs[i].Elements<Text>())
+                    {
+                        groupText.Append(text.Text ?? "");
+                    }
+                }
+
+                // Put merged text in first run of group
+                var firstText = runs[group.startIndex].GetFirstChild<Text>();
+                if (firstText == null)
+                {
+                    firstText = new Text();
+                    runs[group.startIndex].AppendChild(firstText);
+                }
+                firstText.Text = groupText.ToString();
+                firstText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs in group
+                for (int i = group.startIndex + 1; i <= group.endIndex; i++)
+                {
+                    foreach (var t in runs[i].Elements<Text>().ToList())
+                    {
+                        t.Remove();
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Get a key representing the formatting of a run (Bold, Italic, etc.)
+    /// </summary>
+    private string GetRunFormattingKey(Run run)
+    {
+        var props = run.RunProperties;
+        if (props == null) return "normal";
+
+        var parts = new List<string>();
+        if (props.Bold != null && (props.Bold.Val == null || props.Bold.Val.Value)) parts.Add("B");
+        if (props.Italic != null && (props.Italic.Val == null || props.Italic.Val.Value)) parts.Add("I");
+        if (props.Underline != null) parts.Add("U");
+
+        return parts.Count > 0 ? string.Join("", parts) : "normal";
+    }
+
+    /// <summary>
+    /// Merge split placeholders in paragraphs that contain field codes.
+    /// Only merges consecutive non-field runs to preserve PAGE/NUMPAGES fields.
+    /// </summary>
+    private void MergeSplitPlaceholdersWithFields(Paragraph para, List<Run> runs)
+    {
+        // Identify runs that contain field elements
+        var fieldRunIndices = new HashSet<int>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (runs[i].Descendants<FieldChar>().Any() ||
+                runs[i].Descendants<FieldCode>().Any() ||
+                runs[i].Descendants<SimpleField>().Any())
+            {
+                fieldRunIndices.Add(i);
+            }
+        }
+
+        // Find consecutive groups of non-field runs and merge them
+        int groupStart = -1;
+        for (int i = 0; i <= runs.Count; i++)
+        {
+            bool isFieldRun = i >= runs.Count || fieldRunIndices.Contains(i);
+
+            if (!isFieldRun && groupStart == -1)
+            {
+                // Start a new group
+                groupStart = i;
+            }
+            else if (isFieldRun && groupStart != -1)
+            {
+                // End current group and merge if it has multiple runs
+                int groupEnd = i - 1;
+                if (groupEnd > groupStart)
+                {
+                    MergeRunGroup(runs, groupStart, groupEnd);
+                }
+                groupStart = -1;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Merge a group of consecutive runs into the first run
+    /// </summary>
+    private void MergeRunGroup(List<Run> runs, int startIndex, int endIndex)
+    {
+        // Get full text from runs in this group
+        var groupText = new StringBuilder();
+        for (int i = startIndex; i <= endIndex; i++)
+        {
+            foreach (var text in runs[i].Elements<Text>())
+            {
+                groupText.Append(text.Text ?? "");
+            }
+        }
+
+        // If no placeholder pattern in this group, skip
+        if (!groupText.ToString().Contains("{{")) return;
+
+        // Merge all text into first run's first text element
+        var firstRun = runs[startIndex];
+        var firstText = firstRun.GetFirstChild<Text>();
+
+        if (firstText == null)
+        {
+            firstText = new Text();
+            firstRun.AppendChild(firstText);
+        }
+
+        firstText.Text = groupText.ToString();
+        firstText.Space = SpaceProcessingModeValues.Preserve;
+
+        // Remove text from other runs in group (but keep runs for formatting)
+        for (int i = startIndex + 1; i <= endIndex; i++)
+        {
+            foreach (var t in runs[i].Elements<Text>().ToList())
+            {
+                t.Remove();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Replace placeholders in header paragraphs while preserving PAGE/NUMPAGES field codes.
+    /// This handles the case where header has format: P{PAGE}/{NUMPAGES} - {{NumberOfSample}}
+    /// The field codes must be preserved for proper page numbering in the output document.
+    /// </summary>
+    private void ReplaceHeaderPlaceholdersPreservingFields(Paragraph para, Dictionary<string, string> placeholders)
+    {
+        var runs = para.Elements<Run>().ToList();
+        if (runs.Count == 0) return;
+
+        // Build a map of which runs contain field elements (skip these)
+        var fieldRunIndices = new HashSet<int>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (runs[i].Descendants<FieldChar>().Any() ||
+                runs[i].Descendants<FieldCode>().Any())
+            {
+                fieldRunIndices.Add(i);
+            }
+        }
+
+        // Collect text elements from non-field runs (keep reference to actual Text objects)
+        var textElements = new List<Text>();
+        for (int i = 0; i < runs.Count; i++)
+        {
+            if (fieldRunIndices.Contains(i)) continue;
+            textElements.AddRange(runs[i].Elements<Text>());
+        }
+
+        if (textElements.Count == 0) return;
+
+        // Get combined text from all non-field text elements
+        var combinedText = string.Concat(textElements.Select(t => t.Text ?? ""));
+
+        // Check each placeholder
+        foreach (var placeholder in placeholders)
+        {
+            if (!combinedText.Contains(placeholder.Key)) continue;
+
+            // Find position of placeholder in combined text
+            var placeholderPos = combinedText.IndexOf(placeholder.Key);
+            if (placeholderPos < 0) continue;
+
+            // Find which text elements contain the placeholder
+            int currentPos = 0;
+            int startElementIdx = -1;
+            int startPosInElement = -1;
+            int endElementIdx = -1;
+            int endPosInElement = -1;
+
+            for (int i = 0; i < textElements.Count; i++)
+            {
+                var elementText = textElements[i].Text ?? "";
+                var elementStart = currentPos;
+                var elementEnd = currentPos + elementText.Length;
+
+                // Check if placeholder starts in this element
+                if (startElementIdx < 0 && placeholderPos >= elementStart && placeholderPos < elementEnd)
+                {
+                    startElementIdx = i;
+                    startPosInElement = placeholderPos - elementStart;
+                }
+
+                // Check if placeholder ends in this element
+                var placeholderEndPos = placeholderPos + placeholder.Key.Length;
+                if (placeholderEndPos > elementStart && placeholderEndPos <= elementEnd)
+                {
+                    endElementIdx = i;
+                    endPosInElement = placeholderEndPos - elementStart;
+                    break;
+                }
+
+                currentPos = elementEnd;
+            }
+
+            if (startElementIdx < 0 || endElementIdx < 0) continue;
+
+            // Replace the placeholder
+            if (startElementIdx == endElementIdx)
+            {
+                // Placeholder is within a single text element
+                var text = textElements[startElementIdx].Text ?? "";
+                textElements[startElementIdx].Text =
+                    text.Substring(0, startPosInElement) +
+                    placeholder.Value +
+                    text.Substring(endPosInElement);
+            }
+            else
+            {
+                // Placeholder spans multiple text elements
+                // Put replacement value in first element, clear others
+                var firstText = textElements[startElementIdx].Text ?? "";
+                textElements[startElementIdx].Text =
+                    firstText.Substring(0, startPosInElement) + placeholder.Value;
+
+                // Clear middle elements completely
+                for (int i = startElementIdx + 1; i < endElementIdx; i++)
+                {
+                    textElements[i].Text = "";
+                }
+
+                // Keep only the part after the placeholder in last element
+                var lastText = textElements[endElementIdx].Text ?? "";
+                textElements[endElementIdx].Text = lastText.Substring(endPosInElement);
+            }
+
+            // Update combined text for next placeholder
+            combinedText = string.Concat(textElements.Select(t => t.Text ?? ""));
+        }
+    }
+
+    /// <summary>
+    /// Replaces a placeholder in a Text element with formatted runs from HTML content.
+    /// This allows rich text formatting (bold, italic, subscript, superscript) in Word documents.
+    /// </summary>
+    private void ReplaceTextWithFormattedRuns(Text textElement, string placeholder, string htmlContent)
+    {
+        if (textElement.Parent is not Run parentRun)
+            return;
+
+        var text = textElement.Text ?? "";
+        var placeholderIndex = text.IndexOf(placeholder);
+        if (placeholderIndex == -1)
+            return;
+
+        var beforeText = text.Substring(0, placeholderIndex);
+        var afterText = text.Substring(placeholderIndex + placeholder.Length);
+
+        // Get base run properties from parent run
+        var baseProps = parentRun.GetFirstChild<RunProperties>()?.CloneNode(true) as RunProperties;
+
+        // Convert HTML to runs
+        var formattedRuns = HtmlToOpenXmlConverter.ConvertHtmlToRuns(htmlContent, baseProps);
+
+        // Clear original text
+        textElement.Text = beforeText;
+
+        // If there's after text, create a new run for it
+        Run? afterRun = null;
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            afterRun = new Run();
+            if (baseProps != null)
+            {
+                afterRun.Append(baseProps.CloneNode(true));
+            }
+            afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
+        }
+
+        // Insert formatted runs after parent run
+        var insertAfter = parentRun;
+        foreach (var run in formattedRuns)
+        {
+            insertAfter.InsertAfterSelf(run);
+            insertAfter = run;
+        }
+
+        // Insert after text run at the end
+        if (afterRun != null)
+        {
+            insertAfter.InsertAfterSelf(afterRun);
         }
     }
 
@@ -701,6 +1312,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Enable text wrapping in all cells to prevent content overflow
         EnableTextWrappingInRow(newRow);
 
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
+
         // IMPORTANT: Merge split placeholders before replacing
         // Word often splits placeholders like {{TestMethod}} into multiple Text elements
         foreach (var para in newRow.Descendants<Paragraph>())
@@ -718,6 +1332,78 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
             }
+            // Handle Parameters and TestMethod placeholders with HTML formatting
+            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}"))
+            {
+                // Use formatted names if available, otherwise plain names
+                var parametersDisplayName = !string.IsNullOrEmpty(data.ParametersFormattedName)
+                    ? data.ParametersFormattedName
+                    : data.Parameters;
+                var testMethodDisplayName = !string.IsNullOrEmpty(data.TestMethodFormattedName)
+                    ? data.TestMethodFormattedName
+                    : data.TestMethod;
+
+                var hasParametersHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName);
+                var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+
+                // If either contains HTML, we need special handling
+                if (hasParametersHtml || hasTestMethodHtml)
+                {
+                    // Replace non-HTML placeholders first
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{No}}", data.No.ToString())
+                        .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
+                        .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
+                        .Replace("{{Unit}}", data.Unit ?? "")
+                        .Replace("{{Result}}", data.Result ?? "")
+                        .Replace("{{Standards}}", data.Standards ?? "")
+                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                        .Replace("{{n}}", data.FootnoteNumber ?? "")
+                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
+                        .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
+                        .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                    // Handle Parameters with HTML if applicable
+                    if (hasParametersHtml && text.Text.Contains("{{Parameters}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Parameters}}", parametersDisplayName);
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Parameters}}", parametersDisplayName ?? "");
+                    }
+
+                    // Handle TestMethod with HTML if applicable
+                    if (hasTestMethodHtml && text.Text.Contains("{{TestMethod}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                    }
+                }
+                else
+                {
+                    // No HTML - simple replacement
+                    text.Text = text.Text
+                        .Replace("{{TestTable}}", "")
+                        .Replace("{{No}}", data.No.ToString())
+                        .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
+                        .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
+                        .Replace("{{Parameters}}", parametersDisplayName ?? "")
+                        .Replace("{{Unit}}", data.Unit ?? "")
+                        .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
+                        .Replace("{{Result}}", data.Result ?? "")
+                        .Replace("{{Standards}}", data.Standards ?? "")
+                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                        .Replace("{{n}}", data.FootnoteNumber ?? "")
+                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
+                        .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
+                        .Replace("{{Proclaim}}", data.Proclaim ?? "");
+                }
+            }
             else
             {
                 text.Text = text.Text
@@ -731,6 +1417,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{Result}}", data.Result ?? "")
                     .Replace("{{Standards}}", data.Standards ?? "")
                     .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
+                    .Replace("{{n}}", data.FootnoteNumber ?? "") // BM05-QLNN - Superscript footnote number
                     .Replace("{{Allowlimit}}", data.Allowlimit ?? "") // BM04 - Giới hạn cho phép
                     .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                     .Replace("{{Proclaim}}", data.Proclaim ?? "");
@@ -809,18 +1496,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
     /// <summary>
     /// Remove fixed height constraint from a table row to allow auto-expansion
+    /// Changes height rule from "exact" to "atLeast" so row can grow with content
     /// </summary>
     private void RemoveRowHeightConstraint(TableRow row)
     {
         var rowProps = row.GetFirstChild<TableRowProperties>();
         if (rowProps != null)
         {
-            // Remove TableRowHeight element which constrains the row height
             var rowHeight = rowProps.GetFirstChild<TableRowHeight>();
             if (rowHeight != null)
             {
-                rowHeight.Remove();
+                // Change from "exact" to "atLeast" - this allows row to expand
+                // "exact" = fixed height (content gets clipped)
+                // "atLeast" = minimum height, can grow if content needs more space
+                // "auto" = automatic height based on content
+                if (rowHeight.HeightType?.Value == HeightRuleValues.Exact)
+                {
+                    rowHeight.HeightType = HeightRuleValues.AtLeast;
+                }
+                else if (rowHeight.HeightType == null)
+                {
+                    // If no rule specified, set to atLeast to ensure expansion
+                    rowHeight.HeightType = HeightRuleValues.AtLeast;
+                }
             }
+        }
+        else
+        {
+            // If no row properties, create with auto height
+            rowProps = new TableRowProperties();
+            row.InsertAt(rowProps, 0);
         }
     }
 
@@ -865,6 +1570,39 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 noWrap.Remove();
             }
+        }
+    }
+
+    /// <summary>
+    /// Apply consistent dashed gray border style to all cells in new row.
+    /// Style: dashSmallGap, size 4, color 7F7F7F (gray)
+    /// This ensures all data rows have the same professional appearance.
+    /// </summary>
+    private void CopyCellBordersFromTemplate(TableRow newRow, TableRow templateRow)
+    {
+        var newCells = newRow.Elements<TableCell>().ToList();
+
+        foreach (var cell in newCells)
+        {
+            var cellProps = cell.GetFirstChild<TableCellProperties>();
+            if (cellProps == null)
+            {
+                cellProps = new TableCellProperties();
+                cell.InsertAt(cellProps, 0);
+            }
+
+            // Remove existing borders
+            cellProps.GetFirstChild<TableCellBorders>()?.Remove();
+
+            // Create consistent dashed gray borders for left, bottom, right only
+            // Note: No TopBorder to preserve header's bottom border style
+            var borders = new TableCellBorders(
+                new LeftBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" },
+                new BottomBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" },
+                new RightBorder { Val = BorderValues.DashSmallGap, Size = 4, Space = 0, Color = "7F7F7F" }
+            );
+
+            cellProps.Append(borders);
         }
     }
 
@@ -942,11 +1680,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public string NameOfSample { get; set; } = ""; // BM02 - Tên mẫu
         public string CodeOfNumber { get; set; } = ""; // BM02 - Mã số mẫu
         public string Parameters { get; set; } = "";
+        /// <summary>
+        /// Tên chỉ tiêu có định dạng HTML (nếu có)
+        /// </summary>
+        public string? ParametersFormattedName { get; set; }
         public string Unit { get; set; } = "";
         public string TestMethod { get; set; } = "";
+        /// <summary>
+        /// Tên phương pháp có định dạng HTML (nếu có)
+        /// </summary>
+        public string? TestMethodFormattedName { get; set; }
         public string Result { get; set; } = "";
         public string Standards { get; set; } = "";
         public string CompareWithStandard { get; set; } = ""; // For BM05-QLNN template
+        public string FootnoteNumber { get; set; } = ""; // For BM05-QLNN template - {{n}} placeholder (superscript)
         public string Allowlimit { get; set; } = ""; // For BM04 template - Giới hạn cho phép
         public string Uncertainty { get; set; } = "";
         public string Proclaim { get; set; } = "";
@@ -1114,8 +1861,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{Note}}", input.Note ?? "" },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // 3. Build table data (BM01 has fewer columns than BM03)
         var tableData = new List<ResultFormTableRow>();
@@ -1142,8 +1901,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
                 // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
@@ -1278,36 +2039,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 8. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
+        // 8. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Test request form generated: {Path}", outputPath);
 
-            // 9. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                // Log but don't fail if cleanup fails
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            // If PDF conversion fails, return the DOCX file as fallback
-            pdfFileName = fileName;
-        }
-
-        // 10. Update TestRequest status: New -> PendingPayment when printing
+        // 9. Update TestRequest status: New -> PendingPayment when printing
         if (testRequest.Status == TestRequestStatus.New)
         {
             testRequest.Status = TestRequestStatus.PendingPayment;
@@ -1317,7 +2053,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = testRequest.RequestNumber ?? "",
             ContractNumber = testRequest.ContractNumber ?? ""
         };
@@ -1364,36 +2100,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
-        // 6. Convert DOCX to PDF using LibreOffice
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            // 7. Delete the DOCX file after successful PDF conversion
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                    _logger.LogInformation("Deleted temporary DOCX file: {Path}", outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 6. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Preview test request form generated: {Path}", outputPath);
 
         return new GenerateTestRequestFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             RequestNumber = "Preview",
             ContractNumber = input.ContractNumber ?? ""
         };
@@ -1409,7 +2122,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
         var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
         var resultCopies = input.ResultCopyCount ?? "";
-        var customerTestMethod = input.MethodCustomerDetail ?? "";
+        // Chỉ hiển thị CustomerTestMethod khi MethodCustomer = true
+        var customerTestMethod = input.MethodCustomer ? (input.MethodCustomerDetail ?? "") : "";
         var compareStandard = input.ConformityDeclaration ?? "";
         var otherRequirements = input.OtherRequirements ?? "";
         var subContractInfo = input.SubContract ?? "";
@@ -1487,7 +2201,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Checkbox - Payment Method (disabled)
             { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
-            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox },
+
+            // Người gửi mẫu và người nhận mẫu
+            { "{{SampleSender}}", input.ContactPerson ?? "" },
+            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
         };
 
         return placeholders;
@@ -1512,6 +2230,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     No = subRowIndex++,
                     IndicatorName = indicator.IndicatorName,
+                    IndicatorFormattedName = indicator.IndicatorFormattedName,
                     UnitPrice = indicator.UnitPrice.ToString("N0")
                 });
             }
@@ -1577,6 +2296,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     {
                         No = subRowIndex++,
                         IndicatorName = indicator.Name ?? "",
+                        IndicatorFormattedName = indicator.FormattedName,
                         UnitPrice = si.UnitPrice.ToString("N0")
                     });
                 }
@@ -1636,12 +2356,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ReplacePlaceholdersInElement(mainPart.Document.Body, placeholders);
         }
 
-        // Process headers
+        // Process headers - special handling for headers with PAGE/NUMPAGES fields
         foreach (var headerPart in mainPart.HeaderParts)
         {
             if (headerPart.Header != null)
             {
-                ReplacePlaceholdersInElement(headerPart.Header, placeholders);
+                _logger.LogDebug("Processing header part, paragraphs count: {Count}",
+                    headerPart.Header.Descendants<Paragraph>().Count());
+
+                // Special handling for headers with field codes (PAGE, NUMPAGES)
+                foreach (var para in headerPart.Header.Descendants<Paragraph>())
+                {
+                    ReplaceHeaderPlaceholdersPreservingFields(para, placeholders);
+                }
             }
         }
 
@@ -1651,6 +2378,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (footerPart.Footer != null)
             {
                 ReplacePlaceholdersInElement(footerPart.Footer, placeholders);
+
+                // Also process any text directly in footer (not in paragraphs)
+                foreach (var text in footerPart.Footer.Descendants<Text>())
+                {
+                    if (string.IsNullOrEmpty(text.Text)) continue;
+                    foreach (var placeholder in placeholders)
+                    {
+                        if (text.Text.Contains(placeholder.Key))
+                        {
+                            text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1667,93 +2407,289 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeSplitPlaceholders(para);
         }
 
+        // Merge dots that follow placeholders into the same text element
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            MergeDotsWithPlaceholders(para);
+        }
+
         // Process each paragraph to handle dots across multiple text runs
         foreach (var para in element.Descendants<Paragraph>())
         {
             ReplacePlaceholdersInParagraphWithDotRemoval(para, placeholders);
         }
+
+        // Fallback: Handle split placeholders across multiple Text elements
+        // This handles cases where Word splits {{Placeholder}} into multiple Text nodes
+        ReplaceSplitPlaceholdersInElement(element, placeholders);
+
+        // Final fallback: Direct replacement for any remaining complete placeholders
+        foreach (var placeholder in placeholders)
+        {
+            foreach (var text in element.Descendants<Text>())
+            {
+                if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains(placeholder.Key))
+                {
+                    text.Text = text.Text.Replace(placeholder.Key, placeholder.Value);
+                }
+            }
+        }
     }
 
-    // Characters to trim: regular dot (.), Unicode ellipsis (…), and full-width dot (．)
-    private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•' };
+    /// <summary>
+    /// Handle placeholders that are split across multiple Text elements.
+    /// For example: Text1="{{NumberOf", Text2="Sample}}"
+    /// This reconstructs the full text, replaces placeholders, and updates the elements.
+    /// </summary>
+    private void ReplaceSplitPlaceholdersInElement(OpenXmlElement element, Dictionary<string, string> placeholders)
+    {
+        foreach (var para in element.Descendants<Paragraph>())
+        {
+            var runs = para.Elements<Run>().ToList();
+            if (runs.Count <= 1) continue;
+
+            // Build full text from all runs
+            var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
+
+            // Check if any placeholder exists in the combined text but not in individual runs
+            // This means the placeholder is split across runs
+            foreach (var placeholder in placeholders)
+            {
+                if (!fullText.Contains(placeholder.Key)) continue;
+
+                // Check if placeholder is already in a single run (already handled)
+                var alreadyInSingleRun = runs.Any(r =>
+                    r.Elements<Text>().Any(t => t.Text?.Contains(placeholder.Key) == true));
+                if (alreadyInSingleRun) continue;
+
+                // Placeholder is split - find which runs contain parts of it
+                // and merge only those runs' text, keeping the formatting of the run containing "{{"
+                var placeholderStartIndex = fullText.IndexOf(placeholder.Key);
+                var placeholderEndIndex = placeholderStartIndex + placeholder.Key.Length;
+
+                // Find the run containing the start of placeholder "{{"
+                int charIndex = 0;
+                Run? targetRun = null;
+                foreach (var run in runs)
+                {
+                    var runText = string.Concat(run.Elements<Text>().Select(t => t.Text ?? ""));
+                    if (charIndex <= placeholderStartIndex && charIndex + runText.Length > placeholderStartIndex)
+                    {
+                        targetRun = run;
+                        break;
+                    }
+                    charIndex += runText.Length;
+                }
+
+                if (targetRun == null) continue;
+
+                // Replace in the full text
+                var replacedFullText = fullText.Replace(placeholder.Key, placeholder.Value);
+
+                // Put replaced text in target run, clear others
+                var targetText = targetRun.GetFirstChild<Text>();
+                if (targetText == null)
+                {
+                    targetText = new Text();
+                    targetRun.AppendChild(targetText);
+                }
+                targetText.Text = replacedFullText;
+                targetText.Space = SpaceProcessingModeValues.Preserve;
+
+                // Clear text from other runs
+                foreach (var run in runs)
+                {
+                    if (run == targetRun) continue;
+                    foreach (var t in run.Elements<Text>().ToList())
+                    {
+                        t.Text = "";
+                    }
+                }
+
+                // Update fullText for next placeholder
+                fullText = replacedFullText;
+            }
+        }
+    }
+
+    // Characters to trim: all dot-like and leader characters
+    // . (period), … (ellipsis), · (middle dot), • (bullet), ․ (one dot leader), ‥ (two dot leader)
+    // ． (fullwidth period), ⋯ (midline ellipsis), ᠁ (mongolian ellipsis), ︙ (vertical ellipsis)
+    // _ (underscore), - (dash), ─ (box drawing), ━ (heavy box drawing)
+    private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•', '․', '‥', '⋯', '᠁', '︙', '_', '-', '─', '━' };
+
+    /// <summary>
+    /// Normalize placeholders by removing extra spaces inside {{ }}
+    /// e.g., "{{ CustomerTestMethod }}" -> "{{CustomerTestMethod}}"
+    /// </summary>
+    private static string NormalizePlaceholders(string text)
+    {
+        if (string.IsNullOrEmpty(text) || !text.Contains("{{")) return text;
+
+        // Use regex to find all {{ ... }} patterns and normalize them
+        return System.Text.RegularExpressions.Regex.Replace(
+            text,
+            @"\{\{\s*(\w+)\s*\}\}",
+            "{{$1}}");
+    }
+
+    // Placeholders that should have dot leader tabs removed when replaced
+    // BM02 (Form trả KQ tổng hợp) and BM01 (Phiếu yêu cầu) placeholders
+    private static readonly HashSet<string> PlaceholdersWithDotLeaderRemoval = new HashSet<string>
+    {
+        // BM02 - Form trả KQ tổng hợp
+        "{{CustomerName}}",
+        "{{FullAddress}}",
+        "{{DateOfReceiving}}",
+        "{{TimeOfTesting}}",
+        "{{SampleDescription}}",
+        "{{Quantity}}",
+        "{{DateOfIssue}}",
+        // BM01 - Phiếu yêu cầu
+        "{{Customer}}",
+        "{{Adress}}",
+        "{{Ward}}",
+        "{{Province}}",
+        "{{TaxNo}}",
+        "{{ContactPerson}}",
+        "{{PhoneNumber}}"
+    };
 
     /// <summary>
     /// Replace placeholders in a paragraph, removing surrounding dots when placeholder has value
     /// This handles cases where dots and placeholders are in separate text runs
+    /// NEW APPROACH: Combine all text in paragraph, replace, then redistribute
+    /// ALSO: Remove Tab elements with dot leaders for specific placeholders only
     /// </summary>
     private void ReplacePlaceholdersInParagraphWithDotRemoval(Paragraph para, Dictionary<string, string> placeholders)
     {
-        var textElements = para.Descendants<Text>().ToList();
-        if (!textElements.Any()) return;
+        var runs = para.Elements<Run>().ToList();
+        if (!runs.Any()) return;
 
+        // Build full text from all runs
+        var fullText = string.Concat(runs.SelectMany(r => r.Elements<Text>()).Select(t => t.Text ?? ""));
+        if (string.IsNullOrEmpty(fullText)) return;
+
+        // Normalize placeholders
+        fullText = NormalizePlaceholders(fullText);
+
+        // Check if any placeholder exists in the full text
+        var hasPlaceholder = placeholders.Any(p => fullText.Contains(p.Key));
+        if (!hasPlaceholder) return;
+
+        // Track if we need to remove dot leader tabs (only for specific placeholders)
+        var shouldRemoveDotLeaderTabs = false;
+
+        // Process each placeholder with dot handling
         foreach (var placeholder in placeholders)
         {
-            // Find the text element containing this placeholder
-            var targetText = textElements.FirstOrDefault(t => t.Text?.Contains(placeholder.Key) == true);
-            if (targetText == null) continue;
+            if (!fullText.Contains(placeholder.Key)) continue;
+            if (string.IsNullOrEmpty(placeholder.Value)) continue;
 
-            // Replace the placeholder
-            targetText.Text = targetText.Text.Replace(placeholder.Key, placeholder.Value);
-
-            // If placeholder has value, remove surrounding dots from adjacent text elements
-            if (!string.IsNullOrWhiteSpace(placeholder.Value))
+            // Check if this placeholder should have dot leader tabs removed
+            if (PlaceholdersWithDotLeaderRemoval.Contains(placeholder.Key))
             {
-                var targetIndex = textElements.IndexOf(targetText);
+                shouldRemoveDotLeaderTabs = true;
+            }
 
-                // Remove trailing dots from previous text element(s)
-                for (int i = targetIndex - 1; i >= 0; i--)
+            // Pattern: placeholder followed by ANY repeated non-alphanumeric chars (dots, underscores, dashes, etc.)
+            // This catches cases where Word uses special characters for leader lines
+            var patternTrailingAny = System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+";
+            fullText = System.Text.RegularExpressions.Regex.Replace(
+                fullText,
+                patternTrailingAny,
+                match =>
                 {
-                    var prevText = textElements[i];
-                    if (string.IsNullOrEmpty(prevText.Text)) continue;
+                    var originalLength = match.Value.Length;
+                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                    return placeholder.Value + new string(' ', paddingNeeded);
+                });
 
-                    var trimmed = TrimEndDots(prevText.Text);
-                    if (trimmed.Length < prevText.Text.Length)
-                    {
-                        prevText.Text = trimmed;
-                        // If we removed dots and there's still content, stop
-                        if (!string.IsNullOrEmpty(trimmed)) break;
-                    }
-                    else
-                    {
-                        // No dots found, stop looking
-                        break;
-                    }
-                }
-
-                // Remove leading dots from next text element(s)
-                for (int i = targetIndex + 1; i < textElements.Count; i++)
+            // Pattern: dots/leaders before placeholder + placeholder + optional dots after
+            var patternWithDots = @"[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+\s*" + System.Text.RegularExpressions.Regex.Escape(placeholder.Key) + @"(?:[\.…·•․‥．⋯᠁︙\u2024\u2025\u22EF\u22EE_\-─━]+)?";
+            fullText = System.Text.RegularExpressions.Regex.Replace(
+                fullText,
+                patternWithDots,
+                match =>
                 {
-                    var nextText = textElements[i];
-                    if (string.IsNullOrEmpty(nextText.Text)) continue;
+                    var originalLength = match.Value.Length;
+                    var paddingNeeded = Math.Max(0, originalLength - placeholder.Value.Length);
+                    return placeholder.Value + new string(' ', paddingNeeded);
+                });
 
-                    var trimmed = TrimStartDots(nextText.Text);
-                    if (trimmed.Length < nextText.Text.Length)
-                    {
-                        nextText.Text = trimmed;
-                        // If we removed dots and there's still content, stop
-                        if (!string.IsNullOrEmpty(trimmed)) break;
-                    }
-                    else
-                    {
-                        // No dots found, stop looking
-                        break;
-                    }
-                }
+            // Standard replacement for placeholders without dots
+            fullText = fullText.Replace(placeholder.Key, placeholder.Value);
+        }
 
-                // Also check for dots within the same text element (before and after the replaced value)
-                var currentText = targetText.Text;
-                if (!string.IsNullOrEmpty(currentText))
+        // Put the processed text in the first run, clear others
+        var firstRun = runs.First();
+        var firstText = firstRun.GetFirstChild<Text>();
+        if (firstText == null)
+        {
+            firstText = new Text();
+            firstRun.AppendChild(firstText);
+        }
+        firstText.Text = fullText;
+        firstText.Space = SpaceProcessingModeValues.Preserve;
+
+        // Clear text from other runs
+        for (int i = 1; i < runs.Count; i++)
+        {
+            foreach (var t in runs[i].Elements<Text>().ToList())
+            {
+                t.Text = "";
+            }
+
+            // Only remove Tab elements for specific placeholders
+            if (shouldRemoveDotLeaderTabs)
+            {
+                foreach (var tab in runs[i].Elements<TabChar>().ToList())
                 {
-                    // Find position of the replacement value
-                    var valueIndex = currentText.IndexOf(placeholder.Value);
-                    if (valueIndex >= 0)
-                    {
-                        var before = TrimEndDots(currentText.Substring(0, valueIndex));
-                        var after = TrimStartDots(currentText.Substring(valueIndex + placeholder.Value.Length));
-                        targetText.Text = before + placeholder.Value + after;
-                    }
+                    tab.Remove();
                 }
             }
+        }
+
+        // Only remove tabs and dot leader tab stops for specific placeholders
+        if (shouldRemoveDotLeaderTabs)
+        {
+            // Also remove tabs from the first run if they come after the text
+            foreach (var tab in firstRun.Elements<TabChar>().ToList())
+            {
+                tab.Remove();
+            }
+
+            // Remove dot leader tab stops from paragraph properties
+            RemoveDotLeaderTabStops(para);
+        }
+    }
+
+    /// <summary>
+    /// Remove tab stops with dot leaders from paragraph properties
+    /// These cause the "......." lines in Word documents
+    /// </summary>
+    private void RemoveDotLeaderTabStops(Paragraph para)
+    {
+        var pPr = para.GetFirstChild<ParagraphProperties>();
+        if (pPr == null) return;
+
+        var tabs = pPr.GetFirstChild<Tabs>();
+        if (tabs == null) return;
+
+        // Find and remove tab stops with dot leaders
+        var dotLeaderTabs = tabs.Elements<TabStop>()
+            .Where(t => t.Leader != null && t.Leader.Value == TabStopLeaderCharValues.Dot)
+            .ToList();
+
+        foreach (var tab in dotLeaderTabs)
+        {
+            tab.Remove();
+        }
+
+        // If no tabs left, remove the Tabs element
+        if (!tabs.Elements<TabStop>().Any())
+        {
+            tabs.Remove();
         }
     }
 
@@ -1773,6 +2709,40 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         if (string.IsNullOrEmpty(text)) return text;
         return text.TrimStart(DotCharacters);
+    }
+
+    /// <summary>
+    /// Count dots at end of string (trailing dots)
+    /// </summary>
+    private static int CountTrailingDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        int count = 0;
+        for (int i = text.Length - 1; i >= 0; i--)
+        {
+            if (DotCharacters.Contains(text[i]))
+                count++;
+            else
+                break;
+        }
+        return count;
+    }
+
+    /// <summary>
+    /// Count dots at start of string (leading dots)
+    /// </summary>
+    private static int CountLeadingDots(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return 0;
+        int count = 0;
+        for (int i = 0; i < text.Length; i++)
+        {
+            if (DotCharacters.Contains(text[i]))
+                count++;
+            else
+                break;
+        }
+        return count;
     }
 
     /// <summary>
@@ -1873,6 +2843,18 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var newRow = (TableRow)template.CloneNode(true);
 
+        // Remove fixed row height to allow row to auto-expand with content
+        RemoveRowHeightConstraint(newRow);
+
+        // Allow page break inside row for long content
+        AllowPageBreakInRow(newRow);
+
+        // Enable text wrapping in all cells to prevent content overflow
+        EnableTextWrappingInRow(newRow);
+
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
+
         // First, merge split placeholders in all paragraphs within the row
         foreach (var para in newRow.Descendants<Paragraph>())
         {
@@ -1970,6 +2952,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             var newRow = (TableRow)templateClone.CloneNode(true);
 
+            // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+            CopyCellBordersFromTemplate(newRow, templateClone);
+
             // Merge split placeholders
             foreach (var para in newRow.Descendants<Paragraph>())
             {
@@ -1981,11 +2966,43 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 if (string.IsNullOrEmpty(text.Text)) continue;
 
-                text.Text = text.Text
-                    .Replace("{{SubTable}}", "")
-                    .Replace("{{SubNo}}", indicator.No.ToString())
-                    .Replace("{{SubIndicator}}", indicator.IndicatorName)
-                    .Replace("{{SubPrice}}", indicator.UnitPrice);
+                // Check if this text contains the SubIndicator placeholder
+                if (text.Text.Contains("{{SubIndicator}}"))
+                {
+                    // Use formatted name if available, otherwise plain name
+                    var indicatorDisplayName = !string.IsNullOrEmpty(indicator.IndicatorFormattedName)
+                        ? indicator.IndicatorFormattedName
+                        : indicator.IndicatorName;
+
+                    // If formatted name contains HTML, we need special handling
+                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorDisplayName))
+                    {
+                        // Replace other placeholders first
+                        text.Text = text.Text
+                            .Replace("{{SubTable}}", "")
+                            .Replace("{{SubNo}}", indicator.No.ToString())
+                            .Replace("{{SubPrice}}", indicator.UnitPrice);
+
+                        // Now handle SubIndicator with HTML
+                        ReplaceTextWithFormattedRuns(text, "{{SubIndicator}}", indicatorDisplayName);
+                    }
+                    else
+                    {
+                        // No HTML - simple replacement
+                        text.Text = text.Text
+                            .Replace("{{SubTable}}", "")
+                            .Replace("{{SubNo}}", indicator.No.ToString())
+                            .Replace("{{SubIndicator}}", indicatorDisplayName)
+                            .Replace("{{SubPrice}}", indicator.UnitPrice);
+                    }
+                }
+                else
+                {
+                    text.Text = text.Text
+                        .Replace("{{SubTable}}", "")
+                        .Replace("{{SubNo}}", indicator.No.ToString())
+                        .Replace("{{SubPrice}}", indicator.UnitPrice);
+                }
             }
 
             // Insert the new row
@@ -2009,6 +3026,375 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
         }
     }
+
+    #region Mixed Result with SubTable (BM02)
+
+    /// <summary>
+    /// Process document for mixed result with SubTable structure (BM02)
+    /// Template structure: Each row = 1 sample, with SubTable marker for indicators
+    /// SubTable is NOT a nested table, just a marker in the same row
+    /// </summary>
+    private void ProcessMixedResultDocument(string filePath, Dictionary<string, string> placeholders, List<MixedResultSampleRow> sampleData)
+    {
+        using var document = WordprocessingDocument.Open(filePath, true);
+        var mainPart = document.MainDocumentPart;
+        var body = mainPart?.Document?.Body;
+        if (body == null || mainPart == null) return;
+
+        ConvertFloatingTablesToInline(document);
+
+        // Process table with SubTable marker (not nested table)
+        ProcessMixedResultTableWithSubTable(body, sampleData);
+
+        // Replace placeholders in entire document (including headers, footers, textboxes)
+        ReplacePlaceholdersInDocument(mainPart, placeholders);
+
+        mainPart.Document?.Save();
+    }
+
+    /// <summary>
+    /// Process mixed result table for BM02 template
+    /// Template has {{TestTable}} for sample info and {{SubTable}} for indicators in SAME row
+    /// Each sample creates multiple rows - one for each indicator
+    /// </summary>
+    private void ProcessMixedResultTableWithSubTable(Body body, List<MixedResultSampleRow> sampleData)
+    {
+        if (sampleData == null || sampleData.Count == 0) return;
+
+        // 1. Find table containing {{TestTable}} or {{SubTable}}
+        var allTables = body.Descendants<Table>().ToList();
+        Table? targetTable = null;
+        TableRow? templateRow = null;
+
+        foreach (var table in allTables.AsEnumerable().Reverse())
+        {
+            var directRows = table.Elements<TableRow>().ToList();
+            foreach (var row in directRows)
+            {
+                var rowText = string.Concat(row.Descendants<Text>().Select(t => t.Text ?? ""));
+                // Find row that contains both TestTable/No AND SubTable/Parameter markers
+                if ((rowText.Contains("{{TestTable}}") || rowText.Contains("{{No}}")) &&
+                    (rowText.Contains("{{SubTable}}") || rowText.Contains("{{Parameter}}")))
+                {
+                    targetTable = table;
+                    templateRow = row;
+                    _logger.LogInformation("Found mixed result table with TestTable and SubTable markers in same row");
+                    break;
+                }
+            }
+            if (targetTable != null) break;
+        }
+
+        if (targetTable == null || templateRow == null)
+        {
+            _logger.LogWarning("No mixed result table with TestTable/SubTable found in document");
+            return;
+        }
+
+        // 2. Remove parent height constraints
+        RemoveParentRowHeightConstraints(targetTable);
+
+        // 3. Clone template and remove original
+        var templateClone = (TableRow)templateRow.CloneNode(true);
+        var allRows = targetTable.Elements<TableRow>().ToList();
+        var templateRowIndex = allRows.IndexOf(templateRow);
+        templateRow.Remove();
+
+        // 4. Determine insert position
+        allRows = targetTable.Elements<TableRow>().ToList();
+        TableRow? insertAfterRow = templateRowIndex > 0 && allRows.Count > 0
+            ? allRows[Math.Min(templateRowIndex - 1, allRows.Count - 1)]
+            : null;
+
+        // 5. Create rows for each sample × indicator combination
+        // BM02 structure: Each indicator creates a new row
+        // Sample columns (Stt, Tên mẫu, Mã số mẫu) are vertically merged (row span)
+        // NOTE: In OpenXML vertical merge, content MUST be in the first row (Restart cell)
+        // LibreOffice/Gotenberg will only display content from the Restart cell
+        foreach (var sampleRow in sampleData)
+        {
+            var totalIndicators = sampleRow.Indicators.Count;
+
+            for (int i = 0; i < totalIndicators; i++)
+            {
+                var indicator = sampleRow.Indicators[i];
+                bool isFirstIndicator = (i == 0);
+
+                var newRow = CloneAndFillMixedResultRowFlat(
+                    templateClone,
+                    sampleRow,
+                    indicator,
+                    isFirstIndicator,
+                    totalIndicators);
+
+                if (insertAfterRow != null)
+                {
+                    insertAfterRow.InsertAfterSelf(newRow);
+                    insertAfterRow = newRow;
+                }
+                else
+                {
+                    var firstRow = targetTable.Elements<TableRow>().FirstOrDefault();
+                    if (firstRow != null) firstRow.InsertBeforeSelf(newRow);
+                    else targetTable.AppendChild(newRow);
+                    insertAfterRow = newRow;
+                }
+            }
+        }
+
+        _logger.LogInformation("Processed {SampleCount} samples with total indicator rows for mixed result table", sampleData.Count);
+    }
+
+    /// <summary>
+    /// Clone template row and fill with sample + indicator data
+    /// For BM02 flat structure (no nested table)
+    /// Applies VerticalMerge for sample columns (No, NameOfSample, CodeOfNumber)
+    /// </summary>
+    /// <param name="template">Template row to clone</param>
+    /// <param name="sampleData">Sample data</param>
+    /// <param name="indicatorData">Indicator data</param>
+    /// <param name="isFirstIndicator">True if this is the first indicator of the sample (Restart merge)</param>
+    /// <param name="totalIndicators">Total number of indicators for this sample (for rowspan)</param>
+    private TableRow CloneAndFillMixedResultRowFlat(
+        TableRow template,
+        MixedResultSampleRow sampleData,
+        MixedResultIndicatorRow indicatorData,
+        bool isFirstIndicator,
+        int totalIndicators)
+    {
+        var newRow = (TableRow)template.CloneNode(true);
+
+        // Remove row height constraints
+        RemoveRowHeightConstraint(newRow);
+
+        // Allow page break inside row for long content
+        AllowPageBreakInRow(newRow);
+
+        // Enable text wrapping in all cells to prevent content overflow
+        EnableTextWrappingInRow(newRow);
+
+        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
+        CopyCellBordersFromTemplate(newRow, template);
+
+        // Merge split placeholders
+        foreach (var para in newRow.Descendants<Paragraph>())
+        {
+            MergeSplitPlaceholders(para);
+        }
+
+        // Get all cells in the row
+        var cells = newRow.Elements<TableCell>().ToList();
+
+        // Define which columns should be merged (0-based index)
+        // Columns: 0=Stt, 1=Tên mẫu, 2=Mã số mẫu, 3=Chỉ tiêu, 4=Đơn vị, 5=Phương pháp, 6=Kết quả
+        var columnsToMerge = new[] { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
+
+        // Apply vertical merge to sample columns (first 3 columns)
+        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, Column 2 (Mã mẫu): center
+        if (totalIndicators > 1)
+        {
+            foreach (var colIndex in columnsToMerge)
+            {
+                if (colIndex < cells.Count)
+                {
+                    var cell = cells[colIndex];
+                    // Column 1 (NameOfSample) = left, others = center
+                    var horizontalAlignment = (colIndex == 1) ? JustificationValues.Left : JustificationValues.Center;
+                    ApplyVerticalMerge(cell, isFirstIndicator, horizontalAlignment);
+
+                    // Clear content for non-first rows (merged cells should be empty)
+                    if (!isFirstIndicator)
+                    {
+                        ClearCellContent(cell);
+                    }
+                }
+            }
+        }
+
+        // Use formatted names if available, otherwise plain names
+        var parameterDisplayName = !string.IsNullOrEmpty(indicatorData.ParameterFormattedName)
+            ? indicatorData.ParameterFormattedName
+            : indicatorData.Parameter;
+        var testMethodDisplayName = !string.IsNullOrEmpty(indicatorData.TestMethodFormattedName)
+            ? indicatorData.TestMethodFormattedName
+            : indicatorData.TestMethod;
+
+        var hasParameterHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName);
+        var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+
+        // Replace all placeholders
+        foreach (var text in newRow.Descendants<Text>().ToList())
+        {
+            if (string.IsNullOrEmpty(text.Text)) continue;
+
+            // Check if this text contains placeholders that need HTML handling
+            var hasParameterPlaceholder = text.Text.Contains("{{Parameter}}");
+            var hasTestMethodPlaceholder = text.Text.Contains("{{TestMethod}}");
+
+            if ((hasParameterPlaceholder && hasParameterHtml) || (hasTestMethodPlaceholder && hasTestMethodHtml))
+            {
+                // Replace non-HTML placeholders first
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                    .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                    .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Unit}}", indicatorData.Unit)
+                    .Replace("{{Result}}", indicatorData.Result);
+
+                // Handle Parameter with HTML if applicable
+                if (hasParameterPlaceholder && hasParameterHtml)
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
+                }
+                else if (hasParameterPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{Parameter}}", parameterDisplayName ?? "");
+                }
+
+                // Handle TestMethod with HTML if applicable
+                if (hasTestMethodPlaceholder && hasTestMethodHtml)
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                }
+                else if (hasTestMethodPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                }
+            }
+            else
+            {
+                // No HTML - simple replacement
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                    .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                    .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Parameter}}", parameterDisplayName ?? "")
+                    .Replace("{{Unit}}", indicatorData.Unit)
+                    .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
+                    .Replace("{{Result}}", indicatorData.Result);
+            }
+        }
+
+        return newRow;
+    }
+
+    /// <summary>
+    /// Apply vertical merge to a table cell with center alignment
+    /// </summary>
+    /// <param name="cell">The cell to apply merge to</param>
+    /// <param name="isFirstRow">True for Restart (first row of merge), False for Continue (subsequent rows)</param>
+    private void ApplyVerticalMerge(TableCell cell, bool isFirstRow)
+    {
+        ApplyVerticalMerge(cell, isFirstRow, JustificationValues.Center);
+    }
+
+    /// <summary>
+    /// Apply vertical merge to a table cell with vertical center alignment
+    /// NOTE: Vertical centering in merged cells may not work well with LibreOffice/Gotenberg conversion.
+    /// This is a known limitation. The code sets the proper OpenXML properties, but the PDF converter
+    /// may not render them correctly.
+    /// </summary>
+    /// <param name="cell">The cell to apply merge to</param>
+    /// <param name="isFirstRow">True for Restart (first row of merge), False for Continue (subsequent rows)</param>
+    /// <param name="horizontalAlignment">Horizontal text alignment</param>
+    private void ApplyVerticalMerge(TableCell cell, bool isFirstRow, JustificationValues horizontalAlignment)
+    {
+        // Get or create TableCellProperties - must be first child of TableCell
+        var tcPr = cell.GetFirstChild<TableCellProperties>();
+        if (tcPr == null)
+        {
+            tcPr = new TableCellProperties();
+            cell.InsertAt(tcPr, 0);
+        }
+
+        // Remove existing properties we're going to set
+        tcPr.GetFirstChild<VerticalMerge>()?.Remove();
+        tcPr.GetFirstChild<TableCellVerticalAlignment>()?.Remove();
+
+        // Add VerticalMerge - Restart for first row, Continue for subsequent
+        var vMerge = new VerticalMerge
+        {
+            Val = isFirstRow ? MergedCellValues.Restart : MergedCellValues.Continue
+        };
+        tcPr.AppendChild(vMerge);
+
+        // Add vertical alignment to center
+        // Note: This may not render correctly in LibreOffice-based PDF conversion
+        var vAlign = new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center };
+        tcPr.AppendChild(vAlign);
+
+        // Process paragraph properties
+        foreach (var para in cell.Elements<Paragraph>())
+        {
+            var pPr = para.GetFirstChild<ParagraphProperties>();
+            if (pPr == null)
+            {
+                pPr = new ParagraphProperties();
+                para.InsertAt(pPr, 0);
+            }
+
+            // Set horizontal alignment only for first row (where content is)
+            if (isFirstRow)
+            {
+                pPr.GetFirstChild<Justification>()?.Remove();
+                pPr.AppendChild(new Justification { Val = horizontalAlignment });
+            }
+
+            // Remove paragraph spacing
+            var existingSpacing = pPr.GetFirstChild<SpacingBetweenLines>();
+            existingSpacing?.Remove();
+            pPr.AppendChild(new SpacingBetweenLines { Before = "0", After = "0", Line = "240", LineRule = LineSpacingRuleValues.Auto });
+        }
+    }
+
+    /// <summary>
+    /// Clear content of a merged cell (continuation cells should be empty)
+    /// </summary>
+    private void ClearCellContent(TableCell cell)
+    {
+        // Keep the cell structure but clear text content
+        foreach (var text in cell.Descendants<Text>().ToList())
+        {
+            text.Text = "";
+        }
+    }
+
+    /// <summary>
+    /// Re-apply vertical center alignment for cells that already have it set.
+    /// This fixes an issue where watermark/background images in document header
+    /// cause LibreOffice/Collabora to render text at the top of cells instead of center.
+    /// By removing and re-adding the alignment, we force Collabora to respect it.
+    /// Only affects cells that were already set to center - preserves other alignments.
+    /// </summary>
+    private void EnsureTableCellVerticalAlignment(Body body)
+    {
+        foreach (var table in body.Descendants<Table>())
+        {
+            foreach (var row in table.Elements<TableRow>())
+            {
+                foreach (var cell in row.Elements<TableCell>())
+                {
+                    var tcPr = cell.GetFirstChild<TableCellProperties>();
+                    if (tcPr == null) continue;
+
+                    // Check if vertical alignment is set to center
+                    var existingVAlign = tcPr.GetFirstChild<TableCellVerticalAlignment>();
+                    if (existingVAlign?.Val != null && existingVAlign.Val.Value == TableVerticalAlignmentValues.Center)
+                    {
+                        // Remove and re-add to force Collabora to respect it
+                        existingVAlign.Remove();
+                        tcPr.AppendChild(new TableCellVerticalAlignment { Val = TableVerticalAlignmentValues.Center });
+                    }
+                }
+            }
+        }
+    }
+
+    #endregion
 
     /// <summary>
     /// Replace placeholder with text containing line breaks (using Word's <w:br/> element)
@@ -2113,7 +3499,51 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         public int No { get; set; }
         public string IndicatorName { get; set; } = "";
+        /// <summary>
+        /// Tên có định dạng HTML (nếu có)
+        /// </summary>
+        public string? IndicatorFormattedName { get; set; }
         public string UnitPrice { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Sample row for mixed result form (BM02) with nested indicator sub-table
+    /// TestTable = samples, SubTable = indicators per sample
+    /// </summary>
+    private class MixedResultSampleRow
+    {
+        public int No { get; set; }
+        public string SampleName { get; set; } = "";
+        public string SampleCode { get; set; } = "";
+        public List<MixedResultIndicatorRow> Indicators { get; set; } = new();
+    }
+
+    /// <summary>
+    /// Indicator row for nested sub-table in mixed result form (BM02)
+    /// </summary>
+    private class MixedResultIndicatorRow
+    {
+        public string Parameter { get; set; } = "";
+        /// <summary>
+        /// Tên chỉ tiêu có định dạng HTML (nếu có)
+        /// </summary>
+        public string? ParameterFormattedName { get; set; }
+        public string Unit { get; set; } = "";
+        public string TestMethod { get; set; } = "";
+        /// <summary>
+        /// Tên phương pháp có định dạng HTML (nếu có)
+        /// </summary>
+        public string? TestMethodFormattedName { get; set; }
+        public string Result { get; set; } = "";
+        public string ReferenceLimit { get; set; } = ""; // For BM05-QLNN CompareWithStandard (DEPRECATED)
+        public Guid? StandardId { get; set; } // For BM05-QLNN footnote mapping
+        public Guid? IndicatorId { get; set; } // For StandardIndicator lookup
+        public string ComparisonOperator { get; set; } = ""; // Từ StandardIndicator: <=, >=, <, >, =
+        public string AllowedLimit { get; set; } = ""; // Từ StandardIndicator: giới hạn cho phép
+        public string LowerOperator { get; set; } = ""; // Từ StandardIndicator: >, >= (cận dưới)
+        public string LowerLimit { get; set; } = ""; // Từ StandardIndicator: giá trị cận dưới
+        public string UpperOperator { get; set; } = ""; // Từ StandardIndicator: <, <= (cận trên)
+        public string UpperLimit { get; set; } = ""; // Từ StandardIndicator: giá trị cận trên
     }
 
     /// <summary>
@@ -2132,8 +3562,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
         var resultCopies = testRequest.ResultCopyCount ?? "";
 
-        // Get customer test method detail
-        var customerTestMethod = testRequest.MethodCustomerDetail ?? "";
+        // Get customer test method detail - chỉ hiển thị khi MethodCustomer = true
+        var customerTestMethod = testRequest.MethodCustomer ? (testRequest.MethodCustomerDetail ?? "") : "";
 
         // Compare standard / conformity declaration
         var compareStandard = testRequest.ConformityDeclaration ?? "";
@@ -2226,7 +3656,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Checkbox - Payment Method (disabled - paymentReceived field is not used in form)
             { "{{CB_Cash}}", TemplateConstants.UncheckedBox },
-            { "{{CB_Credit}}", TemplateConstants.UncheckedBox }
+            { "{{CB_Credit}}", TemplateConstants.UncheckedBox },
+
+            // Người gửi mẫu và người nhận mẫu
+            { "{{SampleSender}}", testRequest.ContactPerson ?? "" },
+            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
         };
 
         return placeholders;
@@ -2401,6 +3835,31 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Conclude}}", "" } // BM05-QLNN - Kết luận (để trống, user tự điền)
         };
 
+        // Add Vice President placeholder if provided
+        var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
+        placeholders.Add("{{VicePresident}}", vicePresidentName);
+
+        // Add Officer In Charge placeholder (QLKT who approved the indicator)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(new[] { labTaskIndicator });
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
+
+        // 5. Generate document using selected template or default BM01
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
+        var templateFileName = Path.GetFileName(templatePath);
+        var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
+
+        // For BM05-QLNN: Get standard info and add {{Standard}} placeholder
+        if (isBM05QLNN && qualityIndicator.StandardId.HasValue)
+        {
+            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == qualityIndicator.StandardId.Value);
+            placeholders.Add("{{Standard}}", standard?.Name ?? "So với QCVN…/ TCVN…./ QĐ…");
+        }
+        else if (isBM05QLNN)
+        {
+            placeholders.Add("{{Standard}}", "So với QCVN…/ TCVN…./ QĐ…");
+        }
+
         // 4. Build table data - single indicator
         var tableData = new List<ResultFormTableRow>
         {
@@ -2408,19 +3867,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = 1,
                 Parameters = indicator.Name ?? "",
+                ParametersFormattedName = indicator.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
+                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "", // Single indicator = no footnote needed
+                FootnoteNumber = "", // Single indicator = no footnote needed
                 Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             }
         };
-
-        // 5. Generate document using selected template or default BM01
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
         if (!File.Exists(templatePath))
         {
             throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM01);
@@ -2442,6 +3901,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
+        // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
         // 6. Convert to PDF
@@ -2534,6 +3994,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
+        // Get StandardIndicator data for BM05-QLNN template (ComparisonOperator, AllowedLimit)
+        // Query all StandardIndicators that match any combination of (StandardId, IndicatorId) used
+        // Note: StandardId có thể ở QualityManagementIndicator hoặc LaboratoryTaskIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+        var standardIdsFromLabTask = labTaskIndicators
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value);
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+        var standardIndicators = standardIds.Any()
+            ? await _standardIndicatorRepository.GetListAsync(
+                x => standardIds.Contains(x.StandardId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<StandardIndicator>();
+        // Create lookup: (StandardId, IndicatorId) -> StandardIndicator
+        var standardIndicatorLookup = standardIndicators.ToDictionary(
+            si => (si.StandardId, si.IndicatorId),
+            si => si);
+
+        _logger.LogInformation("BM05-QLNN Debug: standardIds={StandardIds}, indicatorIds={IndicatorIds}, standardIndicators.Count={Count}",
+            string.Join(",", standardIds), string.Join(",", indicatorIds), standardIndicators.Count);
+        foreach (var si in standardIndicators)
+        {
+            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}",
+                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit);
+        }
+
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
         // Not just the selected indicators, but all indicators in the contract
         var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
@@ -2542,8 +4032,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
         var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
 
-        // Merge notes from QLKT (lab) and QLCL (quality) for multiple indicators
-        var mergedNote = await GetMergedNotesForMultipleIndicatorsAsync(sampleIndicatorIds, input.Note);
+        // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
+        // nên không cần merge ở BE nữa, chỉ sử dụng input.Note trực tiếp
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -2562,62 +4052,193 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
-            { "{{Note}}", mergedNote },
+            { "{{Note}}", input.Note ?? "" },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
-            { "{{Date}}", now.Day.ToString() },
-            { "{{Month}}", now.Month.ToString() },
+            { "{{Date}}", now.Day.ToString("D2") },
+            { "{{Month}}", now.Month.ToString("D2") },
             { "{{Year}}", now.Year.ToString() },
             { "{{CustomerName}}", testRequest.CustomerName ?? "" },
-            { "{{FullAddress}}", address }
+            { "{{FullAddress}}", address },
+            // BM05-QLNN specific placeholders
+            { "{{NumberOfSample}}", firstSample?.SampleCode ?? "" },
+            { "{{DescriptionOfSample}}", firstSample?.StatusText ?? "" },
+            { "{{TimeToSaveSample}}", "" },
+            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
+            { "{{AttachFile}}", "" },
+            { "{{Conclude}}", "" }
         };
 
-        // 5. Build table data - multiple indicators
-        var tableData = new List<ResultFormTableRow>();
-        int rowIndex = 1;
+        // Add Vice President placeholder if provided
+        var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
+        placeholders.Add("{{VicePresident}}", vicePresidentName);
 
-        foreach (var qualityIndicator in qualityIndicators)
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(labTaskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
+
+        // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
+        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
+        var templateFileName = Path.GetFileName(templatePath);
+        var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
+        var isBM04 = IsBM04Template(templateFileName);
+        BM05StandardInfo? bm05StandardInfo = null;
+        BM05StandardInfo? bm04StandardInfo = null;
+
+        if (isBM05QLNN)
         {
-            var labTaskIndicator = labTaskIndicators.FirstOrDefault(lti => lti.Id == qualityIndicator.LaboratoryTaskIndicatorId);
-            if (labTaskIndicator == null) continue;
+            // Get BM05 Standard info for placeholder {{Standard}} and footnotes
+            // Truyền cả labTaskIndicators để lấy StandardId nếu QualityIndicator không có
+            bm05StandardInfo = await GetBM05StandardInfoAsync(qualityIndicators, labTaskIndicators);
+            placeholders.Add("{{Standard}}", bm05StandardInfo.StandardText);
 
-            var sampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == labTaskIndicator.TestRequestSampleIndicatorId);
-            if (sampleIndicator == null) continue;
-
-            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
-            var sample = sampleDict.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
-            TestMethod? method = null;
-            if (labTaskIndicator.MethodId.HasValue)
+            // Append footnotes to Note if multiple standards
+            if (!bm05StandardInfo.IsSingleStandard && !string.IsNullOrEmpty(bm05StandardInfo.FootnotesText))
             {
-                method = methodDict.GetValueOrDefault(labTaskIndicator.MethodId.Value);
+                var currentNote = placeholders.GetValueOrDefault("{{Note}}", "");
+                var updatedNote = string.IsNullOrWhiteSpace(currentNote)
+                    ? bm05StandardInfo.FootnotesText
+                    : $"{currentNote}\n\n{bm05StandardInfo.FootnotesText}";
+                placeholders["{{Note}}"] = updatedNote;
             }
-
-            // Apply superscript conversion for formulas like 2^2 → 2²
-            var resultText = ConvertToSuperscriptDisplay(labTaskIndicator.Result);
-
-            tableData.Add(new ResultFormTableRow
-            {
-                No = rowIndex++,
-                NameOfSample = sample?.SampleName ?? "", // BM02 - Tên mẫu
-                CodeOfNumber = sample?.SampleCode ?? "", // BM02 - Mã số mẫu
-                Parameters = indicator?.Name ?? "",
-                Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                Result = resultText,
-                Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "",
-                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
-                Uncertainty = "",
-                Proclaim = ""
-            });
         }
 
-        // 6. Generate document using fixed BM02 template for mixed indicator result
-        // In KQ Hỗn hợp always uses BM02 template (no dropdown selection)
-        var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM02);
+        if (isBM04)
+        {
+            // Get BM04 Standard info for footnotes (luôn đánh footnote kể cả single standard)
+            bm04StandardInfo = await GetBM04StandardInfoAsync(qualityIndicators, labTaskIndicators);
+
+            // BM04: Luôn append footnotes to Note
+            if (!string.IsNullOrEmpty(bm04StandardInfo.FootnotesText))
+            {
+                var currentNote = placeholders.GetValueOrDefault("{{Note}}", "");
+                var updatedNote = string.IsNullOrWhiteSpace(currentNote)
+                    ? bm04StandardInfo.FootnotesText
+                    : $"{currentNote}\n\n{bm04StandardInfo.FootnotesText}";
+                placeholders["{{Note}}"] = updatedNote;
+            }
+        }
+
+        // 5. Build nested data structure - group indicators by sample for BM02 template
+        var sampleData = new List<MixedResultSampleRow>();
+
+        // Create a lookup from qualityIndicator to its related data
+        var indicatorDataList = qualityIndicators
+            .Select(qi => new
+            {
+                QualityIndicator = qi,
+                LabTaskIndicator = labTaskIndicators.FirstOrDefault(lti => lti.Id == qi.LaboratoryTaskIndicatorId)
+            })
+            .Where(x => x.LabTaskIndicator != null)
+            .Select(x => new
+            {
+                x.QualityIndicator,
+                LabTaskIndicator = x.LabTaskIndicator!,
+                SampleIndicator = sampleIndicators.FirstOrDefault(si => si.Id == x.LabTaskIndicator!.TestRequestSampleIndicatorId)
+            })
+            .Where(x => x.SampleIndicator != null)
+            .ToList();
+
+        // Group by sample
+        var groupedBySample = indicatorDataList.GroupBy(x => x.SampleIndicator!.TestRequestSampleId);
+
+        int sampleNo = 1;
+        foreach (var group in groupedBySample)
+        {
+            var sample = sampleDict.GetValueOrDefault(group.Key);
+            if (sample == null) continue;
+
+            var sampleRow = new MixedResultSampleRow
+            {
+                No = sampleNo++,
+                SampleName = sample.SampleName ?? "",
+                SampleCode = sample.SampleCode ?? "",
+                Indicators = new List<MixedResultIndicatorRow>()
+            };
+
+            foreach (var item in group)
+            {
+                var indicator = indicatorDict.GetValueOrDefault(item.SampleIndicator!.IndicatorId);
+                TestMethod? method = null;
+                if (item.LabTaskIndicator.MethodId.HasValue)
+                {
+                    method = methodDict.GetValueOrDefault(item.LabTaskIndicator.MethodId.Value);
+                }
+
+                // Apply superscript conversion for formulas like 2^2 → 2²
+                var resultText = ConvertToSuperscriptDisplay(item.LabTaskIndicator.Result);
+
+                // Get ComparisonOperator and AllowedLimit from StandardIndicator lookup
+                // Ưu tiên QualityIndicator.StandardId, fallback sang LabTaskIndicator.StandardId
+                var comparisonOperator = "";
+                var allowedLimit = "";
+                var effectiveStandardId = item.QualityIndicator.StandardId ?? item.LabTaskIndicator.StandardId;
+
+                _logger.LogInformation("Building row: QualityIndicator.StandardId={QualityStdId}, LabTaskIndicator.StandardId={LabStdId}, effectiveStandardId={EffectiveStdId}, indicator.Id={IndId}",
+                    item.QualityIndicator.StandardId, item.LabTaskIndicator.StandardId, effectiveStandardId, indicator?.Id);
+
+                if (effectiveStandardId.HasValue && indicator != null)
+                {
+                    var key = (effectiveStandardId.Value, indicator.Id);
+                    var found = standardIndicatorLookup.TryGetValue(key, out var stdIndicator);
+                    _logger.LogInformation("Lookup key=({StandardId},{IndicatorId}), found={Found}", key.Item1, key.Item2, found);
+                    if (found && stdIndicator != null)
+                    {
+                        comparisonOperator = stdIndicator.ComparisonOperator ?? "";
+                        allowedLimit = stdIndicator.AllowedLimit ?? "";
+                        _logger.LogInformation("Found StandardIndicator: ComparisonOperator={Op}, AllowedLimit={Limit}", comparisonOperator, allowedLimit);
+                    }
+                }
+
+                // Get range fields from StandardIndicator
+                var lowerOperator = "";
+                var lowerLimit = "";
+                var upperOperator = "";
+                var upperLimit = "";
+                if (effectiveStandardId.HasValue && indicator != null)
+                {
+                    var key = (effectiveStandardId.Value, indicator.Id);
+                    if (standardIndicatorLookup.TryGetValue(key, out var stdIndicator) && stdIndicator != null)
+                    {
+                        lowerOperator = stdIndicator.LowerOperator ?? "";
+                        lowerLimit = stdIndicator.LowerLimit ?? "";
+                        upperOperator = stdIndicator.UpperOperator ?? "";
+                        upperLimit = stdIndicator.UpperLimit ?? "";
+                    }
+                }
+
+                sampleRow.Indicators.Add(new MixedResultIndicatorRow
+                {
+                    Parameter = indicator?.Name ?? "",
+                    ParameterFormattedName = indicator?.FormattedName,
+                    Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
+                    TestMethod = method?.Name ?? "",
+                    TestMethodFormattedName = method?.FormattedName,
+                    Result = resultText,
+                    ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "", // DEPRECATED - kept for backward compatibility
+                    StandardId = effectiveStandardId, // For BM05-QLNN footnote - dùng effectiveStandardId
+                    IndicatorId = indicator?.Id,
+                    ComparisonOperator = comparisonOperator,
+                    AllowedLimit = allowedLimit,
+                    LowerOperator = lowerOperator,
+                    LowerLimit = lowerLimit,
+                    UpperOperator = upperOperator,
+                    UpperLimit = upperLimit
+                });
+            }
+
+            sampleData.Add(sampleRow);
+        }
+
+        _logger.LogInformation("Built {SampleCount} sample rows for mixed result", sampleData.Count);
+
+        // 6. Generate document using BM02 template (default for mixed result with nested SubTable)
+        // templatePath already defined above for BM05-QLNN check
         if (!File.Exists(templatePath))
         {
-            throw new EntityNotFoundException("Template", TemplateConstants.TemplateBM02);
+            throw new EntityNotFoundException("Template", input.TemplateName ?? TemplateConstants.TemplateBM02);
         }
 
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
@@ -2636,43 +4257,88 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
-        ProcessDocument(outputPath, placeholders, tableData);
+        // Determine template type and process accordingly
+        // BM02 uses nested table structure with {{TestTable}}/{{SubTable}} markers
+        // Other templates (BM01, BM04, QLNN) use flat table structure with {{No}}/{{Parameter}} markers
+        var isBM02Template = templateFileName.Contains("BM02") || templateFileName.Contains("tổng hợp");
 
-        // 7. Convert to PDF
-        string pdfFileName;
-        try
+        if (isBM02Template)
         {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
+            // Use nested table processing for BM02
+            _logger.LogInformation("Using BM02 nested table processing for template: {Template}", templateFileName);
+            ProcessMixedResultDocument(outputPath, placeholders, sampleData);
+        }
+        else
+        {
+            // Convert sampleData to flat tableData for BM01 and other templates
+            _logger.LogInformation("Using flat table processing for template: {Template}", templateFileName);
+            var tableData = new List<ResultFormTableRow>();
+            int rowIndex = 1;
 
-            try
+            foreach (var sample in sampleData)
             {
-                if (File.Exists(outputPath))
+                foreach (var indicator in sample.Indicators)
                 {
-                    File.Delete(outputPath);
+                    // Get footnote number for {{n}} placeholder
+                    // BM05-QLNN: chỉ đánh footnote khi multiple standards
+                    // BM04: luôn đánh footnote (kể cả single standard)
+                    var footnoteNumber = "";
+                    if (isBM05QLNN && bm05StandardInfo != null)
+                    {
+                        footnoteNumber = GetBM05FootnoteNumber(indicator.StandardId, bm05StandardInfo);
+                    }
+                    else if (isBM04 && bm04StandardInfo != null)
+                    {
+                        footnoteNumber = GetBM04FootnoteNumber(indicator.StandardId, bm04StandardInfo);
+                    }
+
+                    // Build CompareWithStandard from ComparisonOperator + AllowedLimit (or range fields)
+                    // Format: "≤ 4", "≥ 6", "= 7", "> 5 và < 10", etc.
+                    var compareWithStandard = BuildCompareWithStandard(
+                        indicator.ComparisonOperator,
+                        indicator.AllowedLimit,
+                        indicator.LowerOperator,
+                        indicator.LowerLimit,
+                        indicator.UpperOperator,
+                        indicator.UpperLimit);
+
+                    tableData.Add(new ResultFormTableRow
+                    {
+                        No = rowIndex++,
+                        Parameters = indicator.Parameter,
+                        ParametersFormattedName = indicator.ParameterFormattedName,
+                        Unit = indicator.Unit,
+                        TestMethod = indicator.TestMethod,
+                        TestMethodFormattedName = indicator.TestMethodFormattedName,
+                        Result = indicator.Result,
+                        Standards = indicator.AllowedLimit,
+                        CompareWithStandard = compareWithStandard, // {{CompareWithStandard}} = ComparisonOperator + AllowedLimit
+                        FootnoteNumber = footnoteNumber, // {{n}} = Superscript footnote (BM04 & BM05)
+                        Allowlimit = indicator.AllowedLimit,
+                        Uncertainty = "",
+                        Proclaim = ""
+                    });
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
+
+            // Process document
+            ProcessDocument(outputPath, placeholders, tableData);
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF");
-            pdfFileName = fileName;
-        }
+
+        // 7. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed indicator result form generated: {Path}", outputPath);
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = firstSample?.SampleCode ?? ""
         };
     }
 
     /// <summary>
     /// Generate mixed samples result form (In KQ Hỗn hợp cho nhiều mẫu)
-    /// Used from TestRequestDetail page - combines indicators from multiple samples into one PDF
+    /// Used from TestRequestDetail page - combines indicators from multiple samples into one DOCX
     /// </summary>
     public async Task<GenerateResultFormOutput> GenerateMixedSamplesResultFormAsync(GenerateMixedSamplesResultFormInput input)
     {
@@ -2769,6 +4435,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Note}}", input.Note ?? "" }
         };
 
+        // Add Officer In Charge placeholder (QLKT who approved the indicators)
+        // Only shows name if exactly 1 approver, otherwise empty
+        var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
+        placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
+
         // 3. Build table data - combine all indicators from all samples
         var tableData = new List<ResultFormTableRow>();
         int rowIndex = 1;
@@ -2797,8 +4468,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
+                ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
                 TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",
@@ -2829,32 +4502,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             sourceStream.CopyTo(destStream);
         }
 
+        // Process document
         ProcessDocument(outputPath, placeholders, tableData);
 
-        // 5. Convert to PDF
-        string pdfFileName;
-        try
-        {
-            var pdfPath = await _pdfConversionService.ConvertDocxToPdfAsync(outputPath);
-            pdfFileName = Path.GetFileName(pdfPath);
-
-            try
-            {
-                if (File.Exists(outputPath))
-                {
-                    File.Delete(outputPath);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Failed to delete temporary DOCX file: {Path}", outputPath);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to convert DOCX to PDF, returning DOCX instead");
-            pdfFileName = fileName;
-        }
+        // 5. Return DOCX file directly (no PDF conversion) for OnlyOffice editing
+        var docxFileName = Path.GetFileName(outputPath);
+        _logger.LogInformation("Mixed samples result form generated: {Path}", outputPath);
 
         // 6. Update TestRequest status to PendingApproval after printing
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -2865,7 +4518,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         return new GenerateResultFormOutput
         {
-            FileName = pdfFileName,
+            FileName = docxFileName,
             SampleCode = sampleCodes
         };
     }
@@ -2923,7 +4576,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     #region Superscript Helpers
 
     /// <summary>
-    /// Unicode Superscript character mapping
+    /// Unicode Superscript character mapping (for exponents: ^)
     /// </summary>
     private static readonly Dictionary<char, char> SuperscriptMap = new()
     {
@@ -2933,13 +4586,37 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     };
 
     /// <summary>
-    /// Convert caret notation to Unicode superscript for display in reports
-    /// Examples:
+    /// Unicode Subscript character mapping (for chemical formulas: _)
+    /// </summary>
+    private static readonly Dictionary<char, char> SubscriptMap = new()
+    {
+        {'0', '₀'}, {'1', '₁'}, {'2', '₂'}, {'3', '₃'}, {'4', '₄'},
+        {'5', '₅'}, {'6', '₆'}, {'7', '₇'}, {'8', '₈'}, {'9', '₉'},
+        {'-', '₋'}, {'+', '₊'}
+    };
+
+    /// <summary>
+    /// Convert caret (^) and underscore (_) notation to Unicode superscript/subscript for display in reports
+    /// Also adds line breaks before '(' and after ')' for better formatting
+    ///
+    /// Superscript examples (^):
     /// - 2^2 → 2²
     /// - 10^-3 → 10⁻³
     /// - 1.5x10^-6 → 1.5×10⁻⁶
-    /// - 2X10^2 → 2×10²
-    /// Already-unicode superscript text is passed through unchanged
+    /// - Fe^2+ → Fe²⁺
+    /// - SO_4^2- → SO₄²⁻
+    ///
+    /// Subscript examples (_) - for chemical formulas:
+    /// - H_2O → H₂O
+    /// - CO_2 → CO₂
+    /// - H_2SO_4 → H₂SO₄
+    /// - Ca(OH)_2 → Ca(OH)₂
+    /// - CuSO_4.5H_2O → CuSO₄.5H₂O
+    ///
+    /// Parentheses formatting:
+    /// - "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
+    ///
+    /// Already-unicode superscript/subscript text is passed through unchanged
     /// </summary>
     private static string ConvertToSuperscriptDisplay(string? text)
     {
@@ -2951,62 +4628,69 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Pattern: number followed by x/X followed by number
         result = Regex.Replace(result, @"(\d)\s*[xX]\s*(\d)", "$1×$2");
 
-        // 2. Convert caret notation to superscript
-        // Pattern: number^exponent (e.g., 2^2, 10^-3, 5.5^2)
-        var caretPattern = @"(\d+(?:\.\d+)?)\^(-?\d+(?:\.\d+)?)";
-        result = Regex.Replace(result, caretPattern, match =>
+        // 2. Convert underscore notation to subscript (for chemical formulas)
+        // Pattern: _followed by digits and optional +/- (e.g., H_2, SO_4, NO_3-)
+        // Must process before ^ to handle cases like SO_4^2-
+        result = Regex.Replace(result, @"_(\d+[+-]?)", match =>
         {
-            var baseNum = match.Groups[1].Value;
-            var exponent = match.Groups[2].Value;
-            var superscriptExponent = new string(exponent.Select(c =>
-                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
-            return baseNum + superscriptExponent;
+            var subscriptPart = match.Groups[1].Value;
+            return new string(subscriptPart.Select(c =>
+                SubscriptMap.GetValueOrDefault(c, c)).ToArray());
         });
+
+        // 3. Convert caret notation to superscript (for exponents and ions)
+        // Pattern: ^followed by optional sign and digits (e.g., ^2, ^-3, ^2+, ^2-)
+        result = Regex.Replace(result, @"\^([+-]?\d+[+-]?)", match =>
+        {
+            var exponent = match.Groups[1].Value;
+            return new string(exponent.Select(c =>
+                SuperscriptMap.GetValueOrDefault(c, c)).ToArray());
+        });
+
+        // 4. Add line breaks for parentheses content
+        // Insert newline before '(' if there's content before it (not at start)
+        // Insert newline after ')' if there's content after it (not at end)
+        // Example: "Không phát hiện (LOD = 1) Test" → "Không phát hiện\n(LOD = 1)\nTest"
+        result = Regex.Replace(result, @"(\S)\s*\(", "$1\n("); // Add newline before '('
+        result = Regex.Replace(result, @"\)\s*(\S)", ")\n$1"); // Add newline after ')'
 
         return result;
     }
 
     /// <summary>
-    /// Merge ghi chú từ QLKT (đã lưu trong SampleIndicatorNote) với ghi chú từ QLCL (input parameter)
+    /// Merge ghi chú từ QLKT (LaboratoryTaskIndicator) với ghi chú từ QLCL (input parameter)
     /// Format: Ghi chú QLKT + newline + Ghi chú QLCL
     /// </summary>
     private async Task<string> GetMergedNoteAsync(Guid testRequestSampleIndicatorId, string? qualityNote)
     {
         var parts = new List<string>();
 
-        // 1. Lấy ghi chú từ QLKT (SampleIndicatorNote)
-        var sampleIndicatorNote = await _sampleIndicatorNoteRepository.FirstOrDefaultAsync(
+        // 1. Lấy ghi chú từ QLKT (LaboratoryTaskIndicator - new model)
+        var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
             x => x.TestRequestSampleIndicatorId == testRequestSampleIndicatorId
         );
 
-        if (sampleIndicatorNote != null)
+        if (labTaskIndicator != null)
         {
             var labNote = new List<string>();
 
-            // Add NoteContent if exists
-            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.NoteContent))
+            // Add FreeTextNote if exists
+            if (!string.IsNullOrWhiteSpace(labTaskIndicator.FreeTextNote))
             {
-                labNote.Add(sampleIndicatorNote.NoteContent.Trim());
+                labNote.Add(labTaskIndicator.FreeTextNote.Trim());
             }
 
-            // Add master notes if exists
-            if (!string.IsNullOrWhiteSpace(sampleIndicatorNote.SelectedNoteIds))
+            // Add MasterDataNoteIds if exists
+            if (!string.IsNullOrWhiteSpace(labTaskIndicator.MasterDataNoteIds))
             {
-                try
+                var noteIds = ParseNoteIds(labTaskIndicator.MasterDataNoteIds);
+                if (noteIds.Any())
                 {
-                    var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(sampleIndicatorNote.SelectedNoteIds);
-                    if (noteIds != null && noteIds.Any())
+                    var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
+                    foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
-                        var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
-                        foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
-                        {
-                            labNote.Add($"- {note.Content}");
-                        }
+                        labNote.Add($"- {note.Content}");
                     }
-                }
-                catch (System.Text.Json.JsonException ex)
-                {
-                    _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", sampleIndicatorNote.Id);
                 }
             }
 
@@ -3029,68 +4713,58 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Merge ghi chú từ nhiều chỉ tiêu (QLKT) với ghi chú từ QLCL cho In KQ Hỗn Hợp
     /// Logic:
-    /// - Gộp tất cả NoteContent từ các chỉ tiêu (mỗi note 1 dòng với dấu -)
-    /// - Gộp tất cả Master Note Items và loại bỏ trùng lặp
+    /// - Gộp tất cả FreeTextNote từ các chỉ tiêu và loại bỏ trùng lặp (nếu giống nhau chỉ lấy 1)
+    /// - Gộp tất cả MasterDataNoteIds và loại bỏ trùng lặp
     /// - Thêm ghi chú từ QLCL ở cuối
-    /// Format: QLKT note contents + Master notes + QLCL note
+    /// Format: QLKT FreeText notes + Master data notes + QLCL note
     /// </summary>
     private async Task<string> GetMergedNotesForMultipleIndicatorsAsync(List<Guid> testRequestSampleIndicatorIds, string? qualityNote)
     {
         var parts = new List<string>();
 
-        // 1. Lấy tất cả ghi chú từ QLKT (SampleIndicatorNote)
-        var sampleIndicatorNotes = await _sampleIndicatorNoteRepository.GetListAsync(
+        // 1. Lấy tất cả ghi chú từ QLKT (LaboratoryTaskIndicator - new model)
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
             x => testRequestSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId)
         );
 
-        if (sampleIndicatorNotes.Any())
+        if (labTaskIndicators.Any())
         {
-            var allNoteContents = new HashSet<string>(); // Use HashSet to avoid duplicates
+            var allFreeTextNotes = new HashSet<string>(); // Use HashSet to avoid duplicates
             var allMasterNoteIds = new HashSet<Guid>(); // Use HashSet to avoid duplicates
 
-            // Collect all note contents and master note IDs
-            foreach (var note in sampleIndicatorNotes)
+            // Collect all FreeTextNote and MasterDataNoteIds
+            foreach (var indicator in labTaskIndicators)
             {
-                // Add NoteContent if exists (HashSet automatically handles duplicates)
-                if (!string.IsNullOrWhiteSpace(note.NoteContent))
+                // Add FreeTextNote if exists (HashSet automatically handles duplicates)
+                if (!string.IsNullOrWhiteSpace(indicator.FreeTextNote))
                 {
-                    allNoteContents.Add(note.NoteContent.Trim());
+                    allFreeTextNotes.Add(indicator.FreeTextNote.Trim());
                 }
 
-                // Collect master note IDs
-                if (!string.IsNullOrWhiteSpace(note.SelectedNoteIds))
+                // Collect master data note IDs
+                if (!string.IsNullOrWhiteSpace(indicator.MasterDataNoteIds))
                 {
-                    try
+                    var noteIds = ParseNoteIds(indicator.MasterDataNoteIds);
+                    foreach (var id in noteIds)
                     {
-                        var noteIds = System.Text.Json.JsonSerializer.Deserialize<List<Guid>>(note.SelectedNoteIds);
-                        if (noteIds != null && noteIds.Any())
-                        {
-                            foreach (var id in noteIds)
-                            {
-                                allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
-                            }
-                        }
-                    }
-                    catch (System.Text.Json.JsonException ex)
-                    {
-                        _logger.LogWarning(ex, "Failed to deserialize SelectedNoteIds for SampleIndicatorNote {Id}", note.Id);
+                        allMasterNoteIds.Add(id); // HashSet automatically handles duplicates
                     }
                 }
             }
 
-            // Add all note contents
-            if (allNoteContents.Any())
+            // Add all FreeText notes (distinct - if same content, only add once)
+            if (allFreeTextNotes.Any())
             {
-                parts.Add(string.Join("\n", allNoteContents));
+                parts.Add(string.Join("\n", allFreeTextNotes));
             }
 
-            // Fetch and add master notes (distinct)
+            // Fetch and add master data notes (distinct)
             if (allMasterNoteIds.Any())
             {
                 var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
-                    .Select(x => x.Content)
+                    .Select(x => $"- {x.Content}")
                     .ToList();
 
                 if (masterNoteLines.Any())
@@ -3108,6 +4782,313 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Merge: Nối đuôi nhưng tách biệt các đoạn ra
         return parts.Count > 0 ? string.Join("\n\n", parts) : string.Empty;
+    }
+
+    /// <summary>
+    /// Parse comma-separated note IDs string to list of Guids
+    /// </summary>
+    private static List<Guid> ParseNoteIds(string? noteIdsString)
+    {
+        if (string.IsNullOrEmpty(noteIdsString))
+            return new List<Guid>();
+
+        return noteIdsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
+    }
+
+    /// <summary>
+    /// Helper class chứa thông tin Standard mapping cho BM05-QLNN template
+    /// </summary>
+    private class BM05StandardInfo
+    {
+        /// <summary>
+        /// Giá trị cho placeholder {{Standard}}
+        /// - Nếu tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn: Tên tiêu chuẩn
+        /// - Nếu nhiều tiêu chuẩn: "So với QCVN…/ TCVN…./ QĐ…"
+        /// </summary>
+        public string StandardText { get; set; } = "";
+
+        /// <summary>
+        /// Dictionary mapping StandardId -> Footnote number (1, 2, 3...)
+        /// Chỉ sử dụng khi có nhiều tiêu chuẩn
+        /// </summary>
+        public Dictionary<Guid, int> FootnoteMap { get; set; } = new();
+
+        /// <summary>
+        /// Dictionary mapping StandardId -> Standard Name (cho footnotes)
+        /// </summary>
+        public Dictionary<Guid, string> StandardNames { get; set; } = new();
+
+        /// <summary>
+        /// True nếu tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn
+        /// </summary>
+        public bool IsSingleStandard { get; set; }
+
+        /// <summary>
+        /// Text footnotes để append vào {{Note}}
+        /// Format: "(1) Tên tiêu chuẩn 1\n(2) Tên tiêu chuẩn 2"
+        /// </summary>
+        public string FootnotesText { get; set; } = "";
+    }
+
+    /// <summary>
+    /// Phân tích các chỉ tiêu và tạo thông tin Standard cho BM05-QLNN template
+    /// </summary>
+    /// <param name="qualityIndicators">Danh sách QualityManagementIndicator</param>
+    /// <param name="labTaskIndicators">Danh sách LaboratoryTaskIndicator (optional - để lấy StandardId nếu QualityIndicator không có)</param>
+    /// <returns>BM05StandardInfo chứa thông tin placeholder và footnotes</returns>
+    private async Task<BM05StandardInfo> GetBM05StandardInfoAsync(
+        List<QualityManagementIndicator> qualityIndicators,
+        List<LaboratoryTaskIndicator>? labTaskIndicators = null)
+    {
+        var result = new BM05StandardInfo();
+
+        // Lấy danh sách StandardId từ QualityManagementIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+
+        // Lấy danh sách StandardId từ LaboratoryTaskIndicator (nếu có)
+        var standardIdsFromLabTask = labTaskIndicators?
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value)
+            ?? Enumerable.Empty<Guid>();
+
+        // Merge và distinct
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+
+        if (!standardIds.Any())
+        {
+            // Không có tiêu chuẩn nào được chọn - hiển thị text mặc định
+            result.IsSingleStandard = true;
+            result.StandardText = "So với QCVN…/ TCVN…./ QĐ…";
+            return result;
+        }
+
+        // Lấy thông tin các Standard từ database
+        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        if (standardIds.Count == 1)
+        {
+            // Tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn
+            result.IsSingleStandard = true;
+            var standard = standards.FirstOrDefault();
+            result.StandardText = standard?.Name ?? "";
+        }
+        else
+        {
+            // Nhiều tiêu chuẩn khác nhau
+            result.IsSingleStandard = false;
+            result.StandardText = "So với QCVN…/ TCVN…./ QĐ…";
+
+            // Tạo footnote map: gán số thứ tự cho mỗi tiêu chuẩn
+            int footnoteNumber = 1;
+            foreach (var standardId in standardIds.OrderBy(id => result.StandardNames.GetValueOrDefault(id, "")))
+            {
+                result.FootnoteMap[standardId] = footnoteNumber++;
+            }
+
+            // Tạo footnotes text
+            var footnotesLines = result.FootnoteMap
+                .OrderBy(kv => kv.Value)
+                .Select(kv => $"({kv.Value}) {result.StandardNames.GetValueOrDefault(kv.Key, "")}")
+                .ToList();
+            result.FootnotesText = string.Join("\n", footnotesLines);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Lấy footnote number (superscript) cho BM05-QLNN template
+    /// - Nếu single standard: trả về empty string
+    /// - Nếu multiple standards: trả về superscript footnote như ⁽¹⁾, ⁽²⁾
+    /// </summary>
+    /// <param name="standardId">StandardId của chỉ tiêu</param>
+    /// <param name="standardInfo">BM05StandardInfo chứa footnote mapping</param>
+    /// <returns>Footnote number string (superscript) hoặc empty</returns>
+    private static string GetBM05FootnoteNumber(Guid? standardId, BM05StandardInfo standardInfo)
+    {
+        if (standardInfo.IsSingleStandard || !standardId.HasValue)
+        {
+            // Single standard hoặc không có standardId: không cần footnote
+            return "";
+        }
+
+        // Multiple standards: trả về superscript footnote number
+        if (standardInfo.FootnoteMap.TryGetValue(standardId.Value, out int footnoteNumber))
+        {
+            // Chuyển số thành superscript: 1 → ⁽¹⁾, 2 → ⁽²⁾, etc.
+            var superscriptNumber = new string(footnoteNumber.ToString()
+                .Select(c => SuperscriptMap.GetValueOrDefault(c, c))
+                .ToArray());
+            return $"⁽{superscriptNumber}⁾";
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Kiểm tra template có phải BM05-QLNN không
+    /// </summary>
+    private static bool IsBM05QLNNTemplate(string? templateFileName)
+    {
+        if (string.IsNullOrEmpty(templateFileName)) return false;
+        return templateFileName.Contains("BM05", StringComparison.OrdinalIgnoreCase)
+            && templateFileName.Contains("QLNN", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Kiểm tra template có phải BM04 không
+    /// </summary>
+    private static bool IsBM04Template(string? templateFileName)
+    {
+        if (string.IsNullOrEmpty(templateFileName)) return false;
+        return templateFileName.Contains("BM04", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Lấy footnote number (superscript) cho BM04 template
+    /// BM04 luôn đánh footnote cho mọi chỉ tiêu (kể cả single standard)
+    /// </summary>
+    private static string GetBM04FootnoteNumber(Guid? standardId, BM05StandardInfo standardInfo)
+    {
+        if (!standardId.HasValue)
+        {
+            return "";
+        }
+
+        // BM04: Luôn trả về superscript footnote number
+        if (standardInfo.FootnoteMap.TryGetValue(standardId.Value, out int footnoteNumber))
+        {
+            var superscriptNumber = new string(footnoteNumber.ToString()
+                .Select(c => SuperscriptMap.GetValueOrDefault(c, c))
+                .ToArray());
+            return $"⁽{superscriptNumber}⁾";
+        }
+
+        return "";
+    }
+
+    /// <summary>
+    /// Phân tích các chỉ tiêu và tạo thông tin Standard cho BM04 template
+    /// BM04 luôn tạo footnote map (kể cả single standard)
+    /// </summary>
+    private async Task<BM05StandardInfo> GetBM04StandardInfoAsync(
+        List<QualityManagementIndicator> qualityIndicators,
+        List<LaboratoryTaskIndicator>? labTaskIndicators = null)
+    {
+        var result = new BM05StandardInfo();
+
+        // Lấy danh sách StandardId từ QualityManagementIndicator
+        var standardIdsFromQuality = qualityIndicators
+            .Where(qi => qi.StandardId.HasValue)
+            .Select(qi => qi.StandardId!.Value);
+
+        // Lấy danh sách StandardId từ LaboratoryTaskIndicator (nếu có)
+        var standardIdsFromLabTask = labTaskIndicators?
+            .Where(lti => lti.StandardId.HasValue)
+            .Select(lti => lti.StandardId!.Value)
+            ?? Enumerable.Empty<Guid>();
+
+        // Merge và distinct
+        var standardIds = standardIdsFromQuality
+            .Concat(standardIdsFromLabTask)
+            .Distinct()
+            .ToList();
+
+        if (!standardIds.Any())
+        {
+            result.IsSingleStandard = true;
+            result.StandardText = "";
+            return result;
+        }
+
+        // Lấy thông tin các Standard từ database
+        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        // BM04: Luôn tạo footnote map (kể cả single standard)
+        result.IsSingleStandard = standardIds.Count == 1;
+
+        // Tạo footnote map cho tất cả standards
+        int footnoteNumber = 1;
+        foreach (var standardId in standardIds.OrderBy(id => result.StandardNames.GetValueOrDefault(id, "")))
+        {
+            result.FootnoteMap[standardId] = footnoteNumber++;
+        }
+
+        // Tạo footnotes text
+        var footnotesLines = result.FootnoteMap
+            .OrderBy(kv => kv.Value)
+            .Select(kv => $"({kv.Value}) {result.StandardNames.GetValueOrDefault(kv.Key, "")}")
+            .ToList();
+        result.FootnotesText = string.Join("\n", footnotesLines);
+
+        return result;
+    }
+
+    /// <summary>
+    /// Build CompareWithStandard từ ComparisonOperator và AllowedLimit
+    /// Format: "<= 4", ">= 6", "= 7", etc.
+    /// </summary>
+    /// <param name="comparisonOperator">Ký hiệu so sánh: <=, >=, <, >, =</param>
+    /// <param name="allowedLimit">Giới hạn cho phép</param>
+    /// <returns>Chuỗi ghép: "comparisonOperator allowedLimit" hoặc empty nếu không có dữ liệu</returns>
+    private static string BuildCompareWithStandard(
+        string? comparisonOperator,
+        string? allowedLimit,
+        string? lowerOperator = null,
+        string? lowerLimit = null,
+        string? upperOperator = null,
+        string? upperLimit = null)
+    {
+        // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
+        if (!string.IsNullOrWhiteSpace(lowerLimit) && !string.IsNullOrWhiteSpace(upperLimit))
+        {
+            var lower = ConvertOperatorSymbol(lowerOperator);
+            var upper = ConvertOperatorSymbol(upperOperator);
+            return $"{lower} {lowerLimit.Trim()} và {upper} {upperLimit.Trim()}";
+        }
+
+        // Nếu không có allowedLimit, trả về empty
+        if (string.IsNullOrWhiteSpace(allowedLimit))
+        {
+            return "";
+        }
+
+        // Nếu có allowedLimit nhưng không có comparisonOperator, chỉ trả về allowedLimit
+        if (string.IsNullOrWhiteSpace(comparisonOperator))
+        {
+            return allowedLimit.Trim();
+        }
+
+        // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
+        var op = ConvertOperatorSymbol(comparisonOperator);
+        return $"{op} {allowedLimit.Trim()}";
+    }
+
+    /// <summary>
+    /// Chuyển đổi ký hiệu so sánh từ <= thành ≤, >= thành ≥
+    /// </summary>
+    private static string ConvertOperatorSymbol(string? op)
+    {
+        if (string.IsNullOrWhiteSpace(op)) return "";
+
+        return op.Trim() switch
+        {
+            "<=" => "≤",
+            ">=" => "≥",
+            _ => op.Trim()
+        };
     }
 
     #endregion

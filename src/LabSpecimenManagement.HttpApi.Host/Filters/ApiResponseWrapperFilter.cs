@@ -17,6 +17,14 @@ public class ApiResponseWrapperFilter : IAsyncResultFilter
 {
     public async Task OnResultExecutionAsync(ResultExecutingContext context, ResultExecutionDelegate next)
     {
+        // Skip wrapping for WOPI endpoints - they require raw JSON responses per WOPI protocol
+        var path = context.HttpContext.Request.Path.Value ?? "";
+        if (path.StartsWith("/wopi/", StringComparison.OrdinalIgnoreCase))
+        {
+            await next();
+            return;
+        }
+
         if (context.Result is ObjectResult objectResult)
         {
             var value = objectResult.Value;

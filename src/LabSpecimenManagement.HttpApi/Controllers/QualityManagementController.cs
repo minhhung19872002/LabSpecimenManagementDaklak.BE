@@ -118,7 +118,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-single")]
     public virtual Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, [FromBody] PrintSingleDto input)
     {
-        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName);
+        return _qualityManagementAppService.PrintSingleResultAsync(taskId, input.IndicatorId, input.Note, input.TemplateName, input.VicePresidentId);
     }
 
     /// <summary>
@@ -127,7 +127,16 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-mixed")]
     public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
     {
-        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName);
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName, input.VicePresidentId);
+    }
+
+    /// <summary>
+    /// Print multiple single results (In KQ Đơn batch) - generates (labs × templates) PDFs
+    /// </summary>
+    [HttpPost("{taskId}/print-multi-single")]
+    public virtual Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, [FromBody] PrintMultiSingleDto input)
+    {
+        return _qualityManagementAppService.PrintMultiSingleResultAsync(taskId, input);
     }
 
     /// <summary>
@@ -196,6 +205,19 @@ public class QualityManagementController : LabSpecimenManagementController
     public virtual Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync()
     {
         return _qualityManagementAppService.GetQualityManagerPendingTasksAsync();
+    }
+
+    #endregion
+
+    #region Sample Assignment Log
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - Flat indicator list với thông tin Sample, TestRequest, QLKT, KTV
+    /// </summary>
+    [HttpGet("sample-assignment-log")]
+    public virtual Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return _qualityManagementAppService.GetSampleAssignmentLogAsync(input);
     }
 
     #endregion

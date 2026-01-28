@@ -32,7 +32,7 @@ public class TestingListDto : EntityDto<Guid>
     public int TotalIndicatorCount { get; set; }
 
     /// <summary>
-    /// Danh sách tên kỹ thuật viên (comma separated)
+    /// Danh sách tên Thử nghiệm viên (comma separated)
     /// </summary>
     public string? TechnicianNames { get; set; }
 

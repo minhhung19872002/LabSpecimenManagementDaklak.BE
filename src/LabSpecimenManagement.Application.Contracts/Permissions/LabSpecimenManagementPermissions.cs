@@ -116,7 +116,18 @@ public static class LabSpecimenManagementPermissions
         public const string Export = Default + ".Export";
     }
 
-    // Master Data - Department Permissions
+    // Master Data - Unified Permissions (for all master data features)
+    public static class MasterData
+    {
+        public const string Default = GroupName + ".MasterData";
+        public const string View = Default + ".View";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Import = Default + ".Import"; // For Indicators & IndicatorGroups
+    }
+
+    // Master Data - Department Permissions (DEPRECATED - use MasterData instead)
     public static class Departments
     {
         public const string Default = GroupName + ".Departments";
@@ -213,6 +224,7 @@ public static class LabSpecimenManagementPermissions
         public const string Specimens = Default + ".Specimens";
         public const string Customers = Default + ".Customers";
         public const string TestMethods = Default + ".TestMethods";
+        public const string Standards = Default + ".Standards";
     }
 
     // User Management Permissions
@@ -239,5 +251,40 @@ public static class LabSpecimenManagementPermissions
         public const string Create = Default + ".Create";
         public const string Edit = Default + ".Edit";
         public const string Delete = Default + ".Delete";
+    }
+
+    // Sync Permissions (Offline data synchronization)
+    public static class Sync
+    {
+        public const string Default = GroupName + ".Sync";
+        public const string TestRequests = Default + ".TestRequests";
+    }
+
+    // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+    public static class SampleConditions
+    {
+        public const string Default = GroupName + ".SampleConditions";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Role Management Permissions (Quản lý phân quyền)
+    public static class RoleManagement
+    {
+        public const string Default = GroupName + ".RoleManagement";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string ManagePermissions = Default + ".ManagePermissions";
+        public const string ManageUsers = Default + ".ManageUsers";
+    }
+
+    // Receipt Permissions (Phiếu thu)
+    public static class Receipts
+    {
+        public const string Default = GroupName + ".Receipts";
+        public const string View = Default + ".View";
+        public const string Confirm = Default + ".Confirm";
     }
 }

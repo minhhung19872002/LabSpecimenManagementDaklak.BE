@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/test-methods")]
-[Authorize(LabSpecimenManagementPermissions.TestMethods.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class TestMethodController : LabSpecimenManagementController
 {
     private readonly ITestMethodAppService _testMethodAppService;
@@ -42,21 +42,21 @@ public class TestMethodController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<TestMethodDto> CreateAsync([FromBody] CreateTestMethodDto input)
     {
         return _testMethodAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<TestMethodDto> UpdateAsync(Guid id, [FromBody] UpdateTestMethodDto input)
     {
         return _testMethodAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _testMethodAppService.DeleteAsync(id);
@@ -87,23 +87,33 @@ public class TestMethodController : LabSpecimenManagementController
     }
 
     [HttpPost("{id}/indicators")]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task AddIndicatorsAsync(Guid id, [FromBody] AddIndicatorsToTestMethodDto input)
     {
         return _testMethodAppService.AddIndicatorsAsync(id, input);
     }
 
     [HttpDelete("{id}/indicators/{indicatorId}")]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)
     {
         return _testMethodAppService.RemoveIndicatorAsync(id, indicatorId);
     }
 
     [HttpPost("{id}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.TestMethods.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<TestMethodDto> ToggleActiveAsync(Guid id)
     {
         return _testMethodAppService.ToggleActiveAsync(id);
+    }
+
+    /// <summary>
+    /// Xóa hàng loạt chỉ tiêu khỏi phương pháp thử
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    {
+        return _testMethodAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
     }
 }

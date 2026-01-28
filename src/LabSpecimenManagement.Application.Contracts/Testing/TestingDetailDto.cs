@@ -26,7 +26,7 @@ public class TestingDetailDto : EntityDto<Guid>
     public TestingStatus TestingStatus { get; set; }
 
     /// <summary>
-    /// Danh sách tên kỹ thuật viên (comma separated)
+    /// Danh sách tên Thử nghiệm viên (comma separated)
     /// </summary>
     public string? TechnicianNames { get; set; }
 
@@ -191,6 +191,11 @@ public class TestingIndicatorDto
     public string? IndicatorName { get; set; }
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - Indicator Formatted Name
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// ID phương pháp - Method ID
     /// </summary>
     public Guid? MethodId { get; set; }
@@ -199,6 +204,11 @@ public class TestingIndicatorDto
     /// Tên phương pháp - Method Name
     /// </summary>
     public string? MethodName { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp có định dạng (HTML) - Method Formatted Name
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
 
     /// <summary>
     /// Đơn vị tính - Unit
@@ -227,8 +237,14 @@ public class TestingIndicatorDto
 
     /// <summary>
     /// Ngày bắt đầu thử nghiệm (khi ấn "Thực hiện") - Start Date/Test Date
+    /// [Deprecated] Sử dụng TestDate thay thế
     /// </summary>
     public DateTime? StartDate { get; set; }
+
+    /// <summary>
+    /// Ngày thử nghiệm (do KTV chọn) - Test Date
+    /// </summary>
+    public DateTime? TestDate { get; set; }
 
     /// <summary>
     /// Ngày gửi kết quả cho QLKT - Submit Date
@@ -261,12 +277,12 @@ public class TestingIndicatorDto
     public int RejectionHistoryCount { get; set; }
 
     /// <summary>
-    /// ID kỹ thuật viên
+    /// ID Thử nghiệm viên
     /// </summary>
     public Guid? TechnicianId { get; set; }
 
     /// <summary>
-    /// Tên kỹ thuật viên
+    /// Tên Thử nghiệm viên
     /// </summary>
     public string? TechnicianName { get; set; }
 
@@ -289,4 +305,29 @@ public class TestingIndicatorDto
     /// Danh sách hình ảnh của chỉ tiêu (max 5)
     /// </summary>
     public List<IndicatorImageDto> Images { get; set; } = new();
+
+    /// <summary>
+    /// ID tiêu chuẩn so sánh - Standard ID (set by QLKT)
+    /// </summary>
+    public Guid? StandardId { get; set; }
+
+    /// <summary>
+    /// Tên tiêu chuẩn - Standard Name
+    /// </summary>
+    public string? StandardName { get; set; }
+
+    /// <summary>
+    /// Mô tả quy chuẩn - Limit Description
+    /// </summary>
+    public string? LimitDescription { get; set; }
+
+    /// <summary>
+    /// Ký hiệu so sánh (<=, >=, <, >, =) - Comparison Operator
+    /// </summary>
+    public string? ComparisonOperator { get; set; }
+
+    /// <summary>
+    /// Giới hạn cho phép (giá trị cụ thể) - Allowed Limit
+    /// </summary>
+    public string? AllowedLimit { get; set; }
 }

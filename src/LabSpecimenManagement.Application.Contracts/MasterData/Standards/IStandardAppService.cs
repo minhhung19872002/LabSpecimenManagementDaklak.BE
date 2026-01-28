@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -28,4 +29,11 @@ public interface IStandardAppService : IApplicationService
     Task<StandardIndicatorDto> UpdateIndicatorAsync(Guid standardId, Guid id, UpdateStandardIndicatorDto input);
     Task RemoveIndicatorAsync(Guid standardId, Guid id);
     Task<StandardIndicatorDto> ToggleIndicatorActiveAsync(Guid standardId, Guid id);
+
+    // Batch remove indicators
+    Task<int> RemoveIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds);
+
+    // Batch activate/deactivate indicators
+    Task<int> ActivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds);
+    Task<int> DeactivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds);
 }

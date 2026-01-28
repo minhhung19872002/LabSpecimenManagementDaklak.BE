@@ -12,7 +12,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/storage-locations")]
-[Authorize(LabSpecimenManagementPermissions.StorageLocations.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class StorageLocationController : LabSpecimenManagementController
 {
     private readonly IStorageLocationAppService _storageLocationAppService;
@@ -41,21 +41,21 @@ public class StorageLocationController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.StorageLocations.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<StorageLocationDto> CreateAsync([FromBody] CreateUpdateStorageLocationDto input)
     {
         return _storageLocationAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.StorageLocations.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<StorageLocationDto> UpdateAsync(Guid id, [FromBody] CreateUpdateStorageLocationDto input)
     {
         return _storageLocationAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.StorageLocations.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _storageLocationAppService.DeleteAsync(id);

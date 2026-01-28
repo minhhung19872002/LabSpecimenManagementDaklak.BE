@@ -22,90 +22,168 @@ public class LaboratoryAppService :
 {
     private readonly IUserNameProvider _userNameProvider;
     private readonly IEntityValidationService _validationService;
+    private readonly IRepository<Department, Guid> _departmentRepository;
 
     public LaboratoryAppService(
         IRepository<Laboratory, Guid> repository,
+        IRepository<Department, Guid> departmentRepository,
         IUserNameProvider userNameProvider,
         IEntityValidationService validationService)
         : base(repository)
     {
+        _departmentRepository = departmentRepository;
         _userNameProvider = userNameProvider;
         _validationService = validationService;
     }
 
     public async Task<ListResultDto<LaboratoryDto>> GetActiveLaboratoriesAsync()
     {
-        var query = await Repository.GetQueryableAsync();
-        var items = query
-            .WhereActive()
-            .OrderByThenBy(x => x.SortOrder, x => x.Name)
-            .ToList();
+        var labQuery = await Repository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
 
-        var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-        await EnrichWithTechnicalManagerNamesAsync(dtos);
+        var query = from lab in labQuery.WhereActive()
+                    join dept in deptQuery on lab.DepartmentId equals dept.Id
+                    orderby lab.SortOrder, dept.Name
+                    select new LaboratoryDto
+                    {
+                        Id = lab.Id,
+                        Code = lab.Code,
+                        Name = dept.Name,
+                        DepartmentId = lab.DepartmentId,
+                        TechnicalManagerId = lab.TechnicalManagerId,
+                        IsActive = lab.IsActive,
+                        SortOrder = lab.SortOrder,
+                        CreationTime = lab.CreationTime,
+                        CreatorId = lab.CreatorId,
+                        LastModificationTime = lab.LastModificationTime,
+                        LastModifierId = lab.LastModifierId,
+                    };
 
-        return new ListResultDto<LaboratoryDto>(dtos);
+        var items = query.ToList();
+        await EnrichWithTechnicalManagerNamesAsync(items);
+
+        return new ListResultDto<LaboratoryDto>(items);
     }
 
     public async Task<ListResultDto<LaboratoryDto>> GetAllAsync()
     {
-        var query = await Repository.GetQueryableAsync();
-        var items = query
-            .OrderByThenBy(x => x.SortOrder, x => x.Name)
-            .ToList();
+        var labQuery = await Repository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
 
-        var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-        await EnrichWithTechnicalManagerNamesAsync(dtos);
+        var query = from lab in labQuery
+                    join dept in deptQuery on lab.DepartmentId equals dept.Id
+                    orderby lab.SortOrder, dept.Name
+                    select new LaboratoryDto
+                    {
+                        Id = lab.Id,
+                        Code = lab.Code,
+                        Name = dept.Name,
+                        DepartmentId = lab.DepartmentId,
+                        TechnicalManagerId = lab.TechnicalManagerId,
+                        IsActive = lab.IsActive,
+                        SortOrder = lab.SortOrder,
+                        CreationTime = lab.CreationTime,
+                        CreatorId = lab.CreatorId,
+                        LastModificationTime = lab.LastModificationTime,
+                        LastModifierId = lab.LastModifierId,
+                    };
 
-        return new ListResultDto<LaboratoryDto>(dtos);
+        var items = query.ToList();
+        await EnrichWithTechnicalManagerNamesAsync(items);
+
+        return new ListResultDto<LaboratoryDto>(items);
     }
 
     public override async Task<LaboratoryDto> GetAsync(Guid id)
     {
-        var entity = await Repository.GetAsync(id);
-        var dto = ObjectMapper.Map<Laboratory, LaboratoryDto>(entity);
+        var lab = await Repository.GetAsync(id);
+        var dept = await _departmentRepository.GetAsync(lab.DepartmentId);
 
-        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(entity.TechnicalManagerId);
+        var dto = new LaboratoryDto
+        {
+            Id = lab.Id,
+            Code = lab.Code,
+            Name = dept.Name,
+            DepartmentId = lab.DepartmentId,
+            TechnicalManagerId = lab.TechnicalManagerId,
+            IsActive = lab.IsActive,
+            SortOrder = lab.SortOrder,
+            CreationTime = lab.CreationTime,
+            CreatorId = lab.CreatorId,
+            LastModificationTime = lab.LastModificationTime,
+            LastModifierId = lab.LastModifierId,
+        };
+
+        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(lab.TechnicalManagerId);
 
         return dto;
     }
 
     public override async Task<PagedResultDto<LaboratoryDto>> GetListAsync(PagedAndSortedResultRequestDto input)
     {
-        var query = await Repository.GetQueryableAsync();
+        var labQuery = await Repository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
 
-        var totalCount = query.Count();
+        var totalCount = labQuery.Count();
+
+        var query = from lab in labQuery
+                    join dept in deptQuery on lab.DepartmentId equals dept.Id
+                    orderby lab.SortOrder, dept.Name
+                    select new LaboratoryDto
+                    {
+                        Id = lab.Id,
+                        Code = lab.Code,
+                        Name = dept.Name,
+                        DepartmentId = lab.DepartmentId,
+                        TechnicalManagerId = lab.TechnicalManagerId,
+                        IsActive = lab.IsActive,
+                        SortOrder = lab.SortOrder,
+                        CreationTime = lab.CreationTime,
+                        CreatorId = lab.CreatorId,
+                        LastModificationTime = lab.LastModificationTime,
+                        LastModifierId = lab.LastModifierId,
+                    };
 
         var items = query
-            .OrderByThenBy(x => x.SortOrder, x => x.Name)
-            .ApplyPaging(input)
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
             .ToList();
 
-        var dtos = ObjectMapper.Map<List<Laboratory>, List<LaboratoryDto>>(items);
-        await EnrichWithTechnicalManagerNamesAsync(dtos);
+        await EnrichWithTechnicalManagerNamesAsync(items);
 
-        return new PagedResultDto<LaboratoryDto>(totalCount, dtos);
+        return new PagedResultDto<LaboratoryDto>(totalCount, items);
     }
 
     public override async Task<LaboratoryDto> CreateAsync(CreateUpdateLaboratoryDto input)
     {
+        // Validate Code unique
         await _validationService.ValidateUniqueAsync(
             Repository,
             x => x.Code == input.Code,
             "code",
             $"Mã khoa phòng '{input.Code}' đã tồn tại");
 
-        await _validationService.ValidateUniqueAsync(
-            Repository,
-            x => x.Name == input.Name,
-            "name",
-            $"Tên khoa phòng '{input.Name}' đã tồn tại");
+        // Validate Department exists
+        var department = await _departmentRepository.FindAsync(input.DepartmentId);
+        if (department == null)
+        {
+            throw new UserFriendlyException("Phòng ban không tồn tại");
+        }
 
-        return await base.CreateAsync(input);
+        var entity = await Repository.InsertAsync(
+            new Laboratory(GuidGenerator.Create(), input.Code, input.DepartmentId)
+            {
+                TechnicalManagerId = input.TechnicalManagerId,
+                IsActive = input.IsActive,
+            },
+            autoSave: true);
+
+        return await GetAsync(entity.Id);
     }
 
     public override async Task<LaboratoryDto> UpdateAsync(Guid id, CreateUpdateLaboratoryDto input)
     {
+        // Validate Code unique (exclude current)
         await _validationService.ValidateUniqueAsync(
             Repository,
             x => x.Code == input.Code,
@@ -113,14 +191,21 @@ public class LaboratoryAppService :
             $"Mã khoa phòng '{input.Code}' đã tồn tại",
             excludeId: id);
 
-        await _validationService.ValidateUniqueAsync(
-            Repository,
-            x => x.Name == input.Name,
-            "name",
-            $"Tên khoa phòng '{input.Name}' đã tồn tại",
-            excludeId: id);
+        // Validate Department exists
+        var department = await _departmentRepository.FindAsync(input.DepartmentId);
+        if (department == null)
+        {
+            throw new UserFriendlyException("Phòng ban không tồn tại");
+        }
 
-        return await base.UpdateAsync(id, input);
+        var entity = await Repository.GetAsync(id);
+        entity.Code = input.Code;
+        entity.DepartmentId = input.DepartmentId;
+        entity.TechnicalManagerId = input.TechnicalManagerId;
+        entity.IsActive = input.IsActive;
+
+        await Repository.UpdateAsync(entity);
+        return await GetAsync(id);
     }
 
     /// <summary>

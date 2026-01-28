@@ -132,6 +132,11 @@ public class TestRequestSampleDto
     public bool IsCustomerCancelled { get; set; }
 
     /// <summary>
+    /// Mẫu chung - Mẫu có chỉ tiêu ở cả Lab Vi Sinh và Lab Hóa
+    /// </summary>
+    public bool IsSharedSample { get; set; }
+
+    /// <summary>
     /// Loại mẫu ID
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }
@@ -166,8 +171,22 @@ public class TestRequestSampleIndicatorDto
     public Guid IndicatorId { get; set; }
     public string? IndicatorCode { get; set; }
     public string? IndicatorName { get; set; }
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
     public string? IndicatorGroupName { get; set; }
+
+    /// <summary>
+    /// Khoa phòng thực hiện mặc định của nhóm chỉ tiêu (để auto-fill khi gửi QLKT)
+    /// </summary>
+    public Guid? IndicatorGroupLaboratoryId { get; set; }
+
     public decimal UnitPrice { get; set; }
+    /// <summary>
+    /// Giá gốc trước khi áp dụng combo giảm giá (null nếu không có giảm giá)
+    /// </summary>
+    public decimal? OriginalUnitPrice { get; set; }
     public string? Notes { get; set; }
 
     /// <summary>
@@ -194,6 +213,11 @@ public class TestRequestSampleIndicatorDto
     /// Tên phương pháp thử
     /// </summary>
     public string? TestMethodName { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp thử có định dạng (HTML)
+    /// </summary>
+    public string? TestMethodFormattedName { get; set; }
 
     /// <summary>
     /// Ngày chuyển giao
@@ -226,6 +250,12 @@ public class TestRequestSampleIndicatorDto
     /// Hình ảnh của chỉ tiêu (từ IndicatorImage)
     /// </summary>
     public List<Testing.IndicatorImageDto>? Images { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc)
+    /// Dùng để hiển thị cấu trúc cha-con trên giao diện
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
 }
 
 // ============= Workflow Redesign - BPGN Confirmation DTOs =============
@@ -259,6 +289,11 @@ public class IndicatorPendingConfirmationDto
     /// Tên chỉ tiêu
     /// </summary>
     public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
 
     /// <summary>
     /// Tên khoa phòng
@@ -299,6 +334,23 @@ public class IndicatorPendingConfirmationDto
     /// Ngày yêu cầu
     /// </summary>
     public DateTime? RequestedDate { get; set; }
+
+    // ====== Supplementary Request Fields ======
+
+    /// <summary>
+    /// Nội dung yêu cầu bổ sung (nếu có)
+    /// </summary>
+    public string? SupplementaryRequestReason { get; set; }
+
+    /// <summary>
+    /// Ngày yêu cầu bổ sung
+    /// </summary>
+    public DateTime? SupplementaryRequestDate { get; set; }
+
+    /// <summary>
+    /// Người yêu cầu bổ sung
+    /// </summary>
+    public string? SupplementaryRequestedByName { get; set; }
 }
 
 /// <summary>

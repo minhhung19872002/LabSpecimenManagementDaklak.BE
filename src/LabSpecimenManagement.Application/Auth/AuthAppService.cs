@@ -15,6 +15,7 @@ using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
+using Volo.Abp.PermissionManagement;
 using Volo.Abp.Users;
 using IdentityUser = Volo.Abp.Identity.IdentityUser;
 
@@ -26,6 +27,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     private readonly IdentityUserManager _userManager;
     private readonly IConfiguration _configuration;
     private readonly IPermissionChecker _permissionChecker;
+    private readonly IPermissionManager _permissionManager;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -34,6 +36,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         IdentityUserManager userManager,
         IConfiguration configuration,
         IPermissionChecker permissionChecker,
+        IPermissionManager permissionManager,
         IRepository<Department, Guid> departmentRepository,
         IIdentityRoleRepository roleRepository,
         IHttpContextAccessor httpContextAccessor)
@@ -41,6 +44,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         _userManager = userManager;
         _configuration = configuration;
         _permissionChecker = permissionChecker;
+        _permissionManager = permissionManager;
         _departmentRepository = departmentRepository;
         _roleRepository = roleRepository;
         _httpContextAccessor = httpContextAccessor;
@@ -66,6 +70,22 @@ public class AuthAppService : ApplicationService, IAuthAppService
             {
                 Success = false,
                 ErrorMessage = "Tài khoản đã bị vô hiệu hóa."
+            };
+        }
+
+        // Check account expiration
+        var expirationDate = user.GetProperty<DateTime?>("AccountExpirationDate");
+        if (expirationDate.HasValue && expirationDate.Value <= DateTime.Now)
+        {
+            // Auto-deactivate expired account
+            user.SetIsActive(false);
+            await _userManager.UpdateAsync(user);
+            Logger.LogInformation("Auto-deactivated expired account on login attempt: {Username}", user.UserName);
+
+            return new LoginResultDto
+            {
+                Success = false,
+                ErrorMessage = "Tài khoản đã hết hạn sử dụng. Vui lòng liên hệ quản trị viên."
             };
         }
 
@@ -447,13 +467,21 @@ public class AuthAppService : ApplicationService, IAuthAppService
         var roles = await _userManager.GetRolesAsync(user);
         dto.Roles = roles.ToList();
 
-        // Get permissions (basic set)
-        var permissions = new List<string>();
+        // Get permissions - lấy permissions thực tế từ các roles
+        var permissions = new HashSet<string>();
         foreach (var role in roles)
         {
+            // Thêm role marker để backward compatibility
             permissions.Add($"Role:{role}");
+
+            // Lấy tất cả permissions được grant cho role này
+            var grantedPermissions = await _permissionManager.GetAllForRoleAsync(role);
+            foreach (var perm in grantedPermissions.Where(p => p.IsGranted))
+            {
+                permissions.Add(perm.Name);
+            }
         }
-        dto.Permissions = permissions;
+        dto.Permissions = permissions.ToList();
 
         return dto;
     }

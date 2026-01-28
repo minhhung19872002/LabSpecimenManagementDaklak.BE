@@ -64,12 +64,17 @@ public interface IQualityManagementAppService : IApplicationService
     /// <summary>
     /// Print single result (In KQ Đơn) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintSingleResultAsync(Guid taskId, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
     /// Print mixed result (In KQ Hỗn hợp) - Generates PDF and updates status to PendingSignature
     /// </summary>
-    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null);
+    Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
+
+    /// <summary>
+    /// Print multiple single results (In KQ Đơn batch) - Generates (labs × templates) PDFs
+    /// </summary>
+    Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input);
 
     /// <summary>
     /// Send result to customer (Gửi kết quả) - Updates status to ResultSent
@@ -109,6 +114,15 @@ public interface IQualityManagementAppService : IApplicationService
     /// Lấy danh sách công việc cần làm cho Quality Manager (QLCL) (dùng cho popup reminder)
     /// </summary>
     Task<List<QualityManagerPendingTaskDto>> GetQualityManagerPendingTasksAsync();
+
+    #endregion
+
+    #region Sample Assignment Log
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc - Flat indicator list với thông tin Sample, TestRequest, QLKT, KTV
+    /// </summary>
+    Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
 
     #endregion
 }

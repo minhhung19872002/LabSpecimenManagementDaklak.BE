@@ -33,5 +33,10 @@ public enum IndicatorTestingStatus
     /// <summary>
     /// KH hủy - Khách hàng đã hủy chỉ tiêu này
     /// </summary>
-    Cancelled = 5
+    Cancelled = 5,
+
+    /// <summary>
+    /// Không TN được - KTV báo không thể thử nghiệm
+    /// </summary>
+    CannotTest = 6
 }

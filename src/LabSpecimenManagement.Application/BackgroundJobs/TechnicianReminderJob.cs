@@ -112,10 +112,13 @@ public class TechnicianReminderJob : ITransientDependency
                     var testRequest = await _testRequestRepository.FindAsync(testRequestId);
                     var contractNumber = testRequest?.ContractNumber ?? "";
 
+                    // Get the first laboratoryTaskId for navigation (since indicators may span multiple tasks)
+                    var laboratoryTaskId = pendingIndicators.FirstOrDefault()?.LaboratoryTaskId ?? Guid.Empty;
+
                     await _notificationCreator.NotifyPendingIndicatorReminderAsync(
                         technicianId,
                         contractNumber,
-                        testRequestId,
+                        laboratoryTaskId,  // Pass taskId for navigation to testing detail
                         pendingCount);
 
                     _logger.LogInformation(

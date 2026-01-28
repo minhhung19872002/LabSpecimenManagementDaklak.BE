@@ -112,18 +112,25 @@ public class ResultFormController : LabSpecimenManagementController
     [AllowAnonymous] // OnlyOffice needs to access this without authentication
     public IActionResult Download(string fileName)
     {
+        Console.WriteLine($"[OnlyOffice Download] Requested file: {fileName}");
+        Console.WriteLine($"[OnlyOffice Download] Request from: {Request.Headers["User-Agent"]}");
+
         var tempDir = Path.Combine(_environment.WebRootPath ?? "", "temp");
         var filePath = Path.Combine(tempDir, fileName);
+
+        Console.WriteLine($"[OnlyOffice Download] Looking for file at: {filePath}");
 
         // Security check: prevent directory traversal
         var fullPath = Path.GetFullPath(filePath);
         if (!fullPath.StartsWith(Path.GetFullPath(tempDir)))
         {
+            Console.WriteLine($"[OnlyOffice Download] Security check failed!");
             throw new ValidationException("fileName", "Tên file không hợp lệ");
         }
 
         if (!System.IO.File.Exists(filePath))
         {
+            Console.WriteLine($"[OnlyOffice Download] File not found!");
             throw new EntityNotFoundException("File", fileName);
         }
 
@@ -134,6 +141,7 @@ public class ResultFormController : LabSpecimenManagementController
         }
 
         var fileBytes = System.IO.File.ReadAllBytes(filePath);
+        Console.WriteLine($"[OnlyOffice Download] Serving file: {fileBytes.Length} bytes, Content-Type: {contentType}");
         return File(fileBytes, contentType, fileName);
     }
 
@@ -171,6 +179,26 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// OnlyOffice callback endpoint - accepts save requests but doesn't persist changes
+    /// This enables edit mode in OnlyOffice without actually saving to server
+    /// </summary>
+    [HttpPost("editor-callback")]
+    [AllowAnonymous]
+    public IActionResult EditorCallback([FromBody] JsonElement? callback)
+    {
+        // OnlyOffice sends callbacks with different status codes:
+        // 0 - no changes, 1 - editing started, 2 - document ready for saving
+        // 3 - save error, 4 - document closed with no changes, 6 - document being edited
+        // 7 - force save request
+
+        // We always return success but don't actually save the document
+        // This allows local editing without server persistence
+        // Response must be exactly {"error": 0} without any wrapper
+        // Using Content() with explicit JSON to bypass ABP response wrapper
+        return Content("{\"error\":0}", "application/json");
+    }
+
+    /// <summary>
     /// Get OnlyOffice editor configuration for result form
     /// </summary>
     [HttpGet("editor-config/{fileName}")]
@@ -194,6 +222,12 @@ public class ResultFormController : LabSpecimenManagementController
         // Use BackendUrlForDocker for URLs that OnlyOffice (in Docker) needs to access
         var backendUrl = _configuration["OnlyOffice:BackendUrlForDocker"] ?? _configuration["App:SelfUrl"] ?? "https://localhost:44381";
         var onlyOfficeUrl = _configuration["OnlyOffice:DocumentServerUrl"] ?? "http://localhost:8080";
+        // CallbackUrl is REQUIRED for edit mode. Without it, OnlyOffice defaults to view-only mode.
+        var callbackUrl = _configuration["OnlyOffice:CallbackUrl"] ?? "";
+
+        Console.WriteLine($"[OnlyOffice EditorConfig] backendUrl: {backendUrl}");
+        Console.WriteLine($"[OnlyOffice EditorConfig] onlyOfficeUrl: {onlyOfficeUrl}");
+        Console.WriteLine($"[OnlyOffice EditorConfig] callbackUrl: {callbackUrl}");
 
         // Generate safe document key
         using var sha256 = System.Security.Cryptography.SHA256.Create();
@@ -210,12 +244,24 @@ public class ResultFormController : LabSpecimenManagementController
                 FileType = extension.TrimStart('.'),
                 Key = documentKey,
                 Title = fileName,
-                Url = $"{backendUrl}/api/v1/result-forms/download/{Uri.EscapeDataString(fileName)}"
+                Url = $"{backendUrl}/api/v1/result-forms/download/{Uri.EscapeDataString(fileName)}",
+                Permissions = new OnlyOfficePermissions
+                {
+                    Comment = true,
+                    Copy = true,
+                    Download = true,
+                    Edit = true,
+                    FillForms = true,
+                    ModifyContentControl = true,
+                    ModifyFilter = true,
+                    Print = true,
+                    Review = true
+                }
             },
             DocumentType = "word",
             EditorConfig = new OnlyOfficeEditorSettings
             {
-                CallbackUrl = "",
+                CallbackUrl = callbackUrl,
                 Lang = "vi",
                 Mode = "edit",
                 User = new OnlyOfficeUser
@@ -226,26 +272,12 @@ public class ResultFormController : LabSpecimenManagementController
                 Customization = new OnlyOfficeCustomization
                 {
                     Autosave = false,
+                    ForceSave = false,
                     Chat = false,
                     Comments = false,
                     CompactHeader = true,
-                    CompactToolbar = false,
                     Feedback = false,
-                    ForceSave = false,
-                    Help = false,
-                    HideRightMenu = false,
-                    HideRulers = false,
-                    IntegrationMode = "embed",
-                    Logo = null,
-                    MacrosMode = "disable",
-                    MentionShare = false,
-                    Plugins = false,
-                    ReviewDisplay = "original",
-                    ToolbarHideFileName = false,
-                    ToolbarNoTabs = false,
-                    Uiicons = true,
-                    Unit = "cm",
-                    Zoom = 100
+                    Help = false
                 }
             },
             Height = "100%",
@@ -306,25 +338,13 @@ public class ResultFormController : LabSpecimenManagementController
                 },
                 customization = new
                 {
-                    autosave = config.EditorConfig.Customization.Autosave,
-                    chat = config.EditorConfig.Customization.Chat,
-                    comments = config.EditorConfig.Customization.Comments,
-                    compactHeader = config.EditorConfig.Customization.CompactHeader,
-                    compactToolbar = config.EditorConfig.Customization.CompactToolbar,
-                    feedback = config.EditorConfig.Customization.Feedback,
-                    forcesave = config.EditorConfig.Customization.ForceSave,
-                    help = config.EditorConfig.Customization.Help,
-                    hideRightMenu = config.EditorConfig.Customization.HideRightMenu,
-                    hideRulers = config.EditorConfig.Customization.HideRulers,
-                    integrationMode = config.EditorConfig.Customization.IntegrationMode,
-                    macrosMode = config.EditorConfig.Customization.MacrosMode,
-                    mentionShare = config.EditorConfig.Customization.MentionShare,
-                    plugins = config.EditorConfig.Customization.Plugins,
-                    reviewDisplay = config.EditorConfig.Customization.ReviewDisplay,
-                    toolbarHideFileName = config.EditorConfig.Customization.ToolbarHideFileName,
-                    toolbarNoTabs = config.EditorConfig.Customization.ToolbarNoTabs,
-                    unit = config.EditorConfig.Customization.Unit,
-                    zoom = config.EditorConfig.Customization.Zoom
+                    autosave = false,
+                    forcesave = false,
+                    chat = false,
+                    comments = false,
+                    compactHeader = true,
+                    feedback = false,
+                    help = false
                 }
             },
             height = config.Height,

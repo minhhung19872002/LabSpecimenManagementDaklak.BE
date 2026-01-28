@@ -86,13 +86,13 @@ public class Quotation : FullAuditedAggregateRoot<Guid>
     public virtual Organization? Organization { get; set; }
 
     /// <summary>
-    /// Collection of quotation items
+    /// Collection of quotation samples
     /// </summary>
-    public virtual ICollection<QuotationItem> Items { get; set; }
+    public virtual ICollection<QuotationSample> Samples { get; set; }
 
     protected Quotation()
     {
-        Items = new List<QuotationItem>();
+        Samples = new List<QuotationSample>();
     }
 
     public Quotation(Guid id, string quotationNumber, DateTime quotationDate, string? customerName = null) : base(id)
@@ -101,18 +101,19 @@ public class Quotation : FullAuditedAggregateRoot<Guid>
         QuotationDate = quotationDate;
         CustomerName = customerName;
         Status = QuotationStatus.Draft;
-        Items = new List<QuotationItem>();
+        Samples = new List<QuotationSample>();
     }
 
     /// <summary>
-    /// Tính lại tổng chi phí từ các items
+    /// Tính lại tổng chi phí từ các samples
     /// </summary>
     public void RecalculateTotalCost()
     {
         decimal total = 0;
-        foreach (var item in Items)
+        foreach (var sample in Samples)
         {
-            total += item.TotalPrice;
+            sample.RecalculateTotalPrice();
+            total += sample.TotalPrice;
         }
         TotalCost = total;
     }

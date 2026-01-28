@@ -15,9 +15,15 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Code { get; set; }
 
     /// <summary>
-    /// Tên chỉ tiêu
+    /// Tên chỉ tiêu (plain text)
     /// </summary>
     public string Name { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML sanitized - bold, italic, underline, sub, sup)
+    /// Nếu null thì sử dụng Name
+    /// </summary>
+    public string? FormattedName { get; set; }
 
     /// <summary>
     /// Trạng thái hoạt động
@@ -34,15 +40,21 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public int SortOrder { get; set; }
 
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc)
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
+
     protected Indicator()
     {
     }
 
-    public Indicator(Guid id, string code, string name, Guid indicatorGroupId) : base(id)
+    public Indicator(Guid id, string code, string name, Guid indicatorGroupId, Guid? parentIndicatorId = null) : base(id)
     {
         Code = code;
         Name = name;
         IndicatorGroupId = indicatorGroupId;
+        ParentIndicatorId = parentIndicatorId;
         IsActive = true;
         SortOrder = 0;
     }

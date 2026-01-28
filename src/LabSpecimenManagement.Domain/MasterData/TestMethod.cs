@@ -20,6 +20,11 @@ public class TestMethod : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Name { get; set; }
 
     /// <summary>
+    /// Tên phương pháp có định dạng (HTML)
+    /// </summary>
+    public string? FormattedName { get; set; }
+
+    /// <summary>
     /// Đơn vị tính
     /// </summary>
     public string Unit { get; set; }

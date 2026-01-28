@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/indicators")]
-[Authorize(LabSpecimenManagementPermissions.Indicators.Default)]
+[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
 public class IndicatorController : LabSpecimenManagementController
 {
     private readonly IIndicatorAppService _indicatorAppService;
@@ -36,35 +36,35 @@ public class IndicatorController : LabSpecimenManagementController
     }
 
     [HttpPost]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<IndicatorDto> CreateAsync([FromBody] CreateIndicatorDto input)
     {
         return _indicatorAppService.CreateAsync(input);
     }
 
     [HttpPost("bulk")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Create)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<List<IndicatorDto>> CreateBulkAsync([FromBody] CreateBulkIndicatorsDto input)
     {
         return _indicatorAppService.CreateBulkAsync(input);
     }
 
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<IndicatorDto> UpdateAsync(Guid id, [FromBody] UpdateIndicatorDto input)
     {
         return _indicatorAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)
     {
         return _indicatorAppService.DeleteAsync(id);
     }
 
     [HttpPut("{id}/toggle-active")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<IndicatorDto> ToggleActiveAsync(Guid id)
     {
         return _indicatorAppService.ToggleActiveAsync(id);
@@ -89,7 +89,7 @@ public class IndicatorController : LabSpecimenManagementController
     }
 
     [HttpPost("import")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Import)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public virtual async Task<ImportIndicatorsResultDto> ImportFromExcelAsync(IFormFile file)
     {
         using var stream = file.OpenReadStream();
@@ -104,21 +104,21 @@ public class IndicatorController : LabSpecimenManagementController
     }
 
     [HttpPost("batch-delete")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Delete)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task<BatchOperationResultDto> DeleteBatchAsync([FromBody] BatchIndicatorIdsDto input)
     {
         return _indicatorAppService.DeleteBatchAsync(input);
     }
 
     [HttpPost("batch-deactivate")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<BatchOperationResultDto> DeactivateBatchAsync([FromBody] BatchIndicatorIdsDto input)
     {
         return _indicatorAppService.DeactivateBatchAsync(input);
     }
 
     [HttpPost("batch-activate")]
-    [Authorize(LabSpecimenManagementPermissions.Indicators.Edit)]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<BatchOperationResultDto> ActivateBatchAsync([FromBody] BatchIndicatorIdsDto input)
     {
         return _indicatorAppService.ActivateBatchAsync(input);

@@ -25,7 +25,7 @@ public class GetTestingListInput : PagedAndSortedResultRequestDto
     public List<TestingStatus>? Statuses { get; set; }
 
     /// <summary>
-    /// Lọc theo kỹ thuật viên (multiple select) - Filter by Technician IDs
+    /// Lọc theo Thử nghiệm viên (multiple select) - Filter by Technician IDs
     /// AND logic với current user nếu đang ở tab MyAssignments
     /// </summary>
     public List<Guid>? TechnicianIds { get; set; }

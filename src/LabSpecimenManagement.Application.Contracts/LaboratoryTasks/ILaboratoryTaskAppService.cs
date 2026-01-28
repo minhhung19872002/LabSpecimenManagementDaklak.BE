@@ -55,7 +55,7 @@ public interface ILaboratoryTaskAppService : IApplicationService
     #region Phase 6 - Workflow Methods
 
     /// <summary>
-    /// Gán phương pháp và kỹ thuật viên cho các chỉ tiêu của một mẫu
+    /// Gán phương pháp và Thử nghiệm viên cho các chỉ tiêu của một mẫu
     /// </summary>
     Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(Guid taskId, Guid sampleId, List<AssignIndicatorDto> assignments);
 
@@ -80,6 +80,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note);
 
     /// <summary>
+    /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task BulkUpdateIndicatorNoteAsync(Guid taskId, BulkUpdateNoteDto input);
+
+    /// <summary>
     /// Gửi kết quả (chuyển status sang SentToQuality)
     /// </summary>
     Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId);
@@ -90,9 +95,14 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<ListResultDto<MethodLookupDto>> GetMethodsByIndicatorAsync(Guid? indicatorId);
 
     /// <summary>
-    /// Lấy danh sách kỹ thuật viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
+    /// Lấy danh sách Thử nghiệm viên theo khoa phòng (nếu laboratoryId null thì lấy tất cả)
     /// </summary>
     Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId);
+
+    /// <summary>
+    /// Lấy danh sách Thử nghiệm viên theo phòng ban của QLKT (role LabTechnician + cùng DepartmentId với QLKT của task)
+    /// </summary>
+    Task<ListResultDto<UserLookupDto>> GetTechniciansByTaskAsync(Guid taskId);
 
     #endregion
 
@@ -195,6 +205,26 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// <param name="taskId">LaboratoryTask ID</param>
     /// <returns>DTO task sau khi xử lý</returns>
     Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId);
+
+    #endregion
+
+    #region Shared Sample (Mẫu chung)
+
+    /// <summary>
+    /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
+    /// </summary>
+    /// <param name="id">LaboratoryTask ID của Lab Vi Sinh</param>
+    /// <param name="input">Thông tin gửi mẫu (ghi chú tùy chọn)</param>
+    /// <returns>DTO task sau khi gửi</returns>
+    Task<LaboratoryTaskDto> SendSharedSampleAsync(Guid id, SendSharedSampleDto input);
+
+    /// <summary>
+    /// Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
+    /// </summary>
+    /// <param name="id">LaboratoryTask ID của Lab Hóa</param>
+    /// <param name="input">Thông tin nhận mẫu (ghi chú tùy chọn)</param>
+    /// <returns>DTO task sau khi nhận</returns>
+    Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input);
 
     #endregion
 }

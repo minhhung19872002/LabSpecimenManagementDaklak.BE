@@ -18,33 +18,39 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
 {
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _taskIndicatorRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IUserNameProvider _userNameProvider;
 
     public LaboratoryTaskDtoEnricher(
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IRepository<LaboratoryTaskIndicator, Guid> taskIndicatorRepository,
         IRepository<LaboratoryTaskSupporter, Guid> supporterRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Note, Guid> noteRepository,
         IUserNameProvider userNameProvider)
     {
         _testRequestRepository = testRequestRepository;
         _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _taskIndicatorRepository = taskIndicatorRepository;
         _supporterRepository = supporterRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _sampleRepository = sampleRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _noteRepository = noteRepository;
         _userNameProvider = userNameProvider;
     }
 
@@ -115,6 +121,14 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         var technicianIds = taskIndicators.Where(i => i.TechnicianId.HasValue).Select(i => i.TechnicianId).ToList();
         var technicianNames = await _userNameProvider.GetUserNamesAsync(technicianIds);
 
+        // Batch load Master Data Notes
+        var allMasterDataNoteIds = taskIndicators
+            .Where(i => !string.IsNullOrEmpty(i.MasterDataNoteIds))
+            .SelectMany(i => ParseNoteIds(i.MasterDataNoteIds))
+            .Distinct()
+            .ToList();
+        var masterDataNotes = await LoadNotesAsync(allMasterDataNoteIds);
+
         var result = new List<LaboratoryTaskIndicatorDto>();
 
         foreach (var taskIndicator in taskIndicators)
@@ -127,7 +141,8 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 TechnicianId = taskIndicator.TechnicianId,
                 TestDate = taskIndicator.TestDate,
                 Result = taskIndicator.Result,
-                Note = taskIndicator.Note,
+                FreeTextNote = taskIndicator.FreeTextNote,
+                MasterDataNoteIds = taskIndicator.MasterDataNoteIds,
                 Unit = taskIndicator.Unit,
                 EntryDate = taskIndicator.EntryDate,
                 EnteredById = taskIndicator.EnteredById,
@@ -137,7 +152,8 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 RejectionReason = taskIndicator.RejectionReason,
                 IsSentToQuality = taskIndicator.IsSentToQuality,
                 StandardId = taskIndicator.StandardId,
-                AssignedDate = taskIndicator.AssignedDate
+                AssignedDate = taskIndicator.AssignedDate,
+                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
             };
 
             // Set sample indicator info
@@ -159,6 +175,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 {
                     dto.IndicatorCode = indicator.Code;
                     dto.IndicatorName = indicator.Name;
+                    dto.IndicatorFormattedName = indicator.FormattedName;
                 }
             }
 
@@ -166,12 +183,23 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
             if (taskIndicator.MethodId.HasValue && testMethods.TryGetValue(taskIndicator.MethodId.Value, out var testMethod))
             {
                 dto.MethodName = testMethod.Name;
+                dto.MethodFormattedName = testMethod.FormattedName;
             }
 
             // Set technician name
             if (taskIndicator.TechnicianId.HasValue && technicianNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
             {
                 dto.TechnicianName = techName;
+            }
+
+            // Set Master Data Note Contents
+            if (!string.IsNullOrEmpty(taskIndicator.MasterDataNoteIds))
+            {
+                var noteIds = ParseNoteIds(taskIndicator.MasterDataNoteIds);
+                dto.MasterDataNoteContents = noteIds
+                    .Where(id => masterDataNotes.ContainsKey(id))
+                    .Select(id => masterDataNotes[id].Content)
+                    .ToList();
             }
 
             result.Add(dto);
@@ -210,11 +238,17 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         return items.ToDictionary(x => x.Id);
     }
 
-    private async Task<Dictionary<Guid, Laboratory>> LoadLaboratoriesAsync(List<Guid> ids)
+    private async Task<Dictionary<Guid, (string Code, string Name)>> LoadLaboratoriesAsync(List<Guid> ids)
     {
-        if (ids.Count == 0) return new Dictionary<Guid, Laboratory>();
-        var items = await _laboratoryRepository.GetListAsync(x => ids.Contains(x.Id));
-        return items.ToDictionary(x => x.Id);
+        if (ids.Count == 0) return new Dictionary<Guid, (string Code, string Name)>();
+        var labs = await _laboratoryRepository.GetListAsync(x => ids.Contains(x.Id));
+        var departmentIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var departments = await _departmentRepository.GetListAsync(d => departmentIds.Contains(d.Id));
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        return labs.ToDictionary(
+            x => x.Id,
+            x => (x.Code, deptDict.TryGetValue(x.DepartmentId, out var name) ? name : ""));
     }
 
     private async Task<Dictionary<Guid, TestRequestSampleIndicator>> LoadSampleIndicatorsAsync(List<Guid> ids)
@@ -243,6 +277,29 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         if (ids.Count == 0) return new Dictionary<Guid, TestMethod>();
         var items = await _testMethodRepository.GetListAsync(x => ids.Contains(x.Id));
         return items.ToDictionary(x => x.Id);
+    }
+
+    private async Task<Dictionary<Guid, Note>> LoadNotesAsync(List<Guid> ids)
+    {
+        if (ids.Count == 0) return new Dictionary<Guid, Note>();
+        var items = await _noteRepository.GetListAsync(x => ids.Contains(x.Id));
+        return items.ToDictionary(x => x.Id);
+    }
+
+    /// <summary>
+    /// Parse comma-separated note IDs string to list of Guids
+    /// </summary>
+    private static List<Guid> ParseNoteIds(string? noteIdsString)
+    {
+        if (string.IsNullOrEmpty(noteIdsString))
+            return new List<Guid>();
+
+        return noteIdsString
+            .Split(',', StringSplitOptions.RemoveEmptyEntries)
+            .Select(s => Guid.TryParse(s.Trim(), out var id) ? id : (Guid?)null)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
     }
 
     #endregion

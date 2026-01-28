@@ -188,12 +188,18 @@ public class StandardAppService : ApplicationService, IStandardAppService
                             IndicatorId = si.IndicatorId,
                             IndicatorCode = indicator?.Code ?? "",
                             IndicatorName = indicator?.Name ?? "",
+                            IndicatorFormattedName = indicator?.FormattedName,
+                            ParentIndicatorId = indicator?.ParentIndicatorId,
                             TestMethodId = si.TestMethodId,
                             TestMethodCode = testMethod?.Code ?? "",
                             TestMethodName = testMethod?.Name ?? "",
                             Unit = si.Unit,
                             ComparisonOperator = si.ComparisonOperator,
                             AllowedLimit = si.AllowedLimit,
+                            LowerOperator = si.LowerOperator,
+                            LowerLimit = si.LowerLimit,
+                            UpperOperator = si.UpperOperator,
+                            UpperLimit = si.UpperLimit,
                             IsActive = si.IsActive,
                             SortOrder = si.SortOrder
                         };
@@ -245,12 +251,18 @@ public class StandardAppService : ApplicationService, IStandardAppService
                 IndicatorId = si.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
+                ParentIndicatorId = indicator?.ParentIndicatorId,
                 TestMethodId = si.TestMethodId,
                 TestMethodCode = testMethod?.Code ?? "",
                 TestMethodName = testMethod?.Name ?? "",
                 Unit = si.Unit,
                 ComparisonOperator = si.ComparisonOperator,
                 AllowedLimit = si.AllowedLimit,
+                LowerOperator = si.LowerOperator,
+                LowerLimit = si.LowerLimit,
+                UpperOperator = si.UpperOperator,
+                UpperLimit = si.UpperLimit,
                 IsActive = si.IsActive,
                 SortOrder = si.SortOrder
             };
@@ -293,12 +305,18 @@ public class StandardAppService : ApplicationService, IStandardAppService
                 IndicatorId = si.IndicatorId,
                 IndicatorCode = indicator?.Code ?? "",
                 IndicatorName = indicator?.Name ?? "",
+                IndicatorFormattedName = indicator?.FormattedName,
+                ParentIndicatorId = indicator?.ParentIndicatorId,
                 TestMethodId = si.TestMethodId,
                 TestMethodCode = testMethod?.Code ?? "",
                 TestMethodName = testMethod?.Name ?? "",
                 Unit = si.Unit,
                 ComparisonOperator = si.ComparisonOperator,
                 AllowedLimit = si.AllowedLimit,
+                LowerOperator = si.LowerOperator,
+                LowerLimit = si.LowerLimit,
+                UpperOperator = si.UpperOperator,
+                UpperLimit = si.UpperLimit,
                 IsActive = si.IsActive,
                 SortOrder = si.SortOrder
             };
@@ -347,6 +365,10 @@ public class StandardAppService : ApplicationService, IStandardAppService
             {
                 ComparisonOperator = item.ComparisonOperator,
                 AllowedLimit = item.AllowedLimit,
+                LowerOperator = item.LowerOperator,
+                LowerLimit = item.LowerLimit,
+                UpperOperator = item.UpperOperator,
+                UpperLimit = item.UpperLimit,
                 SortOrder = sortOrder
             };
 
@@ -373,6 +395,10 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         entity.ComparisonOperator = input.ComparisonOperator;
         entity.AllowedLimit = input.AllowedLimit;
+        entity.LowerOperator = input.LowerOperator;
+        entity.LowerLimit = input.LowerLimit;
+        entity.UpperOperator = input.UpperOperator;
+        entity.UpperLimit = input.UpperLimit;
         entity.IsActive = input.IsActive;
 
         await _standardIndicatorRepository.UpdateAsync(entity);
@@ -388,12 +414,18 @@ public class StandardAppService : ApplicationService, IStandardAppService
             IndicatorId = entity.IndicatorId,
             IndicatorCode = indicator?.Code ?? "",
             IndicatorName = indicator?.Name ?? "",
+            IndicatorFormattedName = indicator?.FormattedName,
+            ParentIndicatorId = indicator?.ParentIndicatorId,
             TestMethodId = entity.TestMethodId,
             TestMethodCode = testMethod?.Code ?? "",
             TestMethodName = testMethod?.Name ?? "",
             Unit = entity.Unit,
             ComparisonOperator = entity.ComparisonOperator,
             AllowedLimit = entity.AllowedLimit,
+            LowerOperator = entity.LowerOperator,
+            LowerLimit = entity.LowerLimit,
+            UpperOperator = entity.UpperOperator,
+            UpperLimit = entity.UpperLimit,
             IsActive = entity.IsActive,
             SortOrder = entity.SortOrder
         };
@@ -440,12 +472,18 @@ public class StandardAppService : ApplicationService, IStandardAppService
             IndicatorId = entity.IndicatorId,
             IndicatorCode = indicator?.Code ?? "",
             IndicatorName = indicator?.Name ?? "",
+            IndicatorFormattedName = indicator?.FormattedName,
+            ParentIndicatorId = indicator?.ParentIndicatorId,
             TestMethodId = entity.TestMethodId,
             TestMethodCode = testMethod?.Code ?? "",
             TestMethodName = testMethod?.Name ?? "",
             Unit = entity.Unit,
             ComparisonOperator = entity.ComparisonOperator,
             AllowedLimit = entity.AllowedLimit,
+            LowerOperator = entity.LowerOperator,
+            LowerLimit = entity.LowerLimit,
+            UpperOperator = entity.UpperOperator,
+            UpperLimit = entity.UpperLimit,
             IsActive = entity.IsActive,
             SortOrder = entity.SortOrder
         };
@@ -484,5 +522,78 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
             return $"{datePrefix}{nextNumber:D3}";
         }
+    }
+
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id))
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        await _standardIndicatorRepository.DeleteManyAsync(entities);
+        return entities.Count;
+    }
+
+    public async Task<int> ActivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id) && !si.IsActive)
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var entity in entities)
+        {
+            entity.IsActive = true;
+        }
+
+        await _standardIndicatorRepository.UpdateManyAsync(entities);
+        return entities.Count;
+    }
+
+    public async Task<int> DeactivateIndicatorsBatchAsync(Guid standardId, List<Guid> indicatorIds)
+    {
+        if (indicatorIds == null || indicatorIds.Count == 0)
+        {
+            return 0;
+        }
+
+        var query = await _standardIndicatorRepository.GetQueryableAsync();
+        var entities = query
+            .Where(si => si.StandardId == standardId && indicatorIds.Contains(si.Id) && si.IsActive)
+            .ToList();
+
+        if (entities.Count == 0)
+        {
+            return 0;
+        }
+
+        foreach (var entity in entities)
+        {
+            entity.IsActive = false;
+        }
+
+        await _standardIndicatorRepository.UpdateManyAsync(entities);
+        return entities.Count;
     }
 }

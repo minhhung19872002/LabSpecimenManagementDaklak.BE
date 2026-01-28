@@ -5,14 +5,14 @@ using Volo.Abp.Domain.Entities;
 namespace LabSpecimenManagement.Quotations;
 
 /// <summary>
-/// Chi tiết báo giá - Quotation Item
+/// Chỉ tiêu trong mẫu báo giá - Quotation Sample Indicator
 /// </summary>
-public class QuotationItem : Entity<Guid>
+public class QuotationSampleIndicator : Entity<Guid>
 {
     /// <summary>
-    /// Quotation ID (Foreign Key)
+    /// QuotationSample ID (Foreign Key)
     /// </summary>
-    public Guid QuotationId { get; set; }
+    public Guid QuotationSampleId { get; set; }
 
     /// <summary>
     /// Indicator ID (Foreign Key)
@@ -35,29 +35,19 @@ public class QuotationItem : Entity<Guid>
     public string TestMethodName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Số mẫu
-    /// </summary>
-    public int SampleCount { get; set; } = 1;
-
-    /// <summary>
-    /// Đơn giá (từ IndicatorTestMethod.UnitPrice, snapshot tại thời điểm tạo)
+    /// Đơn giá (từ TestMethodIndicator.UnitPrice, snapshot tại thời điểm tạo)
     /// </summary>
     public decimal UnitPrice { get; set; }
 
     /// <summary>
-    /// Thành tiền = SampleCount * UnitPrice
-    /// </summary>
-    public decimal TotalPrice { get; set; }
-
-    /// <summary>
-    /// Thứ tự hiển thị
+    /// Thứ tự hiển thị trong mẫu
     /// </summary>
     public int SortOrder { get; set; }
 
     /// <summary>
-    /// Navigation property to Quotation
+    /// Navigation property to QuotationSample
     /// </summary>
-    public virtual Quotation Quotation { get; set; } = null!;
+    public virtual QuotationSample QuotationSample { get; set; } = null!;
 
     /// <summary>
     /// Navigation property to Indicator
@@ -69,37 +59,26 @@ public class QuotationItem : Entity<Guid>
     /// </summary>
     public virtual TestMethod TestMethod { get; set; } = null!;
 
-    protected QuotationItem()
+    protected QuotationSampleIndicator()
     {
     }
 
-    public QuotationItem(
+    public QuotationSampleIndicator(
         Guid id,
-        Guid quotationId,
+        Guid quotationSampleId,
         Guid indicatorId,
         Guid testMethodId,
         string indicatorName,
         string testMethodName,
-        int sampleCount,
         decimal unitPrice,
         int sortOrder) : base(id)
     {
-        QuotationId = quotationId;
+        QuotationSampleId = quotationSampleId;
         IndicatorId = indicatorId;
         TestMethodId = testMethodId;
         IndicatorName = indicatorName;
         TestMethodName = testMethodName;
-        SampleCount = sampleCount;
         UnitPrice = unitPrice;
-        TotalPrice = sampleCount * unitPrice;
         SortOrder = sortOrder;
-    }
-
-    /// <summary>
-    /// Tính lại thành tiền
-    /// </summary>
-    public void RecalculateTotalPrice()
-    {
-        TotalPrice = SampleCount * UnitPrice;
     }
 }

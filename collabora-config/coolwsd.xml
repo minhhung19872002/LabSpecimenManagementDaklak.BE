@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<config>
+    <!-- Network settings -->
+    <net>
+        <proto type="string" default="all" desc="Protocol to use IPv4, IPv6 or all for both">all</proto>
+        <listen type="string" default="any" desc="Listen address">any</listen>
+        <service_root type="path" default="" desc="Service root path"></service_root>
+        <post_allow>
+            <host type="string" desc="Allow http post from these hosts.">.*</host>
+        </post_allow>
+        <frame_ancestors type="string" desc="Allowed origins for embedding">*</frame_ancestors>
+    </net>
+
+    <!-- SSL configuration -->
+    <ssl>
+        <enable type="bool" default="true" desc="Enable SSL">false</enable>
+        <termination type="bool" default="true" desc="SSL termination by a proxy">false</termination>
+        <cert_file_path type="path" default="" desc="Path to SSL certificate"></cert_file_path>
+        <key_file_path type="path" default="" desc="Path to SSL key"></key_file_path>
+        <ca_file_path type="path" default="" desc="Path to CA certificate"></ca_file_path>
+    </ssl>
+
+    <!-- WOPI Storage settings -->
+    <storage>
+        <filesystem allow="false" />
+        <wopi allow="true">
+            <host allow="true">.*</host>
+            <max_file_size type="uint" default="0" desc="Maximum file size allowed">0</max_file_size>
+        </wopi>
+        <ssl>
+            <enable type="bool" default="true" desc="Enable SSL for storage">false</enable>
+            <as_scheme type="bool" default="true" desc="Use SSL as per scheme">false</as_scheme>
+        </ssl>
+    </storage>
+
+    <!-- Logging -->
+    <logging>
+        <level type="string" default="warning" desc="Logging level">trace</level>
+        <file enable="false">
+            <property name="path" type="path" default="/var/log/coolwsd.log">/var/log/coolwsd.log</property>
+        </file>
+    </logging>
+</config>

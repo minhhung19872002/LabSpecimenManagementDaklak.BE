@@ -87,7 +87,15 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var statisticsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Statistics.Default, L("Permission:Statistics"));
         statisticsPermission.AddChild(LabSpecimenManagementPermissions.Statistics.Export, L("Permission:Statistics.Export"));
 
-        // Master Data - Department Permissions
+        // Master Data - Unified Permissions (for all master data features)
+        var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.View, L("Permission:MasterData.View"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Create, L("Permission:MasterData.Create"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Edit, L("Permission:MasterData.Edit"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Delete, L("Permission:MasterData.Delete"));
+        masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.Import, L("Permission:MasterData.Import"));
+
+        // Master Data - Department Permissions (DEPRECATED - keeping for backward compatibility)
         var departmentPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Departments.Default, L("Permission:Departments"));
         departmentPermission.AddChild(LabSpecimenManagementPermissions.Departments.Create, L("Permission:Departments.Create"));
         departmentPermission.AddChild(LabSpecimenManagementPermissions.Departments.Edit, L("Permission:Departments.Edit"));
@@ -152,6 +160,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Specimens, L("Permission:Import.Specimens"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.Customers, L("Permission:Import.Customers"));
         importPermission.AddChild(LabSpecimenManagementPermissions.Import.TestMethods, L("Permission:Import.TestMethods"));
+        importPermission.AddChild(LabSpecimenManagementPermissions.Import.Standards, L("Permission:Import.Standards"));
 
         // User Management Permissions
         var userPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Users.Default, L("Permission:Users"));
@@ -169,6 +178,29 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Create, L("Permission:Quotations.Create"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Edit, L("Permission:Quotations.Edit"));
         quotationPermission.AddChild(LabSpecimenManagementPermissions.Quotations.Delete, L("Permission:Quotations.Delete"));
+
+        // Sync Permissions (Offline data synchronization)
+        var syncPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Sync.Default, L("Permission:Sync"));
+        syncPermission.AddChild(LabSpecimenManagementPermissions.Sync.TestRequests, L("Permission:Sync.TestRequests"));
+
+        // Master Data - Sample Condition Permissions (Tình trạng mẫu)
+        var sampleConditionPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.SampleConditions.Default, L("Permission:SampleConditions"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Create, L("Permission:SampleConditions.Create"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Edit, L("Permission:SampleConditions.Edit"));
+        sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Delete, L("Permission:SampleConditions.Delete"));
+
+        // Role Management Permissions (Quản lý phân quyền)
+        var roleManagementPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.RoleManagement.Default, L("Permission:RoleManagement"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Create, L("Permission:RoleManagement.Create"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Edit, L("Permission:RoleManagement.Edit"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Delete, L("Permission:RoleManagement.Delete"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManagePermissions, L("Permission:RoleManagement.ManagePermissions"));
+        roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManageUsers, L("Permission:RoleManagement.ManageUsers"));
+
+        // Receipt Permissions (Phiếu thu)
+        var receiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Receipts.Default, L("Permission:Receipts"));
+        receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.View, L("Permission:Receipts.View"));
+        receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.Confirm, L("Permission:Receipts.Confirm"));
     }
 
     private static LocalizableString L(string name)
