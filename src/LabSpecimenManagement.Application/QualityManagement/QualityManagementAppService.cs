@@ -1738,26 +1738,27 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
         }
 
-        var totalCount = query.Count();
+        // Count unique contracts (not rows) for pagination
+        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
-        // The secondary sort key (RequestCompletionDate, TransferDate) determines the order within contract groups
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.TransferDate).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.TransferDate).ThenBy(x => x.IndicatorName),
-            _ => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName)
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
-        // Pagination with sample-aware boundary snapping
-        // This ensures all indicators of the same sample are on the same page
+        // Pagination by contract count (not row count)
+        // skipCount and maxResultCount refer to number of contracts, not rows
         var allItems = sortedQuery.ToList();
-        var items = GetSampleAwarePage(allItems, input.SkipCount, input.MaxResultCount);
+        var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Map to DTOs
         var dtos = items.Select(x => new SampleAssignmentLogDto
@@ -1796,7 +1797,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IsReportPublished = x.IsReportPublished
         }).ToList();
 
-        return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);
+        return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);
     }
 
     /// <summary>
@@ -1828,62 +1829,48 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     }
 
     /// <summary>
-    /// Get a page of items while ensuring all indicators of the same sample stay together.
-    /// If a sample spans across page boundary, include all its indicators on the current page.
+    /// Get items by contract pagination.
+    /// skipCount and maxResultCount refer to number of contracts, not rows.
+    /// Returns all rows belonging to the selected contracts.
     /// </summary>
-    private static List<T> GetSampleAwarePage<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
+    private static List<T> GetItemsByContractPagination<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
     {
         if (allItems.Count == 0 || maxResultCount <= 0)
             return new List<T>();
 
-        // Get SampleId property via reflection (works for anonymous types)
-        var sampleIdProperty = typeof(T).GetProperty("SampleId");
-        if (sampleIdProperty == null)
+        // Get ContractNumber property via reflection (works for anonymous types)
+        var contractNumberProperty = typeof(T).GetProperty("ContractNumber");
+        if (contractNumberProperty == null)
         {
-            // Fallback to standard pagination if no SampleId property
+            // Fallback to standard pagination if no ContractNumber property
             return allItems.Skip(skipCount).Take(maxResultCount).ToList();
         }
 
-        Func<T, Guid> getSampleId = item => (Guid)sampleIdProperty.GetValue(item)!;
+        Func<T, string?> getContractNumber = item => contractNumberProperty.GetValue(item) as string;
 
-        // Find the actual start index (snap to sample boundary)
-        var actualSkip = skipCount;
-        if (skipCount > 0 && skipCount < allItems.Count)
+        // Get unique contract numbers in order of appearance
+        var uniqueContracts = new List<string?>();
+        string? lastContract = null;
+        foreach (var item in allItems)
         {
-            var currentSampleId = getSampleId(allItems[skipCount]);
-            // Check if we're in the middle of a sample group
-            if (skipCount > 0 && getSampleId(allItems[skipCount - 1]) == currentSampleId)
+            var contract = getContractNumber(item);
+            if (contract != lastContract)
             {
-                // Move forward to find the start of next sample
-                while (actualSkip < allItems.Count && getSampleId(allItems[actualSkip]) == currentSampleId)
-                {
-                    actualSkip++;
-                }
+                uniqueContracts.Add(contract);
+                lastContract = contract;
             }
         }
 
-        // Take items, but include complete sample at the end
-        var result = new List<T>();
-        var taken = 0;
-        Guid? lastSampleId = null;
+        // Apply pagination to contracts (skip and take by contract count)
+        var selectedContracts = uniqueContracts
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToHashSet();
 
-        for (var i = actualSkip; i < allItems.Count && (taken < maxResultCount || (lastSampleId.HasValue && getSampleId(allItems[i]) == lastSampleId.Value)); i++)
-        {
-            var item = allItems[i];
-            var sampleId = getSampleId(item);
-
-            result.Add(item);
-            taken++;
-            lastSampleId = sampleId;
-
-            // If we've reached maxResultCount and the next item is a different sample, stop
-            if (taken >= maxResultCount && i + 1 < allItems.Count && getSampleId(allItems[i + 1]) != sampleId)
-            {
-                break;
-            }
-        }
-
-        return result;
+        // Return all rows belonging to the selected contracts
+        return allItems
+            .Where(item => selectedContracts.Contains(getContractNumber(item)))
+            .ToList();
     }
 
     #endregion
