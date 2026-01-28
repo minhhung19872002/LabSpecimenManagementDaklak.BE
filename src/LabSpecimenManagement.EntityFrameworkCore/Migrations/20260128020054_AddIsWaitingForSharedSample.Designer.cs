@@ -13,7 +13,7 @@ using Volo.Abp.EntityFrameworkCore;
 namespace LabSpecimenManagement.Migrations
 {
     [DbContext(typeof(LabSpecimenManagementDbContext))]
-    [Migration("20260127215719_AddIsWaitingForSharedSample")]
+    [Migration("20260128020054_AddIsWaitingForSharedSample")]
     partial class AddIsWaitingForSharedSample
     {
         /// <inheritdoc />
