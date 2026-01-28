@@ -1256,17 +1256,13 @@ public partial class TestRequestAppService :
             }
         }
 
-        // Store created tasks for linking PriorLabTaskId
+        // Store created/existing tasks for linking PriorLabTaskId
         var createdTasks = new Dictionary<Guid, LaboratoryTask>(); // LabId -> Task
 
-        // Create LaboratoryTask for each Laboratory
+        // Create or reuse LaboratoryTask for each Laboratory
         foreach (var (labId, indicatorList) in indicatorsByLab)
         {
             var laboratory = await _laboratoryRepository.GetAsync(labId);
-            var sampleCount = indicatorList.Select(i => i.SampleId).Distinct().Count();
-
-            // Get TransferDate and RequestDate from first indicator (they should be the same for the group)
-            var firstIndicator = indicatorList.First();
 
             // Check if this task has shared sample indicators
             var hasSharedSample = indicatorList.Any(i => i.IsSharedSample);
@@ -1277,35 +1273,69 @@ public partial class TestRequestAppService :
             var isWaitingForPriorLab = isSharedSampleTask && labId != microbiologyLabId;
 
             // Task should have WaitingSharedSample status ONLY if ALL indicators are shared samples
-            // If there are mixed indicators (shared + non-shared), the task can proceed
-            // and waiting is handled at indicator level
             var taskShouldWait = isWaitingForPriorLab && !hasNonSharedSample;
 
-            var task = new LaboratoryTask(
-                GuidGenerator.Create(),
-                testRequest.Id,
-                labId,
-                testRequest.ContractNumber,
-                sampleCount,
-                laboratory.TechnicalManagerId,
-                firstIndicator.TransferDate,
-                firstIndicator.RequestDate
-            );
+            // Kiểm tra xem đã có LaboratoryTask cho TestRequest + Lab này chưa
+            var existingTask = existingTasks.FirstOrDefault(t => t.LaboratoryId == labId);
+            LaboratoryTask task;
 
-            // Set shared sample flags
-            task.IsSharedSampleTask = isSharedSampleTask;
-            // Only set IsWaitingForPriorLab = true if task actually needs to wait
-            // (i.e., no non-shared indicators that can proceed immediately)
-            task.IsWaitingForPriorLab = taskShouldWait;
-
-            // Set initial status based on whether task should wait
-            // Only wait if ALL indicators are shared samples (no non-shared indicators)
-            if (taskShouldWait)
+            if (existingTask != null)
             {
-                task.Status = LaboratoryTaskStatus.WaitingSharedSample;
+                // Gộp vào task đã có - cập nhật SampleCount
+                task = existingTask;
+                var allSampleIds = new HashSet<Guid>();
+
+                // Lấy sample IDs từ indicators hiện có trong task
+                var currentTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                    ti => ti.LaboratoryTaskId == task.Id);
+                foreach (var ti in currentTaskIndicators)
+                {
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                    if (sampleIndicator != null)
+                    {
+                        allSampleIds.Add(sampleIndicator.TestRequestSampleId);
+                    }
+                }
+
+                // Thêm sample IDs từ indicators mới
+                foreach (var ind in indicatorList)
+                {
+                    allSampleIds.Add(ind.SampleId);
+                }
+
+                task.TotalSampleCount = allSampleIds.Count;
+                await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+            }
+            else
+            {
+                // Tạo task mới
+                var sampleCount = indicatorList.Select(i => i.SampleId).Distinct().Count();
+                var firstIndicator = indicatorList.First();
+
+                task = new LaboratoryTask(
+                    GuidGenerator.Create(),
+                    testRequest.Id,
+                    labId,
+                    testRequest.ContractNumber,
+                    sampleCount,
+                    laboratory.TechnicalManagerId,
+                    firstIndicator.TransferDate,
+                    firstIndicator.RequestDate
+                );
+
+                // Set shared sample flags
+                task.IsSharedSampleTask = isSharedSampleTask;
+                task.IsWaitingForPriorLab = taskShouldWait;
+
+                // Set initial status based on whether task should wait
+                if (taskShouldWait)
+                {
+                    task.Status = LaboratoryTaskStatus.WaitingSharedSample;
+                }
+
+                await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 
-            await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             createdTasks[labId] = task;
 
             // Create junction records linking LaboratoryTask to TestRequestSampleIndicator
