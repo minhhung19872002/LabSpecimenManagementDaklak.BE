@@ -158,30 +158,58 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             {
                 var dto = ObjectMapper.Map<TestMethod, TestMethodWithIndicatorsDto>(tm);
 
-                var tmIndicators = testMethodIndicators
+                var tmIndicatorList = new List<TestMethodIndicatorDto>();
+
+                var parentIndicators = testMethodIndicators
                     .Where(tmi => tmi.TestMethodId == tm.Id)
                     .OrderBy(tmi => tmi.SortOrder)
-                    .Select(tmi =>
-                    {
-                        var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
-                        return new TestMethodIndicatorDto
-                        {
-                            Id = tmi.Id,
-                            TestMethodId = tmi.TestMethodId,
-                            IndicatorId = tmi.IndicatorId,
-                            IndicatorCode = indicator?.Code ?? "",
-                            IndicatorName = indicator?.Name ?? "",
-                            IndicatorFormattedName = indicator?.FormattedName,
-                            UnitPrice = tmi.UnitPrice,
-                            IsActive = indicator?.IsActive ?? false,
-                            SortOrder = tmi.SortOrder,
-                            ParentIndicatorId = indicator?.ParentIndicatorId
-                        };
-                    })
                     .ToList();
 
-                dto.Indicators = tmIndicators;
-                dto.IndicatorCount = tmIndicators.Count;
+                foreach (var tmi in parentIndicators)
+                {
+                    var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+
+                    // Add parent indicator
+                    tmIndicatorList.Add(new TestMethodIndicatorDto
+                    {
+                        Id = tmi.Id,
+                        TestMethodId = tmi.TestMethodId,
+                        IndicatorId = tmi.IndicatorId,
+                        IndicatorCode = indicator?.Code ?? "",
+                        IndicatorName = indicator?.Name ?? "",
+                        IndicatorFormattedName = indicator?.FormattedName,
+                        UnitPrice = tmi.UnitPrice,
+                        IsActive = indicator?.IsActive ?? false,
+                        SortOrder = tmi.SortOrder,
+                        ParentIndicatorId = indicator?.ParentIndicatorId
+                    });
+
+                    // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
+                    var subIndicators = indicators
+                        .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                        .OrderBy(i => i.SortOrder)
+                        .ToList();
+
+                    foreach (var subInd in subIndicators)
+                    {
+                        tmIndicatorList.Add(new TestMethodIndicatorDto
+                        {
+                            Id = Guid.Empty, // Sub-indicator không có record riêng trong TestMethodIndicator
+                            TestMethodId = tmi.TestMethodId,
+                            IndicatorId = subInd.Id,
+                            IndicatorCode = subInd.Code,
+                            IndicatorName = subInd.Name,
+                            IndicatorFormattedName = subInd.FormattedName,
+                            UnitPrice = 0, // Sub-indicator theo giá cha, không có giá riêng
+                            IsActive = subInd.IsActive,
+                            SortOrder = tmi.SortOrder, // Giữ sortOrder của parent để group đúng
+                            ParentIndicatorId = subInd.ParentIndicatorId
+                        });
+                    }
+                }
+
+                dto.Indicators = tmIndicatorList;
+                dto.IndicatorCount = parentIndicators.Count; // Chỉ đếm parent indicators
 
                 return dto;
             })
@@ -202,15 +230,17 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             testMethodIndicatorQuery.Where(tmi => tmi.TestMethodId == id).OrderBy(tmi => tmi.SortOrder)
         );
 
-        var indicatorIds = tmIndicators.Select(tmi => tmi.IndicatorId).ToList();
-        var indicators = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
-        );
+        // Get all indicators including potential sub-indicators
+        var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
 
-        dto.Indicators = tmIndicators.Select(tmi =>
+        var tmIndicatorList = new List<TestMethodIndicatorDto>();
+
+        foreach (var tmi in tmIndicators)
         {
-            var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
-            return new TestMethodIndicatorDto
+            var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+
+            // Add parent indicator
+            tmIndicatorList.Add(new TestMethodIndicatorDto
             {
                 Id = tmi.Id,
                 TestMethodId = tmi.TestMethodId,
@@ -222,10 +252,34 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder,
                 ParentIndicatorId = indicator?.ParentIndicatorId
-            };
-        }).ToList();
+            });
 
-        dto.IndicatorCount = dto.Indicators.Count;
+            // Add sub-indicators of this parent
+            var subIndicators = allIndicators
+                .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                .OrderBy(i => i.SortOrder)
+                .ToList();
+
+            foreach (var subInd in subIndicators)
+            {
+                tmIndicatorList.Add(new TestMethodIndicatorDto
+                {
+                    Id = Guid.Empty,
+                    TestMethodId = tmi.TestMethodId,
+                    IndicatorId = subInd.Id,
+                    IndicatorCode = subInd.Code,
+                    IndicatorName = subInd.Name,
+                    IndicatorFormattedName = subInd.FormattedName,
+                    UnitPrice = 0,
+                    IsActive = subInd.IsActive,
+                    SortOrder = tmi.SortOrder,
+                    ParentIndicatorId = subInd.ParentIndicatorId
+                });
+            }
+        }
+
+        dto.Indicators = tmIndicatorList;
+        dto.IndicatorCount = tmIndicators.Count; // Chỉ đếm parent indicators
 
         return dto;
     }
@@ -239,15 +293,17 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             testMethodIndicatorQuery.Where(tmi => tmi.TestMethodId == testMethodId).OrderBy(tmi => tmi.SortOrder)
         );
 
-        var indicatorIds = tmIndicators.Select(tmi => tmi.IndicatorId).ToList();
-        var indicators = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
-        );
+        // Get all indicators including potential sub-indicators
+        var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
 
-        return tmIndicators.Select(tmi =>
+        var result = new List<TestMethodIndicatorDto>();
+
+        foreach (var tmi in tmIndicators)
         {
-            var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
-            return new TestMethodIndicatorDto
+            var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+
+            // Add parent indicator
+            result.Add(new TestMethodIndicatorDto
             {
                 Id = tmi.Id,
                 TestMethodId = tmi.TestMethodId,
@@ -259,8 +315,33 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder,
                 ParentIndicatorId = indicator?.ParentIndicatorId
-            };
-        }).ToList();
+            });
+
+            // Add sub-indicators of this parent
+            var subIndicators = allIndicators
+                .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                .OrderBy(i => i.SortOrder)
+                .ToList();
+
+            foreach (var subInd in subIndicators)
+            {
+                result.Add(new TestMethodIndicatorDto
+                {
+                    Id = Guid.Empty,
+                    TestMethodId = tmi.TestMethodId,
+                    IndicatorId = subInd.Id,
+                    IndicatorCode = subInd.Code,
+                    IndicatorName = subInd.Name,
+                    IndicatorFormattedName = subInd.FormattedName,
+                    UnitPrice = 0,
+                    IsActive = subInd.IsActive,
+                    SortOrder = tmi.SortOrder,
+                    ParentIndicatorId = subInd.ParentIndicatorId
+                });
+            }
+        }
+
+        return result;
     }
 
     public async Task AddIndicatorsAsync(Guid testMethodId, AddIndicatorsToTestMethodDto input)
