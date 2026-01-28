@@ -64,6 +64,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -94,7 +95,8 @@ public partial class TestRequestAppService :
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IPublishedReportRepository publishedReportRepository,
         IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
-        IRepository<IndicatorGroup, Guid> indicatorGroupRepository)
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -126,6 +128,7 @@ public partial class TestRequestAppService :
         _publishedReportRepository = publishedReportRepository;
         _costChangeHistoryRepository = costChangeHistoryRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -1183,7 +1186,7 @@ public partial class TestRequestAppService :
         }
 
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId)>>();
 
         // Track which samples are shared samples and which labs they have
         var sharedSampleLabs = new Dictionary<Guid, HashSet<Guid>>(); // SampleId -> Set of LabIds
@@ -1204,10 +1207,10 @@ public partial class TestRequestAppService :
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId));
 
                 // Track labs for shared samples
                 if (sample.IsSharedSample)
@@ -1364,6 +1367,17 @@ public partial class TestRequestAppService :
                         taskIndicator.Unit = testMethod.Unit;
                     }
                 }
+
+                // Auto-set StandardId - lookup first standard for this indicator + method pair
+                var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                    si => si.IndicatorId == indicator.IndicatorId
+                          && si.IsActive
+                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value));
+                if (standardIndicator != null)
+                {
+                    taskIndicator.StandardId = standardIndicator.StandardId;
+                }
+
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }

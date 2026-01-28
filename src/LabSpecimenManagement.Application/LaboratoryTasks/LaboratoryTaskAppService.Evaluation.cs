@@ -32,13 +32,26 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền đánh giá chỉ tiêu");
         }
 
-        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
-        // (WaitingCustomerResponse cho phép QLKT tiếp tục đánh giá các chỉ tiêu Pending còn lại)
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
-            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
+        // Validate: Task status and indicator status
+        // Cho phép đánh giá khi:
+        // 1. Task đang ở trạng thái UnderEvaluation hoặc WaitingCustomerResponse (flow bình thường)
+        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, SentToQuality)
+        //    NHƯNG indicator vẫn còn Pending (trường hợp gửi QLKT sau)
+        var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
+                                       task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
+                                       task.Status == LaboratoryTaskStatus.WaitingSharedSample;
+
+        var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
+                                   task.Status == LaboratoryTaskStatus.PartialAccepted ||
+                                   task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.SentToQuality) &&
+                                  (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                                   taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        if (!isNormalEvaluationStatus && !isLateIndicatorCase)
         {
             throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
+                "Chỉ có thể đánh giá chỉ tiêu khi task đang ở trạng thái cho phép hoặc chỉ tiêu đang chờ đánh giá", "task");
         }
 
         // Validate: Indicator must be in Pending or CannotTest status
@@ -130,17 +143,32 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền yêu cầu đổi phương pháp");
         }
 
-        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
-            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
-        {
-            throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể yêu cầu đổi phương pháp khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
-        }
-
         if (!input.Items.Any())
         {
             throw new ValidationException("items", "Vui lòng chọn ít nhất một chỉ tiêu");
+        }
+
+        // Get indicators to check their status
+        var indicatorIds = input.Items.Select(i => i.IndicatorId).ToList();
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var hasPendingIndicators = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                                                            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        // Validate: Task status and indicator status
+        var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
+                                       task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
+                                       task.Status == LaboratoryTaskStatus.WaitingSharedSample;
+
+        var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
+                                   task.Status == LaboratoryTaskStatus.PartialAccepted ||
+                                   task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.SentToQuality) &&
+                                  hasPendingIndicators;
+
+        if (!isNormalEvaluationStatus && !isLateIndicatorCase)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể yêu cầu đổi phương pháp khi task đang ở trạng thái cho phép hoặc chỉ tiêu đang chờ đánh giá", "task");
         }
 
         if (string.IsNullOrWhiteSpace(input.Reason))
@@ -190,17 +218,31 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền từ chối thử nghiệm");
         }
 
-        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
-            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
-        {
-            throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể từ chối thử nghiệm khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
-        }
-
         if (!input.IndicatorIds.Any())
         {
             throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu");
+        }
+
+        // Get indicators to check their status
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => input.IndicatorIds.Contains(x.Id));
+        var hasPendingIndicators = taskIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                                                            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+
+        // Validate: Task status and indicator status
+        var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
+                                       task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
+                                       task.Status == LaboratoryTaskStatus.WaitingSharedSample;
+
+        var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
+                                   task.Status == LaboratoryTaskStatus.PartialAccepted ||
+                                   task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.SentToQuality) &&
+                                  hasPendingIndicators;
+
+        if (!isNormalEvaluationStatus && !isLateIndicatorCase)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể từ chối thử nghiệm khi task đang ở trạng thái cho phép hoặc chỉ tiêu đang chờ đánh giá", "task");
         }
 
         if (string.IsNullOrWhiteSpace(input.Reason))
@@ -250,21 +292,34 @@ public partial class LaboratoryTaskAppService
             throw new ForbiddenAccessException("Bạn không có quyền duyệt yêu cầu");
         }
 
-        // Validate: Task must be in UnderEvaluation or WaitingCustomerResponse status
-        if (task.Status != LaboratoryTaskStatus.UnderEvaluation &&
-            task.Status != LaboratoryTaskStatus.WaitingCustomerResponse)
-        {
-            throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể duyệt yêu cầu khi task đang ở trạng thái 'Đánh giá thử nghiệm' hoặc 'Chờ KH phản hồi'", "task");
-        }
-
-        // Get all indicators with Pending status
+        // Get all indicators with Pending status first (needed for validation)
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
         var pendingIndicators = taskIndicators.Where(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Pending).ToList();
 
         if (!pendingIndicators.Any())
         {
             throw new Common.Exceptions.InvalidOperationException("Không có chỉ tiêu nào đang chờ đánh giá", "indicator");
+        }
+
+        // Validate: Task status and pending indicators
+        // Cho phép duyệt khi:
+        // 1. Task đang ở trạng thái UnderEvaluation hoặc WaitingCustomerResponse (flow bình thường)
+        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, SentToQuality)
+        //    NHƯNG vẫn còn indicators Pending (trường hợp gửi QLKT sau)
+        var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
+                                       task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
+                                       task.Status == LaboratoryTaskStatus.WaitingSharedSample;
+
+        var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
+                                   task.Status == LaboratoryTaskStatus.PartialAccepted ||
+                                   task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.SentToQuality) &&
+                                  pendingIndicators.Any();
+
+        if (!isNormalEvaluationStatus && !isLateIndicatorCase)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Chỉ có thể duyệt yêu cầu khi task đang ở trạng thái cho phép hoặc có chỉ tiêu đang chờ đánh giá", "task");
         }
 
         // Accept all pending indicators
