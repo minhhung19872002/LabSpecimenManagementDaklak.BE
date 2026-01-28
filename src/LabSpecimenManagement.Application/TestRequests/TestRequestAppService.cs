@@ -275,7 +275,8 @@ public partial class TestRequestAppService :
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
                     ParentIndicatorId = indicatorEntity.ParentIndicatorId,
-                    Images = indicatorImages
+                    Images = indicatorImages,
+                    IsSentToQLKT = labTaskIndicator != null
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }
@@ -1168,6 +1169,19 @@ public partial class TestRequestAppService :
             return;
         }
 
+        // Get already-sent indicator IDs (exist in LaboratoryTaskIndicator) to skip them
+        var existingTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequest.Id);
+        var alreadySentIndicatorIds = new HashSet<Guid>();
+        foreach (var task in existingTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == task.Id);
+            foreach (var ti in taskIndicators)
+            {
+                alreadySentIndicatorIds.Add(ti.TestRequestSampleIndicatorId);
+            }
+        }
+
         // Group indicators by LaboratoryId
         var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample)>>();
 
@@ -1181,6 +1195,12 @@ public partial class TestRequestAppService :
 
             foreach (var indicator in indicators)
             {
+                // Skip indicators that are already sent (exist in LaboratoryTaskIndicator)
+                if (alreadySentIndicatorIds.Contains(indicator.Id))
+                {
+                    continue;
+                }
+
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
@@ -1199,6 +1219,12 @@ public partial class TestRequestAppService :
                     sharedSampleLabs[sample.Id].Add(labId);
                 }
             }
+        }
+
+        // Nếu không có indicators mới để gửi (tất cả đã gửi), return early
+        if (!indicatorsByLab.Any())
+        {
+            return;
         }
 
         // Identify Microbiology Lab (Lab Vi Sinh) - Priority lab for shared samples
@@ -3489,6 +3515,10 @@ public partial class TestRequestAppService :
     /// Gửi QLKT - Chuyển từ PendingPayment/Paid/NoPaymentRequired sang UnderReview (Đang xem xét YC)
     /// Áp dụng cho cả mẫu thường (PendingPayment/Paid) và mẫu nhiệm vụ (NoPaymentRequired)
     /// Tạo LaboratoryTasks để QLKT có thể đánh giá các chỉ tiêu
+    ///
+    /// Hỗ trợ gửi partial (một phần):
+    /// - Nếu chưa gửi hết tất cả chỉ tiêu → giữ nguyên status (PendingPayment/Paid/NoPaymentRequired)
+    /// - Khi TẤT CẢ chỉ tiêu đã gửi → cập nhật status = UnderReview
     /// </summary>
     public async Task SendToQLKTAsync(Guid id)
     {
@@ -3500,15 +3530,39 @@ public partial class TestRequestAppService :
             throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
         }
 
-        entity.Status = TestRequestStatus.UnderReview;
-        entity.UnderReviewDate = Clock.Now;
-        entity.UnderReviewByUserId = _currentUser.Id;
-        entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+        // Đếm tổng số indicators và số đã có LaboratoryId
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id && !s.IsCancelled && !s.IsCustomerCancelled);
+        var totalIndicatorCount = 0;
+        var indicatorsWithLabCount = 0;
 
-        await Repository.UpdateAsync(entity);
+        foreach (var sample in samples)
+        {
+            var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                i => i.TestRequestSampleId == sample.Id);
+            totalIndicatorCount += sampleIndicators.Count;
+            indicatorsWithLabCount += sampleIndicators.Count(i => i.LaboratoryId.HasValue);
+        }
+
+        // Phải có ít nhất 1 indicator có LaboratoryId để gửi
+        if (indicatorsWithLabCount == 0)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chưa có chỉ tiêu nào được chọn khoa phòng", "laboratoryId");
+        }
 
         // Tạo LaboratoryTasks grouped by Laboratory để QLKT đánh giá
+        // Method này sẽ tự skip các indicators đã được gửi trước đó
         await CreateLaboratoryTasksAsync(entity);
+
+        // CHỈ cập nhật status khi TẤT CẢ indicators đã có LaboratoryId
+        if (indicatorsWithLabCount == totalIndicatorCount)
+        {
+            entity.Status = TestRequestStatus.UnderReview;
+            entity.UnderReviewDate = Clock.Now;
+            entity.UnderReviewByUserId = _currentUser.Id;
+            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            await Repository.UpdateAsync(entity);
+        }
+        // Ngược lại: Giữ nguyên status (PendingPayment/Paid/NoPaymentRequired)
 
         // Thông báo cho QLKT về yêu cầu mới cần đánh giá
         await NotifyTechnicalManagersOnSampleSentAsync(entity);
