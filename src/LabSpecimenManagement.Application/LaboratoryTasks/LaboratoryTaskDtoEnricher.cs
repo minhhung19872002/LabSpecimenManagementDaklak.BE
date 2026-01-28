@@ -152,7 +152,8 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 RejectionReason = taskIndicator.RejectionReason,
                 IsSentToQuality = taskIndicator.IsSentToQuality,
                 StandardId = taskIndicator.StandardId,
-                AssignedDate = taskIndicator.AssignedDate
+                AssignedDate = taskIndicator.AssignedDate,
+                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
             };
 
             // Set sample indicator info

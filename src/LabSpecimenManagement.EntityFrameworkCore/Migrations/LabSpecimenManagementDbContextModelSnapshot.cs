@@ -270,6 +270,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("IsSentToQuality")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("IsWaitingForSharedSample")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid>("LaboratoryTaskId")
                         .HasColumnType("uuid");
 

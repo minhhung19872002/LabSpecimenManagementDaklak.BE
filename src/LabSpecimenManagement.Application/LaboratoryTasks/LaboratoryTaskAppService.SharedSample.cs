@@ -106,6 +106,17 @@ public partial class LaboratoryTaskAppService
 
         await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
 
+        // Clear IsWaitingForSharedSample flag on all indicators of this task
+        // So that QLKT can now evaluate/assign these indicators
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => ti.LaboratoryTaskId == task.Id && ti.IsWaitingForSharedSample);
+
+        foreach (var indicator in taskIndicators)
+        {
+            indicator.IsWaitingForSharedSample = false;
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
+        }
+
         return await MapToDetailDtoAsync(task);
     }
 

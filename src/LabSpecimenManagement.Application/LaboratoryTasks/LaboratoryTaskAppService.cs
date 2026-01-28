@@ -569,7 +569,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         ConfirmedByUserName = h.ConfirmedByUserName,
                         IsApproved = h.IsApproved
                     })
-                    .ToList()
+                    .ToList(),
+                // Shared Sample - waiting flag
+                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
             });
         }
 
@@ -1798,7 +1800,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 Url = $"/api/v1/files/{x.FileId}",
                 CreationTime = x.CreationTime,
                 CreatorId = x.CreatorId
-            }).ToList()
+            }).ToList(),
+            // Shared Sample - waiting flag
+            IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
         };
     }
 

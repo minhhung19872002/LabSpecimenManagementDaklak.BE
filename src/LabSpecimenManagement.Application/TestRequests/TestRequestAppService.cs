@@ -1242,12 +1242,18 @@ public partial class TestRequestAppService :
             // Get TransferDate and RequestDate from first indicator (they should be the same for the group)
             var firstIndicator = indicatorList.First();
 
-            // Check if this task is for a shared sample
+            // Check if this task has shared sample indicators
             var hasSharedSample = indicatorList.Any(i => i.IsSharedSample);
+            var hasNonSharedSample = indicatorList.Any(i => !i.IsSharedSample);
             var isSharedSampleTask = hasSharedSample && microbiologyLabId.HasValue;
 
             // Determine if this lab should wait for prior lab (non-microbiology labs wait for microbiology)
             var isWaitingForPriorLab = isSharedSampleTask && labId != microbiologyLabId;
+
+            // Task should have WaitingSharedSample status ONLY if ALL indicators are shared samples
+            // If there are mixed indicators (shared + non-shared), the task can proceed
+            // and waiting is handled at indicator level
+            var taskShouldWait = isWaitingForPriorLab && !hasNonSharedSample;
 
             var task = new LaboratoryTask(
                 GuidGenerator.Create(),
@@ -1262,10 +1268,13 @@ public partial class TestRequestAppService :
 
             // Set shared sample flags
             task.IsSharedSampleTask = isSharedSampleTask;
-            task.IsWaitingForPriorLab = isWaitingForPriorLab;
+            // Only set IsWaitingForPriorLab = true if task actually needs to wait
+            // (i.e., no non-shared indicators that can proceed immediately)
+            task.IsWaitingForPriorLab = taskShouldWait;
 
-            // Set initial status based on shared sample
-            if (isWaitingForPriorLab)
+            // Set initial status based on whether task should wait
+            // Only wait if ALL indicators are shared samples (no non-shared indicators)
+            if (taskShouldWait)
             {
                 task.Status = LaboratoryTaskStatus.WaitingSharedSample;
             }
@@ -1281,6 +1290,14 @@ public partial class TestRequestAppService :
                     task.Id,
                     indicator.SampleIndicatorId
                 );
+
+                // Set indicator-level waiting flag for shared sample indicators
+                // Only applies to non-microbiology labs when there's a microbiology lab involved
+                if (indicator.IsSharedSample && labId != microbiologyLabId && microbiologyLabId.HasValue)
+                {
+                    taskIndicator.IsWaitingForSharedSample = true;
+                }
+
                 // Copy TestMethodId and Unit from TestRequestSampleIndicator if available
                 if (indicator.TestMethodId.HasValue)
                 {
