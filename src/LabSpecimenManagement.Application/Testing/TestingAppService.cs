@@ -2163,6 +2163,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         SampleStatusText = s.StatusText,
 
                         // Indicator info
+                        TestRequestSampleIndicatorId = si.Id,
                         LaboratoryTaskIndicatorId = li.Id,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
@@ -2295,7 +2296,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             SampleName = x.SampleName,
             SampleQuantity = x.SampleQuantity,
             SampleStatusText = x.SampleStatusText,
-            IndicatorId = x.LaboratoryTaskIndicatorId,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
             LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
             IndicatorName = x.IndicatorName,
             IndicatorFormattedName = x.IndicatorFormattedName,

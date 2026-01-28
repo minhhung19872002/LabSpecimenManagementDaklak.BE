@@ -1624,7 +1624,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
     public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
     {
-        // Build base query from QualityManagementIndicator with all necessary joins
+        // Build base query starting from TestRequestSampleIndicator (để lấy TẤT CẢ phiếu yêu cầu)
         var qualityIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
         var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
@@ -1636,29 +1636,42 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
         var userQuery = await _userRepository.GetQueryableAsync();
 
-        // Join all tables to create flat list
-        var query = from qi in qualityIndicatorQuery
-                    join li in labIndicatorQuery on qi.LaboratoryTaskIndicatorId equals li.Id
-                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
-                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+        // Join all tables starting from TestRequestSampleIndicator with LEFT JOINs
+        // Điều này cho phép hiển thị TẤT CẢ phiếu yêu cầu, kể cả chưa gửi KTN/QLKT
+        var query = from si in sampleIndicatorQuery
                     join s in sampleQuery on si.TestRequestSampleId equals s.Id
-                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
-                    join qt in qualityTaskQuery on qi.QualityManagementTaskId equals qt.Id
+                    join tr in testRequestQuery on s.TestRequestId equals tr.Id
                     join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
-                    join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
+                    // LEFT JOIN với LaboratoryTaskIndicator (có thể chưa gửi KTN)
+                    join li in labIndicatorQuery on si.Id equals li.TestRequestSampleIndicatorId into liJoin
+                    from li in liJoin.DefaultIfEmpty()
+                    // LEFT JOIN với LaboratoryTask
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id into ltJoin
+                    from lt in ltJoin.DefaultIfEmpty()
+                    // LEFT JOIN với QualityManagementIndicator (có thể chưa gửi QLKT)
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
+                    // LEFT JOIN với QualityManagementTask
+                    join qt in qualityTaskQuery on qi.QualityManagementTaskId equals qt.Id into qtJoin
+                    from qt in qtJoin.DefaultIfEmpty()
+                    // LEFT JOIN với TestMethod
+                    join tm in testMethodQuery on (li != null ? li.MethodId : si.TestMethodId) equals tm.Id into tmJoin
                     from tm in tmJoin.DefaultIfEmpty()
+                    // LEFT JOIN với User (TechnicalManager)
                     join techManager in userQuery on lt.TechnicalManagerId equals techManager.Id into techManagerJoin
                     from techManager in techManagerJoin.DefaultIfEmpty()
+                    // LEFT JOIN với User (Technician)
                     join technician in userQuery on li.TechnicianId equals technician.Id into technicianJoin
                     from technician in technicianJoin.DefaultIfEmpty()
                     select new
                     {
                         // TestRequest info
                         TestRequestId = tr.Id,
-                        QualityTaskId = qt.Id,
+                        QualityTaskId = qt != null ? (Guid?)qt.Id : null,
+                        LaboratoryTaskId = lt != null ? (Guid?)lt.Id : null,
                         ContractNumber = tr.ContractNumber,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
 
                         // Sample info
                         SampleId = s.Id,
@@ -1668,33 +1681,30 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         SampleStatusText = s.StatusText,
 
                         // Indicator info
-                        IndicatorId = qi.Id,
-                        LaboratoryTaskIndicatorId = li.Id,
+                        TestRequestSampleIndicatorId = si.Id,
+                        LaboratoryTaskIndicatorId = li != null ? (Guid?)li.Id : null,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
-                        Unit = li.Unit,
+                        Unit = li != null ? li.Unit : null,
                         TransferDate = si.TransferDate,
-                        TestDate = li.TestDate,
-                        Result = li.Result,
+                        TestDate = li != null ? li.TestDate : null,
+                        Result = li != null ? li.Result : null,
 
                         // Assignment info
                         TechnicalManagerName = techManager != null ? (techManager.Name ?? techManager.UserName) : null,
                         TechnicianName = technician != null ? (technician.Name ?? technician.UserName) : null,
-                        EntryDate = li.EntryDate,
-                        QlktApprovalDate = li.ApprovalDate,
+                        EntryDate = li != null ? li.EntryDate : null,
+                        QlktApprovalDate = li != null ? li.ApprovalDate : null,
 
                         // Status for highlighting
-                        IndicatorApprovalStatus = li.ApprovalStatus,
-                        QualityApprovalStatus = qi.ApprovalStatus,
-                        IsReportPublished = qi.IsPrinted,
+                        IndicatorApprovalStatus = li != null ? (IndicatorApprovalStatus?)li.ApprovalStatus : null,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        IsReportPublished = qi != null && qi.IsPrinted,
 
                         // Laboratory info (for filtering)
-                        LaboratoryId = lt.LaboratoryId,
-
-                        // LaboratoryTask info (for navigation from Testing page)
-                        LaboratoryTaskId = lt.Id
+                        LaboratoryId = lt != null ? (Guid?)lt.LaboratoryId : null
                     };
 
         // Apply filters
@@ -1730,17 +1740,18 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         var totalCount = query.Count();
 
-        // Apply sorting - default: RequestCompletionDate ASC, then by SampleId and IndicatorName for consistent grouping
+        // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
+        // The secondary sort key (RequestCompletionDate, TransferDate) determines the order within contract groups
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName),
             "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            "transferdate asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.TransferDate).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenByDescending(x => x.TransferDate).ThenBy(x => x.IndicatorName),
+            _ => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.RequestCompletionDate).ThenBy(x => x.IndicatorName)
         };
 
         // Pagination with sample-aware boundary snapping
@@ -1753,6 +1764,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             TestRequestId = x.TestRequestId,
             QualityTaskId = x.QualityTaskId,
+            LaboratoryTaskId = x.LaboratoryTaskId,
             ContractNumber = x.ContractNumber,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
@@ -1761,7 +1773,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             SampleName = x.SampleName,
             SampleQuantity = x.SampleQuantity,
             SampleStatusText = x.SampleStatusText,
-            IndicatorId = x.IndicatorId,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
             LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
             IndicatorName = x.IndicatorName,
             IndicatorFormattedName = x.IndicatorFormattedName,
@@ -1777,10 +1789,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             QlktApprovalDate = x.QlktApprovalDate,
             IndicatorApprovalStatus = x.IndicatorApprovalStatus,
             // TestingStatus will be determined based on IndicatorApprovalStatus
-            TestingStatus = DetermineTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
+            TestingStatus = x.IndicatorApprovalStatus.HasValue
+                ? DetermineTestingStatus(x.IndicatorApprovalStatus.Value, x.TestDate, x.Result)
+                : null,
             QualityApprovalStatus = x.QualityApprovalStatus,
-            IsReportPublished = x.IsReportPublished,
-            LaboratoryTaskId = x.LaboratoryTaskId
+            IsReportPublished = x.IsReportPublished
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);

@@ -19,13 +19,15 @@ public class SampleAssignmentLogDto
 
     /// <summary>
     /// Quality Management Task ID - used for detail navigation (QLCL page)
+    /// Nullable: chưa có nếu phiếu chưa gửi QLKT
     /// </summary>
-    public Guid QualityTaskId { get; set; }
+    public Guid? QualityTaskId { get; set; }
 
     /// <summary>
     /// Laboratory Task ID - used for detail navigation (Testing page)
+    /// Nullable: chưa có nếu phiếu chưa gửi KTN
     /// </summary>
-    public Guid LaboratoryTaskId { get; set; }
+    public Guid? LaboratoryTaskId { get; set; }
 
     /// <summary>
     /// Số hợp đồng - Contract Number
@@ -76,14 +78,15 @@ public class SampleAssignmentLogDto
     #region Indicator Info
 
     /// <summary>
-    /// Indicator ID in QualityManagementTask
+    /// TestRequestSampleIndicator ID - ID chính của chỉ tiêu trong phiếu yêu cầu
     /// </summary>
-    public Guid IndicatorId { get; set; }
+    public Guid TestRequestSampleIndicatorId { get; set; }
 
     /// <summary>
     /// LaboratoryTaskIndicator ID
+    /// Nullable: chưa có nếu phiếu chưa gửi KTN
     /// </summary>
-    public Guid LaboratoryTaskIndicatorId { get; set; }
+    public Guid? LaboratoryTaskIndicatorId { get; set; }
 
     /// <summary>
     /// Tên chỉ tiêu - Indicator Name
@@ -155,8 +158,9 @@ public class SampleAssignmentLogDto
 
     /// <summary>
     /// Trạng thái duyệt chỉ tiêu (QLKT) - Indicator Approval Status
+    /// Nullable: chưa có nếu phiếu chưa gửi KTN
     /// </summary>
-    public IndicatorApprovalStatus IndicatorApprovalStatus { get; set; }
+    public IndicatorApprovalStatus? IndicatorApprovalStatus { get; set; }
 
     /// <summary>
     /// Trạng thái testing của chỉ tiêu - Testing Status
