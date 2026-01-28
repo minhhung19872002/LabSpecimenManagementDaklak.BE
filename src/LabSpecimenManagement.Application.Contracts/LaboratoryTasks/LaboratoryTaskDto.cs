@@ -322,6 +322,11 @@ public class LaboratoryTaskIndicatorDto
     /// </summary>
     public bool IsSentToQuality { get; set; }
 
+    /// <summary>
+    /// Chỉ tiêu này đang chờ mẫu chung từ lab khác (Vi Sinh)
+    /// </summary>
+    public bool IsWaitingForSharedSample { get; set; }
+
     // ====== Standard Comparison Fields (Phase 7) ======
 
     /// <summary>

@@ -153,6 +153,13 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public bool IsSentToQuality { get; set; }
 
     /// <summary>
+    /// Chỉ tiêu này đang chờ mẫu chung từ lab khác (Vi Sinh)
+    /// Chỉ áp dụng cho các chỉ tiêu thuộc mẫu chung (IsSharedSample = true)
+    /// Khi Lab Vi Sinh hoàn thành, flag này sẽ được set = false
+    /// </summary>
+    public bool IsWaitingForSharedSample { get; set; }
+
+    /// <summary>
     /// Tiêu chuẩn so sánh - Standard ID (để so sánh kết quả với giới hạn cho phép)
     /// </summary>
     public Guid? StandardId { get; set; }
