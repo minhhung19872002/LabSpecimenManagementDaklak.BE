@@ -144,8 +144,8 @@ jobs:
             docker-compose build --no-cache db-migrator backend
 
             echo "Dropping and recreating database..."
-            docker-compose exec -T postgres psql -U lab_specimen_user -d postgres -c "DROP DATABASE IF EXISTS lab_specimen_management WITH (FORCE);"
-            docker-compose exec -T postgres psql -U lab_specimen_user -d postgres -c "CREATE DATABASE lab_specimen_management OWNER lab_specimen_user;"
+            docker-compose exec -T postgres psql -U postgres -d postgres -c "DROP DATABASE IF EXISTS \"LabSpecimenManagement\" WITH (FORCE);"
+            docker-compose exec -T postgres psql -U postgres -d postgres -c "CREATE DATABASE \"LabSpecimenManagement\" OWNER postgres;"
             echo "✅ Database recreated successfully"
 
             echo "Running database migrations..."
