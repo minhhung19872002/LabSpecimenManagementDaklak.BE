@@ -475,30 +475,34 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     private async Task<int> GetNextSequenceAsync()
     {
-        var query = await _indicatorRepository.GetQueryableAsync();
-
-        // Get all codes that start with CT- and extract the max number
-        var codes = query
-            .Where(x => x.Code.StartsWith("CT-"))
-            .Select(x => x.Code)
-            .ToList();
-
-        if (!codes.Any())
+        // Disable soft delete filter to include deleted records (avoid duplicate code)
+        using (_dataFilter.Disable<ISoftDelete>())
         {
-            return 1;
-        }
+            var query = await _indicatorRepository.GetQueryableAsync();
 
-        // Find the maximum number from all codes
-        var maxNumber = codes
-            .Select(code =>
+            // Get all codes that start with CT- and extract the max number
+            var codes = query
+                .Where(x => x.Code.StartsWith("CT-"))
+                .Select(x => x.Code)
+                .ToList();
+
+            if (!codes.Any())
             {
-                var numberPart = code.Replace("CT-", "");
-                return int.TryParse(numberPart, out var num) ? num : 0;
-            })
-            .DefaultIfEmpty(0)
-            .Max();
+                return 1;
+            }
 
-        return maxNumber + 1;
+            // Find the maximum number from all codes
+            var maxNumber = codes
+                .Select(code =>
+                {
+                    var numberPart = code.Replace("CT-", "");
+                    return int.TryParse(numberPart, out var num) ? num : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return maxNumber + 1;
+        }
     }
 
     private async Task<string> GenerateCodeAsync()

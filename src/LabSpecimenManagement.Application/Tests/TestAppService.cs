@@ -8,6 +8,7 @@ using LabSpecimenManagement.TestRequests;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Linq;
@@ -28,17 +29,20 @@ public class TestAppService :
     private readonly IRepository<Specimen, Guid> _specimenRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
 
     public TestAppService(
         IRepository<Test, Guid> repository,
         IRepository<Specimen, Guid> specimenRepository,
         IUserNameProvider userNameProvider,
-        ICodeGeneratorService codeGenerator)
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _specimenRepository = specimenRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
     }
 
     protected override async Task<Test> MapToEntityAsync(CreateTestDto createInput)
@@ -151,9 +155,13 @@ public class TestAppService :
     /// </summary>
     private async Task<string> GenerateTestCodeAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("TEST");
-        var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("TEST", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("TEST");
+            var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("TEST", count);
+        }
     }
 
     /// <summary>

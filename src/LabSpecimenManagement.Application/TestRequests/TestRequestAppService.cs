@@ -19,6 +19,7 @@ using LabSpecimenManagement.Testing;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.Users;
@@ -65,6 +66,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IDataFilter _dataFilter;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -96,7 +98,8 @@ public partial class TestRequestAppService :
         IPublishedReportRepository publishedReportRepository,
         IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
-        IRepository<StandardIndicator, Guid> standardIndicatorRepository)
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -129,6 +132,7 @@ public partial class TestRequestAppService :
         _costChangeHistoryRepository = costChangeHistoryRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
+        _dataFilter = dataFilter;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -990,9 +994,13 @@ public partial class TestRequestAppService :
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("REQ");
-        var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("REQ");
+            var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        }
     }
 
     /// <summary>

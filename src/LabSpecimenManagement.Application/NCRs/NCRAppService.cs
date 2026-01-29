@@ -7,6 +7,7 @@ using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Users;
 
@@ -25,15 +26,18 @@ public class NCRAppService :
 {
     private readonly ICurrentUser _currentUser;
     private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
 
     public NCRAppService(
         IRepository<NCR, Guid> repository,
         ICurrentUser currentUser,
-        ICodeGeneratorService codeGenerator)
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _currentUser = currentUser;
         _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
     }
 
     public async Task<PagedResultDto<NCRDto>> GetFilteredListAsync(GetNCRListDto input)
@@ -136,8 +140,12 @@ public class NCRAppService :
 
     private async Task<string> GenerateNCRNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("NCR");
-        var count = await Repository.CountAsync(x => x.NCRNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("NCR", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("NCR");
+            var count = await Repository.CountAsync(x => x.NCRNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("NCR", count);
+        }
     }
 }

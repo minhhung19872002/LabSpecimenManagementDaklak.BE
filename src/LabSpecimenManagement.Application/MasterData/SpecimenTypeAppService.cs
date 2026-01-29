@@ -6,6 +6,7 @@ using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 
 namespace LabSpecimenManagement.MasterData;
@@ -24,19 +25,22 @@ public class SpecimenTypeAppService :
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
+    private readonly IDataFilter _dataFilter;
 
     public SpecimenTypeAppService(
         IRepository<SpecimenType, Guid> repository,
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
-        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository)
+        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
+        _dataFilter = dataFilter;
     }
 
     public override async Task<SpecimenTypeDto> CreateAsync(CreateUpdateSpecimenTypeDto input)
@@ -75,26 +79,30 @@ public class SpecimenTypeAppService :
 
     private async Task<string> GenerateCodeAsync()
     {
-        var query = await Repository.GetQueryableAsync();
-        var maxCode = query
-            .Where(x => x.Code.StartsWith("LM"))
-            .Select(x => x.Code)
-            .OrderByDescending(x => x)
-            .FirstOrDefault();
-
-        if (string.IsNullOrEmpty(maxCode))
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
         {
-            return "LM001";
-        }
+            var query = await Repository.GetQueryableAsync();
+            var maxCode = query
+                .Where(x => x.Code.StartsWith("LM"))
+                .Select(x => x.Code)
+                .OrderByDescending(x => x)
+                .FirstOrDefault();
 
-        // Extract number from code like "LM001" -> 1
-        var numberPart = maxCode.Substring(2);
-        if (int.TryParse(numberPart, out var num))
-        {
-            return $"LM{(num + 1):D3}";
-        }
+            if (string.IsNullOrEmpty(maxCode))
+            {
+                return "LM001";
+            }
 
-        return $"LM{DateTime.Now:yyyyMMddHHmmss}";
+            // Extract number from code like "LM001" -> 1
+            var numberPart = maxCode.Substring(2);
+            if (int.TryParse(numberPart, out var num))
+            {
+                return $"LM{(num + 1):D3}";
+            }
+
+            return $"LM{DateTime.Now:yyyyMMddHHmmss}";
+        }
     }
 
     public override async Task<SpecimenTypeDto> UpdateAsync(Guid id, CreateUpdateSpecimenTypeDto input)

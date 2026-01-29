@@ -14,6 +14,7 @@ using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Content;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Users;
 
@@ -36,6 +37,7 @@ public class ReportAppService :
     private readonly IRepository<Test, Guid> _testRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
 
     public ReportAppService(
         IRepository<Report, Guid> repository,
@@ -44,7 +46,8 @@ public class ReportAppService :
         IRepository<Specimen, Guid> specimenRepository,
         IRepository<Test, Guid> testRepository,
         IUserNameProvider userNameProvider,
-        ICodeGeneratorService codeGenerator)
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _currentUser = currentUser;
@@ -53,6 +56,7 @@ public class ReportAppService :
         _testRepository = testRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
     }
 
     protected override async Task<ReportDto> MapToGetOutputDtoAsync(Report entity)
@@ -234,9 +238,13 @@ public class ReportAppService :
 
     private async Task<string> GenerateReportNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("RPT");
-        var count = await Repository.CountAsync(x => x.ReportNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("RPT", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("RPT");
+            var count = await Repository.CountAsync(x => x.ReportNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("RPT", count);
+        }
     }
 
     private string GenerateQRCodeUrl(string reportNumber)

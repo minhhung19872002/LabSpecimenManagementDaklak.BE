@@ -566,22 +566,34 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("REQ");
-        var count = await _testRequestRepository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("REQ");
+            var count = await _testRequestRepository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        }
     }
 
     private async Task<string> GenerateSpecimenCodeAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("SPE");
-        var count = await _specimenRepository.CountAsync(x => x.Code.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("SPE", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("SPE");
+            var count = await _specimenRepository.CountAsync(x => x.Code.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("SPE", count);
+        }
     }
 
     private async Task<string> GenerateCustomerCodeAsync()
     {
-        var count = await _customerRepository.CountAsync();
-        return _codeGenerator.GenerateCode("CUST", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var count = await _customerRepository.CountAsync();
+            return _codeGenerator.GenerateCode("CUST", count);
+        }
     }
 
     #endregion

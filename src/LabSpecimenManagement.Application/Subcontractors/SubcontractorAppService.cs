@@ -7,6 +7,7 @@ using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 
 namespace LabSpecimenManagement.Subcontractors;
@@ -23,15 +24,18 @@ public class SubcontractorAppService :
 {
     private readonly IRepository<SubcontractorCertification, Guid> _certificationRepository;
     private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
 
     public SubcontractorAppService(
         IRepository<Subcontractor, Guid> repository,
         IRepository<SubcontractorCertification, Guid> certificationRepository,
-        ICodeGeneratorService codeGenerator)
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _certificationRepository = certificationRepository;
         _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
     }
 
     protected override async Task<Subcontractor> MapToEntityAsync(CreateUpdateSubcontractorDto createInput)
@@ -155,8 +159,12 @@ public class SubcontractorAppService :
 
     private async Task<string> GenerateCodeAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("NTP");
-        var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("NTP", count, sequencePadding: 3);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("NTP");
+            var count = await Repository.CountAsync(x => x.Code.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("NTP", count, sequencePadding: 3);
+        }
     }
 }
