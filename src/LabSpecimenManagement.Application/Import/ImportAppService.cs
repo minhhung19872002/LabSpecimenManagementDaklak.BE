@@ -737,16 +737,16 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
 
-        // Load existing data for validation
+        // Load existing data for validation (use GroupBy to handle duplicate names after normalization)
         var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x.Id);
+        var indicatorDict = indicators
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         var testMethods = await _testMethodRepository.GetListAsync();
-        var testMethodDict = testMethods.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x.Id);
+        var testMethodDict = testMethods
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         var result = new TestMethodImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
@@ -754,7 +754,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Group by TestMethodName
         var groups = rows
             .Select((row, idx) => (Row: row, RowNumber: idx + 2))
-            .GroupBy(x => x.Row.TestMethodName?.Trim().ToLowerInvariant() ?? "")
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Row.TestMethodName).ToLowerInvariant())
             .ToList();
 
         foreach (var group in groups)
@@ -798,7 +798,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             foreach (var (row, rowNumber) in group)
             {
-                var indicatorKey = row.IndicatorName?.Trim().ToLowerInvariant() ?? "";
+                var indicatorKey = StringHelper.NormalizeAndTrim(row.IndicatorName).ToLowerInvariant();
                 var item = new TestMethodIndicatorImportItem
                 {
                     RowNumber = rowNumber,
@@ -1485,21 +1485,21 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
 
-        // Load existing data for validation
+        // Load existing data for validation (use GroupBy to handle duplicate names after normalization)
         var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x);
+        var indicatorDict = indicators
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
 
         var testMethods = await _testMethodRepository.GetListAsync();
-        var testMethodDict = testMethods.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x);
+        var testMethodDict = testMethods
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
 
         var standards = await _standardRepository.GetListAsync();
-        var standardDict = standards.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x.Id);
+        var standardDict = standards
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         var result = new StandardImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
@@ -1548,8 +1548,8 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             foreach (var (row, rowNumber) in group)
             {
-                var indicatorKey = row.IndicatorName?.Trim().ToLowerInvariant() ?? "";
-                var testMethodKey = row.TestMethodName?.Trim().ToLowerInvariant() ?? "";
+                var indicatorKey = StringHelper.NormalizeAndTrim(row.IndicatorName).ToLowerInvariant();
+                var testMethodKey = StringHelper.NormalizeAndTrim(row.TestMethodName).ToLowerInvariant();
                 var pairKey = $"{indicatorKey}||{testMethodKey}";
 
                 var item = new StandardIndicatorImportItem
@@ -2211,16 +2211,16 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
 
-        // Load existing data for validation
+        // Load existing data for validation (use GroupBy to handle duplicate names after normalization)
         var organizations = await _organizationRepository.GetListAsync();
-        var organizationDict = organizations.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x);
+        var organizationDict = organizations
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
 
         var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators.ToDictionary(
-            x => x.Name.Trim().ToLowerInvariant(),
-            x => x.Id);
+        var indicatorDict = indicators
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         // Load existing TestRequests by ContractNumber for upsert check
         // Use GroupBy + First to handle duplicate ContractNumbers (take the first one)
@@ -2359,7 +2359,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Check if organization exists
-            var organizationKey = row.OrganizationName?.Trim().ToLowerInvariant() ?? "";
+            var organizationKey = StringHelper.NormalizeAndTrim(row.OrganizationName).ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(organizationKey))
             {
                 if (organizationDict.TryGetValue(organizationKey, out var existingOrg))
@@ -2406,7 +2406,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 foreach (var indicatorName in indicatorNames)
                 {
                     item.IndicatorNames.Add(indicatorName);
-                    var indicatorKey = indicatorName.ToLowerInvariant();
+                    var indicatorKey = StringHelper.NormalizeAndTrim(indicatorName).ToLowerInvariant();
 
                     if (indicatorDict.TryGetValue(indicatorKey, out var indicatorId))
                     {
@@ -2511,7 +2511,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var existingOrganizations = await _organizationRepository.GetListAsync();
             foreach (var org in existingOrganizations)
             {
-                var key = org.Name.Trim().ToLowerInvariant();
+                var key = StringHelper.NormalizeAndTrim(org.Name).ToLowerInvariant();
                 if (!processedOrganizations.ContainsKey(key))
                 {
                     processedOrganizations[key] = org;
@@ -2524,7 +2524,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var processedOrgKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in validItems)
             {
-                var organizationKey = item.OrganizationName.Trim().ToLowerInvariant();
+                var organizationKey = StringHelper.NormalizeAndTrim(item.OrganizationName).ToLowerInvariant();
 
                 // Skip if already processed in this batch
                 if (processedOrgKeys.Contains(organizationKey))
@@ -3023,17 +3023,17 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Load existing data for validation
         var indicatorGroups = await _indicatorGroupRepository.GetListAsync();
         var indicatorGroupDict = indicatorGroups
-            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         var indicators = await _indicatorRepository.GetListAsync();
         var indicatorDict = indicators
-            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         var departments = await _departmentRepository.GetListAsync();
         var departmentDict = departments
-            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         var result = new IndicatorGroupImportPreviewDto();
@@ -3091,7 +3091,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Check if IndicatorGroup exists
-            var groupKey = row.IndicatorGroupName?.Trim().ToLowerInvariant() ?? "";
+            var groupKey = StringHelper.NormalizeAndTrim(row.IndicatorGroupName).ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(groupKey))
             {
                 if (indicatorGroupDict.TryGetValue(groupKey, out var existingGroup))
@@ -3110,7 +3110,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             // Check if Department exists (if provided)
             if (!string.IsNullOrWhiteSpace(row.DepartmentName))
             {
-                var deptKey = row.DepartmentName.Trim().ToLowerInvariant();
+                var deptKey = StringHelper.NormalizeAndTrim(row.DepartmentName).ToLowerInvariant();
                 if (departmentDict.TryGetValue(deptKey, out var existingDept))
                 {
                     item.DepartmentId = existingDept.Id;
@@ -3134,7 +3134,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Check if Indicator exists
-            var indicatorKey = row.IndicatorName?.Trim().ToLowerInvariant() ?? "";
+            var indicatorKey = StringHelper.NormalizeAndTrim(row.IndicatorName).ToLowerInvariant();
             if (!string.IsNullOrWhiteSpace(indicatorKey))
             {
                 if (indicatorDict.TryGetValue(indicatorKey, out var existingIndicator))
@@ -3213,7 +3213,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var existingGroups = await _indicatorGroupRepository.GetListAsync();
             foreach (var group in existingGroups)
             {
-                var key = group.Name.Trim().ToLowerInvariant();
+                var key = StringHelper.NormalizeAndTrim(group.Name).ToLowerInvariant();
                 if (!processedGroups.ContainsKey(key))
                 {
                     processedGroups[key] = group;
@@ -3223,7 +3223,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var existingIndicators = await _indicatorRepository.GetListAsync();
             foreach (var indicator in existingIndicators)
             {
-                var key = indicator.Name.Trim().ToLowerInvariant();
+                var key = StringHelper.NormalizeAndTrim(indicator.Name).ToLowerInvariant();
                 if (!processedIndicators.ContainsKey(key))
                 {
                     processedIndicators[key] = indicator;
@@ -3252,8 +3252,8 @@ public class ImportAppService : ApplicationService, IImportAppService
             // Process each row
             foreach (var item in validItems)
             {
-                var groupKey = item.IndicatorGroupName.Trim().ToLowerInvariant();
-                var indicatorKey = item.IndicatorName.Trim().ToLowerInvariant();
+                var groupKey = StringHelper.NormalizeAndTrim(item.IndicatorGroupName).ToLowerInvariant();
+                var indicatorKey = StringHelper.NormalizeAndTrim(item.IndicatorName).ToLowerInvariant();
 
                 IndicatorGroup indicatorGroup;
 
@@ -3461,7 +3461,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Load indicators and their test methods for validation
         var indicators = await _indicatorRepository.GetListAsync();
         var indicatorDict = indicators
-            .GroupBy(x => x.Name.Trim().ToLowerInvariant())
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         // Load test method indicators to get default test method for each indicator
@@ -3518,7 +3518,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Get or create specimen preview item
-            var specimenKey = sampleName.ToLowerInvariant();
+            var specimenKey = StringHelper.NormalizeAndTrim(sampleName).ToLowerInvariant();
             if (!specimenMap.TryGetValue(specimenKey, out var specimen))
             {
                 specimen = new SpecimenImportPreviewItem
@@ -3534,7 +3534,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Check if indicator exists
-            var indicatorKey = indicatorName.ToLowerInvariant();
+            var indicatorKey = StringHelper.NormalizeAndTrim(indicatorName).ToLowerInvariant();
             Indicator? indicator = null;
             var indicatorIsValid = indicatorDict.TryGetValue(indicatorKey, out indicator);
 

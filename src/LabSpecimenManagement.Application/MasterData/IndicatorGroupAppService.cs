@@ -105,7 +105,8 @@ public class IndicatorGroupAppService :
 
     protected override Task MapToEntityAsync(CreateUpdateIndicatorGroupDto updateInput, IndicatorGroup entity)
     {
-        entity.Name = updateInput.Name;
+        // Normalize name to ensure consistent Unicode representation
+        entity.Name = StringHelper.NormalizeAndTrim(updateInput.Name);
         entity.IsActive = updateInput.IsActive;
         entity.LaboratoryId = updateInput.LaboratoryId;
         return Task.CompletedTask;
@@ -121,7 +122,8 @@ public class IndicatorGroupAppService :
         using (_dataFilter.Disable<ISoftDelete>())
         {
             var existingQuery = await Repository.GetQueryableAsync();
-            existingNames = existingQuery.Select(g => g.Name.Trim().ToLower()).ToHashSet();
+            // Normalize existing names for consistent comparison
+            existingNames = existingQuery.Select(g => StringHelper.NormalizeAndTrim(g.Name).ToLower()).ToHashSet();
         }
 
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
@@ -137,7 +139,10 @@ public class IndicatorGroupAppService :
                 continue;
             }
 
-            var name = rowData.ContainsKey("Tên nhóm chỉ tiêu") ? rowData["Tên nhóm chỉ tiêu"]?.ToString()?.Trim() : null;
+            // Normalize name from Excel for consistent Unicode representation
+            var name = rowData.ContainsKey("Tên nhóm chỉ tiêu")
+                ? StringHelper.NormalizeAndTrim(rowData["Tên nhóm chỉ tiêu"]?.ToString())
+                : null;
 
             if (string.IsNullOrWhiteSpace(name))
             {
