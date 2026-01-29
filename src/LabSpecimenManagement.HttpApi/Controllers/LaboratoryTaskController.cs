@@ -152,6 +152,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/unit")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(
+        Guid indicatorId,
+        [FromBody] string? unit)
+    {
+        return _laboratoryTaskAppService.UpdateIndicatorUnitAsync(indicatorId, unit);
+    }
+
+    /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
     [HttpPut("indicators/{indicatorId}/note")]

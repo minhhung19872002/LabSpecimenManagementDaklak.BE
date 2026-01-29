@@ -972,6 +972,37 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     /// <summary>
+    /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can update unit
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật đơn vị tính");
+        }
+
+        // Validate: Cannot update when indicator is Approved or CustomerCancelled
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã duyệt", "indicator");
+        }
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã bị hủy", "indicator");
+        }
+
+        taskIndicator.Unit = unit;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
