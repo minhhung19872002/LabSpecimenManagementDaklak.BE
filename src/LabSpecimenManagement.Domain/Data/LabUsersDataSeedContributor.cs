@@ -68,8 +68,9 @@ public class LabUsersDataSeedContributor : IDataSeedContributor, ITransientDepen
             return;
         }
 
-        // Seed Departments first (if not exists) for DepartmentId assignment
-        await SeedDepartmentsIfNotExistsAsync();
+        // NOTE: Departments are seeded by LabSampleDataSeedContributor.SeedDepartmentsAsync()
+        // Do NOT call SeedDepartmentsIfNotExistsAsync() here to avoid duplicate key error
+        // when called from LabSampleDataSeedContributor.SeedLaboratoriesAsync()
 
         await CreateRolesAsync();
         await CreateUsersAsync();
