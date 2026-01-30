@@ -1,5 +1,6 @@
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -417,6 +418,19 @@ public class LaboratoryTaskController : LabSpecimenManagementController
         [FromBody] ReceiveSharedSampleDto input)
     {
         return _laboratoryTaskAppService.ReceiveSharedSampleAsync(id, input);
+    }
+
+    #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    [HttpGet("sample-assignment-log")]
+    public virtual async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return await _laboratoryTaskAppService.GetSampleAssignmentLogAsync(input);
     }
 
     #endregion

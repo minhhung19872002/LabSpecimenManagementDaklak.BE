@@ -2636,4 +2636,223 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        // Get queryables
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+
+        // Build base query from LaboratoryTaskIndicator
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
+                    from tm in tmJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        // TestRequest info
+                        TestRequestId = tr.Id,
+                        LaboratoryTaskId = lt.Id,
+                        ContractNumber = tr.ContractNumber,
+                        TestRequestStatus = tr.Status,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+
+                        // Sample info
+                        SampleId = s.Id,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        SampleQuantity = s.SampleQuantity,
+                        SampleStatusText = s.StatusText,
+
+                        // Indicator info
+                        TestRequestSampleIndicatorId = si.Id,
+                        LaboratoryTaskIndicatorId = li.Id,
+                        IndicatorId = li.Id,
+                        IndicatorName = mi.Name,
+                        IndicatorFormattedName = mi.FormattedName,
+                        MethodName = tm != null ? tm.Name : null,
+                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        Unit = li.Unit,
+                        TransferDate = si.TransferDate,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+
+                        // Assignment info
+                        TechnicalManagerId = lt.TechnicalManagerId,
+                        TechnicianId = li.TechnicianId,
+                        EntryDate = li.EntryDate,
+                        QlktApprovalDate = li.ApprovalDate,
+
+                        // Status
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+
+                        // Laboratory info (for filtering)
+                        LaboratoryId = lt.LaboratoryId
+                    };
+
+        // Apply access control for QLKT: Show all tasks of Labs that user manages
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            // Get labs where current user is Technical Manager
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            // Get task IDs where current user is a supporter
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            // Filter: Show tasks from labs user manages OR tasks where user is supporter
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId));
+        }
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.TestRequestStatus.HasValue)
+        {
+            query = query.Where(x => x.TestRequestStatus == input.TestRequestStatus.Value);
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        if (input.LaboratoryId.HasValue)
+        {
+            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+        }
+
+        var totalCount = query.Count();
+
+        // Apply sorting
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+
+        var sortedQuery = sortingKey switch
+        {
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+        };
+
+        // Pagination
+        var items = sortedQuery.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+
+        // Resolve user names
+        var userIds = items
+            .SelectMany(x => new[] { x.TechnicalManagerId, x.TechnicianId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var userNameMap = new Dictionary<Guid, string>();
+        foreach (var userId in userIds)
+        {
+            var userName = await _userNameProvider.GetUserNameAsync(userId);
+            if (userName != null) userNameMap[userId] = userName;
+        }
+
+        // Map to DTOs
+        var dtos = items.Select(x => new SampleAssignmentLogDto
+        {
+            TestRequestId = x.TestRequestId,
+            QualityTaskId = Guid.Empty,
+            LaboratoryTaskId = x.LaboratoryTaskId,
+            ContractNumber = x.ContractNumber,
+            TestRequestStatus = x.TestRequestStatus,
+            RequestCompletionDate = x.RequestCompletionDate,
+            SampleId = x.SampleId,
+            SampleCode = x.SampleCode,
+            SampleName = x.SampleName,
+            SampleQuantity = x.SampleQuantity,
+            SampleStatusText = x.SampleStatusText,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            IndicatorId = x.IndicatorId,
+            IndicatorName = x.IndicatorName,
+            IndicatorFormattedName = x.IndicatorFormattedName,
+            MethodName = x.MethodName,
+            MethodFormattedName = x.MethodFormattedName,
+            Unit = x.Unit,
+            TransferDate = x.TransferDate,
+            TestDate = x.TestDate,
+            Result = x.Result,
+            TechnicalManagerName = x.TechnicalManagerId.HasValue && userNameMap.ContainsKey(x.TechnicalManagerId.Value)
+                ? userNameMap[x.TechnicalManagerId.Value] : null,
+            TechnicianName = x.TechnicianId.HasValue && userNameMap.ContainsKey(x.TechnicianId.Value)
+                ? userNameMap[x.TechnicianId.Value] : null,
+            EntryDate = x.EntryDate,
+            QlktApprovalDate = x.QlktApprovalDate,
+            IndicatorApprovalStatus = x.IndicatorApprovalStatus,
+            TestingStatus = MapSampleAssignmentTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
+            QualityApprovalStatus = null,
+            IsReportPublished = false
+        }).ToList();
+
+        return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);
+    }
+
+    private static TestingStatus? MapSampleAssignmentTestingStatus(
+        IndicatorApprovalStatus approvalStatus,
+        DateTime? testDate,
+        string? result)
+    {
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? TestingStatus.Completed
+                : TestingStatus.PendingApproval;
+        }
+
+        if (testDate.HasValue)
+        {
+            return TestingStatus.InProgress;
+        }
+
+        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
+            ? TestingStatus.NotStarted
+            : null;
+    }
+
+    #endregion
 }

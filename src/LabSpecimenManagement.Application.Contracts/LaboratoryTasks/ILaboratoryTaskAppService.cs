@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Users;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using QualityManagement = LabSpecimenManagement.QualityManagement;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
 
@@ -230,6 +231,17 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// <param name="input">Thông tin nhận mẫu (ghi chú tùy chọn)</param>
     /// <returns>DTO task sau khi nhận</returns>
     Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input);
+
+    #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    /// <param name="input">Filter và pagination</param>
+    /// <returns>Danh sách SampleAssignmentLogDto</returns>
+    Task<PagedResultDto<QualityManagement.SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(QualityManagement.GetSampleAssignmentLogInput input);
 
     #endregion
 }
