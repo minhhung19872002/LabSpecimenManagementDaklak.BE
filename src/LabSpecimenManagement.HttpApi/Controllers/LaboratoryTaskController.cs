@@ -290,7 +290,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
     public virtual Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(
         Guid taskId,
-        [FromBody] BulkApproveIndicatorsDto input)
+        [FromBody] LaboratoryTasks.BulkApproveIndicatorsDto input)
     {
         return _laboratoryTaskAppService.BulkApproveIndicatorsAsync(taskId, input);
     }
