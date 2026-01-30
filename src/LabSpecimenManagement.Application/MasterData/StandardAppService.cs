@@ -443,7 +443,30 @@ public class StandardAppService : ApplicationService, IStandardAppService
             throw new Common.Exceptions.EntityNotFoundException("StandardIndicator", id);
         }
 
-        await _standardIndicatorRepository.DeleteAsync(entity);
+        // Get the parent indicator's IndicatorId
+        var parentIndicatorId = entity.IndicatorId;
+
+        // Find all sub-indicators in master data that have this as their parent
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var subIndicatorIds = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .Where(i => i.ParentIndicatorId == parentIndicatorId)
+                .Select(i => i.Id)
+        );
+
+        // Find all StandardIndicators in this standard that are sub-indicators of the parent
+        var entitiesToDelete = new List<StandardIndicator> { entity };
+
+        if (subIndicatorIds.Any())
+        {
+            var subStandardIndicators = await AsyncExecuter.ToListAsync(
+                query.Where(si => si.StandardId == standardId && subIndicatorIds.Contains(si.IndicatorId))
+            );
+            entitiesToDelete.AddRange(subStandardIndicators);
+        }
+
+        // Delete all (parent + sub-indicators)
+        await _standardIndicatorRepository.DeleteManyAsync(entitiesToDelete);
     }
 
     public async Task<StandardIndicatorDto> ToggleIndicatorActiveAsync(Guid standardId, Guid id)
