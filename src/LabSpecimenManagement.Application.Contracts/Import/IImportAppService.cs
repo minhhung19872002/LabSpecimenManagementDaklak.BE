@@ -195,4 +195,28 @@ public interface IImportAppService : IApplicationService
     Task<SpecimenForTestRequestImportPreviewDto> PreviewSpecimensForTestRequestAsync(byte[] fileBytes);
 
     #endregion
+
+    #region SampleTypeCategory Import
+
+    /// <summary>
+    /// Get SampleTypeCategory import template
+    /// Template columns: Tên Danh mục loại, Mô tả
+    /// </summary>
+    byte[] GetSampleTypeCategoryTemplate();
+
+    /// <summary>
+    /// Preview SampleTypeCategory import - validates data without saving
+    /// Upsert: match by Name (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import SampleTypeCategories from Excel file
+    /// Upsert logic: match by Name (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportSampleTypeCategoriesAsync(byte[] fileBytes);
+
+    #endregion
 }

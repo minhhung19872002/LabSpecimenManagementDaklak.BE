@@ -36,6 +36,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<TestRequestSampleIndicator, Guid> _testRequestSampleIndicatorRepository;
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
+    private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -55,6 +56,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<TestRequestSampleIndicator, Guid> testRequestSampleIndicatorRepository,
         IRepository<Organization, Guid> organizationRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
+        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -73,6 +75,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _testRequestSampleIndicatorRepository = testRequestSampleIndicatorRepository;
         _organizationRepository = organizationRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
+        _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -3742,6 +3745,294 @@ public class ImportAppService : ApplicationService, IImportAppService
             {
                 cell7.Value = string.Join("; ", rowErrors[dataRowNumber]);
                 cell7.Style.Font.FontColor = XLColor.Red;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    #endregion
+
+    #region SampleTypeCategory Import
+
+    public byte[] GetSampleTypeCategoryTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "Danh muc loai mau.xlsx");
+        return File.ReadAllBytes(templatePath);
+    }
+
+    public async Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewSampleTypeCategoriesInternalAsync(memoryStream);
+    }
+
+    private async Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadSampleTypeCategoryExcelRows(memoryStream);
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation (using normalized name for matching)
+        var existingCategories = await _sampleTypeCategoryRepository.GetListAsync();
+        var categoryDict = existingCategories
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var result = new SampleTypeCategoryImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var newCategoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateCategoryNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+
+            var item = new SampleTypeCategoryImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                Name = row.Name?.Trim() ?? "",
+                Description = row.Description?.Trim(),
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(row.Name))
+            {
+                item.IsValid = false;
+                var error = "Tên danh mục loại không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên Danh mục loại",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else
+            {
+                // Check if category exists (for upsert logic)
+                var normalizedName = StringHelper.NormalizeAndTrim(row.Name).ToLowerInvariant();
+                if (categoryDict.TryGetValue(normalizedName, out var existingCategory))
+                {
+                    item.IsNew = false;
+                    item.ExistingId = existingCategory.Id;
+                    updateCategoryNames.Add(normalizedName);
+                }
+                else
+                {
+                    item.IsNew = true;
+                    newCategoryNames.Add(normalizedName);
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+            {
+                validationResult.ValidRows++;
+            }
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = validationResult.InvalidRows;
+        result.NewCategories = newCategoryNames.Count;
+        result.UpdateCategories = updateCategoryNames.Count;
+
+        // Generate error file if there are errors
+        if (!validationResult.IsValid)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateSampleTypeCategoryErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Danh_muc_loai_mau_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<SampleTypeCategoryImportRow> ReadSampleTypeCategoryExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<SampleTypeCategoryImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        // Start from row 2 (skip header)
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty()) continue;
+
+            var name = row.Cell(1).GetString()?.Trim();
+            var description = row.Cell(2).GetString()?.Trim();
+
+            // Skip if all cells are empty
+            if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(description))
+                continue;
+
+            rows.Add(new SampleTypeCategoryImportRow
+            {
+                Name = name ?? "",
+                Description = description
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportSampleTypeCategoriesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewSampleTypeCategoriesInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        // Track processed entities to avoid duplicate operations in same batch
+        var processedCategories = new Dictionary<string, SampleTypeCategory>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Load existing data
+            var existingCategories = await _sampleTypeCategoryRepository.GetListAsync();
+            foreach (var category in existingCategories)
+            {
+                var key = StringHelper.NormalizeAndTrim(category.Name).ToLowerInvariant();
+                if (!processedCategories.ContainsKey(key))
+                {
+                    processedCategories[key] = category;
+                }
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            // Process each row
+            foreach (var item in validItems)
+            {
+                var categoryKey = StringHelper.NormalizeAndTrim(item.Name).ToLowerInvariant();
+
+                SampleTypeCategory category;
+
+                // SampleTypeCategory upsert
+                if (processedCategories.TryGetValue(categoryKey, out var existingCategory))
+                {
+                    // Update existing category - use Normalize for both fields
+                    existingCategory.Name = StringHelper.Normalize(item.Name);
+                    existingCategory.Description = StringHelper.Normalize(item.Description);
+                    await _sampleTypeCategoryRepository.UpdateAsync(existingCategory);
+                    category = existingCategory;
+                    updatedCount++;
+                }
+                else
+                {
+                    // Create new category - use Normalize for both fields
+                    category = new SampleTypeCategory(
+                        _guidGenerator.Create(),
+                        StringHelper.Normalize(item.Name),
+                        StringHelper.Normalize(item.Description)
+                    );
+                    await _sampleTypeCategoryRepository.InsertAsync(category);
+                    processedCategories[categoryKey] = category;
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                Message = $"Import thành công! Đã tạo mới {newCount} danh mục, cập nhật {updatedCount} danh mục."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateSampleTypeCategoryErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        originalStream.Position = 0;
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        // Add error column header
+        var headerRow = worksheet.Row(1);
+        var errorColumnIndex = 3; // Column C for errors
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Fill.BackgroundColor = XLColor.Yellow;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int excelRowNumber = 2; excelRowNumber <= lastRowUsed; excelRowNumber++)
+        {
+            var dataRowNumber = excelRowNumber;
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            // Highlight error cells
+            var errorColumnsForRow = new HashSet<string>();
+            if (hasError)
+            {
+                foreach (var errorMsg in rowErrors[dataRowNumber])
+                {
+                    if (errorMsg.Contains("Tên danh mục loại"))
+                        errorColumnsForRow.Add("Tên Danh mục loại");
+                }
+            }
+
+            var row = worksheet.Row(excelRowNumber);
+
+            // Column 1: Tên Danh mục loại
+            if (errorColumnsForRow.Contains("Tên Danh mục loại"))
+            {
+                ApplyErrorStyle(row.Cell(1));
+            }
+
+            // Column 3: Lỗi
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
             }
         }
 
