@@ -2249,7 +2249,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
         }
 
-        var totalCount = query.Count();
+        // Count unique contracts (not rows) for pagination
+        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
 
         // Apply sorting
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
@@ -2264,8 +2265,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
-        // Pagination
-        var items = sortedQuery.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+        // Pagination by contract count (not row count)
+        var allItems = sortedQuery.ToList();
+        var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Resolve user names
         var userIds = items
@@ -2318,7 +2320,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             IsReportPublished = false
         }).ToList();
 
-        return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalCount, dtos);
+        return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalContractCount, dtos);
     }
 
     private static TestingStatus? MapTestingStatus(
@@ -2341,6 +2343,29 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
             ? TestingStatus.NotStarted
             : null;
+    }
+
+    /// <summary>
+    /// Helper to paginate items by contract count (not row count)
+    /// Returns all items belonging to the contracts within the specified page
+    /// </summary>
+    private static List<T> GetItemsByContractPagination<T>(List<T> allItems, int skipContracts, int takeContracts) where T : class
+    {
+        // Use reflection to get ContractNumber property
+        var contractProperty = typeof(T).GetProperty("ContractNumber");
+        if (contractProperty == null) return allItems.Skip(skipContracts).Take(takeContracts).ToList();
+
+        // Get unique contracts in order
+        var uniqueContracts = allItems
+            .Select(x => contractProperty.GetValue(x)?.ToString())
+            .Distinct()
+            .ToList();
+
+        // Get contracts for current page
+        var contractsInPage = uniqueContracts.Skip(skipContracts).Take(takeContracts).ToHashSet();
+
+        // Return all items belonging to those contracts
+        return allItems.Where(x => contractsInPage.Contains(contractProperty.GetValue(x)?.ToString())).ToList();
     }
 
     #endregion

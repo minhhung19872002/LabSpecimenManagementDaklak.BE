@@ -2761,23 +2761,27 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
         }
 
-        var totalCount = query.Count();
+        // Count unique contracts (not rows) for pagination
+        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
 
-        // Apply sorting
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+        // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
-        // Pagination
-        var items = sortedQuery.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+        // Pagination by contract count (not row count)
+        // skipCount and maxResultCount refer to number of contracts, not rows
+        var allItems = sortedQuery.ToList();
+        var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Resolve user names
         var userIds = items
@@ -2831,7 +2835,50 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             IsReportPublished = false
         }).ToList();
 
-        return new PagedResultDto<SampleAssignmentLogDto>(totalCount, dtos);
+        return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);
+    }
+
+    /// <summary>
+    /// Helper method to paginate by contract (not by row)
+    /// </summary>
+    private static List<T> GetItemsByContractPagination<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
+    {
+        if (allItems.Count == 0 || maxResultCount <= 0)
+            return new List<T>();
+
+        // Get ContractNumber property via reflection (works for anonymous types)
+        var contractNumberProperty = typeof(T).GetProperty("ContractNumber");
+        if (contractNumberProperty == null)
+        {
+            // Fallback to standard pagination if no ContractNumber property
+            return allItems.Skip(skipCount).Take(maxResultCount).ToList();
+        }
+
+        Func<T, string?> getContractNumber = item => contractNumberProperty.GetValue(item) as string;
+
+        // Get unique contract numbers in order of appearance
+        var uniqueContracts = new List<string?>();
+        string? lastContract = null;
+        foreach (var item in allItems)
+        {
+            var contract = getContractNumber(item);
+            if (contract != lastContract)
+            {
+                uniqueContracts.Add(contract);
+                lastContract = contract;
+            }
+        }
+
+        // Apply pagination to contracts (skip and take by contract count)
+        var selectedContracts = uniqueContracts
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToHashSet();
+
+        // Return all rows belonging to the selected contracts
+        return allItems
+            .Where(item => selectedContracts.Contains(getContractNumber(item)))
+            .ToList();
     }
 
     private static TestingStatus? MapSampleAssignmentTestingStatus(
