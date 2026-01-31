@@ -872,7 +872,15 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Nếu approve, tạo QualityManagementIndicator và gửi thông báo đến tất cả QLCL
         if (input.Approve)
         {
-            await CreateQualityManagementTaskAsync(task, new List<LaboratoryTaskIndicator> { taskIndicator });
+            // Auto-approve parent indicator nếu đây là sub-indicator
+            var indicatorsToSendToQuality = new List<LaboratoryTaskIndicator> { taskIndicator };
+            var autoApprovedParent = await AutoApproveParentIndicatorIfNeededAsync(taskIndicator, task);
+            if (autoApprovedParent != null)
+            {
+                indicatorsToSendToQuality.Add(autoApprovedParent);
+            }
+
+            await CreateQualityManagementTaskAsync(task, indicatorsToSendToQuality);
 
             // Update task status to SentToQuality nếu tất cả đã được gửi
             var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
@@ -926,13 +934,6 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     method?.Name ?? ""
                 );
             }
-        }
-
-        // Auto send to QLCL when approved - create QualityManagementTask and notify all QLCL
-        if (input.Approve)
-        {
-            await CreateQualityManagementTaskAsync(task, new List<LaboratoryTaskIndicator> { taskIndicator });
-            await NotifyAllQualityManagersOnApproveAsync(task, taskIndicator);
         }
 
         return await MapToIndicatorDtoAsync(taskIndicator);
@@ -1435,12 +1436,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // - CustomerCancelled: KH đã hủy chỉ tiêu
         // - TestingRejected with CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
         // These should not affect task status calculation (considered as "completed/finalized")
-        var activeIndicators = taskIndicators
+        var filteredIndicators = taskIndicators
             .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
                         !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
-        // If all indicators are cancelled/rejected, keep current status or set to a default
+        // Filter out parent indicators with children (they are display-only, not for processing)
+        // Only count sub-indicators and standalone indicators for status calculation
+        var activeIndicators = await FilterIndicatorsForStatusCalculationAsync(filteredIndicators);
+
+        // If all indicators are cancelled/rejected or are parents, keep current status or set to a default
         if (!activeIndicators.Any())
         {
             return;
@@ -1897,6 +1902,145 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return contents.Count > 0 ? contents : null;
     }
 
+    /// <summary>
+    /// Tự động duyệt chỉ tiêu cha khi chỉ tiêu phụ được duyệt.
+    /// Logic: Khi duyệt sub-indicator, cần auto-approve parent để QLCL có thể group đúng.
+    /// </summary>
+    /// <param name="subIndicatorTaskIndicator">LaboratoryTaskIndicator của chỉ tiêu phụ vừa được duyệt</param>
+    /// <param name="task">LaboratoryTask hiện tại</param>
+    /// <returns>Parent LaboratoryTaskIndicator nếu được auto-approve, null nếu không cần</returns>
+    private async Task<LaboratoryTaskIndicator?> AutoApproveParentIndicatorIfNeededAsync(
+        LaboratoryTaskIndicator subIndicatorTaskIndicator,
+        LaboratoryTask task)
+    {
+        // 1. Lấy TestRequestSampleIndicator để biết IndicatorId và SampleId
+        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(subIndicatorTaskIndicator.TestRequestSampleIndicatorId);
+        if (sampleIndicator == null) return null;
+
+        // Lưu lại SampleId của sub-indicator để tìm parent cùng sample
+        var subIndicatorSampleId = sampleIndicator.TestRequestSampleId;
+
+        // 2. Lấy Indicator và kiểm tra có ParentIndicatorId không
+        var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+        if (indicator == null || !indicator.ParentIndicatorId.HasValue) return null;
+
+        var parentIndicatorId = indicator.ParentIndicatorId.Value;
+
+        // 3. Tìm tất cả LaboratoryTaskIndicator của task với cùng method
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => ti.LaboratoryTaskId == task.Id &&
+                  ti.MethodId == subIndicatorTaskIndicator.MethodId);
+
+        // 4. Tìm parent's LaboratoryTaskIndicator CÙNG SAMPLE với sub-indicator
+        foreach (var taskIndicator in allTaskIndicators)
+        {
+            var si = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+            // Phải check cả IndicatorId VÀ cùng SampleId
+            if (si?.IndicatorId == parentIndicatorId && si?.TestRequestSampleId == subIndicatorSampleId)
+            {
+                // Nếu parent chưa được approve, auto-approve nó
+                if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved)
+                {
+                    taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Approved;
+                    taskIndicator.ApprovalDate = DateTime.Now;
+                    taskIndicator.ApprovedById = CurrentUser.Id;
+                    taskIndicator.RejectionReason = null;
+                    taskIndicator.IsSentToQuality = true;
+
+                    await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
+                    return taskIndicator;
+                }
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lọc ra các chỉ tiêu cần tính toán status (loại bỏ parent indicators có children).
+    /// Parent indicators có children chỉ để hiển thị, không cần xử lý (testing, approve).
+    /// Chỉ tính: sub-indicators và standalone indicators (không có children).
+    /// </summary>
+    /// <param name="taskIndicators">Danh sách tất cả LaboratoryTaskIndicator của task</param>
+    /// <returns>Danh sách các indicators cần tính toán status</returns>
+    private async Task<List<LaboratoryTaskIndicator>> FilterIndicatorsForStatusCalculationAsync(
+        List<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (!taskIndicators.Any())
+        {
+            return taskIndicators;
+        }
+
+        // Bước 1: Lấy tất cả TestRequestSampleIndicator IDs
+        var sampleIndicatorIds = taskIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
+
+        // Bước 2: Query tất cả SampleIndicators một lần
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+        var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        // Bước 3: Lấy tất cả IndicatorIds
+        var indicatorIds = sampleIndicatorMap.Values.Distinct().ToList();
+
+        // Bước 4: Query tất cả Indicators một lần
+        var indicators = await _indicatorRepository.GetListAsync(ind => indicatorIds.Contains(ind.Id));
+        var indicatorMap = indicators.ToDictionary(ind => ind.Id, ind => ind);
+
+        // Bước 5: Xây dựng mapping taskIndicatorId -> indicatorId
+        var taskIndicatorToIndicatorId = new Dictionary<Guid, Guid>();
+        foreach (var ti in taskIndicators)
+        {
+            if (sampleIndicatorMap.TryGetValue(ti.TestRequestSampleIndicatorId, out var indicatorId))
+            {
+                taskIndicatorToIndicatorId[ti.Id] = indicatorId;
+            }
+        }
+
+        // Bước 6: Xác định các parent indicators có children trong cùng task
+        // Composite key: indicatorId + methodId
+        var parentIndicatorKeys = new HashSet<string>();
+
+        // Tìm tất cả các parent indicator IDs từ các sub-indicators
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId)) continue;
+            if (!indicatorMap.TryGetValue(indicatorId, out var indicator)) continue;
+
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Đây là sub-indicator, đánh dấu parent của nó
+                var parentKey = $"{indicator.ParentIndicatorId.Value}_{ti.MethodId}";
+                parentIndicatorKeys.Add(parentKey);
+            }
+        }
+
+        // Bước 7: Lọc ra các indicators cần tính status
+        // Loại bỏ các parent indicators có children (tức là có trong parentIndicatorKeys)
+        var result = new List<LaboratoryTaskIndicator>();
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId))
+            {
+                // Không tìm thấy mapping, vẫn giữ lại (edge case)
+                result.Add(ti);
+                continue;
+            }
+
+            var key = $"{indicatorId}_{ti.MethodId}";
+            if (parentIndicatorKeys.Contains(key))
+            {
+                // Đây là parent indicator có children -> skip
+                continue;
+            }
+
+            // Đây là sub-indicator hoặc standalone indicator -> giữ lại
+            result.Add(ti);
+        }
+
+        return result;
+    }
+
     #endregion
 
     // Supporter Management methods moved to LaboratoryTaskAppService.Supporters.cs
@@ -1932,6 +2076,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         var results = new List<LaboratoryTaskIndicatorDto>();
         var approvedIndicators = new List<LaboratoryTaskIndicator>();
+        var autoApprovedParentIds = new HashSet<Guid>(); // Track đã auto-approve parents nào để tránh duplicate
 
         foreach (var indicatorId in input.IndicatorIds)
         {
@@ -1959,6 +2104,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                 // Add to approvedIndicators list for later processing
                 approvedIndicators.Add(taskIndicator);
+
+                // Auto-approve parent indicator nếu đây là sub-indicator
+                var autoApprovedParent = await AutoApproveParentIndicatorIfNeededAsync(taskIndicator, task);
+                if (autoApprovedParent != null && !autoApprovedParentIds.Contains(autoApprovedParent.Id))
+                {
+                    autoApprovedParentIds.Add(autoApprovedParent.Id);
+                    approvedIndicators.Add(autoApprovedParent);
+                }
             }
             else
             {

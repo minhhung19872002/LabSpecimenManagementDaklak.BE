@@ -330,4 +330,9 @@ public class TestingIndicatorDto
     /// Giới hạn cho phép (giá trị cụ thể) - Allowed Limit
     /// </summary>
     public string? AllowedLimit { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc) - Parent Indicator ID
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
 }

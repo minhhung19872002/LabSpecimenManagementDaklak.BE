@@ -183,4 +183,9 @@ public class QualityManagementIndicatorDto
     /// Danh sách nội dung Master Data Notes
     /// </summary>
     public List<string> MasterDataNotes { get; set; } = new();
+
+    /// <summary>
+    /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc) - Parent Indicator ID
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
 }

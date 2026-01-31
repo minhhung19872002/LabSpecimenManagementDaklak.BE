@@ -1436,7 +1436,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 CreatorId = x.CreatorId
             }).ToList(),
             FreeTextNote = labIndicator.FreeTextNote,
-            MasterDataNotes = await GetMasterDataNotesAsync(labIndicator.MasterDataNoteIds)
+            MasterDataNotes = await GetMasterDataNotesAsync(labIndicator.MasterDataNoteIds),
+            ParentIndicatorId = masterIndicator.ParentIndicatorId
         };
     }
 
@@ -1475,7 +1476,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private async Task UpdateTaskStatusAsync(Guid taskId)
     {
         var task = await _taskRepository.GetAsync(taskId);
-        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == taskId);
+        var allIndicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == taskId);
+
+        if (!allIndicators.Any())
+        {
+            return;
+        }
+
+        // Filter out parent indicators with children - only count sub-indicators and standalone indicators
+        var indicators = await FilterQualityIndicatorsForStatusCalculationAsync(allIndicators);
 
         if (!indicators.Any())
         {
@@ -1529,8 +1538,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     /// </summary>
     private async Task UpdateTaskStatusAfterPrintAsync(QualityManagementTask task)
     {
-        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == task.Id);
-        var approvedIndicators = indicators.Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
+        var allIndicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == task.Id);
+
+        // Filter out parent indicators with children - only count sub-indicators and standalone indicators
+        var filteredIndicators = await FilterQualityIndicatorsForStatusCalculationAsync(allIndicators);
+        var approvedIndicators = filteredIndicators.Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
 
         if (!approvedIndicators.Any())
         {
@@ -1616,6 +1628,96 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     testRequest.Id);
             }
         }
+    }
+
+    /// <summary>
+    /// Lọc các QualityManagementIndicator để tính status.
+    /// Loại bỏ các parent indicators có children trong cùng task.
+    /// Chỉ tính status dựa trên sub-indicators và standalone indicators.
+    /// </summary>
+    private async Task<List<QualityManagementIndicator>> FilterQualityIndicatorsForStatusCalculationAsync(
+        List<QualityManagementIndicator> qualityIndicators)
+    {
+        if (!qualityIndicators.Any())
+        {
+            return qualityIndicators;
+        }
+
+        // Bước 1: Lấy tất cả LaboratoryTaskIndicator IDs
+        var labIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).Distinct().ToList();
+
+        // Bước 2: Query tất cả LaboratoryTaskIndicators một lần
+        var labIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            li => labIndicatorIds.Contains(li.Id));
+        var labIndicatorMap = labIndicators.ToDictionary(li => li.Id, li => li);
+
+        // Bước 3: Lấy tất cả TestRequestSampleIndicator IDs
+        var sampleIndicatorIds = labIndicators.Select(li => li.TestRequestSampleIndicatorId).Distinct().ToList();
+
+        // Bước 4: Query tất cả SampleIndicators một lần
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+        var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        // Bước 5: Lấy tất cả IndicatorIds
+        var indicatorIds = sampleIndicatorMap.Values.Distinct().ToList();
+
+        // Bước 6: Query tất cả Master Indicators một lần
+        var masterIndicators = await _masterIndicatorRepository.GetListAsync(ind => indicatorIds.Contains(ind.Id));
+        var indicatorMap = masterIndicators.ToDictionary(ind => ind.Id, ind => ind);
+
+        // Bước 7: Xây dựng mapping qualityIndicatorId -> (indicatorId, methodId)
+        var qualityIndicatorToInfo = new Dictionary<Guid, (Guid IndicatorId, Guid? MethodId)>();
+        foreach (var qi in qualityIndicators)
+        {
+            if (!labIndicatorMap.TryGetValue(qi.LaboratoryTaskIndicatorId, out var labInd)) continue;
+            if (!sampleIndicatorMap.TryGetValue(labInd.TestRequestSampleIndicatorId, out var indicatorId)) continue;
+
+            qualityIndicatorToInfo[qi.Id] = (indicatorId, labInd.MethodId);
+        }
+
+        // Bước 8: Xác định các parent indicators có children trong cùng task
+        // Composite key: indicatorId + methodId
+        var parentIndicatorKeys = new HashSet<string>();
+
+        // Tìm tất cả các parent indicator IDs từ các sub-indicators
+        foreach (var qi in qualityIndicators)
+        {
+            if (!qualityIndicatorToInfo.TryGetValue(qi.Id, out var info)) continue;
+            if (!indicatorMap.TryGetValue(info.IndicatorId, out var indicator)) continue;
+
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Đây là sub-indicator, đánh dấu parent của nó
+                var parentKey = $"{indicator.ParentIndicatorId.Value}_{info.MethodId}";
+                parentIndicatorKeys.Add(parentKey);
+            }
+        }
+
+        // Bước 9: Lọc ra các indicators cần tính status
+        // Loại bỏ các parent indicators có children (tức là có trong parentIndicatorKeys)
+        var result = new List<QualityManagementIndicator>();
+        foreach (var qi in qualityIndicators)
+        {
+            if (!qualityIndicatorToInfo.TryGetValue(qi.Id, out var info))
+            {
+                // Không tìm thấy mapping, vẫn giữ lại (edge case)
+                result.Add(qi);
+                continue;
+            }
+
+            var key = $"{info.IndicatorId}_{info.MethodId}";
+            if (parentIndicatorKeys.Contains(key))
+            {
+                // Đây là parent indicator có children -> skip
+                continue;
+            }
+
+            // Đây là sub-indicator hoặc standalone indicator -> giữ lại
+            result.Add(qi);
+        }
+
+        return result;
     }
 
     #endregion

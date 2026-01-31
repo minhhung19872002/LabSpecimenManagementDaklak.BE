@@ -193,14 +193,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var allTasks = taskQuery.ToList();
 
         // Calculate testing status for each task
-        var tasksWithStatus = allTasks.Select(x => new
+        // Note: Filter out parent indicators with children before calculating status
+        var tasksWithStatus = new List<(LaboratoryTask Task, List<LaboratoryTaskIndicator> Indicators, TestingStatus TestingStatus, bool IsUrgent)>();
+        foreach (var item in allTasks)
         {
-            x.Task,
-            x.Indicators,
-            TestingStatus = CalculateTestingStatus(x.Indicators),
-            IsUrgent = x.Task.RequestCompletionDate.HasValue &&
-                       (x.Task.RequestCompletionDate.Value - DateTime.Today).TotalDays <= 5
-        }).ToList();
+            // Filter out parent indicators with children for status calculation
+            var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(item.Indicators);
+            var status = CalculateTestingStatus(filteredIndicators);
+            var isUrgent = item.Task.RequestCompletionDate.HasValue &&
+                           (item.Task.RequestCompletionDate.Value - DateTime.Today).TotalDays <= 5;
+            tasksWithStatus.Add((item.Task, item.Indicators, status, isUrgent));
+        }
 
         // Apply status filter
         if (input.Statuses != null && input.Statuses.Any())
@@ -719,11 +722,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
 
+        // Filter out parent indicators with children for counting
+        var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(indicators);
+
         // Tab "MyAssignments": Show only current user's data
         if (tabType == TestingTabType.MyAssignments && currentUserId.HasValue)
         {
-            // Loại trừ CustomerCancelled khỏi danh sách
-            var userIndicators = indicators.Where(i =>
+            // Loại trừ CustomerCancelled khỏi danh sách (từ filtered indicators)
+            var userIndicators = filteredIndicators.Where(i =>
                 i.TechnicianId == currentUserId.Value &&
                 i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
 
@@ -747,8 +753,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
         else
         {
-            // Tab "All": Show full data (loại trừ CustomerCancelled)
-            var activeIndicators = indicators.Where(i =>
+            // Tab "All": Show full data (loại trừ CustomerCancelled và parent indicators)
+            var activeIndicators = filteredIndicators.Where(i =>
                 i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
             dto.TotalSampleCount = task.TotalSampleCount;
             dto.TotalIndicatorCount = activeIndicators.Count;
@@ -812,7 +818,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         // Calculate testing status based on filtered indicators for display
-        var testingStatus = CalculateTestingStatus(taskIndicators);
+        // Filter out parent indicators with children before calculating status
+        var indicatorsForStatus = await FilterIndicatorsForStatusCalculationAsync(taskIndicators);
+        var testingStatus = CalculateTestingStatus(indicatorsForStatus);
 
         var dto = new TestingDetailDto
         {
@@ -865,8 +873,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             dto.TechnicianNames = string.Join(", ", technicianNameList);
         }
 
-        // Count completed indicators (loại trừ CustomerCancelled khỏi tổng số)
-        var activeIndicators = taskIndicators.Where(i => i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
+        // Count completed indicators (loại trừ CustomerCancelled và parent indicators có children)
+        // Sử dụng indicatorsForStatus đã filter parent indicators
+        var activeIndicators = indicatorsForStatus.Where(i => i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
         dto.CompletedIndicatorCount = activeIndicators.Count(i => i.ApprovalStatus == IndicatorApprovalStatus.Approved);
         dto.TotalIndicatorCount = activeIndicators.Count;
 
@@ -1094,7 +1103,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 StandardName = standardName,
                 LimitDescription = limitDescription,
                 ComparisonOperator = comparisonOperator,
-                AllowedLimit = allowedLimit
+                AllowedLimit = allowedLimit,
+                ParentIndicatorId = indicator?.ParentIndicatorId
             });
         }
 
@@ -1463,6 +1473,88 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Các trạng thái khác (MethodChangeRequested, TestingRejected) - chờ KH xác nhận
         return IndicatorTestingStatus.Todo;
+    }
+
+    /// <summary>
+    /// Lọc ra các chỉ tiêu cần tính toán status (loại bỏ parent indicators có children).
+    /// Parent indicators có children chỉ để hiển thị, không cần xử lý (testing, approve).
+    /// Chỉ tính: sub-indicators và standalone indicators (không có children).
+    /// </summary>
+    private async Task<List<LaboratoryTaskIndicator>> FilterIndicatorsForStatusCalculationAsync(
+        List<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (!taskIndicators.Any())
+        {
+            return taskIndicators;
+        }
+
+        // Bước 1: Lấy tất cả TestRequestSampleIndicator IDs
+        var sampleIndicatorIds = taskIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
+
+        // Bước 2: Query tất cả SampleIndicators một lần
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+        var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        // Bước 3: Lấy tất cả IndicatorIds
+        var indicatorIds = sampleIndicatorMap.Values.Distinct().ToList();
+
+        // Bước 4: Query tất cả Indicators một lần
+        var indicators = await _indicatorRepository.GetListAsync(ind => indicatorIds.Contains(ind.Id));
+        var indicatorMap = indicators.ToDictionary(ind => ind.Id, ind => ind);
+
+        // Bước 5: Xây dựng mapping taskIndicatorId -> indicatorId
+        var taskIndicatorToIndicatorId = new Dictionary<Guid, Guid>();
+        foreach (var ti in taskIndicators)
+        {
+            if (sampleIndicatorMap.TryGetValue(ti.TestRequestSampleIndicatorId, out var indicatorId))
+            {
+                taskIndicatorToIndicatorId[ti.Id] = indicatorId;
+            }
+        }
+
+        // Bước 6: Xác định các parent indicators có children trong cùng task
+        // Composite key: indicatorId + methodId
+        var parentIndicatorKeys = new HashSet<string>();
+
+        // Tìm tất cả các parent indicator IDs từ các sub-indicators
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId)) continue;
+            if (!indicatorMap.TryGetValue(indicatorId, out var indicator)) continue;
+
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Đây là sub-indicator, đánh dấu parent của nó
+                var parentKey = $"{indicator.ParentIndicatorId.Value}_{ti.MethodId}";
+                parentIndicatorKeys.Add(parentKey);
+            }
+        }
+
+        // Bước 7: Lọc ra các indicators cần tính status
+        // Loại bỏ các parent indicators có children (tức là có trong parentIndicatorKeys)
+        var result = new List<LaboratoryTaskIndicator>();
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId))
+            {
+                // Không tìm thấy mapping, vẫn giữ lại (edge case)
+                result.Add(ti);
+                continue;
+            }
+
+            var key = $"{indicatorId}_{ti.MethodId}";
+            if (parentIndicatorKeys.Contains(key))
+            {
+                // Đây là parent indicator có children -> skip
+                continue;
+            }
+
+            // Đây là sub-indicator hoặc standalone indicator -> giữ lại
+            result.Add(ti);
+        }
+
+        return result;
     }
 
     /// <summary>
