@@ -346,8 +346,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             PriorLabSentSample = false // Will be set below if applicable
         };
 
-        // Check if prior lab has sent sample
-        if (task.PriorLabTaskId.HasValue && task.IsWaitingForPriorLab)
+        // Check if prior lab has sent sample (for Lab Hóa to know when Vi Sinh sent)
+        if (task.PriorLabTaskId.HasValue)
         {
             var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
             if (priorTask != null)

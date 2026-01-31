@@ -1277,14 +1277,10 @@ public partial class TestRequestAppService :
 
             // Check if this task has shared sample indicators
             var hasSharedSample = indicatorList.Any(i => i.IsSharedSample);
-            var hasNonSharedSample = indicatorList.Any(i => !i.IsSharedSample);
             var isSharedSampleTask = hasSharedSample && microbiologyLabId.HasValue;
 
-            // Determine if this lab should wait for prior lab (non-microbiology labs wait for microbiology)
-            var isWaitingForPriorLab = isSharedSampleTask && labId != microbiologyLabId;
-
-            // Task should have WaitingSharedSample status ONLY if ALL indicators are shared samples
-            var taskShouldWait = isWaitingForPriorLab && !hasNonSharedSample;
+            // Lab Hóa can work in parallel with Lab Vi Sinh - no blocking
+            // PriorLabTaskId is still set for tracking sample transfer
 
             // Kiểm tra xem đã có LaboratoryTask cho TestRequest + Lab này chưa
             var existingTask = existingTasks.FirstOrDefault(t => t.LaboratoryId == labId);
@@ -1334,15 +1330,10 @@ public partial class TestRequestAppService :
                     firstIndicator.RequestDate
                 );
 
-                // Set shared sample flags
+                // Set shared sample flags - Lab Hóa không bị block, có thể làm song song
                 task.IsSharedSampleTask = isSharedSampleTask;
-                task.IsWaitingForPriorLab = taskShouldWait;
-
-                // Set initial status based on whether task should wait
-                if (taskShouldWait)
-                {
-                    task.Status = LaboratoryTaskStatus.WaitingSharedSample;
-                }
+                // IsWaitingForPriorLab = false - Lab Hóa làm song song với Vi Sinh
+                // Status không cần set WaitingSharedSample - mặc định là UnderEvaluation
 
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
@@ -1358,12 +1349,7 @@ public partial class TestRequestAppService :
                     indicator.SampleIndicatorId
                 );
 
-                // Set indicator-level waiting flag for shared sample indicators
-                // Only applies to non-microbiology labs when there's a microbiology lab involved
-                if (indicator.IsSharedSample && labId != microbiologyLabId && microbiologyLabId.HasValue)
-                {
-                    taskIndicator.IsWaitingForSharedSample = true;
-                }
+                // Lab Hóa làm song song - không cần set IsWaitingForSharedSample = true
 
                 // Copy TestMethodId and Unit from TestRequestSampleIndicator if available
                 if (indicator.TestMethodId.HasValue)
@@ -1390,13 +1376,14 @@ public partial class TestRequestAppService :
             }
         }
 
-        // Link PriorLabTaskId for non-microbiology tasks that are waiting
+        // Link PriorLabTaskId for non-microbiology tasks (for sample transfer tracking)
         if (microbiologyLabId.HasValue && createdTasks.ContainsKey(microbiologyLabId.Value))
         {
             var microbiologyTask = createdTasks[microbiologyLabId.Value];
             foreach (var (labId, task) in createdTasks)
             {
-                if (task.IsWaitingForPriorLab && labId != microbiologyLabId)
+                // Link all non-Vi Sinh shared sample tasks to Vi Sinh task for tracking
+                if (task.IsSharedSampleTask && labId != microbiologyLabId && !task.PriorLabTaskId.HasValue)
                 {
                     task.PriorLabTaskId = microbiologyTask.Id;
                     await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);

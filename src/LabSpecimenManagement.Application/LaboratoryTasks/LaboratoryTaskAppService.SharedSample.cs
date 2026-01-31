@@ -11,7 +11,7 @@ public partial class LaboratoryTaskAppService
 {
     /// <summary>
     /// QLKT Vi Sinh gửi mẫu chung cho Lab Hóa
-    /// Điều kiện: Task.Status = Approved, IsSharedSampleTask = true, SampleSentToNextLab = false
+    /// Điều kiện: IsSharedSampleTask = true, tất cả chỉ tiêu đã được duyệt (Approved), SampleSentToNextLab = false
     /// </summary>
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
     public async Task<LaboratoryTaskDto> SendSharedSampleAsync(Guid id, SendSharedSampleDto input)
@@ -22,11 +22,6 @@ public partial class LaboratoryTaskAppService
         if (!task.IsSharedSampleTask)
         {
             throw new InvalidOpException("Task này không phải là task của mẫu chung", "isSharedSampleTask");
-        }
-
-        if (task.Status != LaboratoryTaskStatus.Approved && task.Status != LaboratoryTaskStatus.SentToQuality)
-        {
-            throw new InvalidOpException("Chỉ có thể gửi mẫu khi task đã được duyệt (Approved) hoặc đã gửi QLCL (SentToQuality)", "status");
         }
 
         if (task.SampleSentToNextLab)
@@ -47,15 +42,20 @@ public partial class LaboratoryTaskAppService
             throw new InvalidOpException("Chỉ Lab Vi Sinh mới có thể gửi mẫu chung", "laboratory");
         }
 
+        // Check if all indicators are approved (QLKT đã duyệt hết)
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => ti.LaboratoryTaskId == task.Id);
+        var allApproved = taskIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+        if (!allApproved)
+        {
+            throw new InvalidOpException("Phải duyệt tất cả chỉ tiêu trước khi gửi mẫu chung", "indicatorsNotApproved");
+        }
+
         // Update task
         task.SampleSentToNextLab = true;
         task.SampleSentDate = Clock.Now;
 
         await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
-
-        // Find waiting tasks (Lab Hóa) that have PriorLabTaskId = this task
-        var waitingTasks = await _laboratoryTaskRepository.GetListAsync(
-            t => t.PriorLabTaskId == task.Id && t.IsWaitingForPriorLab);
 
         // Get sample code for notification
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
@@ -70,7 +70,8 @@ public partial class LaboratoryTaskAppService
 
     /// <summary>
     /// QLKT Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
-    /// Điều kiện: IsWaitingForPriorLab = true, PriorLab đã gửi mẫu
+    /// Chỉ để ghi nhận ngày nhận mẫu - Lab Hóa đã có thể làm việc song song
+    /// Điều kiện: IsSharedSampleTask = true, PriorLab đã gửi mẫu, chưa nhận mẫu
     /// </summary>
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
     public async Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input)
@@ -83,9 +84,10 @@ public partial class LaboratoryTaskAppService
             throw new InvalidOpException("Task này không phải là task của mẫu chung", "isSharedSampleTask");
         }
 
-        if (!task.IsWaitingForPriorLab)
+        // Check if already received
+        if (task.SampleReceivedDate.HasValue)
         {
-            throw new InvalidOpException("Task này không đang chờ nhận mẫu từ lab khác", "isWaitingForPriorLab");
+            throw new InvalidOpException("Mẫu đã được xác nhận nhận trước đó", "alreadyReceived");
         }
 
         // Check if prior lab has sent the sample
@@ -94,44 +96,17 @@ public partial class LaboratoryTaskAppService
             var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
             if (priorTask == null || !priorTask.SampleSentToNextLab)
             {
-                throw new InvalidOpException("Lab Vi Sinh chưa gửi mẫu. Vui lòng chờ Lab Vi Sinh hoàn thành và gửi mẫu.", "priorLabNotSent");
+                throw new InvalidOpException("Lab Vi Sinh chưa gửi mẫu. Vui lòng chờ Lab Vi Sinh gửi mẫu.", "priorLabNotSent");
             }
         }
 
-        // Update task
-        task.IsWaitingForPriorLab = false;
+        // Update task - chỉ ghi nhận ngày nhận mẫu
         task.SampleReceivedDate = input.ReceivedDate ?? Clock.Now;
         task.SampleReceivedNote = input.Note;
-        task.Status = LaboratoryTaskStatus.UnderEvaluation; // Now QLKT can evaluate
 
         await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
 
-        // Clear IsWaitingForSharedSample flag on all indicators of this task
-        // So that QLKT can now evaluate/assign these indicators
-        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
-            ti => ti.LaboratoryTaskId == task.Id && ti.IsWaitingForSharedSample);
-
-        foreach (var indicator in taskIndicators)
-        {
-            indicator.IsWaitingForSharedSample = false;
-            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator, autoSave: true);
-        }
-
         return await MapToDetailDtoAsync(task);
-    }
-
-    /// <summary>
-    /// Kiểm tra xem task có thể thực hiện action đánh giá hay không
-    /// Nếu IsWaitingForPriorLab = true, không cho phép thực hiện action
-    /// </summary>
-    private void ValidateSharedSampleAction(LaboratoryTask task, string actionName)
-    {
-        if (task.IsWaitingForPriorLab)
-        {
-            throw new InvalidOpException(
-                $"Không thể {actionName} khi đang chờ nhận mẫu từ Lab Vi Sinh. Vui lòng xác nhận nhận mẫu trước.",
-                "isWaitingForPriorLab");
-        }
     }
 
     /// <summary>
