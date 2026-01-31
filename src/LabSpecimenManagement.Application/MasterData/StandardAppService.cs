@@ -484,8 +484,44 @@ public class StandardAppService : ApplicationService, IStandardAppService
         entity.IsActive = !entity.IsActive;
         await _standardIndicatorRepository.UpdateAsync(entity);
 
-        // Get indicator and test method info for response
+        // Get indicator info to check if this is a parent indicator
         var indicator = await _indicatorRepository.FindAsync(entity.IndicatorId);
+
+        // If this is a parent indicator (has no parent), also toggle all its sub-indicators
+        if (indicator != null && indicator.ParentIndicatorId == null)
+        {
+            // Find all sub-indicators of this parent in the same standard and with the same method
+            var subIndicatorIds = await _indicatorRepository.GetQueryableAsync();
+            var subIndicators = await AsyncExecuter.ToListAsync(
+                subIndicatorIds.Where(i => i.ParentIndicatorId == entity.IndicatorId)
+            );
+
+            if (subIndicators.Any())
+            {
+                var subIndicatorIdList = subIndicators.Select(s => s.Id).ToList();
+
+                // Find StandardIndicator records for these sub-indicators
+                var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+                var subStandardIndicators = await AsyncExecuter.ToListAsync(
+                    standardIndicatorQuery.Where(si =>
+                        si.StandardId == standardId &&
+                        si.TestMethodId == entity.TestMethodId &&
+                        subIndicatorIdList.Contains(si.IndicatorId))
+                );
+
+                // Update all sub-indicators to the same active status as the parent
+                foreach (var subSi in subStandardIndicators)
+                {
+                    subSi.IsActive = entity.IsActive;
+                }
+
+                if (subStandardIndicators.Any())
+                {
+                    await _standardIndicatorRepository.UpdateManyAsync(subStandardIndicators);
+                }
+            }
+        }
+
         var testMethod = await _testMethodRepository.FindAsync(entity.TestMethodId);
 
         return new StandardIndicatorDto
