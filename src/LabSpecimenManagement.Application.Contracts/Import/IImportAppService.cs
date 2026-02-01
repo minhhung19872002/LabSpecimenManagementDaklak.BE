@@ -219,4 +219,30 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportSampleTypeCategoriesAsync(byte[] fileBytes);
 
     #endregion
+
+    #region SpecimenType Import
+
+    /// <summary>
+    /// Get template for importing SpecimenType
+    /// Template columns: Tên Danh mục loại, Nền mẫu, Tên chỉ tiêu
+    /// </summary>
+    byte[] GetSpecimenTypeTemplate();
+
+    /// <summary>
+    /// Preview SpecimenType import - validates data without saving
+    /// Upsert: match by (CategoryName + SpecimenTypeName) normalized
+    /// Auto-generate unique Code for new SpecimenTypes
+    /// </summary>
+    [DisableValidation]
+    Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import SpecimenTypes from Excel file
+    /// Upsert logic: match by (CategoryName + SpecimenTypeName) normalized
+    /// Auto-generate unique Code for new SpecimenTypes
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportSpecimenTypesAsync(byte[] fileBytes);
+
+    #endregion
 }

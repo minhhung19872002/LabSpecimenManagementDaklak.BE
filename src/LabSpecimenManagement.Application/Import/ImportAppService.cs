@@ -37,6 +37,8 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<Organization, Guid> _organizationRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -57,6 +59,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<Organization, Guid> organizationRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -76,6 +80,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         _organizationRepository = organizationRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
+        _specimenTypeRepository = specimenTypeRepository;
+        _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -4028,6 +4034,448 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // Column 3: Lỗi
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    #endregion
+
+    #region SpecimenType Import
+
+    public byte[] GetSpecimenTypeTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Nen Mau.xlsx");
+
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException("Template file not found: Nen Mau.xlsx");
+        }
+
+        return File.ReadAllBytes(templatePath);
+    }
+
+    public async Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewSpecimenTypesInternalAsync(memoryStream);
+    }
+
+    private async Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadSpecimenTypeExcelRows(memoryStream);
+
+        if (rows.Count == 0)
+        {
+            return new SpecimenTypeImportPreviewDto
+            {
+                ValidationResult = new ImportValidationResult { TotalRows = 0 }
+            };
+        }
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var existingCategories = await _sampleTypeCategoryRepository.GetListAsync();
+            var categoryDict = existingCategories
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var existingIndicators = await _indicatorRepository.GetListAsync();
+            var indicatorDict = existingIndicators
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var existingSpecimenTypes = await _specimenTypeRepository.GetListAsync();
+            // Lookup by Name only (not CategoryId + Name) to avoid duplicates
+            // when existing specimen type has different/null category
+            var specimenTypeDict = existingSpecimenTypes
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // Get max existing code number for auto-generation
+            var maxCodeNumber = existingSpecimenTypes
+                .Where(x => x.Code.StartsWith("NM"))
+                .Select(x =>
+                {
+                    var numPart = x.Code.Substring(2);
+                    return int.TryParse(numPart, out var num) ? num : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+
+            var result = new SpecimenTypeImportPreviewDto();
+            var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+            // Group rows by (CategoryName, SpecimenTypeName)
+            var groupedRows = rows
+                .Select((row, index) => new { Row = row, Index = index, RowNumber = index + 2 })
+                .GroupBy(x => (
+                    CategoryKey: StringHelper.NormalizeAndTrim(x.Row.CategoryName).ToLowerInvariant(),
+                    SpecimenTypeKey: StringHelper.NormalizeAndTrim(x.Row.SpecimenTypeName).ToLowerInvariant()
+                ))
+                .ToList();
+
+            var codeCounter = maxCodeNumber;
+
+            foreach (var group in groupedRows)
+            {
+                var firstRow = group.First();
+                var categoryKey = group.Key.CategoryKey;
+                var specimenTypeKey = group.Key.SpecimenTypeKey;
+
+                var previewGroup = new SpecimenTypeImportPreviewGroup
+                {
+                    CategoryName = firstRow.Row.CategoryName?.Trim() ?? "",
+                    SpecimenTypeName = firstRow.Row.SpecimenTypeName?.Trim() ?? "",
+                    IsValid = true
+                };
+
+                // Validate category
+                if (string.IsNullOrWhiteSpace(firstRow.Row.CategoryName))
+                {
+                    previewGroup.IsValid = false;
+                    var error = "Tên danh mục loại không được để trống";
+                    previewGroup.Errors.Add(error);
+                    foreach (var item in group)
+                    {
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = item.RowNumber,
+                            ColumnName = "Tên Danh mục loại",
+                            ErrorMessage = error
+                        });
+                        AddRowError(rowErrors, item.RowNumber, error);
+                    }
+                }
+                else if (!categoryDict.TryGetValue(categoryKey, out var category))
+                {
+                    previewGroup.IsValid = false;
+                    var error = $"Không tìm thấy danh mục loại: {firstRow.Row.CategoryName}";
+                    previewGroup.Errors.Add(error);
+                    foreach (var item in group)
+                    {
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = item.RowNumber,
+                            ColumnName = "Tên Danh mục loại",
+                            ErrorMessage = error,
+                            Value = firstRow.Row.CategoryName
+                        });
+                        AddRowError(rowErrors, item.RowNumber, error);
+                    }
+                }
+                else
+                {
+                    previewGroup.CategoryId = category.Id;
+                }
+
+                // Validate specimen type name
+                if (string.IsNullOrWhiteSpace(firstRow.Row.SpecimenTypeName))
+                {
+                    previewGroup.IsValid = false;
+                    var error = "Nền mẫu không được để trống";
+                    previewGroup.Errors.Add(error);
+                    foreach (var item in group)
+                    {
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = item.RowNumber,
+                            ColumnName = "Nền mẫu",
+                            ErrorMessage = error
+                        });
+                        AddRowError(rowErrors, item.RowNumber, error);
+                    }
+                }
+
+                // Check if specimen type exists (for upsert logic) - match by Name only
+                if (!string.IsNullOrWhiteSpace(specimenTypeKey))
+                {
+                    if (specimenTypeDict.TryGetValue(specimenTypeKey, out var existingSpecimenType))
+                    {
+                        previewGroup.IsNew = false;
+                        previewGroup.ExistingId = existingSpecimenType.Id;
+                        previewGroup.GeneratedCode = existingSpecimenType.Code;
+                    }
+                    else
+                    {
+                        previewGroup.IsNew = true;
+                        codeCounter++;
+                        previewGroup.GeneratedCode = $"NM{codeCounter:D4}";
+                    }
+                }
+
+                // Validate indicators (indicator name can be empty - just create specimen type without indicator)
+                foreach (var item in group)
+                {
+                    var indicatorItem = new SpecimenTypeIndicatorImportItem
+                    {
+                        RowNumber = item.RowNumber,
+                        IndicatorName = item.Row.IndicatorName?.Trim() ?? "",
+                        IsValid = true
+                    };
+
+                    // Empty indicator name is allowed - just skip adding indicator
+                    if (!string.IsNullOrWhiteSpace(item.Row.IndicatorName))
+                    {
+                        var indicatorKey = StringHelper.NormalizeAndTrim(item.Row.IndicatorName).ToLowerInvariant();
+                        if (!indicatorDict.TryGetValue(indicatorKey, out var indicator))
+                        {
+                            indicatorItem.IsValid = false;
+                            indicatorItem.ErrorMessage = $"Không tìm thấy chỉ tiêu: {item.Row.IndicatorName}";
+                            previewGroup.IsValid = false;
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = item.RowNumber,
+                                ColumnName = "Tên chỉ tiêu",
+                                ErrorMessage = indicatorItem.ErrorMessage,
+                                Value = item.Row.IndicatorName
+                            });
+                            AddRowError(rowErrors, item.RowNumber, indicatorItem.ErrorMessage);
+                        }
+                        else
+                        {
+                            indicatorItem.IndicatorId = indicator.Id;
+                        }
+                    }
+
+                    previewGroup.Indicators.Add(indicatorItem);
+                }
+
+                // Count valid rows
+                if (previewGroup.IsValid)
+                {
+                    validationResult.ValidRows += group.Count();
+                }
+
+                result.Groups.Add(previewGroup);
+            }
+
+            result.ValidationResult = validationResult;
+            result.TotalSpecimenTypes = result.Groups.Count;
+            result.NewSpecimenTypes = result.Groups.Count(g => g.IsNew && g.IsValid);
+            result.UpdateSpecimenTypes = result.Groups.Count(g => !g.IsNew && g.IsValid);
+            result.TotalIndicators = result.Groups.Sum(g => g.Indicators.Count(i => i.IndicatorId.HasValue));
+
+            // Generate error file if there are errors
+            if (!validationResult.IsValid)
+            {
+                memoryStream.Position = 0;
+                var errorFileBytes = GenerateSpecimenTypeErrorFile(memoryStream, rowErrors);
+                result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+                result.ErrorFileName = "Nen_Mau_Loi.xlsx";
+            }
+
+            return result;
+        }
+    }
+
+    private List<SpecimenTypeImportRow> ReadSpecimenTypeExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<SpecimenTypeImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        // Start from row 2 (skip header)
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty()) continue;
+
+            var categoryName = row.Cell(1).GetString()?.Trim();
+            var specimenTypeName = row.Cell(2).GetString()?.Trim();
+            var indicatorName = row.Cell(3).GetString()?.Trim();
+
+            // Skip if all cells are empty
+            if (string.IsNullOrWhiteSpace(categoryName) &&
+                string.IsNullOrWhiteSpace(specimenTypeName) &&
+                string.IsNullOrWhiteSpace(indicatorName))
+                continue;
+
+            rows.Add(new SpecimenTypeImportRow
+            {
+                CategoryName = categoryName ?? "",
+                SpecimenTypeName = specimenTypeName ?? "",
+                IndicatorName = indicatorName ?? ""
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportSpecimenTypesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewSpecimenTypesInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newSpecimenCount = 0;
+        var updatedSpecimenCount = 0;
+        var newIndicatorCount = 0;
+
+        try
+        {
+            // Get existing specimen type indicators for duplicate check
+            var existingIndicatorLinks = await _specimenTypeIndicatorRepository.GetListAsync();
+            var indicatorLinkSet = existingIndicatorLinks
+                .Select(x => (x.SpecimenTypeId, x.IndicatorId))
+                .ToHashSet();
+
+            var validGroups = preview.Groups.Where(g => g.IsValid).ToList();
+
+            foreach (var group in validGroups)
+            {
+                SpecimenType specimenType;
+
+                if (group.IsNew)
+                {
+                    // Create new specimen type
+                    specimenType = new SpecimenType(
+                        _guidGenerator.Create(),
+                        group.GeneratedCode!,
+                        StringHelper.Normalize(group.SpecimenTypeName)
+                    )
+                    {
+                        SampleTypeCategoryId = group.CategoryId
+                    };
+                    await _specimenTypeRepository.InsertAsync(specimenType);
+                    newSpecimenCount++;
+                }
+                else
+                {
+                    // Update existing specimen type
+                    specimenType = await _specimenTypeRepository.GetAsync(group.ExistingId!.Value);
+                    specimenType.Name = StringHelper.Normalize(group.SpecimenTypeName);
+                    specimenType.SampleTypeCategoryId = group.CategoryId;
+                    await _specimenTypeRepository.UpdateAsync(specimenType);
+                    updatedSpecimenCount++;
+                }
+
+                // Add indicators
+                foreach (var indicatorItem in group.Indicators.Where(i => i.IsValid && i.IndicatorId.HasValue))
+                {
+                    var linkKey = (specimenType.Id, indicatorItem.IndicatorId!.Value);
+
+                    // Skip if already exists
+                    if (indicatorLinkSet.Contains(linkKey))
+                        continue;
+
+                    var specimenTypeIndicator = new SpecimenTypeIndicator(
+                        _guidGenerator.Create(),
+                        specimenType.Id,
+                        indicatorItem.IndicatorId!.Value
+                    );
+                    await _specimenTypeIndicatorRepository.InsertAsync(specimenTypeIndicator);
+                    indicatorLinkSet.Add(linkKey);
+                    newIndicatorCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newSpecimenCount + updatedSpecimenCount,
+                Message = $"Import thành công! Đã tạo mới {newSpecimenCount} loại mẫu, cập nhật {updatedSpecimenCount} loại mẫu, thêm {newIndicatorCount} chỉ tiêu."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateSpecimenTypeErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        originalStream.Position = 0;
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        // Add error column header
+        var headerRow = worksheet.Row(1);
+        var errorColumnIndex = 4; // Column D for errors
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Fill.BackgroundColor = XLColor.Yellow;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int excelRowNumber = 2; excelRowNumber <= lastRowUsed; excelRowNumber++)
+        {
+            var dataRowNumber = excelRowNumber;
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            // Highlight error cells
+            var errorColumnsForRow = new HashSet<string>();
+            if (hasError)
+            {
+                foreach (var errorMsg in rowErrors[dataRowNumber])
+                {
+                    if (errorMsg.Contains("danh mục loại"))
+                        errorColumnsForRow.Add("CategoryName");
+                    if (errorMsg.Contains("Nền mẫu"))
+                        errorColumnsForRow.Add("SpecimenTypeName");
+                    if (errorMsg.Contains("chỉ tiêu"))
+                        errorColumnsForRow.Add("IndicatorName");
+                }
+            }
+
+            var row = worksheet.Row(excelRowNumber);
+
+            // Column 1: Tên Danh mục loại
+            if (errorColumnsForRow.Contains("CategoryName"))
+            {
+                ApplyErrorStyle(row.Cell(1));
+            }
+
+            // Column 2: Nền mẫu
+            if (errorColumnsForRow.Contains("SpecimenTypeName"))
+            {
+                ApplyErrorStyle(row.Cell(2));
+            }
+
+            // Column 3: Tên chỉ tiêu
+            if (errorColumnsForRow.Contains("IndicatorName"))
+            {
+                ApplyErrorStyle(row.Cell(3));
+            }
+
+            // Column 4: Lỗi
             if (hasError)
             {
                 var errorCell = row.Cell(errorColumnIndex);
