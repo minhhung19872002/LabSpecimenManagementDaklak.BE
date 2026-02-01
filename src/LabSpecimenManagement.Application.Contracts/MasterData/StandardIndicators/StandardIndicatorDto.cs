@@ -11,6 +11,9 @@ public class StandardIndicatorDto
     public string IndicatorName { get; set; }
     public string? IndicatorFormattedName { get; set; }
     public Guid? ParentIndicatorId { get; set; }
+    public Guid? SpecimenTypeId { get; set; }
+    public string? SpecimenTypeCode { get; set; }
+    public string? SpecimenTypeName { get; set; }
     public Guid TestMethodId { get; set; }
     public string TestMethodCode { get; set; }
     public string TestMethodName { get; set; }

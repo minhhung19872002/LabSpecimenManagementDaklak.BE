@@ -516,35 +516,59 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         }
     }
 
-    public async Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<Guid> indicatorIds)
+    public async Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<IndicatorKeyDto> indicatorKeys)
     {
-        if (indicatorIds == null || indicatorIds.Count == 0)
+        if (indicatorKeys == null || indicatorKeys.Count == 0)
         {
             return 0;
         }
 
+        // Extract indicator IDs for finding sub-indicators
+        var parentIndicatorIds = indicatorKeys.Select(k => k.IndicatorId).Distinct().ToList();
+
         // Find all sub-indicators of the parent indicators being removed
-        // so we can also remove them from this test method
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var subIndicatorIds = indicatorQuery
-            .Where(ind => ind.ParentIndicatorId.HasValue && indicatorIds.Contains(ind.ParentIndicatorId.Value))
+            .Where(ind => ind.ParentIndicatorId.HasValue && parentIndicatorIds.Contains(ind.ParentIndicatorId.Value))
             .Select(ind => ind.Id)
             .ToList();
 
-        // Combine parent indicator IDs with their sub-indicator IDs
-        var allIndicatorIdsToRemove = indicatorIds.Concat(subIndicatorIds).Distinct().ToList();
-
         var query = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var entities = query
-            .Where(tmi => tmi.TestMethodId == testMethodId && allIndicatorIdsToRemove.Contains(tmi.IndicatorId))
+
+        // Build a set of keys for efficient lookup (IndicatorId, SpecimenTypeId)
+        var keysToRemove = indicatorKeys
+            .Select(k => (k.IndicatorId, k.SpecimenTypeId))
+            .ToHashSet();
+
+        // Also add sub-indicator keys with the same specimen types as their parents
+        foreach (var key in indicatorKeys)
+        {
+            foreach (var subId in subIndicatorIds)
+            {
+                // Check if this sub-indicator belongs to the current parent
+                var parent = indicatorQuery.FirstOrDefault(i => i.Id == subId && i.ParentIndicatorId == key.IndicatorId);
+                if (parent != null)
+                {
+                    keysToRemove.Add((subId, key.SpecimenTypeId));
+                }
+            }
+        }
+
+        // Find all matching TestMethodIndicator entities
+        var allEntities = query
+            .Where(tmi => tmi.TestMethodId == testMethodId)
             .ToList();
 
-        if (entities.Count == 0)
+        var entitiesToDelete = allEntities
+            .Where(tmi => keysToRemove.Contains((tmi.IndicatorId, tmi.SpecimenTypeId)))
+            .ToList();
+
+        if (entitiesToDelete.Count == 0)
         {
             return 0;
         }
 
-        await _testMethodIndicatorRepository.DeleteManyAsync(entities);
-        return entities.Count;
+        await _testMethodIndicatorRepository.DeleteManyAsync(entitiesToDelete);
+        return entitiesToDelete.Count;
     }
 }

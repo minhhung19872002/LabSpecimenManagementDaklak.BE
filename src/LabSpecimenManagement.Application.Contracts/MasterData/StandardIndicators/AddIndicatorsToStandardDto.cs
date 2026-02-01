@@ -15,6 +15,12 @@ public class StandardIndicatorItemDto
     [Required]
     public Guid IndicatorId { get; set; }
 
+    /// <summary>
+    /// ID Nền mẫu (Loại mẫu) - bắt buộc chọn
+    /// </summary>
+    [Required]
+    public Guid SpecimenTypeId { get; set; }
+
     [Required]
     public Guid TestMethodId { get; set; }
 

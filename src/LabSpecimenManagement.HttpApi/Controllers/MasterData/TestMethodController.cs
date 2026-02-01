@@ -109,11 +109,12 @@ public class TestMethodController : LabSpecimenManagementController
 
     /// <summary>
     /// Xóa hàng loạt chỉ tiêu khỏi phương pháp thử
+    /// Uses composite key (IndicatorId + SpecimenTypeId) to identify records
     /// </summary>
     [HttpPost("{id}/indicators/batch-remove")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
-    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIdsDto input)
+    public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIndicatorKeysDto input)
     {
-        return _testMethodAppService.RemoveIndicatorsBatchAsync(id, input.Ids);
+        return _testMethodAppService.RemoveIndicatorsBatchAsync(id, input.Keys);
     }
 }

@@ -627,7 +627,8 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.StandardId);
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.TestMethodId);
-            b.HasIndex(x => new { x.StandardId, x.IndicatorId, x.TestMethodId }).IsUnique();
+            b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => new { x.StandardId, x.IndicatorId, x.TestMethodId, x.SpecimenTypeId }).IsUnique();
         });
 
         // TestRequestIndicator configuration (Junction Table)

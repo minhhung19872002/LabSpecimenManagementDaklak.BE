@@ -1526,6 +1526,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("StandardId")
                         .HasColumnType("uuid");
 
@@ -1549,11 +1552,13 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("IndicatorId");
 
+                    b.HasIndex("SpecimenTypeId");
+
                     b.HasIndex("StandardId");
 
                     b.HasIndex("TestMethodId");
 
-                    b.HasIndex("StandardId", "IndicatorId", "TestMethodId")
+                    b.HasIndex("StandardId", "IndicatorId", "TestMethodId", "SpecimenTypeId")
                         .IsUnique();
 
                     b.ToTable("AppStandardIndicators", (string)null);

@@ -28,6 +28,6 @@ public interface ITestMethodAppService : IApplicationService
     // Toggle active status
     Task<TestMethodDto> ToggleActiveAsync(Guid id);
 
-    // Batch remove indicators
-    Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<Guid> indicatorIds);
+    // Batch remove indicators - uses composite key (IndicatorId + SpecimenTypeId)
+    Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<IndicatorKeyDto> indicatorKeys);
 }
