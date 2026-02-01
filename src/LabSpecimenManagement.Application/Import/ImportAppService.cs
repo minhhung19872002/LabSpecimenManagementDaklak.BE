@@ -2115,12 +2115,65 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 // Add indicators from import
                 var sortOrder = 0;
-                foreach (var item in group.Indicators.Where(i => i.IsValid && i.IndicatorId.HasValue && i.TestMethodId.HasValue))
+                var validItems = group.Indicators
+                    .Where(i => i.IsValid && i.IndicatorId.HasValue && i.TestMethodId.HasValue)
+                    .ToList();
+
+                // Step 1: Create parent indicators for items that have sub-indicators
+                // Collect unique parent keys (IndicatorId + TestMethodId + SpecimenTypeId)
+                var parentKeys = new HashSet<string>();
+                foreach (var item in validItems.Where(i => i.SubIndicatorId.HasValue))
+                {
+                    var parentKey = $"{item.IndicatorId}|{item.TestMethodId}|{item.SpecimenTypeId}";
+                    if (parentKeys.Add(parentKey))
+                    {
+                        // Create parent indicator record (no limits, just placeholder for grouping)
+                        var parentIndicator = new StandardIndicator(
+                            _guidGenerator.Create(),
+                            standard.Id,
+                            item.IndicatorId!.Value,  // Parent indicator ID
+                            item.TestMethodId!.Value,
+                            item.Unit
+                        )
+                        {
+                            SpecimenTypeId = item.SpecimenTypeId,
+                            ComparisonOperator = null,
+                            AllowedLimit = null,
+                            LowerOperator = null,
+                            LowerLimit = null,
+                            UpperOperator = null,
+                            UpperLimit = null,
+                            IsActive = true,
+                            SortOrder = sortOrder++
+                        };
+                        await _standardIndicatorRepository.InsertAsync(parentIndicator);
+                    }
+                }
+
+                // Step 2: Create indicator records
+                foreach (var item in validItems)
                 {
                     var isRange = item.ComparisonOperator?.Equals("Khoảng", StringComparison.OrdinalIgnoreCase) == true;
 
                     // If SubIndicator is provided, save SubIndicatorId; otherwise save IndicatorId
                     var indicatorIdToSave = item.SubIndicatorId ?? item.IndicatorId!.Value;
+
+                    // Skip if this is a parent indicator that was already created above
+                    if (!item.SubIndicatorId.HasValue)
+                    {
+                        // Check if this indicator is a parent that has sub-indicators in this group
+                        var hasSubInGroup = validItems.Any(i =>
+                            i.SubIndicatorId.HasValue &&
+                            i.IndicatorId == item.IndicatorId &&
+                            i.TestMethodId == item.TestMethodId &&
+                            i.SpecimenTypeId == item.SpecimenTypeId);
+
+                        if (hasSubInGroup)
+                        {
+                            // Skip - parent was already created in Step 1
+                            continue;
+                        }
+                    }
 
                     var standardIndicator = new StandardIndicator(
                         _guidGenerator.Create(),

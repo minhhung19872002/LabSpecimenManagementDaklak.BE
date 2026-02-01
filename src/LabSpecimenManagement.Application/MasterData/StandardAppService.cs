@@ -495,16 +495,23 @@ public class StandardAppService : ApplicationService, IStandardAppService
         );
 
         // Find all StandardIndicators in this standard that are sub-indicators of the parent
-        // Match by both IndicatorId and SpecimenTypeId
+        // Match by IndicatorId, TestMethodId, and SpecimenTypeId (handle null correctly)
         var entitiesToDelete = new List<StandardIndicator> { entity };
 
         if (subIndicatorIds.Any())
         {
+            // Get fresh query to avoid any tracking issues
+            var freshQuery = await _standardIndicatorRepository.GetQueryableAsync();
+            var parentSpecimenTypeId = entity.SpecimenTypeId;
+            var parentTestMethodId = entity.TestMethodId;
+
             var subStandardIndicators = await AsyncExecuter.ToListAsync(
-                query.Where(si =>
+                freshQuery.Where(si =>
                     si.StandardId == standardId &&
                     subIndicatorIds.Contains(si.IndicatorId) &&
-                    si.SpecimenTypeId == entity.SpecimenTypeId)
+                    si.TestMethodId == parentTestMethodId &&
+                    ((si.SpecimenTypeId == null && parentSpecimenTypeId == null) ||
+                     (si.SpecimenTypeId != null && parentSpecimenTypeId != null && si.SpecimenTypeId == parentSpecimenTypeId)))
             );
             entitiesToDelete.AddRange(subStandardIndicators);
         }
@@ -535,24 +542,27 @@ public class StandardAppService : ApplicationService, IStandardAppService
         if (indicator != null && indicator.ParentIndicatorId == null)
         {
             // Find all sub-indicators of this parent in the same standard and with the same method
-            var subIndicatorIds = await _indicatorRepository.GetQueryableAsync();
+            var subIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
             var subIndicators = await AsyncExecuter.ToListAsync(
-                subIndicatorIds.Where(i => i.ParentIndicatorId == entity.IndicatorId)
+                subIndicatorQuery.Where(i => i.ParentIndicatorId == entity.IndicatorId)
             );
 
             if (subIndicators.Any())
             {
                 var subIndicatorIdList = subIndicators.Select(s => s.Id).ToList();
+                var parentSpecimenTypeId = entity.SpecimenTypeId;
+                var parentTestMethodId = entity.TestMethodId;
 
                 // Find StandardIndicator records for these sub-indicators
-                // Match by TestMethodId and SpecimenTypeId
+                // Match by TestMethodId and SpecimenTypeId (handle null correctly)
                 var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
                 var subStandardIndicators = await AsyncExecuter.ToListAsync(
                     standardIndicatorQuery.Where(si =>
                         si.StandardId == standardId &&
-                        si.TestMethodId == entity.TestMethodId &&
-                        si.SpecimenTypeId == entity.SpecimenTypeId &&
-                        subIndicatorIdList.Contains(si.IndicatorId))
+                        si.TestMethodId == parentTestMethodId &&
+                        subIndicatorIdList.Contains(si.IndicatorId) &&
+                        ((si.SpecimenTypeId == null && parentSpecimenTypeId == null) ||
+                         (si.SpecimenTypeId != null && parentSpecimenTypeId != null && si.SpecimenTypeId == parentSpecimenTypeId)))
                 );
 
                 // Update all sub-indicators to the same active status as the parent
