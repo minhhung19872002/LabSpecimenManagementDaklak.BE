@@ -473,7 +473,10 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.TestMethodId);
             b.HasIndex(x => x.IndicatorId);
-            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId }).IsUnique();
+            b.HasIndex(x => x.SpecimenTypeId);
+            // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId
+            // Allows same indicator multiple times with different specimen types
+            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
         });
 
         // StorageLocation configuration

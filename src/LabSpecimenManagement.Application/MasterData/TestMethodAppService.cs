@@ -20,17 +20,20 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IDataFilter _dataFilter;
 
     public TestMethodAppService(
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
         IDataFilter dataFilter)
     {
         _testMethodRepository = testMethodRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _indicatorRepository = indicatorRepository;
+        _specimenTypeRepository = specimenTypeRepository;
         _dataFilter = dataFilter;
     }
 
@@ -150,6 +153,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var testMethods = await _testMethodRepository.GetListAsync();
         var testMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
         var indicators = await _indicatorRepository.GetListAsync();
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id);
 
         var result = testMethods
             .OrderBy(x => x.SortOrder)
@@ -168,6 +173,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 foreach (var tmi in parentIndicators)
                 {
                     var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+                    var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
 
                     // Add parent indicator
                     tmIndicatorList.Add(new TestMethodIndicatorDto
@@ -181,7 +187,10 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                         UnitPrice = tmi.UnitPrice,
                         IsActive = indicator?.IsActive ?? false,
                         SortOrder = tmi.SortOrder,
-                        ParentIndicatorId = indicator?.ParentIndicatorId
+                        ParentIndicatorId = indicator?.ParentIndicatorId,
+                        SpecimenTypeId = tmi.SpecimenTypeId,
+                        SpecimenTypeCode = specimenType?.Code,
+                        SpecimenTypeName = specimenType?.Name
                     });
 
                     // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
@@ -203,7 +212,11 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                             UnitPrice = 0, // Sub-indicator theo giá cha, không có giá riêng
                             IsActive = subInd.IsActive,
                             SortOrder = tmi.SortOrder, // Giữ sortOrder của parent để group đúng
-                            ParentIndicatorId = subInd.ParentIndicatorId
+                            ParentIndicatorId = subInd.ParentIndicatorId,
+                            // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
+                            SpecimenTypeId = tmi.SpecimenTypeId,
+                            SpecimenTypeCode = specimenType?.Code,
+                            SpecimenTypeName = specimenType?.Name
                         });
                     }
                 }
@@ -233,11 +246,16 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         // Get all indicators including potential sub-indicators
         var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
 
+        // Get specimen types for enrichment
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id);
+
         var tmIndicatorList = new List<TestMethodIndicatorDto>();
 
         foreach (var tmi in tmIndicators)
         {
             var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+            var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
 
             // Add parent indicator
             tmIndicatorList.Add(new TestMethodIndicatorDto
@@ -251,7 +269,10 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder,
-                ParentIndicatorId = indicator?.ParentIndicatorId
+                ParentIndicatorId = indicator?.ParentIndicatorId,
+                SpecimenTypeId = tmi.SpecimenTypeId,
+                SpecimenTypeCode = specimenType?.Code,
+                SpecimenTypeName = specimenType?.Name
             });
 
             // Add sub-indicators of this parent
@@ -273,7 +294,11 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     UnitPrice = 0,
                     IsActive = subInd.IsActive,
                     SortOrder = tmi.SortOrder,
-                    ParentIndicatorId = subInd.ParentIndicatorId
+                    ParentIndicatorId = subInd.ParentIndicatorId,
+                    // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
+                    SpecimenTypeId = tmi.SpecimenTypeId,
+                    SpecimenTypeCode = specimenType?.Code,
+                    SpecimenTypeName = specimenType?.Name
                 });
             }
         }
@@ -296,11 +321,16 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         // Get all indicators including potential sub-indicators
         var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
 
+        // Get specimen types for enrichment
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id);
+
         var result = new List<TestMethodIndicatorDto>();
 
         foreach (var tmi in tmIndicators)
         {
             var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+            var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
 
             // Add parent indicator
             result.Add(new TestMethodIndicatorDto
@@ -314,7 +344,10 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 UnitPrice = tmi.UnitPrice,
                 IsActive = indicator?.IsActive ?? false,
                 SortOrder = tmi.SortOrder,
-                ParentIndicatorId = indicator?.ParentIndicatorId
+                ParentIndicatorId = indicator?.ParentIndicatorId,
+                SpecimenTypeId = tmi.SpecimenTypeId,
+                SpecimenTypeCode = specimenType?.Code,
+                SpecimenTypeName = specimenType?.Name
             });
 
             // Add sub-indicators of this parent
@@ -336,7 +369,11 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     UnitPrice = 0,
                     IsActive = subInd.IsActive,
                     SortOrder = tmi.SortOrder,
-                    ParentIndicatorId = subInd.ParentIndicatorId
+                    ParentIndicatorId = subInd.ParentIndicatorId,
+                    // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
+                    SpecimenTypeId = tmi.SpecimenTypeId,
+                    SpecimenTypeCode = specimenType?.Code,
+                    SpecimenTypeName = specimenType?.Name
                 });
             }
         }
@@ -350,9 +387,13 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var testMethod = await _testMethodRepository.GetAsync(testMethodId);
 
         var existingQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var existingIndicatorIds = existingQuery
+
+        // Check duplicate by (IndicatorId, SpecimenTypeId) - same indicator can be added multiple times with different specimen types
+        var existingKeys = existingQuery
             .Where(tmi => tmi.TestMethodId == testMethodId)
-            .Select(tmi => tmi.IndicatorId)
+            .Select(tmi => new { tmi.IndicatorId, tmi.SpecimenTypeId })
+            .ToList()
+            .Select(x => (x.IndicatorId, x.SpecimenTypeId))
             .ToHashSet();
 
         var existingSortOrders = await AsyncExecuter.ToListAsync(
@@ -367,8 +408,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         foreach (var item in input.Indicators)
         {
-            // Skip if already exists
-            if (existingIndicatorIds.Contains(item.IndicatorId))
+            // Skip if already exists (same indicator + same specimen type)
+            var key = (item.IndicatorId, item.SpecimenTypeId);
+            if (existingKeys.Contains(key))
             {
                 continue;
             }
@@ -378,14 +420,15 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 GuidGenerator.Create(),
                 testMethodId,
                 item.IndicatorId,
-                item.UnitPrice
+                item.UnitPrice,
+                item.SpecimenTypeId
             )
             {
                 SortOrder = sortOrder
             };
 
             newItems.Add(entity);
-            existingIndicatorIds.Add(item.IndicatorId);
+            existingKeys.Add(key);
         }
 
         if (newItems.Any())
