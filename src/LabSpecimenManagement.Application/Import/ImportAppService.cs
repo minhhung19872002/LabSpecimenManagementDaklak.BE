@@ -39,6 +39,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -61,6 +62,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -82,6 +84,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
+        _laboratoryRepository = laboratoryRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -3040,9 +3043,16 @@ public class ImportAppService : ApplicationService, IImportAppService
             .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
+        // Load laboratories with department names for lookup
+        // IndicatorGroup.LaboratoryId needs Laboratory.Id, not Department.Id
+        var laboratories = await _laboratoryRepository.GetListAsync();
         var departments = await _departmentRepository.GetListAsync();
-        var departmentDict = departments
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+        var departmentNameById = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        // Create lookup: Department Name (normalized) -> Laboratory
+        var laboratoryByDeptName = laboratories
+            .Where(lab => departmentNameById.ContainsKey(lab.DepartmentId))
+            .GroupBy(lab => StringHelper.NormalizeAndTrim(departmentNameById[lab.DepartmentId]).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         var result = new IndicatorGroupImportPreviewDto();
@@ -3052,6 +3062,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         var updateGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var newIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var updateIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newSubIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateSubIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int i = 0; i < rows.Count; i++)
         {
@@ -3065,6 +3077,9 @@ public class ImportAppService : ApplicationService, IImportAppService
                 DepartmentName = row.DepartmentName?.Trim(),
                 IndicatorName = row.IndicatorName?.Trim() ?? "",
                 FormattedIndicatorName = row.FormattedIndicatorName,
+                SubIndicatorName = row.SubIndicatorName?.Trim(),
+                FormattedSubIndicatorName = row.FormattedSubIndicatorName,
+                HasSubIndicator = !string.IsNullOrWhiteSpace(row.SubIndicatorName),
                 IsValid = true
             };
 
@@ -3116,13 +3131,14 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Check if Department exists (if provided)
+            // Check if Laboratory exists by Department name (if provided)
+            // IndicatorGroup.LaboratoryId needs Laboratory.Id (not Department.Id)
             if (!string.IsNullOrWhiteSpace(row.DepartmentName))
             {
                 var deptKey = StringHelper.NormalizeAndTrim(row.DepartmentName).ToLowerInvariant();
-                if (departmentDict.TryGetValue(deptKey, out var existingDept))
+                if (laboratoryByDeptName.TryGetValue(deptKey, out var existingLab))
                 {
-                    item.DepartmentId = existingDept.Id;
+                    item.DepartmentId = existingLab.Id; // This is actually Laboratory.Id
                     item.IsDepartmentInvalid = false;
                 }
                 else
@@ -3159,6 +3175,23 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
+            // Check if Sub-Indicator exists (if provided)
+            if (!string.IsNullOrWhiteSpace(row.SubIndicatorName))
+            {
+                var subIndicatorKey = StringHelper.NormalizeAndTrim(row.SubIndicatorName).ToLowerInvariant();
+                if (indicatorDict.TryGetValue(subIndicatorKey, out var existingSubIndicator))
+                {
+                    item.IsNewSubIndicator = false;
+                    item.ExistingSubIndicatorId = existingSubIndicator.Id;
+                    updateSubIndicatorNames.Add(subIndicatorKey);
+                }
+                else
+                {
+                    item.IsNewSubIndicator = true;
+                    newSubIndicatorNames.Add(subIndicatorKey);
+                }
+            }
+
             // Set combined error message
             if (rowErrorMessages.Count > 0)
             {
@@ -3177,6 +3210,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.UpdateIndicatorGroups = updateGroupNames.Count;
         result.NewIndicators = newIndicatorNames.Count;
         result.UpdateIndicators = updateIndicatorNames.Count;
+        result.NewSubIndicators = newSubIndicatorNames.Count;
+        result.UpdateSubIndicators = updateSubIndicatorNames.Count;
 
         // Generate error file if there are errors
         if (!validationResult.IsValid && rowErrors.Count > 0)
@@ -3211,6 +3246,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         var updatedGroupCount = 0;
         var newIndicatorCount = 0;
         var updatedIndicatorCount = 0;
+        var newSubIndicatorCount = 0;
+        var updatedSubIndicatorCount = 0;
 
         // Track processed entities to avoid duplicate operations in same batch
         var processedGroups = new Dictionary<string, IndicatorGroup>(StringComparer.OrdinalIgnoreCase);
@@ -3300,6 +3337,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
 
                 // Indicator upsert
+                Indicator parentIndicator;
                 if (processedIndicators.TryGetValue(indicatorKey, out var existingIndicator))
                 {
                     // Update existing indicator - assign to group and update FormattedName if provided
@@ -3309,6 +3347,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                         existingIndicator.FormattedName = item.FormattedIndicatorName;
                     }
                     await _indicatorRepository.UpdateAsync(existingIndicator);
+                    parentIndicator = existingIndicator;
                     updatedIndicatorCount++;
                 }
                 else
@@ -3330,16 +3369,68 @@ public class ImportAppService : ApplicationService, IImportAppService
                     };
                     await _indicatorRepository.InsertAsync(indicator);
                     processedIndicators[indicatorKey] = indicator;
+                    parentIndicator = indicator;
                     newIndicatorCount++;
                 }
+
+                // Sub-Indicator upsert (if provided)
+                if (item.HasSubIndicator && !string.IsNullOrWhiteSpace(item.SubIndicatorName))
+                {
+                    var subIndicatorKey = StringHelper.NormalizeAndTrim(item.SubIndicatorName).ToLowerInvariant();
+
+                    if (processedIndicators.TryGetValue(subIndicatorKey, out var existingSubIndicator))
+                    {
+                        // Update existing sub-indicator - assign to parent and update FormattedName if provided
+                        existingSubIndicator.IndicatorGroupId = indicatorGroup.Id;
+                        existingSubIndicator.ParentIndicatorId = parentIndicator.Id;
+                        if (!string.IsNullOrWhiteSpace(item.FormattedSubIndicatorName))
+                        {
+                            existingSubIndicator.FormattedName = item.FormattedSubIndicatorName;
+                        }
+                        await _indicatorRepository.UpdateAsync(existingSubIndicator);
+                        updatedSubIndicatorCount++;
+                    }
+                    else
+                    {
+                        // Create new sub-indicator
+                        var subCode = _codeGenerator.GenerateCode("CT", indicatorNextSequence - 1);
+                        indicatorNextSequence++;
+                        var subIndicator = new Indicator(
+                            _guidGenerator.Create(),
+                            subCode,
+                            item.SubIndicatorName,
+                            indicatorGroup.Id,
+                            parentIndicator.Id // ParentIndicatorId
+                        )
+                        {
+                            FormattedName = !string.IsNullOrWhiteSpace(item.FormattedSubIndicatorName)
+                                ? item.FormattedSubIndicatorName
+                                : item.SubIndicatorName
+                        };
+                        await _indicatorRepository.InsertAsync(subIndicator);
+                        processedIndicators[subIndicatorKey] = subIndicator;
+                        newSubIndicatorCount++;
+                    }
+                }
             }
+
+            // Build result message
+            var messageParts = new List<string>();
+            if (newGroupCount > 0) messageParts.Add($"{newGroupCount} nhóm chỉ tiêu mới");
+            if (updatedGroupCount > 0) messageParts.Add($"{updatedGroupCount} nhóm cập nhật");
+            if (newIndicatorCount > 0) messageParts.Add($"{newIndicatorCount} chỉ tiêu mới");
+            if (updatedIndicatorCount > 0) messageParts.Add($"{updatedIndicatorCount} chỉ tiêu cập nhật");
+            if (newSubIndicatorCount > 0) messageParts.Add($"{newSubIndicatorCount} chỉ tiêu phụ mới");
+            if (updatedSubIndicatorCount > 0) messageParts.Add($"{updatedSubIndicatorCount} chỉ tiêu phụ cập nhật");
 
             return new ImportResultDto
             {
                 Success = true,
                 TotalRows = preview.ValidationResult.TotalRows,
                 ImportedRows = validItems.Count,
-                Message = $"Import thành công: {newGroupCount} nhóm chỉ tiêu mới, {updatedGroupCount} nhóm cập nhật, {newIndicatorCount} chỉ tiêu mới, {updatedIndicatorCount} chỉ tiêu cập nhật."
+                Message = messageParts.Count > 0
+                    ? $"Import thành công: {string.Join(", ", messageParts)}."
+                    : "Import thành công."
             };
         }
         catch (Exception ex)
@@ -3376,6 +3467,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         int groupNameCol = FindColumnIndex(columnMap, "tên nhóm chỉ tiêu", "ten nhom chi tieu", "nhóm chỉ tiêu", "nhom chi tieu", "indicator group", "group name");
         int departmentCol = FindColumnIndex(columnMap, "khoa phòng thực hiện", "khoa phong thuc hien", "khoa phòng", "khoa phong", "department", "phòng", "phong");
         int indicatorCol = FindColumnIndex(columnMap, "tên chỉ tiêu", "ten chi tieu", "chỉ tiêu", "chi tieu", "indicator", "indicator name");
+        int subIndicatorCol = FindColumnIndex(columnMap, "chỉ tiêu phụ", "chi tieu phu", "sub indicator", "sub-indicator", "subindicator");
 
         // Read data rows (starting from row 2)
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
@@ -3392,13 +3484,16 @@ public class ImportAppService : ApplicationService, IImportAppService
                 IndicatorGroupName = groupNameCol > 0 ? row.Cell(groupNameCol).GetString()?.Trim() ?? "" : "",
                 DepartmentName = departmentCol > 0 ? row.Cell(departmentCol).GetString()?.Trim() : null,
                 IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
-                FormattedIndicatorName = indicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(indicatorCol)) : null
+                FormattedIndicatorName = indicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(indicatorCol)) : null,
+                SubIndicatorName = subIndicatorCol > 0 ? row.Cell(subIndicatorCol).GetString()?.Trim() : null,
+                FormattedSubIndicatorName = subIndicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(subIndicatorCol)) : null
             };
 
             // Skip if all values are empty
             if (string.IsNullOrWhiteSpace(importRow.IndicatorGroupName) &&
                 string.IsNullOrWhiteSpace(importRow.DepartmentName) &&
-                string.IsNullOrWhiteSpace(importRow.IndicatorName))
+                string.IsNullOrWhiteSpace(importRow.IndicatorName) &&
+                string.IsNullOrWhiteSpace(importRow.SubIndicatorName))
             {
                 continue;
             }
@@ -3422,10 +3517,11 @@ public class ImportAppService : ApplicationService, IImportAppService
         worksheet.Cell(1, 2).Value = "Tên nhóm chỉ tiêu";
         worksheet.Cell(1, 3).Value = "Khoa phòng thực hiện";
         worksheet.Cell(1, 4).Value = "Tên chỉ tiêu";
-        worksheet.Cell(1, 5).Value = "Lỗi";
+        worksheet.Cell(1, 5).Value = "Chỉ tiêu phụ";
+        worksheet.Cell(1, 6).Value = "Lỗi";
 
         // Style headers
-        var headerRange = worksheet.Range(1, 1, 1, 5);
+        var headerRange = worksheet.Range(1, 1, 1, 6);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
 
@@ -3440,12 +3536,13 @@ public class ImportAppService : ApplicationService, IImportAppService
             worksheet.Cell(dataRow, 2).Value = row.IndicatorGroupName;
             worksheet.Cell(dataRow, 3).Value = row.DepartmentName ?? "";
             worksheet.Cell(dataRow, 4).Value = row.IndicatorName;
+            worksheet.Cell(dataRow, 5).Value = row.SubIndicatorName ?? "";
 
             if (rowErrors.TryGetValue(rowNumber, out var errorList))
             {
-                worksheet.Cell(dataRow, 5).Value = string.Join("; ", errorList);
+                worksheet.Cell(dataRow, 6).Value = string.Join("; ", errorList);
                 // Highlight error row
-                var errorRow = worksheet.Range(dataRow, 1, dataRow, 5);
+                var errorRow = worksheet.Range(dataRow, 1, dataRow, 6);
                 errorRow.Style.Fill.BackgroundColor = XLColor.LightPink;
             }
         }

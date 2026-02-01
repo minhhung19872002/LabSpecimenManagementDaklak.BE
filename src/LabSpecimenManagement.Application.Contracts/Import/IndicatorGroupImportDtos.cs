@@ -30,6 +30,16 @@ public class IndicatorGroupImportRow
     /// Tên chỉ tiêu có định dạng HTML (bold, italic, underline từ Excel)
     /// </summary>
     public string? FormattedIndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu phụ (optional) - sẽ được tạo với ParentIndicatorId trỏ đến Indicator cha
+    /// </summary>
+    public string? SubIndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu phụ có định dạng HTML (bold, italic, underline từ Excel)
+    /// </summary>
+    public string? FormattedSubIndicatorName { get; set; }
 }
 
 #endregion
@@ -108,6 +118,35 @@ public class IndicatorGroupImportPreviewItem
 
     #endregion
 
+    #region Sub-Indicator info
+
+    /// <summary>
+    /// Tên chỉ tiêu phụ (từ Excel)
+    /// </summary>
+    public string? SubIndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu phụ có định dạng HTML (bold, italic, underline từ Excel)
+    /// </summary>
+    public string? FormattedSubIndicatorName { get; set; }
+
+    /// <summary>
+    /// True = Tạo mới Sub-Indicator, False = Update Sub-Indicator
+    /// </summary>
+    public bool IsNewSubIndicator { get; set; }
+
+    /// <summary>
+    /// ID Sub-Indicator nếu đã tồn tại (IsNewSubIndicator = false)
+    /// </summary>
+    public Guid? ExistingSubIndicatorId { get; set; }
+
+    /// <summary>
+    /// True nếu có chỉ tiêu phụ
+    /// </summary>
+    public bool HasSubIndicator { get; set; }
+
+    #endregion
+
     #region Validation
 
     /// <summary>
@@ -174,6 +213,16 @@ public class IndicatorGroupImportPreviewDto
     /// Số Indicator sẽ được cập nhật
     /// </summary>
     public int UpdateIndicators { get; set; }
+
+    /// <summary>
+    /// Số Sub-Indicator mới sẽ được tạo
+    /// </summary>
+    public int NewSubIndicators { get; set; }
+
+    /// <summary>
+    /// Số Sub-Indicator sẽ được cập nhật
+    /// </summary>
+    public int UpdateSubIndicators { get; set; }
 
     #endregion
 
