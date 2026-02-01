@@ -8,7 +8,7 @@ namespace LabSpecimenManagement.Import;
 
 /// <summary>
 /// Row data từ Excel import cho Standard với Indicators
-/// Mapping columns: Tên tiêu chuẩn, Chỉ tiêu, Phương pháp, Đơn vị, So sánh, Giới hạn,
+/// Mapping columns: Tên tiêu chuẩn, Nền mẫu, Chỉ tiêu, Chỉ tiêu phụ, Phương pháp, Đơn vị, So sánh, Giới hạn,
 /// So sánh giới hạn dưới, Giới hạn dưới, So sánh giới hạn trên, Giới hạn trên
 /// </summary>
 public class StandardWithIndicatorImportRow
@@ -21,14 +21,27 @@ public class StandardWithIndicatorImportRow
     public string StandardName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Tên chỉ tiêu - phải tồn tại trong hệ thống
+    /// Tên nền mẫu (SpecimenType) - phải tồn tại trong hệ thống
+    /// </summary>
+    [Required(ErrorMessage = "Nền mẫu là bắt buộc")]
+    [MaxLength(256)]
+    public string SpecimenTypeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tên chỉ tiêu - phải tồn tại trong hệ thống và thuộc về nền mẫu
     /// </summary>
     [Required(ErrorMessage = "Tên chỉ tiêu là bắt buộc")]
     [MaxLength(256)]
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Tên phương pháp - phải tồn tại trong hệ thống
+    /// Tên chỉ tiêu phụ (SubIndicator) - optional, nếu có phải thuộc về chỉ tiêu cha
+    /// </summary>
+    [MaxLength(256)]
+    public string? SubIndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp - phải tồn tại trong hệ thống và có chỉ tiêu (hoặc chỉ tiêu phụ)
     /// </summary>
     [Required(ErrorMessage = "Tên phương pháp là bắt buộc")]
     [MaxLength(256)]
@@ -94,6 +107,16 @@ public class StandardIndicatorImportItem
     public int RowNumber { get; set; }
 
     /// <summary>
+    /// Tên nền mẫu
+    /// </summary>
+    public string SpecimenTypeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// ID nền mẫu nếu tìm thấy trong hệ thống
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Tên chỉ tiêu
     /// </summary>
     public string IndicatorName { get; set; } = string.Empty;
@@ -102,6 +125,16 @@ public class StandardIndicatorImportItem
     /// ID chỉ tiêu nếu tìm thấy trong hệ thống
     /// </summary>
     public Guid? IndicatorId { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu phụ
+    /// </summary>
+    public string? SubIndicatorName { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu phụ nếu tìm thấy trong hệ thống
+    /// </summary>
+    public Guid? SubIndicatorId { get; set; }
 
     /// <summary>
     /// Tên phương pháp
