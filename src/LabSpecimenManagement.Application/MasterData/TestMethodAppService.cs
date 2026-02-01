@@ -406,7 +406,23 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             throw new Common.Exceptions.EntityNotFoundException("TestMethodIndicator");
         }
 
-        await _testMethodIndicatorRepository.DeleteAsync(entity);
+        // Find all sub-indicators of this parent indicator
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var subIndicatorIds = indicatorQuery
+            .Where(ind => ind.ParentIndicatorId == indicatorId)
+            .Select(ind => ind.Id)
+            .ToList();
+
+        // Get TestMethodIndicator links for sub-indicators (if any)
+        var subIndicatorLinks = query
+            .Where(tmi => tmi.TestMethodId == testMethodId && subIndicatorIds.Contains(tmi.IndicatorId))
+            .ToList();
+
+        // Delete parent and all sub-indicator links
+        var allToDelete = new List<TestMethodIndicator> { entity };
+        allToDelete.AddRange(subIndicatorLinks);
+
+        await _testMethodIndicatorRepository.DeleteManyAsync(allToDelete);
     }
 
     public async Task<TestMethodDto> ToggleActiveAsync(Guid id)
@@ -464,9 +480,20 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             return 0;
         }
 
+        // Find all sub-indicators of the parent indicators being removed
+        // so we can also remove them from this test method
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var subIndicatorIds = indicatorQuery
+            .Where(ind => ind.ParentIndicatorId.HasValue && indicatorIds.Contains(ind.ParentIndicatorId.Value))
+            .Select(ind => ind.Id)
+            .ToList();
+
+        // Combine parent indicator IDs with their sub-indicator IDs
+        var allIndicatorIdsToRemove = indicatorIds.Concat(subIndicatorIds).Distinct().ToList();
+
         var query = await _testMethodIndicatorRepository.GetQueryableAsync();
         var entities = query
-            .Where(tmi => tmi.TestMethodId == testMethodId && indicatorIds.Contains(tmi.IndicatorId))
+            .Where(tmi => tmi.TestMethodId == testMethodId && allIndicatorIdsToRemove.Contains(tmi.IndicatorId))
             .ToList();
 
         if (entities.Count == 0)
