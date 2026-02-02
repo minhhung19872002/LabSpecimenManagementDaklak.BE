@@ -4450,6 +4450,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
         var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+
+        // Also load parent indicators for sub-indicators (to display parent name in grouped rows)
+        var parentIndicatorIds = indicators
+            .Where(i => i.ParentIndicatorId.HasValue)
+            .Select(i => i.ParentIndicatorId!.Value)
+            .Distinct()
+            .Except(indicatorIds) // Exclude already loaded indicators
+            .ToList();
+        if (parentIndicatorIds.Any())
+        {
+            var parentIndicators = await _indicatorRepository.GetListAsync(x => parentIndicatorIds.Contains(x.Id));
+            indicators = indicators.Concat(parentIndicators).ToList();
+        }
+
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
         var methodIds = labTaskIndicators.Where(lti => lti.MethodId.HasValue).Select(lti => lti.MethodId!.Value).Distinct().ToList();
@@ -4476,9 +4490,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 x => standardIds.Contains(x.StandardId) && indicatorIds.Contains(x.IndicatorId))
             : new List<StandardIndicator>();
         // Create lookup: (StandardId, IndicatorId) -> StandardIndicator
-        var standardIndicatorLookup = standardIndicators.ToDictionary(
-            si => (si.StandardId, si.IndicatorId),
-            si => si);
+        // Note: Same indicator can have multiple StandardIndicators with different SpecimenTypeId
+        // Use GroupBy to take the first one (without SpecimenType or first match)
+        var standardIndicatorLookup = standardIndicators
+            .GroupBy(si => (si.StandardId, si.IndicatorId))
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(si => si.SpecimenTypeId.HasValue ? 1 : 0).First());
 
         _logger.LogInformation("BM05-QLNN Debug: standardIds={StandardIds}, indicatorIds={IndicatorIds}, standardIndicators.Count={Count}",
             string.Join(",", standardIds), string.Join(",", indicatorIds), standardIndicators.Count);
@@ -4640,24 +4658,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 .Where(x => !x.Indicator!.ParentIndicatorId.HasValue)
                 .ToList();
 
-            // Group children by parent
-            var childrenByParent = childItems
-                .GroupBy(x => x.Indicator!.ParentIndicatorId!.Value)
+            // Group children by (parentIndicatorId, methodId) to handle same indicator with different methods
+            var childrenByParentMethod = childItems
+                .GroupBy(x => (
+                    ParentId: x.Indicator!.ParentIndicatorId!.Value,
+                    MethodId: x.Item.LabTaskIndicator.MethodId
+                ))
                 .ToDictionary(g => g.Key, g => g.ToList());
 
-            // Track processed parent IDs
-            var processedParentIds = new HashSet<Guid>();
+            // Track processed parent+method combinations
+            var processedParentMethodKeys = new HashSet<(Guid, Guid?)>();
 
             // Process standalone indicators (may be parents with children)
             foreach (var itemData in standaloneItems.OrderBy(x => x.Indicator!.SortOrder))
             {
                 var item = itemData.Item;
                 var indicator = itemData.Indicator!;
+                var parentMethodId = item.LabTaskIndicator.MethodId;
 
-                // Check if this standalone indicator has children in this sample
-                if (childrenByParent.TryGetValue(indicator.Id, out var children) && children.Any())
+                // Check if this standalone indicator has children with same method in this sample
+                var childKey = (indicator.Id, parentMethodId);
+                if (childrenByParentMethod.TryGetValue(childKey, out var children) && children.Any())
                 {
-                    processedParentIds.Add(indicator.Id);
+                    processedParentMethodKeys.Add(childKey);
 
                     // Build combined Parameter and Result
                     var paramPlainBuilder = new StringBuilder();
@@ -4765,12 +4788,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 }
             }
 
-            // Process orphan children (parent not in this sample)
-            var orphanParentIds = childrenByParent.Keys.Except(processedParentIds).ToList();
-            foreach (var parentId in orphanParentIds)
+            // Process orphan children (parent not in this sample or with different method)
+            var orphanKeys = childrenByParentMethod.Keys.Except(processedParentMethodKeys).ToList();
+            foreach (var orphanKey in orphanKeys)
             {
-                var children = childrenByParent[parentId];
-                var parentIndicator = indicatorDict.GetValueOrDefault(parentId);
+                var children = childrenByParentMethod[orphanKey];
+                var parentIndicator = indicatorDict.GetValueOrDefault(orphanKey.Item1);
 
                 var paramPlainBuilder = new StringBuilder();
                 var paramFormattedBuilder = new StringBuilder();
