@@ -7,6 +7,7 @@ using LabSpecimenManagement.Common;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Users;
 
@@ -26,17 +27,20 @@ public class TaskAssignmentAppService :
     private readonly ICurrentUser _currentUser;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
 
     public TaskAssignmentAppService(
         IRepository<TaskAssignment, Guid> repository,
         ICurrentUser currentUser,
         IUserNameProvider userNameProvider,
-        ICodeGeneratorService codeGenerator)
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _currentUser = currentUser;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
     }
 
     protected override async Task<TaskAssignmentDto> MapToGetOutputDtoAsync(TaskAssignment entity)
@@ -253,8 +257,12 @@ public class TaskAssignmentAppService :
 
     private async Task<string> GenerateTaskNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("TASK");
-        var count = await Repository.CountAsync(x => x.TaskNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("TASK", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("TASK");
+            var count = await Repository.CountAsync(x => x.TaskNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("TASK", count);
+        }
     }
 }

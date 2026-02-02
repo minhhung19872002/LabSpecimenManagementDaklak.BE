@@ -24,6 +24,11 @@ public class TestMethodIndicator : Entity<Guid>
     public decimal UnitPrice { get; set; }
 
     /// <summary>
+    /// Nền mẫu (Loại mẫu) - cho phép cùng indicator thêm nhiều lần với nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Thứ tự hiển thị trong phương pháp
     /// </summary>
     public int SortOrder { get; set; }
@@ -32,11 +37,12 @@ public class TestMethodIndicator : Entity<Guid>
     {
     }
 
-    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal unitPrice) : base(id)
+    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal unitPrice, Guid? specimenTypeId = null) : base(id)
     {
         TestMethodId = testMethodId;
         IndicatorId = indicatorId;
         UnitPrice = unitPrice;
+        SpecimenTypeId = specimenTypeId;
         SortOrder = 0;
     }
 }

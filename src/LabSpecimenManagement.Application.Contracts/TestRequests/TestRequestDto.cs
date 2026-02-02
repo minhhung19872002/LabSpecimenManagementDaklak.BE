@@ -256,6 +256,12 @@ public class TestRequestSampleIndicatorDto
     /// Dùng để hiển thị cấu trúc cha-con trên giao diện
     /// </summary>
     public Guid? ParentIndicatorId { get; set; }
+
+    /// <summary>
+    /// Đã gửi đến QLKT (tồn tại trong LaboratoryTaskIndicator)
+    /// true = đã gửi, không thể gửi lại
+    /// </summary>
+    public bool IsSentToQLKT { get; set; }
 }
 
 // ============= Workflow Redesign - BPGN Confirmation DTOs =============

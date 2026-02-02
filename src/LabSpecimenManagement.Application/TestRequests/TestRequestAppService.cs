@@ -19,6 +19,7 @@ using LabSpecimenManagement.Testing;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.Users;
@@ -64,6 +65,8 @@ public partial class TestRequestAppService :
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IDataFilter _dataFilter;
 
     public TestRequestAppService(
         IRepository<TestRequest, Guid> repository,
@@ -94,7 +97,9 @@ public partial class TestRequestAppService :
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IPublishedReportRepository publishedReportRepository,
         IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
-        IRepository<IndicatorGroup, Guid> indicatorGroupRepository)
+        IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _sampleRepository = sampleRepository;
@@ -126,6 +131,8 @@ public partial class TestRequestAppService :
         _publishedReportRepository = publishedReportRepository;
         _costChangeHistoryRepository = costChangeHistoryRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
+        _dataFilter = dataFilter;
     }
 
     public override async Task<TestRequestDto> GetAsync(Guid id)
@@ -275,7 +282,8 @@ public partial class TestRequestAppService :
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
                     ParentIndicatorId = indicatorEntity.ParentIndicatorId,
-                    Images = indicatorImages
+                    Images = indicatorImages,
+                    IsSentToQLKT = labTaskIndicator != null
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }
@@ -986,9 +994,13 @@ public partial class TestRequestAppService :
 
     private async Task<string> GenerateRequestNumberAsync()
     {
-        var prefix = _codeGenerator.GetTodayPrefix("REQ");
-        var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
-        return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        // Disable soft delete filter to include deleted records (avoid duplicate codes)
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var prefix = _codeGenerator.GetTodayPrefix("REQ");
+            var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
+            return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        }
     }
 
     /// <summary>
@@ -1168,8 +1180,21 @@ public partial class TestRequestAppService :
             return;
         }
 
+        // Get already-sent indicator IDs (exist in LaboratoryTaskIndicator) to skip them
+        var existingTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequest.Id);
+        var alreadySentIndicatorIds = new HashSet<Guid>();
+        foreach (var task in existingTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == task.Id);
+            foreach (var ti in taskIndicators)
+            {
+                alreadySentIndicatorIds.Add(ti.TestRequestSampleIndicatorId);
+            }
+        }
+
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId)>>();
 
         // Track which samples are shared samples and which labs they have
         var sharedSampleLabs = new Dictionary<Guid, HashSet<Guid>>(); // SampleId -> Set of LabIds
@@ -1181,13 +1206,19 @@ public partial class TestRequestAppService :
 
             foreach (var indicator in indicators)
             {
+                // Skip indicators that are already sent (exist in LaboratoryTaskIndicator)
+                if (alreadySentIndicatorIds.Contains(indicator.Id))
+                {
+                    continue;
+                }
+
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId));
 
                 // Track labs for shared samples
                 if (sample.IsSharedSample)
@@ -1199,6 +1230,12 @@ public partial class TestRequestAppService :
                     sharedSampleLabs[sample.Id].Add(labId);
                 }
             }
+        }
+
+        // Nếu không có indicators mới để gửi (tất cả đã gửi), return early
+        if (!indicatorsByLab.Any())
+        {
+            return;
         }
 
         // Identify Microbiology Lab (Lab Vi Sinh) - Priority lab for shared samples
@@ -1230,56 +1267,77 @@ public partial class TestRequestAppService :
             }
         }
 
-        // Store created tasks for linking PriorLabTaskId
+        // Store created/existing tasks for linking PriorLabTaskId
         var createdTasks = new Dictionary<Guid, LaboratoryTask>(); // LabId -> Task
 
-        // Create LaboratoryTask for each Laboratory
+        // Create or reuse LaboratoryTask for each Laboratory
         foreach (var (labId, indicatorList) in indicatorsByLab)
         {
             var laboratory = await _laboratoryRepository.GetAsync(labId);
-            var sampleCount = indicatorList.Select(i => i.SampleId).Distinct().Count();
-
-            // Get TransferDate and RequestDate from first indicator (they should be the same for the group)
-            var firstIndicator = indicatorList.First();
 
             // Check if this task has shared sample indicators
             var hasSharedSample = indicatorList.Any(i => i.IsSharedSample);
-            var hasNonSharedSample = indicatorList.Any(i => !i.IsSharedSample);
             var isSharedSampleTask = hasSharedSample && microbiologyLabId.HasValue;
 
-            // Determine if this lab should wait for prior lab (non-microbiology labs wait for microbiology)
-            var isWaitingForPriorLab = isSharedSampleTask && labId != microbiologyLabId;
+            // Lab Hóa can work in parallel with Lab Vi Sinh - no blocking
+            // PriorLabTaskId is still set for tracking sample transfer
 
-            // Task should have WaitingSharedSample status ONLY if ALL indicators are shared samples
-            // If there are mixed indicators (shared + non-shared), the task can proceed
-            // and waiting is handled at indicator level
-            var taskShouldWait = isWaitingForPriorLab && !hasNonSharedSample;
+            // Kiểm tra xem đã có LaboratoryTask cho TestRequest + Lab này chưa
+            var existingTask = existingTasks.FirstOrDefault(t => t.LaboratoryId == labId);
+            LaboratoryTask task;
 
-            var task = new LaboratoryTask(
-                GuidGenerator.Create(),
-                testRequest.Id,
-                labId,
-                testRequest.ContractNumber,
-                sampleCount,
-                laboratory.TechnicalManagerId,
-                firstIndicator.TransferDate,
-                firstIndicator.RequestDate
-            );
-
-            // Set shared sample flags
-            task.IsSharedSampleTask = isSharedSampleTask;
-            // Only set IsWaitingForPriorLab = true if task actually needs to wait
-            // (i.e., no non-shared indicators that can proceed immediately)
-            task.IsWaitingForPriorLab = taskShouldWait;
-
-            // Set initial status based on whether task should wait
-            // Only wait if ALL indicators are shared samples (no non-shared indicators)
-            if (taskShouldWait)
+            if (existingTask != null)
             {
-                task.Status = LaboratoryTaskStatus.WaitingSharedSample;
+                // Gộp vào task đã có - cập nhật SampleCount
+                task = existingTask;
+                var allSampleIds = new HashSet<Guid>();
+
+                // Lấy sample IDs từ indicators hiện có trong task
+                var currentTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                    ti => ti.LaboratoryTaskId == task.Id);
+                foreach (var ti in currentTaskIndicators)
+                {
+                    var sampleIndicator = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                    if (sampleIndicator != null)
+                    {
+                        allSampleIds.Add(sampleIndicator.TestRequestSampleId);
+                    }
+                }
+
+                // Thêm sample IDs từ indicators mới
+                foreach (var ind in indicatorList)
+                {
+                    allSampleIds.Add(ind.SampleId);
+                }
+
+                task.TotalSampleCount = allSampleIds.Count;
+                await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
+            }
+            else
+            {
+                // Tạo task mới
+                var sampleCount = indicatorList.Select(i => i.SampleId).Distinct().Count();
+                var firstIndicator = indicatorList.First();
+
+                task = new LaboratoryTask(
+                    GuidGenerator.Create(),
+                    testRequest.Id,
+                    labId,
+                    testRequest.ContractNumber,
+                    sampleCount,
+                    laboratory.TechnicalManagerId,
+                    firstIndicator.TransferDate,
+                    firstIndicator.RequestDate
+                );
+
+                // Set shared sample flags - Lab Hóa không bị block, có thể làm song song
+                task.IsSharedSampleTask = isSharedSampleTask;
+                // IsWaitingForPriorLab = false - Lab Hóa làm song song với Vi Sinh
+                // Status không cần set WaitingSharedSample - mặc định là UnderEvaluation
+
+                await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 
-            await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             createdTasks[labId] = task;
 
             // Create junction records linking LaboratoryTask to TestRequestSampleIndicator
@@ -1291,12 +1349,7 @@ public partial class TestRequestAppService :
                     indicator.SampleIndicatorId
                 );
 
-                // Set indicator-level waiting flag for shared sample indicators
-                // Only applies to non-microbiology labs when there's a microbiology lab involved
-                if (indicator.IsSharedSample && labId != microbiologyLabId && microbiologyLabId.HasValue)
-                {
-                    taskIndicator.IsWaitingForSharedSample = true;
-                }
+                // Lab Hóa làm song song - không cần set IsWaitingForSharedSample = true
 
                 // Copy TestMethodId and Unit from TestRequestSampleIndicator if available
                 if (indicator.TestMethodId.HasValue)
@@ -1308,17 +1361,29 @@ public partial class TestRequestAppService :
                         taskIndicator.Unit = testMethod.Unit;
                     }
                 }
+
+                // Auto-set StandardId - lookup first standard for this indicator + method pair
+                var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                    si => si.IndicatorId == indicator.IndicatorId
+                          && si.IsActive
+                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value));
+                if (standardIndicator != null)
+                {
+                    taskIndicator.StandardId = standardIndicator.StandardId;
+                }
+
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
 
-        // Link PriorLabTaskId for non-microbiology tasks that are waiting
+        // Link PriorLabTaskId for non-microbiology tasks (for sample transfer tracking)
         if (microbiologyLabId.HasValue && createdTasks.ContainsKey(microbiologyLabId.Value))
         {
             var microbiologyTask = createdTasks[microbiologyLabId.Value];
             foreach (var (labId, task) in createdTasks)
             {
-                if (task.IsWaitingForPriorLab && labId != microbiologyLabId)
+                // Link all non-Vi Sinh shared sample tasks to Vi Sinh task for tracking
+                if (task.IsSharedSampleTask && labId != microbiologyLabId && !task.PriorLabTaskId.HasValue)
                 {
                     task.PriorLabTaskId = microbiologyTask.Id;
                     await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
@@ -3489,6 +3554,10 @@ public partial class TestRequestAppService :
     /// Gửi QLKT - Chuyển từ PendingPayment/Paid/NoPaymentRequired sang UnderReview (Đang xem xét YC)
     /// Áp dụng cho cả mẫu thường (PendingPayment/Paid) và mẫu nhiệm vụ (NoPaymentRequired)
     /// Tạo LaboratoryTasks để QLKT có thể đánh giá các chỉ tiêu
+    ///
+    /// Hỗ trợ gửi partial (một phần):
+    /// - Nếu chưa gửi hết tất cả chỉ tiêu → giữ nguyên status (PendingPayment/Paid/NoPaymentRequired)
+    /// - Khi TẤT CẢ chỉ tiêu đã gửi → cập nhật status = UnderReview
     /// </summary>
     public async Task SendToQLKTAsync(Guid id)
     {
@@ -3500,15 +3569,39 @@ public partial class TestRequestAppService :
             throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
         }
 
-        entity.Status = TestRequestStatus.UnderReview;
-        entity.UnderReviewDate = Clock.Now;
-        entity.UnderReviewByUserId = _currentUser.Id;
-        entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+        // Đếm tổng số indicators và số đã có LaboratoryId
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id && !s.IsCancelled && !s.IsCustomerCancelled);
+        var totalIndicatorCount = 0;
+        var indicatorsWithLabCount = 0;
 
-        await Repository.UpdateAsync(entity);
+        foreach (var sample in samples)
+        {
+            var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                i => i.TestRequestSampleId == sample.Id);
+            totalIndicatorCount += sampleIndicators.Count;
+            indicatorsWithLabCount += sampleIndicators.Count(i => i.LaboratoryId.HasValue);
+        }
+
+        // Phải có ít nhất 1 indicator có LaboratoryId để gửi
+        if (indicatorsWithLabCount == 0)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chưa có chỉ tiêu nào được chọn khoa phòng", "laboratoryId");
+        }
 
         // Tạo LaboratoryTasks grouped by Laboratory để QLKT đánh giá
+        // Method này sẽ tự skip các indicators đã được gửi trước đó
         await CreateLaboratoryTasksAsync(entity);
+
+        // CHỈ cập nhật status khi TẤT CẢ indicators đã có LaboratoryId
+        if (indicatorsWithLabCount == totalIndicatorCount)
+        {
+            entity.Status = TestRequestStatus.UnderReview;
+            entity.UnderReviewDate = Clock.Now;
+            entity.UnderReviewByUserId = _currentUser.Id;
+            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            await Repository.UpdateAsync(entity);
+        }
+        // Ngược lại: Giữ nguyên status (PendingPayment/Paid/NoPaymentRequired)
 
         // Thông báo cho QLKT về yêu cầu mới cần đánh giá
         await NotifyTechnicalManagersOnSampleSentAsync(entity);

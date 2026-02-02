@@ -111,7 +111,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
 
         var code = await GenerateCodeAsync();
-        var entity = new Indicator(GuidGenerator.Create(), code, input.Name, input.IndicatorGroupId)
+        // Normalize name for consistent Unicode representation
+        var normalizedName = StringHelper.NormalizeAndTrim(input.Name);
+        var entity = new Indicator(GuidGenerator.Create(), code, normalizedName, input.IndicatorGroupId)
         {
             IsActive = input.IsActive,
             SortOrder = input.SortOrder,
@@ -149,15 +151,16 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
         foreach (var item in input.Indicators)
         {
-            // 1. Create parent indicator
+            // 1. Create parent indicator - normalize name for consistent Unicode
             var parentCode = _codeGenerator.GenerateCode(CodePrefix, nextSequence - 1);
             existingCodes.Add(parentCode);
             nextSequence++;
 
+            var normalizedParentName = StringHelper.NormalizeAndTrim(item.Name);
             var parentEntity = new Indicator(
                 GuidGenerator.Create(),
                 parentCode,
-                item.Name,
+                normalizedParentName,
                 input.IndicatorGroupId,
                 parentIndicatorId: null
             )
@@ -165,7 +168,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 IsActive = true,
                 FormattedName = !string.IsNullOrWhiteSpace(item.FormattedName)
                     ? SanitizeHtml(item.FormattedName)
-                    : item.Name
+                    : normalizedParentName
             };
 
             await _indicatorRepository.InsertAsync(parentEntity, autoSave: true);
@@ -182,10 +185,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                     existingCodes.Add(subCode);
                     subSequence++;
 
+                    // Normalize sub-indicator name for consistent Unicode
+                    var normalizedSubName = StringHelper.NormalizeAndTrim(subItem.Name);
                     var subEntity = new Indicator(
                         GuidGenerator.Create(),
                         subCode,
-                        subItem.Name,
+                        normalizedSubName,
                         input.IndicatorGroupId,
                         parentIndicatorId: parentEntity.Id
                     )
@@ -193,7 +198,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                         IsActive = true,
                         FormattedName = !string.IsNullOrWhiteSpace(subItem.FormattedName)
                             ? SanitizeHtml(subItem.FormattedName)
-                            : subItem.Name,
+                            : normalizedSubName,
                         SortOrder = subSequence
                     };
 
@@ -214,7 +219,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         // Validate group exists
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
 
-        entity.Name = input.Name;
+        // Normalize name for consistent Unicode representation
+        entity.Name = StringHelper.NormalizeAndTrim(input.Name);
         entity.FormattedName = SanitizeHtml(input.FormattedName);
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
@@ -314,9 +320,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var result = new ImportIndicatorsResultDto();
 
-        // Get all groups for lookup
+        // Get all groups for lookup - normalize names for consistent comparison (use GroupBy to handle duplicates)
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
-        var groups = groupQuery.ToDictionary(g => g.Name.Trim().ToLower(), g => g.Id);
+        var groups = groupQuery
+            .ToList()
+            .GroupBy(g => StringHelper.NormalizeAndTrim(g.Name).ToLower())
+            .ToDictionary(g => g.Key, g => g.First().Id);
 
         // Read Excel using MiniExcel
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
@@ -343,10 +352,14 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 continue;
             }
 
-            // Get values from row
-            var name = rowData.ContainsKey("Tên chỉ tiêu") ? rowData["Tên chỉ tiêu"]?.ToString()?.Trim() : null;
+            // Get values from row - normalize for consistent Unicode representation
+            var name = rowData.ContainsKey("Tên chỉ tiêu")
+                ? StringHelper.NormalizeAndTrim(rowData["Tên chỉ tiêu"]?.ToString())
+                : null;
             var priceStr = rowData.ContainsKey("Đơn giá") ? rowData["Đơn giá"]?.ToString() : null;
-            var groupName = rowData.ContainsKey("Tên nhóm chỉ tiêu") ? rowData["Tên nhóm chỉ tiêu"]?.ToString()?.Trim() : null;
+            var groupName = rowData.ContainsKey("Tên nhóm chỉ tiêu")
+                ? StringHelper.NormalizeAndTrim(rowData["Tên nhóm chỉ tiêu"]?.ToString())
+                : null;
 
             // Validate name
             if (string.IsNullOrWhiteSpace(name))
@@ -475,30 +488,34 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     private async Task<int> GetNextSequenceAsync()
     {
-        var query = await _indicatorRepository.GetQueryableAsync();
-
-        // Get all codes that start with CT- and extract the max number
-        var codes = query
-            .Where(x => x.Code.StartsWith("CT-"))
-            .Select(x => x.Code)
-            .ToList();
-
-        if (!codes.Any())
+        // Disable soft delete filter to include deleted records (avoid duplicate code)
+        using (_dataFilter.Disable<ISoftDelete>())
         {
-            return 1;
-        }
+            var query = await _indicatorRepository.GetQueryableAsync();
 
-        // Find the maximum number from all codes
-        var maxNumber = codes
-            .Select(code =>
+            // Get all codes that start with CT- and extract the max number
+            var codes = query
+                .Where(x => x.Code.StartsWith("CT-"))
+                .Select(x => x.Code)
+                .ToList();
+
+            if (!codes.Any())
             {
-                var numberPart = code.Replace("CT-", "");
-                return int.TryParse(numberPart, out var num) ? num : 0;
-            })
-            .DefaultIfEmpty(0)
-            .Max();
+                return 1;
+            }
 
-        return maxNumber + 1;
+            // Find the maximum number from all codes
+            var maxNumber = codes
+                .Select(code =>
+                {
+                    var numberPart = code.Replace("CT-", "");
+                    return int.TryParse(numberPart, out var num) ? num : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return maxNumber + 1;
+        }
     }
 
     private async Task<string> GenerateCodeAsync()

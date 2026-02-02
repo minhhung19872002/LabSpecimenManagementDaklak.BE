@@ -21,6 +21,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IDataFilter _dataFilter;
 
     public StandardAppService(
@@ -28,12 +29,14 @@ public class StandardAppService : ApplicationService, IStandardAppService
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
         IDataFilter dataFilter)
     {
         _standardRepository = standardRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _specimenTypeRepository = specimenTypeRepository;
         _dataFilter = dataFilter;
     }
 
@@ -165,6 +168,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
         var standardIndicators = await _standardIndicatorRepository.GetListAsync();
         var indicators = await _indicatorRepository.GetListAsync();
         var testMethods = await _testMethodRepository.GetListAsync();
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
 
         var result = standards
             .OrderBy(x => x.SortOrder)
@@ -180,6 +184,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
                     {
                         var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
                         var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
+                        var specimenType = si.SpecimenTypeId.HasValue
+                            ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
+                            : null;
 
                         return new StandardIndicatorDto
                         {
@@ -190,6 +197,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
                             IndicatorName = indicator?.Name ?? "",
                             IndicatorFormattedName = indicator?.FormattedName,
                             ParentIndicatorId = indicator?.ParentIndicatorId,
+                            SpecimenTypeId = si.SpecimenTypeId,
+                            SpecimenTypeCode = specimenType?.Code,
+                            SpecimenTypeName = specimenType?.Name,
                             TestMethodId = si.TestMethodId,
                             TestMethodCode = testMethod?.Code ?? "",
                             TestMethodName = testMethod?.Name ?? "",
@@ -222,6 +232,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
         var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
         var dto = ObjectMapper.Map<Standard, StandardWithIndicatorsDto>(standard);
 
@@ -231,6 +242,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         var indicatorIds = sIndicators.Select(si => si.IndicatorId).ToList();
         var testMethodIds = sIndicators.Select(si => si.TestMethodId).ToList();
+        var specimenTypeIds = sIndicators.Where(si => si.SpecimenTypeId.HasValue).Select(si => si.SpecimenTypeId!.Value).Distinct().ToList();
 
         var indicators = await AsyncExecuter.ToListAsync(
             indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
@@ -238,11 +250,17 @@ public class StandardAppService : ApplicationService, IStandardAppService
         var testMethods = await AsyncExecuter.ToListAsync(
             testMethodQuery.Where(tm => testMethodIds.Contains(tm.Id))
         );
+        var specimenTypes = await AsyncExecuter.ToListAsync(
+            specimenTypeQuery.Where(st => specimenTypeIds.Contains(st.Id))
+        );
 
         dto.Indicators = sIndicators.Select(si =>
         {
             var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
             var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
+            var specimenType = si.SpecimenTypeId.HasValue
+                ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
+                : null;
 
             return new StandardIndicatorDto
             {
@@ -253,6 +271,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
                 IndicatorName = indicator?.Name ?? "",
                 IndicatorFormattedName = indicator?.FormattedName,
                 ParentIndicatorId = indicator?.ParentIndicatorId,
+                SpecimenTypeId = si.SpecimenTypeId,
+                SpecimenTypeCode = specimenType?.Code,
+                SpecimenTypeName = specimenType?.Name,
                 TestMethodId = si.TestMethodId,
                 TestMethodCode = testMethod?.Code ?? "",
                 TestMethodName = testMethod?.Name ?? "",
@@ -278,6 +299,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
         var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
         var sIndicators = await AsyncExecuter.ToListAsync(
             standardIndicatorQuery.Where(si => si.StandardId == standardId).OrderBy(si => si.SortOrder)
@@ -285,6 +307,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         var indicatorIds = sIndicators.Select(si => si.IndicatorId).ToList();
         var testMethodIds = sIndicators.Select(si => si.TestMethodId).ToList();
+        var specimenTypeIds = sIndicators.Where(si => si.SpecimenTypeId.HasValue).Select(si => si.SpecimenTypeId!.Value).Distinct().ToList();
 
         var indicators = await AsyncExecuter.ToListAsync(
             indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
@@ -292,11 +315,17 @@ public class StandardAppService : ApplicationService, IStandardAppService
         var testMethods = await AsyncExecuter.ToListAsync(
             testMethodQuery.Where(tm => testMethodIds.Contains(tm.Id))
         );
+        var specimenTypes = await AsyncExecuter.ToListAsync(
+            specimenTypeQuery.Where(st => specimenTypeIds.Contains(st.Id))
+        );
 
         return sIndicators.Select(si =>
         {
             var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
             var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
+            var specimenType = si.SpecimenTypeId.HasValue
+                ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
+                : null;
 
             return new StandardIndicatorDto
             {
@@ -307,6 +336,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
                 IndicatorName = indicator?.Name ?? "",
                 IndicatorFormattedName = indicator?.FormattedName,
                 ParentIndicatorId = indicator?.ParentIndicatorId,
+                SpecimenTypeId = si.SpecimenTypeId,
+                SpecimenTypeCode = specimenType?.Code,
+                SpecimenTypeName = specimenType?.Name,
                 TestMethodId = si.TestMethodId,
                 TestMethodCode = testMethod?.Code ?? "",
                 TestMethodName = testMethod?.Name ?? "",
@@ -343,11 +375,12 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         foreach (var item in input.Indicators)
         {
-            // Check for duplicate (same standardId + indicatorId + testMethodId)
+            // Check for duplicate (same standardId + indicatorId + testMethodId + specimenTypeId)
             var isDuplicate = existingQuery.Any(si =>
                 si.StandardId == standardId &&
                 si.IndicatorId == item.IndicatorId &&
-                si.TestMethodId == item.TestMethodId);
+                si.TestMethodId == item.TestMethodId &&
+                si.SpecimenTypeId == item.SpecimenTypeId);
 
             if (isDuplicate)
             {
@@ -360,7 +393,8 @@ public class StandardAppService : ApplicationService, IStandardAppService
                 standardId,
                 item.IndicatorId,
                 item.TestMethodId,
-                item.Unit
+                item.Unit,
+                item.SpecimenTypeId
             )
             {
                 ComparisonOperator = item.ComparisonOperator,
@@ -403,9 +437,12 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         await _standardIndicatorRepository.UpdateAsync(entity);
 
-        // Get indicator and test method info for response
+        // Get indicator, test method, and specimen type info for response
         var indicator = await _indicatorRepository.FindAsync(entity.IndicatorId);
         var testMethod = await _testMethodRepository.FindAsync(entity.TestMethodId);
+        var specimenType = entity.SpecimenTypeId.HasValue
+            ? await _specimenTypeRepository.FindAsync(entity.SpecimenTypeId.Value)
+            : null;
 
         return new StandardIndicatorDto
         {
@@ -416,6 +453,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
             IndicatorName = indicator?.Name ?? "",
             IndicatorFormattedName = indicator?.FormattedName,
             ParentIndicatorId = indicator?.ParentIndicatorId,
+            SpecimenTypeId = entity.SpecimenTypeId,
+            SpecimenTypeCode = specimenType?.Code,
+            SpecimenTypeName = specimenType?.Name,
             TestMethodId = entity.TestMethodId,
             TestMethodCode = testMethod?.Code ?? "",
             TestMethodName = testMethod?.Name ?? "",
@@ -443,7 +483,41 @@ public class StandardAppService : ApplicationService, IStandardAppService
             throw new Common.Exceptions.EntityNotFoundException("StandardIndicator", id);
         }
 
-        await _standardIndicatorRepository.DeleteAsync(entity);
+        // Get the parent indicator's IndicatorId
+        var parentIndicatorId = entity.IndicatorId;
+
+        // Find all sub-indicators in master data that have this as their parent
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var subIndicatorIds = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .Where(i => i.ParentIndicatorId == parentIndicatorId)
+                .Select(i => i.Id)
+        );
+
+        // Find all StandardIndicators in this standard that are sub-indicators of the parent
+        // Match by IndicatorId, TestMethodId, and SpecimenTypeId (handle null correctly)
+        var entitiesToDelete = new List<StandardIndicator> { entity };
+
+        if (subIndicatorIds.Any())
+        {
+            // Get fresh query to avoid any tracking issues
+            var freshQuery = await _standardIndicatorRepository.GetQueryableAsync();
+            var parentSpecimenTypeId = entity.SpecimenTypeId;
+            var parentTestMethodId = entity.TestMethodId;
+
+            var subStandardIndicators = await AsyncExecuter.ToListAsync(
+                freshQuery.Where(si =>
+                    si.StandardId == standardId &&
+                    subIndicatorIds.Contains(si.IndicatorId) &&
+                    si.TestMethodId == parentTestMethodId &&
+                    ((si.SpecimenTypeId == null && parentSpecimenTypeId == null) ||
+                     (si.SpecimenTypeId != null && parentSpecimenTypeId != null && si.SpecimenTypeId == parentSpecimenTypeId)))
+            );
+            entitiesToDelete.AddRange(subStandardIndicators);
+        }
+
+        // Delete all (parent + sub-indicators)
+        await _standardIndicatorRepository.DeleteManyAsync(entitiesToDelete);
     }
 
     public async Task<StandardIndicatorDto> ToggleIndicatorActiveAsync(Guid standardId, Guid id)
@@ -461,9 +535,53 @@ public class StandardAppService : ApplicationService, IStandardAppService
         entity.IsActive = !entity.IsActive;
         await _standardIndicatorRepository.UpdateAsync(entity);
 
-        // Get indicator and test method info for response
+        // Get indicator info to check if this is a parent indicator
         var indicator = await _indicatorRepository.FindAsync(entity.IndicatorId);
+
+        // If this is a parent indicator (has no parent), also toggle all its sub-indicators
+        if (indicator != null && indicator.ParentIndicatorId == null)
+        {
+            // Find all sub-indicators of this parent in the same standard and with the same method
+            var subIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+            var subIndicators = await AsyncExecuter.ToListAsync(
+                subIndicatorQuery.Where(i => i.ParentIndicatorId == entity.IndicatorId)
+            );
+
+            if (subIndicators.Any())
+            {
+                var subIndicatorIdList = subIndicators.Select(s => s.Id).ToList();
+                var parentSpecimenTypeId = entity.SpecimenTypeId;
+                var parentTestMethodId = entity.TestMethodId;
+
+                // Find StandardIndicator records for these sub-indicators
+                // Match by TestMethodId and SpecimenTypeId (handle null correctly)
+                var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+                var subStandardIndicators = await AsyncExecuter.ToListAsync(
+                    standardIndicatorQuery.Where(si =>
+                        si.StandardId == standardId &&
+                        si.TestMethodId == parentTestMethodId &&
+                        subIndicatorIdList.Contains(si.IndicatorId) &&
+                        ((si.SpecimenTypeId == null && parentSpecimenTypeId == null) ||
+                         (si.SpecimenTypeId != null && parentSpecimenTypeId != null && si.SpecimenTypeId == parentSpecimenTypeId)))
+                );
+
+                // Update all sub-indicators to the same active status as the parent
+                foreach (var subSi in subStandardIndicators)
+                {
+                    subSi.IsActive = entity.IsActive;
+                }
+
+                if (subStandardIndicators.Any())
+                {
+                    await _standardIndicatorRepository.UpdateManyAsync(subStandardIndicators);
+                }
+            }
+        }
+
         var testMethod = await _testMethodRepository.FindAsync(entity.TestMethodId);
+        var specimenType = entity.SpecimenTypeId.HasValue
+            ? await _specimenTypeRepository.FindAsync(entity.SpecimenTypeId.Value)
+            : null;
 
         return new StandardIndicatorDto
         {
@@ -474,6 +592,9 @@ public class StandardAppService : ApplicationService, IStandardAppService
             IndicatorName = indicator?.Name ?? "",
             IndicatorFormattedName = indicator?.FormattedName,
             ParentIndicatorId = indicator?.ParentIndicatorId,
+            SpecimenTypeId = entity.SpecimenTypeId,
+            SpecimenTypeCode = specimenType?.Code,
+            SpecimenTypeName = specimenType?.Name,
             TestMethodId = entity.TestMethodId,
             TestMethodCode = testMethod?.Code ?? "",
             TestMethodName = testMethod?.Name ?? "",

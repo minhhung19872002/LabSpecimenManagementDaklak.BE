@@ -1,5 +1,6 @@
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -152,6 +153,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/unit")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(
+        Guid indicatorId,
+        [FromBody] string? unit)
+    {
+        return _laboratoryTaskAppService.UpdateIndicatorUnitAsync(indicatorId, unit);
+    }
+
+    /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
     [HttpPut("indicators/{indicatorId}/note")]
@@ -277,7 +290,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
     public virtual Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(
         Guid taskId,
-        [FromBody] BulkApproveIndicatorsDto input)
+        [FromBody] LaboratoryTasks.BulkApproveIndicatorsDto input)
     {
         return _laboratoryTaskAppService.BulkApproveIndicatorsAsync(taskId, input);
     }
@@ -405,6 +418,19 @@ public class LaboratoryTaskController : LabSpecimenManagementController
         [FromBody] ReceiveSharedSampleDto input)
     {
         return _laboratoryTaskAppService.ReceiveSharedSampleAsync(id, input);
+    }
+
+    #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    [HttpGet("sample-assignment-log")]
+    public virtual async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return await _laboratoryTaskAppService.GetSampleAssignmentLogAsync(input);
     }
 
     #endregion

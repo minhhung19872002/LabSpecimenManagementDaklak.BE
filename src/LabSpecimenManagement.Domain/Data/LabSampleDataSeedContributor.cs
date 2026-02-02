@@ -106,17 +106,18 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
             return;
         }
 
+        // Bỏ seed master data - dữ liệu sẽ được nhập từ Excel import
         await SeedDepartmentsAsync();
-        await SeedSpecimenTypesAsync();
-        await SeedTestMethodsAsync();
-        await SeedStorageLocationsAsync();
+        // await SeedSpecimenTypesAsync();
+        // await SeedTestMethodsAsync();
+        // await SeedStorageLocationsAsync();
         await SeedCustomersAsync();
         await SeedOrganizationsAsync();
         await SeedLaboratoriesAsync();
-        await SeedIndicatorGroupsAndIndicatorsAsync();
-        await SeedTestMethodIndicatorsAsync();
-        await SeedStandardsAsync();
-        await SeedStandardIndicatorsAsync();
+        // await SeedIndicatorGroupsAndIndicatorsAsync();
+        // await SeedTestMethodIndicatorsAsync();
+        // await SeedStandardsAsync();
+        // await SeedStandardIndicatorsAsync();
         // await SeedTestRequestsAndRelatedDataAsync(); // Bỏ seeder phiếu yêu cầu
     }
 

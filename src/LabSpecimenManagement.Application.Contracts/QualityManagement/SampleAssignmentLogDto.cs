@@ -89,6 +89,11 @@ public class SampleAssignmentLogDto
     public Guid? LaboratoryTaskIndicatorId { get; set; }
 
     /// <summary>
+    /// Indicator ID - ID của chỉ tiêu master data
+    /// </summary>
+    public Guid IndicatorId { get; set; }
+
+    /// <summary>
     /// Tên chỉ tiêu - Indicator Name
     /// </summary>
     public string? IndicatorName { get; set; }

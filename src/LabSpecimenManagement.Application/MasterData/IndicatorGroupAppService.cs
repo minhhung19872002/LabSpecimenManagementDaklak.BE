@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 
 namespace LabSpecimenManagement.MasterData;
@@ -28,17 +29,20 @@ public class IndicatorGroupAppService :
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IDataFilter _dataFilter;
 
     public IndicatorGroupAppService(
         IRepository<IndicatorGroup, Guid> repository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
-        IRepository<Department, Guid> departmentRepository)
+        IRepository<Department, Guid> departmentRepository,
+        IDataFilter dataFilter)
         : base(repository)
     {
         _indicatorRepository = indicatorRepository;
         _laboratoryRepository = laboratoryRepository;
         _departmentRepository = departmentRepository;
+        _dataFilter = dataFilter;
 
         GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
         GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
@@ -101,7 +105,8 @@ public class IndicatorGroupAppService :
 
     protected override Task MapToEntityAsync(CreateUpdateIndicatorGroupDto updateInput, IndicatorGroup entity)
     {
-        entity.Name = updateInput.Name;
+        // Normalize name to ensure consistent Unicode representation
+        entity.Name = StringHelper.NormalizeAndTrim(updateInput.Name);
         entity.IsActive = updateInput.IsActive;
         entity.LaboratoryId = updateInput.LaboratoryId;
         return Task.CompletedTask;
@@ -112,8 +117,14 @@ public class IndicatorGroupAppService :
     {
         var result = new ImportIndicatorGroupsResultDto();
 
-        var existingQuery = await Repository.GetQueryableAsync();
-        var existingNames = existingQuery.Select(g => g.Name.Trim().ToLower()).ToHashSet();
+        // Disable soft delete filter to include deleted records (avoid duplicate name if there's a unique constraint)
+        HashSet<string> existingNames;
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var existingQuery = await Repository.GetQueryableAsync();
+            // Normalize existing names for consistent comparison
+            existingNames = existingQuery.Select(g => StringHelper.NormalizeAndTrim(g.Name).ToLower()).ToHashSet();
+        }
 
         var rows = MiniExcelLibs.MiniExcel.Query(fileStream, useHeaderRow: true).ToList();
         result.TotalRows = rows.Count;
@@ -128,7 +139,10 @@ public class IndicatorGroupAppService :
                 continue;
             }
 
-            var name = rowData.ContainsKey("Tên nhóm chỉ tiêu") ? rowData["Tên nhóm chỉ tiêu"]?.ToString()?.Trim() : null;
+            // Normalize name from Excel for consistent Unicode representation
+            var name = rowData.ContainsKey("Tên nhóm chỉ tiêu")
+                ? StringHelper.NormalizeAndTrim(rowData["Tên nhóm chỉ tiêu"]?.ToString())
+                : null;
 
             if (string.IsNullOrWhiteSpace(name))
             {

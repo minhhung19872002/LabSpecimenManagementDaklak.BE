@@ -376,6 +376,104 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region SampleTypeCategory Import
+
+    /// <summary>
+    /// Get template for importing SampleTypeCategory
+    /// Template columns: Tên Danh mục loại, Mô tả
+    /// </summary>
+    [HttpGet("sample-type-categories/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetSampleTypeCategoryTemplate()
+    {
+        var bytes = _importAppService.GetSampleTypeCategoryTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_muc_loai_mau.xlsx");
+    }
+
+    /// <summary>
+    /// Preview SampleTypeCategory import - validates data without saving
+    /// Upsert: match by Name (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("sample-type-categories/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewSampleTypeCategoriesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import SampleTypeCategories from Excel file
+    /// Upsert logic: match by Name (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("sample-type-categories")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportSampleTypeCategoriesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportSampleTypeCategoriesAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region SpecimenType Import
+
+    /// <summary>
+    /// Get template for importing SpecimenType
+    /// Template columns: Tên Danh mục loại, Nền mẫu, Tên chỉ tiêu
+    /// </summary>
+    [HttpGet("specimen-types/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetSpecimenTypeTemplate()
+    {
+        var bytes = _importAppService.GetSpecimenTypeTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Nen_Mau.xlsx");
+    }
+
+    /// <summary>
+    /// Preview SpecimenType import - validates data without saving
+    /// Upsert: match by (CategoryName + SpecimenTypeName) normalized
+    /// Auto-generate unique Code for new SpecimenTypes
+    /// </summary>
+    [HttpPost("specimen-types/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewSpecimenTypesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import SpecimenTypes from Excel file
+    /// Upsert logic: match by (CategoryName + SpecimenTypeName) normalized
+    /// Auto-generate unique Code for new SpecimenTypes
+    /// </summary>
+    [HttpPost("specimen-types")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportSpecimenTypesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportSpecimenTypesAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)

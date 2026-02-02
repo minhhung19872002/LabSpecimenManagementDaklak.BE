@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Users;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using QualityManagement = LabSpecimenManagement.QualityManagement;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
 
@@ -73,6 +74,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
     /// </summary>
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId);
+
+    /// <summary>
+    /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
+    /// </summary>
+    Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit);
 
     /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
@@ -225,6 +231,17 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// <param name="input">Thông tin nhận mẫu (ghi chú tùy chọn)</param>
     /// <returns>DTO task sau khi nhận</returns>
     Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input);
+
+    #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    /// <param name="input">Filter và pagination</param>
+    /// <returns>Danh sách SampleAssignmentLogDto</returns>
+    Task<PagedResultDto<QualityManagement.SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(QualityManagement.GetSampleAssignmentLogInput input);
 
     #endregion
 }

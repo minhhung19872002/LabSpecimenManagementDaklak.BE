@@ -389,7 +389,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // SampleTypeCategory configuration
@@ -427,7 +428,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.DefaultStorageCondition).HasMaxLength(256);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.SampleTypeCategoryId);
 
             // FK to SampleTypeCategory
@@ -457,7 +459,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IsActive);
         });
 
@@ -470,7 +473,10 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.TestMethodId);
             b.HasIndex(x => x.IndicatorId);
-            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId }).IsUnique();
+            b.HasIndex(x => x.SpecimenTypeId);
+            // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId
+            // Allows same indicator multiple times with different specimen types
+            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
         });
 
         // StorageLocation configuration
@@ -484,7 +490,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Temperature).HasMaxLength(50);
             b.Property(x => x.Humidity).HasMaxLength(50);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // Customer configuration
@@ -501,7 +508,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.TaxCode).HasMaxLength(50);
             b.Property(x => x.ContactPerson).HasMaxLength(256);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // TestResultValue configuration
@@ -514,7 +522,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(200);
             b.Property(x => x.Description).HasMaxLength(500);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // Note configuration
@@ -526,7 +535,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Content).IsRequired().HasMaxLength(1000);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IsActive);
         });
 
@@ -538,7 +548,8 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
 
-            b.HasIndex(x => x.Name).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Name).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // Indicator configuration
@@ -551,7 +562,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.FormattedName).HasMaxLength(1000);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IndicatorGroupId);
             b.HasIndex(x => x.IsActive);
             b.HasIndex(x => x.ParentIndicatorId);
@@ -578,7 +590,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Code).IsRequired().HasMaxLength(20);
             b.Property(x => x.DepartmentId).IsRequired();
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.DepartmentId);
             b.HasIndex(x => x.IsActive);
         });
@@ -593,7 +606,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.LimitDescription).HasMaxLength(500);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IsActive);
         });
 
@@ -613,7 +627,8 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.StandardId);
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.TestMethodId);
-            b.HasIndex(x => new { x.StandardId, x.IndicatorId, x.TestMethodId }).IsUnique();
+            b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => new { x.StandardId, x.IndicatorId, x.TestMethodId, x.SpecimenTypeId }).IsUnique();
         });
 
         // TestRequestIndicator configuration (Junction Table)
@@ -644,7 +659,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.RelatedEntityType).HasMaxLength(100);
             b.Property(x => x.RelatedEntityCode).HasMaxLength(100);
 
-            b.HasIndex(x => x.NCRNumber).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.NCRNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.Severity);
             b.HasIndex(x => x.RelatedEntityId);
@@ -665,7 +681,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.QRCode).HasMaxLength(512);
             b.Property(x => x.Notes).HasMaxLength(2000);
 
-            b.HasIndex(x => x.ReportNumber).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.ReportNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.TestRequestId);
             b.HasIndex(x => x.Status);
         });
@@ -707,7 +724,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Department).IsRequired().HasMaxLength(256);
             b.Property(x => x.Notes).HasMaxLength(2000);
 
-            b.HasIndex(x => x.TaskNumber).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.TaskNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.AssignedToId);
             b.HasIndex(x => x.AssignedById);
             b.HasIndex(x => x.Status);
@@ -731,7 +749,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Capabilities).HasMaxLength(2000);
             b.Property(x => x.Notes).HasMaxLength(2000);
 
-            b.HasIndex(x => x.Code).IsUnique();
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IsActive);
         });
 

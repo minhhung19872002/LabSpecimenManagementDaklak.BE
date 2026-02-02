@@ -18,4 +18,19 @@ public class TestMethodIndicatorDto
     /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc)
     /// </summary>
     public Guid? ParentIndicatorId { get; set; }
+
+    /// <summary>
+    /// Nền mẫu (Loại mẫu) - ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Mã nền mẫu
+    /// </summary>
+    public string? SpecimenTypeCode { get; set; }
+
+    /// <summary>
+    /// Tên nền mẫu
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
 }

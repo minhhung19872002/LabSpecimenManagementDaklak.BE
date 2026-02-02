@@ -346,8 +346,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             PriorLabSentSample = false // Will be set below if applicable
         };
 
-        // Check if prior lab has sent sample
-        if (task.PriorLabTaskId.HasValue && task.IsWaitingForPriorLab)
+        // Check if prior lab has sent sample (for Lab Hóa to know when Vi Sinh sent)
+        if (task.PriorLabTaskId.HasValue)
         {
             var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
             if (priorTask != null)
@@ -496,6 +496,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 IndicatorName = indicator?.Name,
                 IndicatorFormattedName = indicator?.FormattedName,
                 IndicatorGroupName = indicatorGroupName,
+                ParentIndicatorId = indicator?.ParentIndicatorId,
                 UnitPrice = sampleIndicator.UnitPrice,
                 // Phase 6 workflow fields
                 MethodId = taskIndicator.MethodId,
@@ -871,7 +872,15 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Nếu approve, tạo QualityManagementIndicator và gửi thông báo đến tất cả QLCL
         if (input.Approve)
         {
-            await CreateQualityManagementTaskAsync(task, new List<LaboratoryTaskIndicator> { taskIndicator });
+            // Auto-approve parent indicator nếu đây là sub-indicator
+            var indicatorsToSendToQuality = new List<LaboratoryTaskIndicator> { taskIndicator };
+            var autoApprovedParent = await AutoApproveParentIndicatorIfNeededAsync(taskIndicator, task);
+            if (autoApprovedParent != null)
+            {
+                indicatorsToSendToQuality.Add(autoApprovedParent);
+            }
+
+            await CreateQualityManagementTaskAsync(task, indicatorsToSendToQuality);
 
             // Update task status to SentToQuality nếu tất cả đã được gửi
             var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
@@ -927,13 +936,6 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
         }
 
-        // Auto send to QLCL when approved - create QualityManagementTask and notify all QLCL
-        if (input.Approve)
-        {
-            await CreateQualityManagementTaskAsync(task, new List<LaboratoryTaskIndicator> { taskIndicator });
-            await NotifyAllQualityManagersOnApproveAsync(task, taskIndicator);
-        }
-
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
 
@@ -966,6 +968,37 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
 
         taskIndicator.StandardId = standardId;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
+    /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can update unit
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật đơn vị tính");
+        }
+
+        // Validate: Cannot update when indicator is Approved or CustomerCancelled
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã duyệt", "indicator");
+        }
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã bị hủy", "indicator");
+        }
+
+        taskIndicator.Unit = unit;
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         return await MapToIndicatorDtoAsync(taskIndicator);
@@ -1403,12 +1436,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // - CustomerCancelled: KH đã hủy chỉ tiêu
         // - TestingRejected with CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
         // These should not affect task status calculation (considered as "completed/finalized")
-        var activeIndicators = taskIndicators
+        var filteredIndicators = taskIndicators
             .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
                         !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
             .ToList();
 
-        // If all indicators are cancelled/rejected, keep current status or set to a default
+        // Filter out parent indicators with children (they are display-only, not for processing)
+        // Only count sub-indicators and standalone indicators for status calculation
+        var activeIndicators = await FilterIndicatorsForStatusCalculationAsync(filteredIndicators);
+
+        // If all indicators are cancelled/rejected or are parents, keep current status or set to a default
         if (!activeIndicators.Any())
         {
             return;
@@ -1762,6 +1799,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             IndicatorName = indicator?.Name,
             IndicatorFormattedName = indicator?.FormattedName,
             IndicatorGroupName = indicatorGroupName,
+            ParentIndicatorId = indicator?.ParentIndicatorId,
             UnitPrice = sampleIndicator.UnitPrice,
             // Phase 6 workflow fields
             MethodId = taskIndicator.MethodId,
@@ -1864,6 +1902,145 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return contents.Count > 0 ? contents : null;
     }
 
+    /// <summary>
+    /// Tự động duyệt chỉ tiêu cha khi chỉ tiêu phụ được duyệt.
+    /// Logic: Khi duyệt sub-indicator, cần auto-approve parent để QLCL có thể group đúng.
+    /// </summary>
+    /// <param name="subIndicatorTaskIndicator">LaboratoryTaskIndicator của chỉ tiêu phụ vừa được duyệt</param>
+    /// <param name="task">LaboratoryTask hiện tại</param>
+    /// <returns>Parent LaboratoryTaskIndicator nếu được auto-approve, null nếu không cần</returns>
+    private async Task<LaboratoryTaskIndicator?> AutoApproveParentIndicatorIfNeededAsync(
+        LaboratoryTaskIndicator subIndicatorTaskIndicator,
+        LaboratoryTask task)
+    {
+        // 1. Lấy TestRequestSampleIndicator để biết IndicatorId và SampleId
+        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(subIndicatorTaskIndicator.TestRequestSampleIndicatorId);
+        if (sampleIndicator == null) return null;
+
+        // Lưu lại SampleId của sub-indicator để tìm parent cùng sample
+        var subIndicatorSampleId = sampleIndicator.TestRequestSampleId;
+
+        // 2. Lấy Indicator và kiểm tra có ParentIndicatorId không
+        var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+        if (indicator == null || !indicator.ParentIndicatorId.HasValue) return null;
+
+        var parentIndicatorId = indicator.ParentIndicatorId.Value;
+
+        // 3. Tìm tất cả LaboratoryTaskIndicator của task với cùng method
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            ti => ti.LaboratoryTaskId == task.Id &&
+                  ti.MethodId == subIndicatorTaskIndicator.MethodId);
+
+        // 4. Tìm parent's LaboratoryTaskIndicator CÙNG SAMPLE với sub-indicator
+        foreach (var taskIndicator in allTaskIndicators)
+        {
+            var si = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+            // Phải check cả IndicatorId VÀ cùng SampleId
+            if (si?.IndicatorId == parentIndicatorId && si?.TestRequestSampleId == subIndicatorSampleId)
+            {
+                // Nếu parent chưa được approve, auto-approve nó
+                if (taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved)
+                {
+                    taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Approved;
+                    taskIndicator.ApprovalDate = DateTime.Now;
+                    taskIndicator.ApprovedById = CurrentUser.Id;
+                    taskIndicator.RejectionReason = null;
+                    taskIndicator.IsSentToQuality = true;
+
+                    await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
+                    return taskIndicator;
+                }
+                break;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Lọc ra các chỉ tiêu cần tính toán status (loại bỏ parent indicators có children).
+    /// Parent indicators có children chỉ để hiển thị, không cần xử lý (testing, approve).
+    /// Chỉ tính: sub-indicators và standalone indicators (không có children).
+    /// </summary>
+    /// <param name="taskIndicators">Danh sách tất cả LaboratoryTaskIndicator của task</param>
+    /// <returns>Danh sách các indicators cần tính toán status</returns>
+    private async Task<List<LaboratoryTaskIndicator>> FilterIndicatorsForStatusCalculationAsync(
+        List<LaboratoryTaskIndicator> taskIndicators)
+    {
+        if (!taskIndicators.Any())
+        {
+            return taskIndicators;
+        }
+
+        // Bước 1: Lấy tất cả TestRequestSampleIndicator IDs
+        var sampleIndicatorIds = taskIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
+
+        // Bước 2: Query tất cả SampleIndicators một lần
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+        var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        // Bước 3: Lấy tất cả IndicatorIds
+        var indicatorIds = sampleIndicatorMap.Values.Distinct().ToList();
+
+        // Bước 4: Query tất cả Indicators một lần
+        var indicators = await _indicatorRepository.GetListAsync(ind => indicatorIds.Contains(ind.Id));
+        var indicatorMap = indicators.ToDictionary(ind => ind.Id, ind => ind);
+
+        // Bước 5: Xây dựng mapping taskIndicatorId -> indicatorId
+        var taskIndicatorToIndicatorId = new Dictionary<Guid, Guid>();
+        foreach (var ti in taskIndicators)
+        {
+            if (sampleIndicatorMap.TryGetValue(ti.TestRequestSampleIndicatorId, out var indicatorId))
+            {
+                taskIndicatorToIndicatorId[ti.Id] = indicatorId;
+            }
+        }
+
+        // Bước 6: Xác định các parent indicators có children trong cùng task
+        // Composite key: indicatorId + methodId
+        var parentIndicatorKeys = new HashSet<string>();
+
+        // Tìm tất cả các parent indicator IDs từ các sub-indicators
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId)) continue;
+            if (!indicatorMap.TryGetValue(indicatorId, out var indicator)) continue;
+
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Đây là sub-indicator, đánh dấu parent của nó
+                var parentKey = $"{indicator.ParentIndicatorId.Value}_{ti.MethodId}";
+                parentIndicatorKeys.Add(parentKey);
+            }
+        }
+
+        // Bước 7: Lọc ra các indicators cần tính status
+        // Loại bỏ các parent indicators có children (tức là có trong parentIndicatorKeys)
+        var result = new List<LaboratoryTaskIndicator>();
+        foreach (var ti in taskIndicators)
+        {
+            if (!taskIndicatorToIndicatorId.TryGetValue(ti.Id, out var indicatorId))
+            {
+                // Không tìm thấy mapping, vẫn giữ lại (edge case)
+                result.Add(ti);
+                continue;
+            }
+
+            var key = $"{indicatorId}_{ti.MethodId}";
+            if (parentIndicatorKeys.Contains(key))
+            {
+                // Đây là parent indicator có children -> skip
+                continue;
+            }
+
+            // Đây là sub-indicator hoặc standalone indicator -> giữ lại
+            result.Add(ti);
+        }
+
+        return result;
+    }
+
     #endregion
 
     // Supporter Management methods moved to LaboratoryTaskAppService.Supporters.cs
@@ -1899,6 +2076,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         var results = new List<LaboratoryTaskIndicatorDto>();
         var approvedIndicators = new List<LaboratoryTaskIndicator>();
+        var autoApprovedParentIds = new HashSet<Guid>(); // Track đã auto-approve parents nào để tránh duplicate
 
         foreach (var indicatorId in input.IndicatorIds)
         {
@@ -1926,6 +2104,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                 // Add to approvedIndicators list for later processing
                 approvedIndicators.Add(taskIndicator);
+
+                // Auto-approve parent indicator nếu đây là sub-indicator
+                var autoApprovedParent = await AutoApproveParentIndicatorIfNeededAsync(taskIndicator, task);
+                if (autoApprovedParent != null && !autoApprovedParentIds.Contains(autoApprovedParent.Id))
+                {
+                    autoApprovedParentIds.Add(autoApprovedParent.Id);
+                    approvedIndicators.Add(autoApprovedParent);
+                }
             }
             else
             {
@@ -2602,6 +2788,272 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .OrderBy(x => x.RejectedCount > 0 ? 0 : (x.EnteredCount > 0 ? 1 : 2))
             .ThenBy(x => x.RequestCompletionDate ?? DateTime.MaxValue)
             .ToList();
+    }
+
+    #endregion
+
+    #region Sample Assignment Log (Sổ nhận mẫu giao việc)
+
+    /// <summary>
+    /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        // Get queryables
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+
+        // Build base query from LaboratoryTaskIndicator
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
+                    from tm in tmJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        // TestRequest info
+                        TestRequestId = tr.Id,
+                        LaboratoryTaskId = lt.Id,
+                        ContractNumber = tr.ContractNumber,
+                        TestRequestStatus = tr.Status,
+                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+
+                        // Sample info
+                        SampleId = s.Id,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        SampleQuantity = s.SampleQuantity,
+                        SampleStatusText = s.StatusText,
+
+                        // Indicator info
+                        TestRequestSampleIndicatorId = si.Id,
+                        LaboratoryTaskIndicatorId = li.Id,
+                        IndicatorId = li.Id,
+                        IndicatorName = mi.Name,
+                        IndicatorFormattedName = mi.FormattedName,
+                        MethodName = tm != null ? tm.Name : null,
+                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        Unit = li.Unit,
+                        TransferDate = si.TransferDate,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+
+                        // Assignment info
+                        TechnicalManagerId = lt.TechnicalManagerId,
+                        TechnicianId = li.TechnicianId,
+                        EntryDate = li.EntryDate,
+                        QlktApprovalDate = li.ApprovalDate,
+
+                        // Status
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+
+                        // Laboratory info (for filtering)
+                        LaboratoryId = lt.LaboratoryId
+                    };
+
+        // Apply access control for QLKT: Show all tasks of Labs that user manages
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            // Get labs where current user is Technical Manager
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            // Get task IDs where current user is a supporter
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            // Filter: Show tasks from labs user manages OR tasks where user is supporter
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId));
+        }
+
+        // Apply filters
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.TestRequestStatus.HasValue)
+        {
+            query = query.Where(x => x.TestRequestStatus == input.TestRequestStatus.Value);
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+        }
+
+        if (input.LaboratoryId.HasValue)
+        {
+            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+        }
+
+        // Count unique contracts (not rows) for pagination
+        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
+
+        // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
+
+        var sortedQuery = sortingKey switch
+        {
+            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+        };
+
+        // Pagination by contract count (not row count)
+        // skipCount and maxResultCount refer to number of contracts, not rows
+        var allItems = sortedQuery.ToList();
+        var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
+
+        // Resolve user names
+        var userIds = items
+            .SelectMany(x => new[] { x.TechnicalManagerId, x.TechnicianId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var userNameMap = new Dictionary<Guid, string>();
+        foreach (var userId in userIds)
+        {
+            var userName = await _userNameProvider.GetUserNameAsync(userId);
+            if (userName != null) userNameMap[userId] = userName;
+        }
+
+        // Map to DTOs
+        var dtos = items.Select(x => new SampleAssignmentLogDto
+        {
+            TestRequestId = x.TestRequestId,
+            QualityTaskId = Guid.Empty,
+            LaboratoryTaskId = x.LaboratoryTaskId,
+            ContractNumber = x.ContractNumber,
+            TestRequestStatus = x.TestRequestStatus,
+            RequestCompletionDate = x.RequestCompletionDate,
+            SampleId = x.SampleId,
+            SampleCode = x.SampleCode,
+            SampleName = x.SampleName,
+            SampleQuantity = x.SampleQuantity,
+            SampleStatusText = x.SampleStatusText,
+            TestRequestSampleIndicatorId = x.TestRequestSampleIndicatorId,
+            LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+            IndicatorId = x.IndicatorId,
+            IndicatorName = x.IndicatorName,
+            IndicatorFormattedName = x.IndicatorFormattedName,
+            MethodName = x.MethodName,
+            MethodFormattedName = x.MethodFormattedName,
+            Unit = x.Unit,
+            TransferDate = x.TransferDate,
+            TestDate = x.TestDate,
+            Result = x.Result,
+            TechnicalManagerName = x.TechnicalManagerId.HasValue && userNameMap.ContainsKey(x.TechnicalManagerId.Value)
+                ? userNameMap[x.TechnicalManagerId.Value] : null,
+            TechnicianName = x.TechnicianId.HasValue && userNameMap.ContainsKey(x.TechnicianId.Value)
+                ? userNameMap[x.TechnicianId.Value] : null,
+            EntryDate = x.EntryDate,
+            QlktApprovalDate = x.QlktApprovalDate,
+            IndicatorApprovalStatus = x.IndicatorApprovalStatus,
+            TestingStatus = MapSampleAssignmentTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
+            QualityApprovalStatus = null,
+            IsReportPublished = false
+        }).ToList();
+
+        return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);
+    }
+
+    /// <summary>
+    /// Helper method to paginate by contract (not by row)
+    /// </summary>
+    private static List<T> GetItemsByContractPagination<T>(List<T> allItems, int skipCount, int maxResultCount) where T : class
+    {
+        if (allItems.Count == 0 || maxResultCount <= 0)
+            return new List<T>();
+
+        // Get ContractNumber property via reflection (works for anonymous types)
+        var contractNumberProperty = typeof(T).GetProperty("ContractNumber");
+        if (contractNumberProperty == null)
+        {
+            // Fallback to standard pagination if no ContractNumber property
+            return allItems.Skip(skipCount).Take(maxResultCount).ToList();
+        }
+
+        Func<T, string?> getContractNumber = item => contractNumberProperty.GetValue(item) as string;
+
+        // Get unique contract numbers in order of appearance
+        var uniqueContracts = new List<string?>();
+        string? lastContract = null;
+        foreach (var item in allItems)
+        {
+            var contract = getContractNumber(item);
+            if (contract != lastContract)
+            {
+                uniqueContracts.Add(contract);
+                lastContract = contract;
+            }
+        }
+
+        // Apply pagination to contracts (skip and take by contract count)
+        var selectedContracts = uniqueContracts
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToHashSet();
+
+        // Return all rows belonging to the selected contracts
+        return allItems
+            .Where(item => selectedContracts.Contains(getContractNumber(item)))
+            .ToList();
+    }
+
+    private static TestingStatus? MapSampleAssignmentTestingStatus(
+        IndicatorApprovalStatus approvalStatus,
+        DateTime? testDate,
+        string? result)
+    {
+        if (!string.IsNullOrWhiteSpace(result))
+        {
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? TestingStatus.Completed
+                : TestingStatus.PendingApproval;
+        }
+
+        if (testDate.HasValue)
+        {
+            return TestingStatus.InProgress;
+        }
+
+        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
+            ? TestingStatus.NotStarted
+            : null;
     }
 
     #endregion

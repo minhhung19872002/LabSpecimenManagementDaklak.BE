@@ -691,7 +691,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppCustomers", (string)null);
                 });
@@ -765,7 +766,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppDepartments", (string)null);
                 });
@@ -846,7 +848,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("IndicatorGroupId");
 
@@ -918,7 +921,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Name")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppIndicatorGroups", (string)null);
                 });
@@ -990,7 +994,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("DepartmentId");
 
@@ -1065,7 +1070,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("IsActive");
 
@@ -1375,7 +1381,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("SampleTypeCategoryId");
 
@@ -1481,7 +1488,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("IsActive");
 
@@ -1518,6 +1526,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("StandardId")
                         .HasColumnType("uuid");
 
@@ -1541,11 +1552,13 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("IndicatorId");
 
+                    b.HasIndex("SpecimenTypeId");
+
                     b.HasIndex("StandardId");
 
                     b.HasIndex("TestMethodId");
 
-                    b.HasIndex("StandardId", "IndicatorId", "TestMethodId")
+                    b.HasIndex("StandardId", "IndicatorId", "TestMethodId", "SpecimenTypeId")
                         .IsUnique();
 
                     b.ToTable("AppStandardIndicators", (string)null);
@@ -1634,7 +1647,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppStorageLocations", (string)null);
                 });
@@ -1713,7 +1727,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("IsActive");
 
@@ -1731,6 +1746,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
 
@@ -1742,9 +1760,11 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("IndicatorId");
 
+                    b.HasIndex("SpecimenTypeId");
+
                     b.HasIndex("TestMethodId");
 
-                    b.HasIndex("TestMethodId", "IndicatorId")
+                    b.HasIndex("TestMethodId", "IndicatorId", "SpecimenTypeId")
                         .IsUnique();
 
                     b.ToTable("AppTestMethodIndicators", (string)null);
@@ -1820,7 +1840,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppTestResultValues", (string)null);
                 });
@@ -1950,7 +1971,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("AssignedToId");
 
                     b.HasIndex("NCRNumber")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("RelatedEntityId");
 
@@ -2750,7 +2772,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ReportNumber")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("Status");
 
@@ -2876,7 +2899,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.HasIndex("IsActive");
 
@@ -3076,7 +3100,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Status");
 
                     b.HasIndex("TaskNumber")
-                        .IsUnique();
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppTaskAssignments", (string)null);
                 });

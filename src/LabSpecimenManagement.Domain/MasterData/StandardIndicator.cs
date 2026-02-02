@@ -26,6 +26,11 @@ public class StandardIndicator : Entity<Guid>, IHasActive
     public Guid TestMethodId { get; set; }
 
     /// <summary>
+    /// ID Nền mẫu (Loại mẫu)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Đơn vị (lấy từ TestMethod)
     /// </summary>
     public string Unit { get; set; }
@@ -79,11 +84,13 @@ public class StandardIndicator : Entity<Guid>, IHasActive
         Guid standardId,
         Guid indicatorId,
         Guid testMethodId,
-        string unit) : base(id)
+        string unit,
+        Guid? specimenTypeId = null) : base(id)
     {
         StandardId = standardId;
         IndicatorId = indicatorId;
         TestMethodId = testMethodId;
+        SpecimenTypeId = specimenTypeId;
         Unit = unit;
         IsActive = true;
         SortOrder = 0;

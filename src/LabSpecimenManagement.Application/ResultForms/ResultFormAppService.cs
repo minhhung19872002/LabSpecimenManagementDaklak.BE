@@ -2852,8 +2852,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Enable text wrapping in all cells to prevent content overflow
         EnableTextWrappingInRow(newRow);
 
-        // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
-        CopyCellBordersFromTemplate(newRow, template);
+        // Note: Don't apply dashed borders for BM05 (phieu yeu cau) - keep original solid borders from template
 
         // First, merge split placeholders in all paragraphs within the row
         foreach (var para in newRow.Descendants<Paragraph>())
@@ -2952,8 +2951,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         {
             var newRow = (TableRow)templateClone.CloneNode(true);
 
-            // Copy cell borders from template to preserve border styles (dashed, dotted, etc.)
-            CopyCellBordersFromTemplate(newRow, templateClone);
+            // Note: Don't apply dashed borders for sub-table - keep original solid borders from template
 
             // Merge split placeholders
             foreach (var para in newRow.Descendants<Paragraph>())
