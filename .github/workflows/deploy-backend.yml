@@ -134,12 +134,6 @@ jobs:
             docker stop lab-specimen-onlyoffice 2>/dev/null || true
             docker rm lab-specimen-onlyoffice 2>/dev/null || true
 
-            # ⚠️ DANGER: Uncomment to drop and recreate database (USE WITH CAUTION!)
-            # echo "Dropping and recreating database..."
-            # docker exec lab-specimen-postgres psql -U postgres -c "DROP DATABASE IF EXISTS \"LabSpecimenManagement\";"
-            # docker exec lab-specimen-postgres psql -U postgres -c "CREATE DATABASE \"LabSpecimenManagement\";"
-            # echo "✅ Database recreated successfully"
-
             echo "Starting Collabora Online..."
             docker-compose up -d collabora
 

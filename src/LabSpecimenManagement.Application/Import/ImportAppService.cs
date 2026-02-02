@@ -760,6 +760,12 @@ public class ImportAppService : ApplicationService, IImportAppService
             .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First().Id);
 
+        // Load specimenTypes for validation
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
         var result = new TestMethodImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
@@ -805,8 +811,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 previewGroup.ExistingId = testMethodDict[testMethodKey];
             }
 
-            // Check for duplicate indicators within the group
-            var indicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            // Check for duplicate indicators within the group (key = indicatorName|specimenTypeName)
+            var indicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             foreach (var (row, rowNumber) in group)
             {
@@ -815,11 +821,36 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     RowNumber = rowNumber,
                     IndicatorName = row.IndicatorName?.Trim() ?? "",
+                    SpecimenTypeName = row.SpecimenTypeName?.Trim(),
                     UnitPrice = row.UnitPrice,
                     IsValid = true
                 };
 
                 var rowErrorMessages = new List<string>();
+
+                // Validate SpecimenType if provided (not required, but must exist if provided)
+                if (!string.IsNullOrWhiteSpace(row.SpecimenTypeName))
+                {
+                    var specimenTypeKey = StringHelper.NormalizeAndTrim(row.SpecimenTypeName).ToLowerInvariant();
+                    if (!specimenTypeDict.TryGetValue(specimenTypeKey, out var specimenType))
+                    {
+                        item.IsValid = false;
+                        var error = $"Nền mẫu '{row.SpecimenTypeName}' không tồn tại trong hệ thống";
+                        rowErrorMessages.Add(error);
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = rowNumber,
+                            ColumnName = "Nền mẫu",
+                            ErrorMessage = error,
+                            Value = row.SpecimenTypeName
+                        });
+                        AddRowError(rowErrors, rowNumber, error);
+                    }
+                    else
+                    {
+                        item.SpecimenTypeId = specimenType.Id;
+                    }
+                }
 
                 // Validate indicator name not empty
                 if (string.IsNullOrWhiteSpace(indicatorKey))
@@ -856,11 +887,15 @@ public class ImportAppService : ApplicationService, IImportAppService
                     {
                         item.IndicatorId = indicatorId;
 
-                        // Check duplicate indicator in same test method
-                        if (!indicatorNames.Add(indicatorKey))
+                        // Check duplicate indicator+specimenType in same test method
+                        var specimenTypeKeyPart = StringHelper.NormalizeAndTrim(row.SpecimenTypeName ?? "").ToLowerInvariant();
+                        var uniqueKey = $"{indicatorKey}|{specimenTypeKeyPart}";
+                        if (!indicatorKeys.Add(uniqueKey))
                         {
                             item.IsValid = false;
-                            var error = $"Chỉ tiêu '{row.IndicatorName}' bị trùng trong phương pháp này";
+                            var error = string.IsNullOrWhiteSpace(row.SpecimenTypeName)
+                                ? $"Chỉ tiêu '{row.IndicatorName}' bị trùng trong phương pháp này"
+                                : $"Chỉ tiêu '{row.IndicatorName}' với nền mẫu '{row.SpecimenTypeName}' bị trùng trong phương pháp này";
                             rowErrorMessages.Add(error);
                             validationResult.Errors.Add(new ImportRowError
                             {
@@ -1009,7 +1044,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                         _guidGenerator.Create(),
                         testMethod.Id,
                         item.IndicatorId!.Value,
-                        item.UnitPrice
+                        item.UnitPrice,
+                        item.SpecimenTypeId
                     )
                     {
                         SortOrder = sortOrder++
@@ -1062,6 +1098,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         int testMethodCol = FindColumnIndex(columnMap, "tên phương pháp", "tenpp", "ten phuong phap", "tên pp", "ten pp");
         int descriptionCol = FindColumnIndex(columnMap, "mô tả", "mo ta", "mota", "description");
         int unitCol = FindColumnIndex(columnMap, "đơn vị tính", "don vi tinh", "dvt", "đơn vị", "don vi", "unit", "đvt");
+        int specimenTypeCol = FindColumnIndex(columnMap, "nền mẫu", "nen mau", "specimen type", "loại mẫu", "loai mau");
         int indicatorCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "chitieu", "indicator", "tên chỉ tiêu", "ten chi tieu");
         int priceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "dongia", "gia", "giá", "unit price", "price");
 
@@ -1081,6 +1118,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 FormattedName = testMethodCol > 0 ? GetCellRichTextAsHtml(row.Cell(testMethodCol)) : null,
                 Description = descriptionCol > 0 ? row.Cell(descriptionCol).GetString()?.Trim() : null,
                 Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
+                SpecimenTypeName = specimenTypeCol > 0 ? row.Cell(specimenTypeCol).GetString()?.Trim() : null,
                 IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
                 UnitPrice = priceCol > 0 ? GetCellDecimalValue(row.Cell(priceCol)) : 0
             };

@@ -46,6 +46,12 @@ public class TestMethodWithIndicatorImportRow
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Tên nền mẫu (SpecimenType) - không bắt buộc, nếu có phải tồn tại trong hệ thống
+    /// </summary>
+    [MaxLength(256)]
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
     /// Đơn giá cho chỉ tiêu trong phương pháp này
     /// </summary>
     [Required(ErrorMessage = "Đơn giá là bắt buộc")]
@@ -76,6 +82,16 @@ public class TestMethodIndicatorImportItem
     /// ID chỉ tiêu nếu tìm thấy trong hệ thống
     /// </summary>
     public Guid? IndicatorId { get; set; }
+
+    /// <summary>
+    /// Tên nền mẫu
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
+    /// ID nền mẫu nếu tìm thấy trong hệ thống
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
     /// Đơn giá
