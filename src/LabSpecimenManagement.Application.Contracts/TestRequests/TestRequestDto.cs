@@ -220,6 +220,16 @@ public class TestRequestSampleIndicatorDto
     public string? TestMethodFormattedName { get; set; }
 
     /// <summary>
+    /// Nền mẫu ID - để phân biệt giá của cùng indicator+method ở các nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên nền mẫu (để hiển thị)
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
     /// Ngày chuyển giao
     /// </summary>
     public DateTime? TransferDate { get; set; }

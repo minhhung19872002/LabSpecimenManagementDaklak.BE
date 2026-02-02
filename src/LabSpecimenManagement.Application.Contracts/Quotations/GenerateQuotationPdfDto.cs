@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 
@@ -30,7 +31,22 @@ public class QuotationPdfSampleDto
 /// </summary>
 public class QuotationPdfIndicatorDto
 {
+    /// <summary>
+    /// Indicator ID (for parent-child grouping)
+    /// </summary>
+    public Guid? IndicatorId { get; set; }
+
+    /// <summary>
+    /// Parent indicator ID (null if root indicator)
+    /// </summary>
+    public Guid? ParentIndicatorId { get; set; }
+
     public string IndicatorName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Formatted name with HTML (bold, italic, sub, sup)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
 
     public int Quantity { get; set; } = 1;
 

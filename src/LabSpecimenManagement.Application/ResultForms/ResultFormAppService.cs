@@ -172,35 +172,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var officerInChargeName = await GetOfficerInChargeNameAsync(taskIndicators);
         placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
-        // 3. Build table data
-        var tableData = new List<ResultFormTableRow>();
-        int rowIndex = 1;
-
-        foreach (var sampleIndicator in sampleIndicators)
-        {
-            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
-            var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
-
-            TestMethod? method = null;
-            if (taskIndicator?.MethodId != null)
-            {
-                method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
-            }
-
-            tableData.Add(new ResultFormTableRow
-            {
-                No = rowIndex++,
-                Parameters = indicator?.Name ?? "",
-                ParametersFormattedName = indicator?.FormattedName,
-                Unit = taskIndicator?.Unit ?? "",
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
-                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
-                Standards = "",  // Standards removed from TestMethod entity
-                Uncertainty = "",  // TODO: Add Uncertainty field to LaboratoryTaskIndicator if needed
-                Proclaim = ""      // TODO: Add Proclaim field to LaboratoryTaskIndicator if needed
-            });
-        }
+        // 3. Build table data - Handle parent-child indicator grouping
+        var tableData = await BuildTableDataWithParentChildGroupingAsync(
+            sampleIndicators,
+            indicators,
+            indicatorDict,
+            taskIndicators,
+            methodDict);
 
         // 4. Generate document
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM03);
@@ -310,6 +288,234 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var fullName = $"{user.Surname} {user.Name}".Trim();
         return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+    }
+
+    /// <summary>
+    /// Build table data with parent-child indicator grouping
+    /// Parent indicators are displayed with their children grouped below:
+    /// - Parameters: "Parent Name\n- Child1 Name\n- Child2 Name"
+    /// - Result: "- Result1\n- Result2"
+    /// </summary>
+    /// <param name="skipCustomerCancelled">If true, skip indicators with CustomerCancelled status</param>
+    /// <param name="useHyphenForEmptyUnit">If true, use "-" for empty unit (BM01 style)</param>
+    private async Task<List<ResultFormTableRow>> BuildTableDataWithParentChildGroupingAsync(
+        List<TestRequestSampleIndicator> sampleIndicators,
+        List<Indicator> indicators,
+        Dictionary<Guid, Indicator> indicatorDict,
+        List<LaboratoryTaskIndicator> taskIndicators,
+        Dictionary<Guid, TestMethod> methodDict,
+        bool skipCustomerCancelled = false,
+        bool useHyphenForEmptyUnit = false)
+    {
+        var tableData = new List<ResultFormTableRow>();
+        int rowIndex = 1;
+
+        // Helper to get unit value
+        string GetUnit(LaboratoryTaskIndicator? ti) =>
+            useHyphenForEmptyUnit
+                ? (string.IsNullOrWhiteSpace(ti?.Unit) ? "-" : ti.Unit)
+                : (ti?.Unit ?? "");
+
+        // Get parent indicator IDs that are referenced but might not be in our list
+        var parentIdsToFetch = indicators
+            .Where(i => i.ParentIndicatorId.HasValue && !indicatorDict.ContainsKey(i.ParentIndicatorId.Value))
+            .Select(i => i.ParentIndicatorId!.Value)
+            .Distinct()
+            .ToList();
+
+        // Fetch parent indicators if needed
+        if (parentIdsToFetch.Any())
+        {
+            var parentIndicators = await _indicatorRepository.GetListAsync(x => parentIdsToFetch.Contains(x.Id));
+            foreach (var parent in parentIndicators)
+            {
+                indicatorDict[parent.Id] = parent;
+            }
+        }
+
+        // Filter out CustomerCancelled indicators if needed
+        var filteredSampleIndicators = sampleIndicators;
+        if (skipCustomerCancelled)
+        {
+            var cancelledSampleIndicatorIds = taskIndicators
+                .Where(ti => ti.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+                .Select(ti => ti.TestRequestSampleIndicatorId)
+                .ToHashSet();
+            filteredSampleIndicators = sampleIndicators
+                .Where(si => !cancelledSampleIndicatorIds.Contains(si.Id))
+                .ToList();
+        }
+
+        // Separate indicators into: standalone (no parent), children (has parent)
+        var childIndicators = filteredSampleIndicators
+            .Where(si => indicatorDict.TryGetValue(si.IndicatorId, out var ind) && ind.ParentIndicatorId.HasValue)
+            .ToList();
+        var standaloneIndicators = filteredSampleIndicators
+            .Where(si => indicatorDict.TryGetValue(si.IndicatorId, out var ind) && !ind.ParentIndicatorId.HasValue)
+            .ToList();
+
+        // Group children by parent
+        var childrenByParent = childIndicators
+            .GroupBy(si => indicatorDict[si.IndicatorId].ParentIndicatorId!.Value)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Process standalone indicators (that are parents with children in this sample, or truly standalone)
+        var processedParentIds = new HashSet<Guid>();
+
+        foreach (var sampleIndicator in standaloneIndicators.OrderBy(si => indicatorDict[si.IndicatorId].SortOrder))
+        {
+            var indicator = indicatorDict[sampleIndicator.IndicatorId];
+            var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
+
+            // Check if this standalone indicator has children in this sample
+            if (childrenByParent.TryGetValue(indicator.Id, out var children) && children.Any())
+            {
+                // This is a parent with children - combine them
+                processedParentIds.Add(indicator.Id);
+
+                var parametersPlainBuilder = new StringBuilder();  // Plain text (Name)
+                var parametersFormattedBuilder = new StringBuilder();  // HTML formatted (FormattedName)
+                var resultBuilder = new StringBuilder();
+                var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+
+                // Add parent name first
+                parametersPlainBuilder.Append(indicator.Name);
+                parametersFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+
+                // Add children
+                foreach (var childSi in children.OrderBy(c => indicatorDict[c.IndicatorId].SortOrder))
+                {
+                    var childInd = indicatorDict[childSi.IndicatorId];
+                    var childTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == childSi.Id);
+
+                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                        hasAnyFormattedName = true;
+
+                    parametersPlainBuilder.Append("\n- ");
+                    parametersPlainBuilder.Append(childInd.Name);
+
+                    parametersFormattedBuilder.Append("\n- ");
+                    parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                    if (resultBuilder.Length > 0) resultBuilder.Append('\n');
+                    resultBuilder.Append("- ");
+                    resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
+                }
+
+                // Get first child's method and unit
+                var firstChildSi = children.First();
+                var firstChildTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == firstChildSi.Id);
+                TestMethod? method = null;
+                if (firstChildTi?.MethodId != null)
+                {
+                    method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
+                }
+
+                tableData.Add(new ResultFormTableRow
+                {
+                    No = rowIndex++,
+                    Parameters = parametersPlainBuilder.ToString(),
+                    ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
+                    Unit = GetUnit(firstChildTi),
+                    TestMethod = method?.Name ?? "",
+                    TestMethodFormattedName = method?.FormattedName,
+                    Result = resultBuilder.ToString(),
+                    Standards = "",
+                    Uncertainty = "",
+                    Proclaim = ""
+                });
+            }
+            else
+            {
+                // Truly standalone indicator (no children)
+                TestMethod? method = null;
+                if (taskIndicator?.MethodId != null)
+                {
+                    method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
+                }
+
+                tableData.Add(new ResultFormTableRow
+                {
+                    No = rowIndex++,
+                    Parameters = indicator.Name ?? "",
+                    ParametersFormattedName = indicator.FormattedName,
+                    Unit = GetUnit(taskIndicator),
+                    TestMethod = method?.Name ?? "",
+                    TestMethodFormattedName = method?.FormattedName,
+                    Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
+                    Standards = "",
+                    Uncertainty = "",
+                    Proclaim = ""
+                });
+            }
+        }
+
+        // Process orphan children (parent not in this sample)
+        var orphanParentIds = childrenByParent.Keys.Except(processedParentIds).ToList();
+        foreach (var parentId in orphanParentIds)
+        {
+            var children = childrenByParent[parentId];
+            var parentIndicator = indicatorDict.GetValueOrDefault(parentId);
+
+            var parametersPlainBuilder = new StringBuilder();
+            var parametersFormattedBuilder = new StringBuilder();
+            var resultBuilder = new StringBuilder();
+            var hasAnyFormattedName = parentIndicator != null && !string.IsNullOrEmpty(parentIndicator.FormattedName);
+
+            // Add parent name first (even if parent is not in sample)
+            if (parentIndicator != null)
+            {
+                parametersPlainBuilder.Append(parentIndicator.Name);
+                parametersFormattedBuilder.Append(parentIndicator.FormattedName ?? parentIndicator.Name);
+            }
+
+            // Add children
+            foreach (var childSi in children.OrderBy(c => indicatorDict[c.IndicatorId].SortOrder))
+            {
+                var childInd = indicatorDict[childSi.IndicatorId];
+                var childTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == childSi.Id);
+
+                if (!string.IsNullOrEmpty(childInd.FormattedName))
+                    hasAnyFormattedName = true;
+
+                if (parametersPlainBuilder.Length > 0) parametersPlainBuilder.Append('\n');
+                parametersPlainBuilder.Append("- ");
+                parametersPlainBuilder.Append(childInd.Name);
+
+                if (parametersFormattedBuilder.Length > 0) parametersFormattedBuilder.Append('\n');
+                parametersFormattedBuilder.Append("- ");
+                parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                if (resultBuilder.Length > 0) resultBuilder.Append('\n');
+                resultBuilder.Append("- ");
+                resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
+            }
+
+            // Get first child's method and unit
+            var firstChildSi = children.First();
+            var firstChildTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == firstChildSi.Id);
+            TestMethod? method = null;
+            if (firstChildTi?.MethodId != null)
+            {
+                method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
+            }
+
+            tableData.Add(new ResultFormTableRow
+            {
+                No = rowIndex++,
+                Parameters = parametersPlainBuilder.ToString(),
+                ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
+                Unit = GetUnit(firstChildTi),
+                TestMethod = method?.Name ?? "",
+                TestMethodFormattedName = method?.FormattedName,
+                Result = resultBuilder.ToString(),
+                Standards = "",
+                Uncertainty = "",
+                Proclaim = ""
+            });
+        }
+
+        return tableData;
     }
 
     /// <summary>
@@ -1332,7 +1538,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
             }
-            // Handle Parameters and TestMethod placeholders with HTML formatting
+            // Handle Parameters and TestMethod placeholders with HTML formatting or newlines
             else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}"))
             {
                 // Use formatted names if available, otherwise plain names
@@ -1345,9 +1551,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                 var hasParametersHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName);
                 var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+                var hasParametersNewlines = parametersDisplayName?.Contains('\n') ?? false;
+                var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
 
-                // If either contains HTML, we need special handling
-                if (hasParametersHtml || hasTestMethodHtml)
+                // If either contains HTML or newlines, we need special handling
+                if (hasParametersHtml || hasTestMethodHtml || hasParametersNewlines || hasTestMethodNewlines)
                 {
                     // Replace non-HTML placeholders first
                     text.Text = text.Text
@@ -1364,9 +1572,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
 
-                    // Handle Parameters with HTML if applicable
-                    if (hasParametersHtml && text.Text.Contains("{{Parameters}}"))
+                    // Handle Parameters with HTML/newlines if applicable
+                    if ((hasParametersHtml || hasParametersNewlines) && text.Text.Contains("{{Parameters}}"))
                     {
+                        // Use ReplaceTextWithFormattedRuns which now handles both HTML and \n newlines
                         ReplaceTextWithFormattedRuns(text, "{{Parameters}}", parametersDisplayName);
                     }
                     else
@@ -1374,8 +1583,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         text.Text = text.Text.Replace("{{Parameters}}", parametersDisplayName ?? "");
                     }
 
-                    // Handle TestMethod with HTML if applicable
-                    if (hasTestMethodHtml && text.Text.Contains("{{TestMethod}}"))
+                    // Handle TestMethod with HTML/newlines if applicable
+                    if ((hasTestMethodHtml || hasTestMethodNewlines) && text.Text.Contains("{{TestMethod}}"))
                     {
                         ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
                     }
@@ -1386,7 +1595,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 }
                 else
                 {
-                    // No HTML - simple replacement
+                    // No HTML and no newlines - simple replacement
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
@@ -1877,44 +2086,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
         // 3. Build table data (BM01 has fewer columns than BM03)
-        var tableData = new List<ResultFormTableRow>();
-        int rowIndex = 1;
-
-        foreach (var sampleIndicator in sampleIndicators)
-        {
-            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
-            var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
-
-            // Skip CustomerCancelled indicators (KH hủy)
-            if (taskIndicator?.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
-            {
-                continue;
-            }
-
-            TestMethod? method = null;
-            if (taskIndicator?.MethodId != null)
-            {
-                method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
-            }
-
-            tableData.Add(new ResultFormTableRow
-            {
-                No = rowIndex++,
-                Parameters = indicator?.Name ?? "",
-                ParametersFormattedName = indicator?.FormattedName,
-                Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
-                Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
-                // Note: ReferenceLimit is not available in TestRequestSampleIndicator context
-                // These fields will be empty for BM01 but templates BM04/BM05-QLNN might need them
-                Standards = "",
-                CompareWithStandard = "", // BM05-QLNN - So với TCVN/QCVN
-                Allowlimit = "", // BM04 - Giới hạn cho phép
-                Uncertainty = "",
-                Proclaim = ""
-            });
-        }
+        // Handle parent-child indicator grouping, skip CustomerCancelled, use "-" for empty unit
+        var tableData = await BuildTableDataWithParentChildGroupingAsync(
+            sampleIndicators,
+            indicators,
+            indicatorDict,
+            taskIndicators,
+            methodDict,
+            skipCustomerCancelled: true,
+            useHyphenForEmptyUnit: true);
 
         // 4. Generate document using selected template or default BM01
         var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM01);
@@ -2096,7 +2276,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         if (templateExtension.Equals(".docx", StringComparison.OrdinalIgnoreCase))
         {
             var placeholders = BuildPreviewFormPlaceholders(input);
-            var sampleTableData = BuildPreviewSampleTableData(input.Samples);
+            var sampleTableData = await BuildPreviewSampleTableDataAsync(input.Samples);
             ProcessTestRequestFormDocumentWithTable(outputPath, placeholders, sampleTableData);
         }
 
@@ -2212,28 +2392,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
-    /// Build sample table data from preview DTO (no DB lookup)
+    /// Build sample table data from preview DTO with parent-child grouping
+    /// Uses DB lookup for parent-child relationships
     /// </summary>
-    private List<TestRequestSampleTableRow> BuildPreviewSampleTableData(List<PreviewTestRequestSampleDto> samples)
+    private async Task<List<TestRequestSampleTableRow>> BuildPreviewSampleTableDataAsync(List<PreviewTestRequestSampleDto> samples)
     {
         var tableData = new List<TestRequestSampleTableRow>();
         int rowIndex = 1;
 
+        // Get all indicator IDs from all samples
+        var allIndicatorIds = samples
+            .SelectMany(s => s.Indicators.Select(i => i.IndicatorId))
+            .Distinct()
+            .ToList();
+
+        // Fetch indicators from DB to get parent-child relationships
+        var indicators = allIndicatorIds.Any()
+            ? await _indicatorRepository.GetListAsync(x => allIndicatorIds.Contains(x.Id))
+            : new List<Indicator>();
+        var indicatorDict = indicators.ToDictionary(i => i.Id);
+
         foreach (var sample in samples.OrderBy(s => s.SortOrder))
         {
-            var indicatorDetails = new List<IndicatorSubTableRow>();
-            int subRowIndex = 1;
-
-            foreach (var indicator in sample.Indicators)
-            {
-                indicatorDetails.Add(new IndicatorSubTableRow
-                {
-                    No = subRowIndex++,
-                    IndicatorName = indicator.IndicatorName,
-                    IndicatorFormattedName = indicator.IndicatorFormattedName,
-                    UnitPrice = indicator.UnitPrice.ToString("N0")
-                });
-            }
+            // Build indicator details with parent-child grouping
+            var indicatorDetails = BuildPreviewIndicatorSubTableWithGrouping(sample.Indicators, indicatorDict);
 
             var indicatorNames = sample.Indicators
                 .Select(i => i.IndicatorName)
@@ -2258,7 +2440,142 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
+    /// Build indicator sub-table rows with parent-child grouping for preview mode
+    /// Groups by indicatorId + testMethodId + specimenTypeId to support same indicator with different methods
+    /// </summary>
+    private List<IndicatorSubTableRow> BuildPreviewIndicatorSubTableWithGrouping(
+        List<PreviewSampleIndicatorDto> previewIndicators,
+        Dictionary<Guid, Indicator> indicatorDict)
+    {
+        var indicatorDetails = new List<IndicatorSubTableRow>();
+        int subRowIndex = 1;
+
+        // Helper to create composite key: indicatorId_testMethodId_specimenTypeId
+        string MakeKey(Guid indicatorId, Guid? testMethodId, Guid? specimenTypeId) =>
+            $"{indicatorId}_{testMethodId?.ToString() ?? "null"}_{specimenTypeId?.ToString() ?? "null"}";
+
+        // Track which indicator+method+specimen combinations have been processed
+        var processedKeys = new HashSet<string>();
+
+        // Create a map from composite key to preview indicator
+        var indicatorMap = previewIndicators
+            .Where(pi => indicatorDict.ContainsKey(pi.IndicatorId))
+            .ToDictionary(pi => MakeKey(pi.IndicatorId, pi.TestMethodId, pi.SpecimenTypeId));
+
+        // Sort by indicator sort order from DB
+        var sortedIndicators = previewIndicators
+            .Where(pi => indicatorDict.ContainsKey(pi.IndicatorId))
+            .OrderBy(pi => indicatorDict[pi.IndicatorId].SortOrder)
+            .ThenBy(pi => pi.TestMethodId)
+            .ThenBy(pi => pi.SpecimenTypeId)
+            .ToList();
+
+        foreach (var previewInd in sortedIndicators)
+        {
+            var currentKey = MakeKey(previewInd.IndicatorId, previewInd.TestMethodId, previewInd.SpecimenTypeId);
+            if (processedKeys.Contains(currentKey))
+                continue;
+
+            var indicator = indicatorDict[previewInd.IndicatorId];
+
+            // Check if this indicator is a child (has parent)
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Check if parent with same testMethodId and specimenTypeId is in the sample
+                var parentKey = MakeKey(indicator.ParentIndicatorId.Value, previewInd.TestMethodId, previewInd.SpecimenTypeId);
+                if (indicatorMap.ContainsKey(parentKey))
+                    continue; // Will be processed with parent
+            }
+
+            // Check if this indicator has children in the sample with same testMethodId and specimenTypeId
+            var childrenInSample = sortedIndicators
+                .Where(pi =>
+                {
+                    if (!indicatorDict.ContainsKey(pi.IndicatorId))
+                        return false;
+                    var childInd = indicatorDict[pi.IndicatorId];
+                    // Child must have same parent, testMethodId and specimenTypeId
+                    return childInd.ParentIndicatorId == indicator.Id
+                        && pi.TestMethodId == previewInd.TestMethodId
+                        && pi.SpecimenTypeId == previewInd.SpecimenTypeId;
+                })
+                .OrderBy(pi => indicatorDict[pi.IndicatorId].SortOrder)
+                .ToList();
+
+            if (childrenInSample.Any())
+            {
+                // This is a parent with children - create grouped row
+                var namePlainBuilder = new StringBuilder();
+                var nameFormattedBuilder = new StringBuilder();
+                decimal totalPrice = previewInd.UnitPrice;
+                bool hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+
+                namePlainBuilder.Append(indicator.Name);
+                nameFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+
+                foreach (var childPreview in childrenInSample)
+                {
+                    var childInd = indicatorDict[childPreview.IndicatorId];
+                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                        hasAnyFormattedName = true;
+
+                    namePlainBuilder.Append("\n- ");
+                    namePlainBuilder.Append(childInd.Name);
+
+                    nameFormattedBuilder.Append("\n- ");
+                    nameFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                    totalPrice += childPreview.UnitPrice;
+                    var childKey = MakeKey(childPreview.IndicatorId, childPreview.TestMethodId, childPreview.SpecimenTypeId);
+                    processedKeys.Add(childKey);
+                }
+
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = namePlainBuilder.ToString(),
+                    IndicatorFormattedName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
+                    UnitPrice = totalPrice.ToString("N0")
+                });
+            }
+            else
+            {
+                // Single indicator (no children or orphan child)
+                // Use DB values for name/formattedName to ensure consistency
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = indicator.Name ?? previewInd.IndicatorName,
+                    IndicatorFormattedName = indicator.FormattedName ?? previewInd.IndicatorFormattedName,
+                    UnitPrice = previewInd.UnitPrice.ToString("N0")
+                });
+            }
+
+            processedKeys.Add(currentKey);
+        }
+
+        // Handle any indicators not in DB (shouldn't happen but just in case)
+        foreach (var previewInd in previewIndicators)
+        {
+            var key = MakeKey(previewInd.IndicatorId, previewInd.TestMethodId, previewInd.SpecimenTypeId);
+            if (!processedKeys.Contains(key) && !indicatorDict.ContainsKey(previewInd.IndicatorId))
+            {
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = previewInd.IndicatorName,
+                    IndicatorFormattedName = previewInd.IndicatorFormattedName,
+                    UnitPrice = previewInd.UnitPrice.ToString("N0")
+                });
+            }
+        }
+
+        return indicatorDetails;
+    }
+
+    /// <summary>
     /// Build sample table data for test request form
+    /// Supports parent-child indicator grouping: Parent displays with its children
     /// </summary>
     private async Task<List<TestRequestSampleTableRow>> BuildSampleTableDataAsync(List<TestRequestSample> samples)
     {
@@ -2284,23 +2601,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 .Where(si => si.TestRequestSampleId == sample.Id)
                 .ToList();
 
-            // Build indicator details for sub-table
-            var indicatorDetails = new List<IndicatorSubTableRow>();
-            int subRowIndex = 1;
-            foreach (var si in sampleIndicatorList)
-            {
-                var indicator = indicatorDict.GetValueOrDefault(si.IndicatorId);
-                if (indicator != null)
-                {
-                    indicatorDetails.Add(new IndicatorSubTableRow
-                    {
-                        No = subRowIndex++,
-                        IndicatorName = indicator.Name ?? "",
-                        IndicatorFormattedName = indicator.FormattedName,
-                        UnitPrice = si.UnitPrice.ToString("N0")
-                    });
-                }
-            }
+            // Build indicator details for sub-table with parent-child grouping
+            var indicatorDetails = BuildIndicatorSubTableWithGrouping(sampleIndicatorList, indicatorDict);
 
             // Format indicators as list with - prefix and newline (for fallback/old template)
             var indicatorNames = sampleIndicatorList
@@ -2323,6 +2625,124 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         return tableData;
+    }
+
+    /// <summary>
+    /// Build indicator sub-table rows with parent-child grouping
+    /// Parent indicator will include its children: "Parent\n- Child1\n- Child2"
+    /// Groups by indicatorId + testMethodId + specimenTypeId to support same indicator with different methods
+    /// </summary>
+    private List<IndicatorSubTableRow> BuildIndicatorSubTableWithGrouping(
+        List<TestRequestSampleIndicator> sampleIndicators,
+        Dictionary<Guid, Indicator> indicatorDict)
+    {
+        var indicatorDetails = new List<IndicatorSubTableRow>();
+        int subRowIndex = 1;
+
+        // Helper to create composite key: indicatorId_testMethodId_specimenTypeId
+        string MakeKey(Guid indicatorId, Guid? testMethodId, Guid? specimenTypeId) =>
+            $"{indicatorId}_{testMethodId?.ToString() ?? "null"}_{specimenTypeId?.ToString() ?? "null"}";
+
+        // Track which indicator+method+specimen combinations have been processed
+        var processedKeys = new HashSet<string>();
+
+        // Create a map from composite key to sample indicator
+        var indicatorMap = sampleIndicators
+            .Where(si => indicatorDict.ContainsKey(si.IndicatorId))
+            .ToDictionary(si => MakeKey(si.IndicatorId, si.TestMethodId, si.SpecimenTypeId));
+
+        // Sort sample indicators by indicator sort order
+        var sortedSampleIndicators = sampleIndicators
+            .Where(si => indicatorDict.ContainsKey(si.IndicatorId))
+            .OrderBy(si => indicatorDict[si.IndicatorId].SortOrder)
+            .ThenBy(si => si.TestMethodId)
+            .ThenBy(si => si.SpecimenTypeId)
+            .ToList();
+
+        foreach (var si in sortedSampleIndicators)
+        {
+            var currentKey = MakeKey(si.IndicatorId, si.TestMethodId, si.SpecimenTypeId);
+            if (processedKeys.Contains(currentKey))
+                continue;
+
+            var indicator = indicatorDict[si.IndicatorId];
+
+            // Check if this indicator is a child (has parent)
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // Check if parent with same testMethodId and specimenTypeId is in the sample
+                var parentKey = MakeKey(indicator.ParentIndicatorId.Value, si.TestMethodId, si.SpecimenTypeId);
+                if (indicatorMap.ContainsKey(parentKey))
+                    continue; // Will be processed with parent
+            }
+
+            // Check if this indicator has children in the sample with same testMethodId and specimenTypeId
+            var childrenInSample = sortedSampleIndicators
+                .Where(csi =>
+                {
+                    if (!indicatorDict.ContainsKey(csi.IndicatorId))
+                        return false;
+                    var childInd = indicatorDict[csi.IndicatorId];
+                    // Child must have same parent, testMethodId and specimenTypeId
+                    return childInd.ParentIndicatorId == indicator.Id
+                        && csi.TestMethodId == si.TestMethodId
+                        && csi.SpecimenTypeId == si.SpecimenTypeId;
+                })
+                .OrderBy(csi => indicatorDict[csi.IndicatorId].SortOrder)
+                .ToList();
+
+            if (childrenInSample.Any())
+            {
+                // This is a parent with children - create grouped row
+                var namePlainBuilder = new StringBuilder();
+                var nameFormattedBuilder = new StringBuilder();
+                decimal totalPrice = si.UnitPrice;
+                bool hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+
+                namePlainBuilder.Append(indicator.Name);
+                nameFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+
+                foreach (var childSi in childrenInSample)
+                {
+                    var childInd = indicatorDict[childSi.IndicatorId];
+                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                        hasAnyFormattedName = true;
+
+                    namePlainBuilder.Append("\n- ");
+                    namePlainBuilder.Append(childInd.Name);
+
+                    nameFormattedBuilder.Append("\n- ");
+                    nameFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                    totalPrice += childSi.UnitPrice;
+                    var childKey = MakeKey(childSi.IndicatorId, childSi.TestMethodId, childSi.SpecimenTypeId);
+                    processedKeys.Add(childKey);
+                }
+
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = namePlainBuilder.ToString(),
+                    IndicatorFormattedName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
+                    UnitPrice = totalPrice.ToString("N0")
+                });
+            }
+            else
+            {
+                // Single indicator (no children or orphan child)
+                indicatorDetails.Add(new IndicatorSubTableRow
+                {
+                    No = subRowIndex++,
+                    IndicatorName = indicator.Name ?? "",
+                    IndicatorFormattedName = indicator.FormattedName,
+                    UnitPrice = si.UnitPrice.ToString("N0")
+                });
+            }
+
+            processedKeys.Add(currentKey);
+        }
+
+        return indicatorDetails;
     }
 
     /// <summary>
@@ -2972,8 +3392,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         ? indicator.IndicatorFormattedName
                         : indicator.IndicatorName;
 
-                    // If formatted name contains HTML, we need special handling
-                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorDisplayName))
+                    // If name contains HTML or newlines, we need special handling
+                    var hasHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorDisplayName);
+                    var hasNewlines = indicatorDisplayName?.Contains('\n') ?? false;
+
+                    if (hasHtml || hasNewlines)
                     {
                         // Replace other placeholders first
                         text.Text = text.Text
@@ -2981,16 +3404,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             .Replace("{{SubNo}}", indicator.No.ToString())
                             .Replace("{{SubPrice}}", indicator.UnitPrice);
 
-                        // Now handle SubIndicator with HTML
+                        // Now handle SubIndicator with HTML/newlines
                         ReplaceTextWithFormattedRuns(text, "{{SubIndicator}}", indicatorDisplayName);
                     }
                     else
                     {
-                        // No HTML - simple replacement
+                        // No HTML or newlines - simple replacement
                         text.Text = text.Text
                             .Replace("{{SubTable}}", "")
                             .Replace("{{SubNo}}", indicator.No.ToString())
-                            .Replace("{{SubIndicator}}", indicatorDisplayName)
+                            .Replace("{{SubIndicator}}", indicatorDisplayName ?? "")
                             .Replace("{{SubPrice}}", indicator.UnitPrice);
                     }
                 }
@@ -3219,19 +3642,62 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var hasParameterHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName);
         var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+        var hasParameterNewlines = parameterDisplayName?.Contains('\n') ?? false;
+        var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
+        var hasResultNewlines = indicatorData.Result?.Contains('\n') ?? false;
 
         // Replace all placeholders
         foreach (var text in newRow.Descendants<Text>().ToList())
         {
             if (string.IsNullOrEmpty(text.Text)) continue;
 
-            // Check if this text contains placeholders that need HTML handling
+            // Check if this text contains placeholders that need special handling
             var hasParameterPlaceholder = text.Text.Contains("{{Parameter}}");
             var hasTestMethodPlaceholder = text.Text.Contains("{{TestMethod}}");
+            var hasResultPlaceholder = text.Text.Contains("{{Result}}");
 
-            if ((hasParameterPlaceholder && hasParameterHtml) || (hasTestMethodPlaceholder && hasTestMethodHtml))
+            // Handle Result with newlines specially
+            if (hasResultPlaceholder && hasResultNewlines)
             {
-                // Replace non-HTML placeholders first
+                // Replace other placeholders first
+                text.Text = text.Text
+                    .Replace("{{TestTable}}", "")
+                    .Replace("{{SubTable}}", "")
+                    .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
+                    .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
+                    .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Unit}}", indicatorData.Unit);
+
+                // Handle Parameter
+                if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
+                }
+                else if (hasParameterPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{Parameter}}", parameterDisplayName ?? "");
+                }
+
+                // Handle TestMethod
+                if (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                }
+                else if (hasTestMethodPlaceholder)
+                {
+                    text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                }
+
+                // Handle Result with line breaks
+                if (text.Text.Contains("{{Result}}"))
+                {
+                    ReplaceTextWithLineBreaks(text, "{{Result}}", indicatorData.Result);
+                }
+            }
+            else if ((hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines)) ||
+                     (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines)))
+            {
+                // Replace non-special placeholders first
                 text.Text = text.Text
                     .Replace("{{TestTable}}", "")
                     .Replace("{{SubTable}}", "")
@@ -3241,8 +3707,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{Result}}", indicatorData.Result);
 
-                // Handle Parameter with HTML if applicable
-                if (hasParameterPlaceholder && hasParameterHtml)
+                // Handle Parameter with HTML/newlines if applicable
+                if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))
                 {
                     ReplaceTextWithFormattedRuns(text, "{{Parameter}}", parameterDisplayName);
                 }
@@ -3251,8 +3717,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     text.Text = text.Text.Replace("{{Parameter}}", parameterDisplayName ?? "");
                 }
 
-                // Handle TestMethod with HTML if applicable
-                if (hasTestMethodPlaceholder && hasTestMethodHtml)
+                // Handle TestMethod with HTML/newlines if applicable
+                if (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines))
                 {
                     ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
                 }
@@ -3263,7 +3729,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
             else
             {
-                // No HTML - simple replacement
+                // No HTML and no newlines - simple replacement
                 text.Text = text.Text
                     .Replace("{{TestTable}}", "")
                     .Replace("{{SubTable}}", "")
@@ -4156,74 +4622,209 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Indicators = new List<MixedResultIndicatorRow>()
             };
 
-            foreach (var item in group)
+            // Group indicators by parent-child relationship
+            var itemsWithIndicator = group
+                .Select(item => new
+                {
+                    Item = item,
+                    Indicator = indicatorDict.GetValueOrDefault(item.SampleIndicator!.IndicatorId)
+                })
+                .Where(x => x.Indicator != null)
+                .ToList();
+
+            // Separate children (have ParentIndicatorId) and non-children
+            var childItems = itemsWithIndicator
+                .Where(x => x.Indicator!.ParentIndicatorId.HasValue)
+                .ToList();
+            var standaloneItems = itemsWithIndicator
+                .Where(x => !x.Indicator!.ParentIndicatorId.HasValue)
+                .ToList();
+
+            // Group children by parent
+            var childrenByParent = childItems
+                .GroupBy(x => x.Indicator!.ParentIndicatorId!.Value)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            // Track processed parent IDs
+            var processedParentIds = new HashSet<Guid>();
+
+            // Process standalone indicators (may be parents with children)
+            foreach (var itemData in standaloneItems.OrderBy(x => x.Indicator!.SortOrder))
             {
-                var indicator = indicatorDict.GetValueOrDefault(item.SampleIndicator!.IndicatorId);
+                var item = itemData.Item;
+                var indicator = itemData.Indicator!;
+
+                // Check if this standalone indicator has children in this sample
+                if (childrenByParent.TryGetValue(indicator.Id, out var children) && children.Any())
+                {
+                    processedParentIds.Add(indicator.Id);
+
+                    // Build combined Parameter and Result
+                    var paramPlainBuilder = new StringBuilder();
+                    var paramFormattedBuilder = new StringBuilder();
+                    var resultBuilder = new StringBuilder();
+                    var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+
+                    // Add parent name
+                    paramPlainBuilder.Append(indicator.Name);
+                    paramFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+
+                    // Add children
+                    foreach (var childData in children.OrderBy(c => c.Indicator!.SortOrder))
+                    {
+                        var childInd = childData.Indicator!;
+                        var childItem = childData.Item;
+
+                        if (!string.IsNullOrEmpty(childInd.FormattedName))
+                            hasAnyFormattedName = true;
+
+                        paramPlainBuilder.Append("\n- ");
+                        paramPlainBuilder.Append(childInd.Name);
+
+                        paramFormattedBuilder.Append("\n- ");
+                        paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                        if (resultBuilder.Length > 0) resultBuilder.Append('\n');
+                        resultBuilder.Append("- ");
+                        resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+                    }
+
+                    // Get first child's method and unit
+                    var firstChild = children.First();
+                    TestMethod? method = null;
+                    if (firstChild.Item.LabTaskIndicator.MethodId.HasValue)
+                    {
+                        method = methodDict.GetValueOrDefault(firstChild.Item.LabTaskIndicator.MethodId.Value);
+                    }
+
+                    sampleRow.Indicators.Add(new MixedResultIndicatorRow
+                    {
+                        Parameter = paramPlainBuilder.ToString(),
+                        ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
+                        Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
+                        TestMethod = method?.Name ?? "",
+                        TestMethodFormattedName = method?.FormattedName,
+                        Result = resultBuilder.ToString(),
+                        ReferenceLimit = "",
+                        StandardId = null,
+                        IndicatorId = indicator.Id
+                    });
+                }
+                else
+                {
+                    // Standalone indicator without children
+                    TestMethod? method = null;
+                    if (item.LabTaskIndicator.MethodId.HasValue)
+                    {
+                        method = methodDict.GetValueOrDefault(item.LabTaskIndicator.MethodId.Value);
+                    }
+
+                    var resultText = ConvertToSuperscriptDisplay(item.LabTaskIndicator.Result);
+                    var effectiveStandardId = item.QualityIndicator.StandardId ?? item.LabTaskIndicator.StandardId;
+
+                    // Get StandardIndicator data
+                    var comparisonOperator = "";
+                    var allowedLimit = "";
+                    var lowerOperator = "";
+                    var lowerLimit = "";
+                    var upperOperator = "";
+                    var upperLimit = "";
+
+                    if (effectiveStandardId.HasValue)
+                    {
+                        var key = (effectiveStandardId.Value, indicator.Id);
+                        if (standardIndicatorLookup.TryGetValue(key, out var stdIndicator) && stdIndicator != null)
+                        {
+                            comparisonOperator = stdIndicator.ComparisonOperator ?? "";
+                            allowedLimit = stdIndicator.AllowedLimit ?? "";
+                            lowerOperator = stdIndicator.LowerOperator ?? "";
+                            lowerLimit = stdIndicator.LowerLimit ?? "";
+                            upperOperator = stdIndicator.UpperOperator ?? "";
+                            upperLimit = stdIndicator.UpperLimit ?? "";
+                        }
+                    }
+
+                    sampleRow.Indicators.Add(new MixedResultIndicatorRow
+                    {
+                        Parameter = indicator.Name ?? "",
+                        ParameterFormattedName = indicator.FormattedName,
+                        Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
+                        TestMethod = method?.Name ?? "",
+                        TestMethodFormattedName = method?.FormattedName,
+                        Result = resultText,
+                        ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "",
+                        StandardId = effectiveStandardId,
+                        IndicatorId = indicator.Id,
+                        ComparisonOperator = comparisonOperator,
+                        AllowedLimit = allowedLimit,
+                        LowerOperator = lowerOperator,
+                        LowerLimit = lowerLimit,
+                        UpperOperator = upperOperator,
+                        UpperLimit = upperLimit
+                    });
+                }
+            }
+
+            // Process orphan children (parent not in this sample)
+            var orphanParentIds = childrenByParent.Keys.Except(processedParentIds).ToList();
+            foreach (var parentId in orphanParentIds)
+            {
+                var children = childrenByParent[parentId];
+                var parentIndicator = indicatorDict.GetValueOrDefault(parentId);
+
+                var paramPlainBuilder = new StringBuilder();
+                var paramFormattedBuilder = new StringBuilder();
+                var resultBuilder = new StringBuilder();
+                var hasAnyFormattedName = parentIndicator != null && !string.IsNullOrEmpty(parentIndicator.FormattedName);
+
+                // Add parent name
+                if (parentIndicator != null)
+                {
+                    paramPlainBuilder.Append(parentIndicator.Name);
+                    paramFormattedBuilder.Append(parentIndicator.FormattedName ?? parentIndicator.Name);
+                }
+
+                // Add children
+                foreach (var childData in children.OrderBy(c => c.Indicator!.SortOrder))
+                {
+                    var childInd = childData.Indicator!;
+                    var childItem = childData.Item;
+
+                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                        hasAnyFormattedName = true;
+
+                    if (paramPlainBuilder.Length > 0) paramPlainBuilder.Append('\n');
+                    paramPlainBuilder.Append("- ");
+                    paramPlainBuilder.Append(childInd.Name);
+
+                    if (paramFormattedBuilder.Length > 0) paramFormattedBuilder.Append('\n');
+                    paramFormattedBuilder.Append("- ");
+                    paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+
+                    if (resultBuilder.Length > 0) resultBuilder.Append('\n');
+                    resultBuilder.Append("- ");
+                    resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+                }
+
+                // Get first child's method and unit
+                var firstChild = children.First();
                 TestMethod? method = null;
-                if (item.LabTaskIndicator.MethodId.HasValue)
+                if (firstChild.Item.LabTaskIndicator.MethodId.HasValue)
                 {
-                    method = methodDict.GetValueOrDefault(item.LabTaskIndicator.MethodId.Value);
-                }
-
-                // Apply superscript conversion for formulas like 2^2 → 2²
-                var resultText = ConvertToSuperscriptDisplay(item.LabTaskIndicator.Result);
-
-                // Get ComparisonOperator and AllowedLimit from StandardIndicator lookup
-                // Ưu tiên QualityIndicator.StandardId, fallback sang LabTaskIndicator.StandardId
-                var comparisonOperator = "";
-                var allowedLimit = "";
-                var effectiveStandardId = item.QualityIndicator.StandardId ?? item.LabTaskIndicator.StandardId;
-
-                _logger.LogInformation("Building row: QualityIndicator.StandardId={QualityStdId}, LabTaskIndicator.StandardId={LabStdId}, effectiveStandardId={EffectiveStdId}, indicator.Id={IndId}",
-                    item.QualityIndicator.StandardId, item.LabTaskIndicator.StandardId, effectiveStandardId, indicator?.Id);
-
-                if (effectiveStandardId.HasValue && indicator != null)
-                {
-                    var key = (effectiveStandardId.Value, indicator.Id);
-                    var found = standardIndicatorLookup.TryGetValue(key, out var stdIndicator);
-                    _logger.LogInformation("Lookup key=({StandardId},{IndicatorId}), found={Found}", key.Item1, key.Item2, found);
-                    if (found && stdIndicator != null)
-                    {
-                        comparisonOperator = stdIndicator.ComparisonOperator ?? "";
-                        allowedLimit = stdIndicator.AllowedLimit ?? "";
-                        _logger.LogInformation("Found StandardIndicator: ComparisonOperator={Op}, AllowedLimit={Limit}", comparisonOperator, allowedLimit);
-                    }
-                }
-
-                // Get range fields from StandardIndicator
-                var lowerOperator = "";
-                var lowerLimit = "";
-                var upperOperator = "";
-                var upperLimit = "";
-                if (effectiveStandardId.HasValue && indicator != null)
-                {
-                    var key = (effectiveStandardId.Value, indicator.Id);
-                    if (standardIndicatorLookup.TryGetValue(key, out var stdIndicator) && stdIndicator != null)
-                    {
-                        lowerOperator = stdIndicator.LowerOperator ?? "";
-                        lowerLimit = stdIndicator.LowerLimit ?? "";
-                        upperOperator = stdIndicator.UpperOperator ?? "";
-                        upperLimit = stdIndicator.UpperLimit ?? "";
-                    }
+                    method = methodDict.GetValueOrDefault(firstChild.Item.LabTaskIndicator.MethodId.Value);
                 }
 
                 sampleRow.Indicators.Add(new MixedResultIndicatorRow
                 {
-                    Parameter = indicator?.Name ?? "",
-                    ParameterFormattedName = indicator?.FormattedName,
-                    Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
+                    Parameter = paramPlainBuilder.ToString(),
+                    ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
+                    Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
                     TestMethod = method?.Name ?? "",
                     TestMethodFormattedName = method?.FormattedName,
-                    Result = resultText,
-                    ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "", // DEPRECATED - kept for backward compatibility
-                    StandardId = effectiveStandardId, // For BM05-QLNN footnote - dùng effectiveStandardId
-                    IndicatorId = indicator?.Id,
-                    ComparisonOperator = comparisonOperator,
-                    AllowedLimit = allowedLimit,
-                    LowerOperator = lowerOperator,
-                    LowerLimit = lowerLimit,
-                    UpperOperator = upperOperator,
-                    UpperLimit = upperLimit
+                    Result = resultBuilder.ToString(),
+                    ReferenceLimit = "",
+                    StandardId = null,
+                    IndicatorId = parentIndicator?.Id
                 });
             }
 

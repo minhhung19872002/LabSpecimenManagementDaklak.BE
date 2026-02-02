@@ -203,8 +203,8 @@ public static class HtmlToOpenXmlConverter
             run.Append(runProps);
         }
 
-        // Handle line breaks in text
-        var lines = text.Split(new[] { "<br>", "<br/>", "<br />" }, StringSplitOptions.None);
+        // Handle line breaks in text (both HTML <br> tags and \n newlines)
+        var lines = text.Split(new[] { "<br>", "<br/>", "<br />", "\r\n", "\n" }, StringSplitOptions.None);
         for (int i = 0; i < lines.Length; i++)
         {
             if (!string.IsNullOrEmpty(lines[i]))

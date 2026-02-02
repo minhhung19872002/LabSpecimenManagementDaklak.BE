@@ -3,11 +3,13 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Wordprocessing;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.ResultForms;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.DependencyInjection;
@@ -284,10 +286,12 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
 
             foreach (var sample in samples)
             {
-                var indicatorCount = sample.Indicators.Count;
+                // Group indicators by parent-child relationship
+                var groupedIndicators = GroupIndicatorsByParentChild(sample.Indicators);
+                var indicatorCount = groupedIndicators.Count;
                 var isFirstIndicator = true;
 
-                foreach (var indicator in sample.Indicators)
+                foreach (var indicatorGroup in groupedIndicators)
                 {
                     var newRow = (TableRow)templateRow.CloneNode(true);
                     var cells = newRow.Elements<TableCell>().ToList();
@@ -301,20 +305,47 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                         }
                     }
 
+                    // Build display name and calculate totals
+                    var indicatorDisplayName = indicatorGroup.DisplayName;
+                    var indicatorFormattedName = indicatorGroup.FormattedDisplayName;
+                    var totalQuantity = indicatorGroup.TotalQuantity;
+                    var totalUnitPrice = indicatorGroup.TotalUnitPrice;
+                    var amount = totalQuantity * totalUnitPrice;
+
+                    // Check if indicator name has HTML or newlines
+                    var hasHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorFormattedName);
+                    var hasNewlines = indicatorFormattedName?.Contains('\n') ?? false;
+
                     // Replace placeholders in the new row
                     foreach (var text in newRow.Descendants<Text>().ToList())
                     {
                         if (string.IsNullOrEmpty(text.Text)) continue;
 
-                        var amount = indicator.Quantity * indicator.UnitPrice;
+                        // Handle {{Indicator}} placeholder with HTML/newlines
+                        if (text.Text.Contains("{{Indicator}}") && (hasHtml || hasNewlines))
+                        {
+                            // Replace other placeholders first
+                            text.Text = text.Text
+                                .Replace("{{No}}", rowNumber.ToString())
+                                .Replace("{{Sample}}", isFirstIndicator ? sample.SampleName : "")
+                                .Replace("{{Quantity}}", isFirstIndicator ? FormatQuantity(sample.Quantity) : "")
+                                .Replace("{{UnitPrice}}", FormatCurrency(totalUnitPrice))
+                                .Replace("{{Amount}}", FormatCurrency(amount));
 
-                        text.Text = text.Text
-                            .Replace("{{No}}", rowNumber.ToString())
-                            .Replace("{{Sample}}", isFirstIndicator ? sample.SampleName : "")
-                            .Replace("{{Indicator}}", indicator.IndicatorName)
-                            .Replace("{{Quantity}}", isFirstIndicator ? FormatQuantity(sample.Quantity) : "")
-                            .Replace("{{UnitPrice}}", FormatCurrency(indicator.UnitPrice))
-                            .Replace("{{Amount}}", FormatCurrency(amount));
+                            // Handle {{Indicator}} with HTML/newlines
+                            ReplaceTextWithFormattedRuns(text, "{{Indicator}}", indicatorFormattedName ?? indicatorDisplayName);
+                        }
+                        else
+                        {
+                            // Simple replacement (no HTML/newlines)
+                            text.Text = text.Text
+                                .Replace("{{No}}", rowNumber.ToString())
+                                .Replace("{{Sample}}", isFirstIndicator ? sample.SampleName : "")
+                                .Replace("{{Indicator}}", indicatorDisplayName)
+                                .Replace("{{Quantity}}", isFirstIndicator ? FormatQuantity(sample.Quantity) : "")
+                                .Replace("{{UnitPrice}}", FormatCurrency(totalUnitPrice))
+                                .Replace("{{Amount}}", FormatCurrency(amount));
+                        }
                     }
 
                     // Handle vertical merge for Sample and Quantity columns
@@ -338,6 +369,175 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
             templateRow.Remove();
 
             break; // Only process first matching table
+        }
+    }
+
+    /// <summary>
+    /// Group indicators by parent-child relationship
+    /// Parent indicator will include its children: "Parent\n- Child1\n- Child2"
+    /// </summary>
+    private List<IndicatorGroupResult> GroupIndicatorsByParentChild(List<QuotationPdfIndicatorDto> indicators)
+    {
+        var result = new List<IndicatorGroupResult>();
+
+        // If no IndicatorId, just return indicators as-is (no grouping possible)
+        if (indicators.All(i => !i.IndicatorId.HasValue))
+        {
+            foreach (var ind in indicators)
+            {
+                result.Add(new IndicatorGroupResult
+                {
+                    DisplayName = ind.IndicatorName,
+                    FormattedDisplayName = ind.IndicatorFormattedName ?? ind.IndicatorName,
+                    TotalQuantity = ind.Quantity,
+                    TotalUnitPrice = ind.UnitPrice
+                });
+            }
+            return result;
+        }
+
+        // Get indicator IDs in this sample
+        var indicatorIdsInSample = indicators
+            .Where(i => i.IndicatorId.HasValue)
+            .Select(i => i.IndicatorId!.Value)
+            .ToHashSet();
+
+        // Track which indicators have been processed
+        var processedIds = new HashSet<Guid>();
+
+        foreach (var indicator in indicators)
+        {
+            if (indicator.IndicatorId.HasValue && processedIds.Contains(indicator.IndicatorId.Value))
+                continue;
+
+            // Check if this indicator is a child (has parent)
+            if (indicator.ParentIndicatorId.HasValue)
+            {
+                // If parent is also in the sample, this will be processed with parent
+                if (indicatorIdsInSample.Contains(indicator.ParentIndicatorId.Value))
+                    continue;
+            }
+
+            // Check if this indicator has children in the sample
+            var childrenInSample = indicators
+                .Where(i => i.ParentIndicatorId.HasValue
+                    && indicator.IndicatorId.HasValue
+                    && i.ParentIndicatorId.Value == indicator.IndicatorId.Value)
+                .ToList();
+
+            if (childrenInSample.Any())
+            {
+                // This is a parent with children - create grouped row
+                var namePlainBuilder = new StringBuilder();
+                var nameFormattedBuilder = new StringBuilder();
+                int totalQuantity = indicator.Quantity;
+                decimal totalUnitPrice = indicator.UnitPrice;
+                bool hasAnyFormattedName = !string.IsNullOrEmpty(indicator.IndicatorFormattedName);
+
+                namePlainBuilder.Append(indicator.IndicatorName);
+                nameFormattedBuilder.Append(indicator.IndicatorFormattedName ?? indicator.IndicatorName);
+
+                foreach (var child in childrenInSample)
+                {
+                    if (!string.IsNullOrEmpty(child.IndicatorFormattedName))
+                        hasAnyFormattedName = true;
+
+                    namePlainBuilder.Append("\n- ");
+                    namePlainBuilder.Append(child.IndicatorName);
+
+                    nameFormattedBuilder.Append("\n- ");
+                    nameFormattedBuilder.Append(child.IndicatorFormattedName ?? child.IndicatorName);
+
+                    totalQuantity += child.Quantity;
+                    totalUnitPrice += child.UnitPrice;
+
+                    if (child.IndicatorId.HasValue)
+                        processedIds.Add(child.IndicatorId.Value);
+                }
+
+                result.Add(new IndicatorGroupResult
+                {
+                    DisplayName = namePlainBuilder.ToString(),
+                    FormattedDisplayName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
+                    TotalQuantity = totalQuantity,
+                    TotalUnitPrice = totalUnitPrice
+                });
+            }
+            else
+            {
+                // Single indicator (no children or orphan child)
+                result.Add(new IndicatorGroupResult
+                {
+                    DisplayName = indicator.IndicatorName,
+                    FormattedDisplayName = indicator.IndicatorFormattedName,
+                    TotalQuantity = indicator.Quantity,
+                    TotalUnitPrice = indicator.UnitPrice
+                });
+            }
+
+            if (indicator.IndicatorId.HasValue)
+                processedIds.Add(indicator.IndicatorId.Value);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Result of grouping indicators by parent-child
+    /// </summary>
+    private class IndicatorGroupResult
+    {
+        public string DisplayName { get; set; } = "";
+        public string? FormattedDisplayName { get; set; }
+        public int TotalQuantity { get; set; }
+        public decimal TotalUnitPrice { get; set; }
+    }
+
+    /// <summary>
+    /// Replace placeholder with formatted HTML content (supports newlines and HTML tags)
+    /// </summary>
+    private void ReplaceTextWithFormattedRuns(Text textElement, string placeholder, string htmlContent)
+    {
+        if (!textElement.Text.Contains(placeholder)) return;
+
+        var parent = textElement.Parent;
+        if (parent == null) return;
+
+        // Split text by placeholder
+        var beforePlaceholder = textElement.Text.Substring(0, textElement.Text.IndexOf(placeholder));
+        var afterPlaceholder = textElement.Text.Substring(textElement.Text.IndexOf(placeholder) + placeholder.Length);
+
+        // Get base run properties
+        RunProperties? baseProps = null;
+        if (parent is Run parentRun)
+        {
+            baseProps = parentRun.RunProperties?.CloneNode(true) as RunProperties;
+        }
+
+        // Convert HTML to runs
+        var formattedRuns = HtmlToOpenXmlConverter.ConvertHtmlToRuns(htmlContent, baseProps);
+
+        // Update original text to "before" part
+        textElement.Text = beforePlaceholder;
+
+        // Insert formatted runs after the current run
+        var insertAfter = parent;
+        foreach (var formattedRun in formattedRuns)
+        {
+            insertAfter.InsertAfterSelf(formattedRun);
+            insertAfter = formattedRun;
+        }
+
+        // Add "after" text if any
+        if (!string.IsNullOrEmpty(afterPlaceholder))
+        {
+            var afterRun = new Run();
+            if (baseProps != null)
+            {
+                afterRun.Append(baseProps.CloneNode(true));
+            }
+            afterRun.Append(new Text(afterPlaceholder) { Space = SpaceProcessingModeValues.Preserve });
+            insertAfter.InsertAfterSelf(afterRun);
         }
     }
 
