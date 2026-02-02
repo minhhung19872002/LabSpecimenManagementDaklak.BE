@@ -46,10 +46,11 @@ public class TestMethodWithIndicatorImportRow
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Tên nền mẫu (SpecimenType) - không bắt buộc, nếu có phải tồn tại trong hệ thống
+    /// Tên nền mẫu (SpecimenType) - bắt buộc, phải tồn tại trong hệ thống
     /// </summary>
+    [Required(ErrorMessage = "Nền mẫu là bắt buộc")]
     [MaxLength(256)]
-    public string? SpecimenTypeName { get; set; }
+    public string SpecimenTypeName { get; set; } = string.Empty;
 
     /// <summary>
     /// Đơn giá cho chỉ tiêu trong phương pháp này

@@ -16,9 +16,10 @@ public class IndicatorWithPriceDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
-    /// Nền mẫu (Loại mẫu) - nullable, cho phép cùng indicator thêm nhiều lần với nền mẫu khác nhau
+    /// Nền mẫu (Loại mẫu) - bắt buộc, cho phép cùng indicator thêm nhiều lần với nền mẫu khác nhau
     /// </summary>
-    public Guid? SpecimenTypeId { get; set; }
+    [Required(ErrorMessage = "Vui lòng chọn nền mẫu")]
+    public Guid SpecimenTypeId { get; set; }
 
     [Required]
     [Range(0, double.MaxValue)]
