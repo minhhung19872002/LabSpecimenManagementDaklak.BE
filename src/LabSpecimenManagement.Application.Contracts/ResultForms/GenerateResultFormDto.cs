@@ -394,6 +394,16 @@ public class PreviewSampleIndicatorDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
+    /// Test method ID - để phân biệt cùng indicator với method khác nhau
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
+    /// Specimen type ID - để phân biệt cùng indicator+method với nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Indicator name (displayed in form)
     /// </summary>
     [StringLength(256)]
