@@ -25,8 +25,9 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 # Copy published application from build stage
 COPY --from=build /app/publish .
 
-# Create directories for logs and uploaded images
-RUN mkdir -p /app/Logs /app/wwwroot/images
+# Create directories for logs, uploaded images, and temp files
+RUN mkdir -p /app/Logs /app/wwwroot/images /app/wwwroot/temp && \
+    chown -R 1000:2000 /app/wwwroot /app/Logs
 
 # Set environment variables (will be overridden by docker-compose/deployment)
 ENV ASPNETCORE_ENVIRONMENT=Production
