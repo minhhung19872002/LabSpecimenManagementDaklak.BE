@@ -48,7 +48,7 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
 
         context.Result = new ObjectResult(response)
         {
-            StatusCode = 200 // Always return 200, actual status in body
+            StatusCode = statusCode // Return actual HTTP status code
         };
         context.ExceptionHandled = true;
 

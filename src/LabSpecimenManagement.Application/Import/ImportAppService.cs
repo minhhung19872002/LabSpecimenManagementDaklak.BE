@@ -1907,61 +1907,35 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                 }
 
-                // Validate ComparisonOperator
+                // Validate ComparisonOperator - optional, only validate format if provided
                 var comparison = row.ComparisonOperator?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(comparison))
+                if (!string.IsNullOrWhiteSpace(comparison))
                 {
-                    item.IsValid = false;
-                    var error = "Ký hiệu so sánh không được để trống";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
+                    if (!ValidComparisonOperators.Contains(comparison))
                     {
-                        RowNumber = rowNumber,
-                        ColumnName = "So sánh",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else if (!ValidComparisonOperators.Contains(comparison))
-                {
-                    item.IsValid = false;
-                    var error = $"Ký hiệu so sánh '{comparison}' không hợp lệ. Chỉ được: <, >, <=, >=, =, Khoảng";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "So sánh",
-                        ErrorMessage = error,
-                        Value = comparison
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else
-                {
-                    // Validate based on comparison type
-                    var isRange = comparison.Equals("Khoảng", StringComparison.OrdinalIgnoreCase);
-
-                    if (!isRange)
-                    {
-                        // Single limit validation: AllowedLimit required
-                        if (string.IsNullOrWhiteSpace(row.AllowedLimit))
+                        item.IsValid = false;
+                        var error = $"Ký hiệu so sánh '{comparison}' không hợp lệ. Chỉ được: <, >, <=, >=, =, Khoảng";
+                        rowErrorMessages.Add(error);
+                        validationResult.Errors.Add(new ImportRowError
                         {
-                            item.IsValid = false;
-                            var error = "Giới hạn không được để trống khi So sánh không phải 'Khoảng'";
-                            rowErrorMessages.Add(error);
-                            validationResult.Errors.Add(new ImportRowError
-                            {
-                                RowNumber = rowNumber,
-                                ColumnName = "Giới hạn",
-                                ErrorMessage = error
-                            });
-                            AddRowError(rowErrors, rowNumber, error);
-                        }
+                            RowNumber = rowNumber,
+                            ColumnName = "So sánh",
+                            ErrorMessage = error,
+                            Value = comparison
+                        });
+                        AddRowError(rowErrors, rowNumber, error);
                     }
                     else
                     {
-                        // Range validation
-                        ValidateRangeFields(row, rowNumber, item, rowErrorMessages, validationResult, rowErrors);
+                        // Validate based on comparison type
+                        var isRange = comparison.Equals("Khoảng", StringComparison.OrdinalIgnoreCase);
+
+                        if (isRange)
+                        {
+                            // Range validation - only validate format if provided
+                            ValidateRangeFields(row, rowNumber, item, rowErrorMessages, validationResult, rowErrors);
+                        }
+                        // Note: AllowedLimit is now optional for single comparison
                     }
                 }
 
@@ -2003,22 +1977,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         ImportValidationResult validationResult,
         Dictionary<int, List<string>> rowErrors)
     {
-        // LowerOperator required
+        // LowerOperator - optional, only validate format if provided
         var lowerOp = row.LowerOperator?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(lowerOp))
-        {
-            item.IsValid = false;
-            var error = "So sánh giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "So sánh giới hạn dưới",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-        else if (!ValidLowerOperators.Contains(lowerOp))
+        if (!string.IsNullOrWhiteSpace(lowerOp) && !ValidLowerOperators.Contains(lowerOp))
         {
             item.IsValid = false;
             var error = $"So sánh giới hạn dưới '{lowerOp}' không hợp lệ. Chỉ được: >, >=";
@@ -2033,37 +1994,9 @@ public class ImportAppService : ApplicationService, IImportAppService
             AddRowError(rowErrors, rowNumber, error);
         }
 
-        // LowerLimit required
-        if (string.IsNullOrWhiteSpace(row.LowerLimit))
-        {
-            item.IsValid = false;
-            var error = "Giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "Giới hạn dưới",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-
-        // UpperOperator required
+        // UpperOperator - optional, only validate format if provided
         var upperOp = row.UpperOperator?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(upperOp))
-        {
-            item.IsValid = false;
-            var error = "So sánh giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "So sánh giới hạn trên",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-        else if (!ValidUpperOperators.Contains(upperOp))
+        if (!string.IsNullOrWhiteSpace(upperOp) && !ValidUpperOperators.Contains(upperOp))
         {
             item.IsValid = false;
             var error = $"So sánh giới hạn trên '{upperOp}' không hợp lệ. Chỉ được: <, <=";
@@ -2074,21 +2007,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ColumnName = "So sánh giới hạn trên",
                 ErrorMessage = error,
                 Value = upperOp
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-
-        // UpperLimit required
-        if (string.IsNullOrWhiteSpace(row.UpperLimit))
-        {
-            item.IsValid = false;
-            var error = "Giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "Giới hạn trên",
-                ErrorMessage = error
             });
             AddRowError(rowErrors, rowNumber, error);
         }
