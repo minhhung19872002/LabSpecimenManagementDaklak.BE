@@ -227,6 +227,7 @@ public class WopiController : ControllerBase
 
         var collaboraServerUrl = _configuration["Collabora:ServerUrl"] ?? "http://localhost:9980";
         var wopiBaseUrl = _configuration["Collabora:WopiBaseUrl"] ?? _configuration["App:SelfUrl"] ?? "http://localhost:44301";
+        var browserVersion = _configuration["Collabora:BrowserVersion"] ?? "04343c2";
 
         // Get discovery.xml to find the correct editor URL
         var extension = Path.GetExtension(fileName).ToLowerInvariant().TrimStart('.');
@@ -238,8 +239,8 @@ public class WopiController : ControllerBase
 
         // Build Collabora editor URL
         // Format: https://collabora-server/browser/{version}/cool.html?WOPISrc={wopi_url}
-        // Note: The version directory (04343c2) matches the Collabora Online version
-        var editorUrl = $"{collaboraServerUrl}/browser/04343c2/cool.html?WOPISrc={Uri.EscapeDataString(wopiSrc)}";
+        // The version directory matches the Collabora Online version from discovery.xml
+        var editorUrl = $"{collaboraServerUrl}/browser/{browserVersion}/cool.html?WOPISrc={Uri.EscapeDataString(wopiSrc)}";
 
         _logger.LogInformation("[WOPI GetEditorUrl] EditorUrl: {EditorUrl}", editorUrl);
 
