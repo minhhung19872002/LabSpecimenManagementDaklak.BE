@@ -46,6 +46,8 @@ using Volo.Abp.Timing;
 using LabSpecimenManagement.Hubs;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Services;
+using LabSpecimenManagement.Chat;
+using LabSpecimenManagement.Chat.Channels.Zalo;
 using Microsoft.AspNetCore.SignalR;
 
 namespace LabSpecimenManagement;
@@ -110,6 +112,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureEmail(context, configuration);
         ConfigureHangfire(context, configuration);
         ConfigureSignalR(context);
+        ConfigureZaloOA(context, configuration);
         ConfigureClock();
         ConfigureForwardedHeaders(context);
 
@@ -156,6 +159,21 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         // Register NotificationHubService for real-time notifications
         context.Services.AddTransient<INotificationHubService, NotificationHubService>();
+
+        // Register ChatHubService for real-time chat
+        context.Services.AddTransient<IChatHubService, ChatHubService>();
+    }
+
+    private void ConfigureZaloOA(ServiceConfigurationContext context, IConfiguration configuration)
+    {
+        // Bind ZaloOA settings from configuration
+        context.Services.Configure<ZaloOASettings>(configuration.GetSection(ZaloOASettings.SectionName));
+
+        // Register HttpClient for Zalo API
+        context.Services.AddHttpClient("ZaloOA", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(30);
+        });
     }
 
     private void ConfigureHangfire(ServiceConfigurationContext context, IConfiguration configuration)
@@ -395,6 +413,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         {
             endpoints.MapHealthChecks("/health");
             endpoints.MapHub<NotificationHub>("/signalr/notifications");
+            endpoints.MapHub<ChatHub>("/signalr/chat");
         });
     }
 

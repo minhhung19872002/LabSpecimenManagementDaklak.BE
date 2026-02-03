@@ -26,6 +26,7 @@ using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.PublishedReports;
+using LabSpecimenManagement.Chat;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -121,6 +122,12 @@ public class LabSpecimenManagementDbContext :
 
     // Notes (Master Data)
     public DbSet<Note> Notes { get; set; }
+
+    // Chat Entities
+    public DbSet<ChatChannel> ChatChannels { get; set; }
+    public DbSet<ChatContact> ChatContacts { get; set; }
+    public DbSet<ChatConversation> ChatConversations { get; set; }
+    public DbSet<ChatMessage> ChatMessages { get; set; }
 
     #region Entities from the modules
 
@@ -1243,6 +1250,104 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ CHAT CONFIGURATION ============
+
+        // ChatChannel configuration
+        builder.Entity<ChatChannel>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ChatChannels", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Name).IsRequired().HasMaxLength(ChatConsts.MaxChannelNameLength);
+            b.Property(x => x.Configuration).HasColumnType("jsonb");
+
+            b.HasIndex(x => x.Type);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // ChatContact configuration
+        builder.Entity<ChatContact>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ChatContacts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ExternalId).IsRequired().HasMaxLength(ChatConsts.MaxExternalIdLength);
+            b.Property(x => x.DisplayName).HasMaxLength(ChatConsts.MaxDisplayNameLength);
+            b.Property(x => x.Avatar).HasMaxLength(ChatConsts.MaxAvatarUrlLength);
+            b.Property(x => x.PhoneNumber).HasMaxLength(ChatConsts.MaxPhoneNumberLength);
+            b.Property(x => x.Email).HasMaxLength(ChatConsts.MaxEmailLength);
+            b.Property(x => x.Metadata).HasColumnType("jsonb");
+
+            b.HasIndex(x => x.ChannelId);
+            b.HasIndex(x => x.CustomerId);
+            b.HasIndex(x => new { x.ChannelId, x.ExternalId }).IsUnique();
+
+            b.HasOne(x => x.Channel)
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .IsRequired();
+
+            b.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(x => x.CustomerId)
+                .IsRequired(false);
+        });
+
+        // ChatConversation configuration
+        builder.Entity<ChatConversation>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ChatConversations", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Subject).HasMaxLength(ChatConsts.MaxSubjectLength);
+            b.Property(x => x.LastMessagePreview).HasMaxLength(ChatConsts.MaxLastMessagePreviewLength);
+            b.Property(x => x.Metadata).HasColumnType("jsonb");
+
+            b.HasIndex(x => x.ChannelId);
+            b.HasIndex(x => x.ContactId);
+            b.HasIndex(x => x.AssignedAgentId);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.LastMessageAt);
+            b.HasIndex(x => new { x.ChannelId, x.Status });
+            b.HasIndex(x => new { x.AssignedAgentId, x.Status });
+
+            b.HasOne(x => x.Channel)
+                .WithMany()
+                .HasForeignKey(x => x.ChannelId)
+                .IsRequired();
+
+            b.HasOne(x => x.Contact)
+                .WithMany()
+                .HasForeignKey(x => x.ContactId)
+                .IsRequired();
+        });
+
+        // ChatMessage configuration
+        builder.Entity<ChatMessage>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ChatMessages", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Content).HasColumnType("text");
+            b.Property(x => x.Attachments).HasColumnType("jsonb");
+            b.Property(x => x.ExternalMessageId).HasMaxLength(ChatConsts.MaxExternalMessageIdLength);
+            b.Property(x => x.ErrorMessage).HasMaxLength(ChatConsts.MaxErrorMessageLength);
+            b.Property(x => x.Metadata).HasColumnType("jsonb");
+
+            b.HasIndex(x => x.ConversationId);
+            b.HasIndex(x => x.ExternalMessageId);
+            b.HasIndex(x => new { x.ConversationId, x.CreationTime });
+            b.HasIndex(x => new { x.ConversationId, x.IsDeleted });
+
+            b.HasOne(x => x.Conversation)
+                .WithMany()
+                .HasForeignKey(x => x.ConversationId)
+                .IsRequired();
+
+            // Query filter for soft delete
+            b.HasQueryFilter(x => !x.IsDeleted);
         });
     }
 }
