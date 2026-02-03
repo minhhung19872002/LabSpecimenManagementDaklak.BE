@@ -238,7 +238,8 @@ public class WopiController : ControllerBase
 
         // Build Collabora editor URL
         // Format: https://collabora-server/browser/{version}/cool.html?WOPISrc={wopi_url}
-        var editorUrl = $"{collaboraServerUrl}/browser/dist/cool.html?WOPISrc={Uri.EscapeDataString(wopiSrc)}";
+        // Note: The version directory (04343c2) matches the Collabora Online version
+        var editorUrl = $"{collaboraServerUrl}/browser/04343c2/cool.html?WOPISrc={Uri.EscapeDataString(wopiSrc)}";
 
         _logger.LogInformation("[WOPI GetEditorUrl] EditorUrl: {EditorUrl}", editorUrl);
 
