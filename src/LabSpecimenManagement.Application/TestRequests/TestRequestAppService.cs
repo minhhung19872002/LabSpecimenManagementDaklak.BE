@@ -224,6 +224,14 @@ public partial class TestRequestAppService :
                     testMethodFormattedName = testMethod?.FormattedName;
                 }
 
+                // Get specimen type name if assigned (for indicator-level specimen type)
+                string? indicatorSpecimenTypeName = null;
+                if (indicator.SpecimenTypeId.HasValue)
+                {
+                    var specimenType = await _specimenTypeRepository.FindAsync(indicator.SpecimenTypeId.Value);
+                    indicatorSpecimenTypeName = specimenType?.Name;
+                }
+
                 // Get approval status and test date from LaboratoryTaskIndicator if exists
                 IndicatorApprovalStatus? approvalStatus = null;
                 DateTime? testDate = null;
@@ -271,6 +279,8 @@ public partial class TestRequestAppService :
                     TestMethodCode = testMethodCode,
                     TestMethodName = testMethodName,
                     TestMethodFormattedName = testMethodFormattedName,
+                    SpecimenTypeId = indicator.SpecimenTypeId,
+                    SpecimenTypeName = indicatorSpecimenTypeName,
                     UnitPrice = indicator.UnitPrice,
                     OriginalUnitPrice = indicator.OriginalUnitPrice,
                     Notes = indicator.Notes,
@@ -591,6 +601,7 @@ public partial class TestRequestAppService :
                         sampleIndicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         sampleIndicator.Notes = indicatorDto.Notes;
                         sampleIndicator.TestMethodId = indicatorDto.TestMethodId;
+                        sampleIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
                         sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -905,6 +916,7 @@ public partial class TestRequestAppService :
                             indicator.Notes = indicatorDto.Notes;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
+                            indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -922,6 +934,7 @@ public partial class TestRequestAppService :
                             indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                             indicator.Notes = indicatorDto.Notes;
                             indicator.TestMethodId = indicatorDto.TestMethodId;
+                            indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
@@ -2337,6 +2350,7 @@ public partial class TestRequestAppService :
                         indicator.Notes = indicatorDto.Notes;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
+                        indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
                     }
                     else
@@ -2351,6 +2365,7 @@ public partial class TestRequestAppService :
                         indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         indicator.Notes = indicatorDto.Notes;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
+                        indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
 
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
