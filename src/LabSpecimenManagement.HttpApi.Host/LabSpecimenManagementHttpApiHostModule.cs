@@ -11,6 +11,8 @@ using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
+using Microsoft.AspNetCore.HttpOverrides;
+using System.Net;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
@@ -109,12 +111,28 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureHangfire(context, configuration);
         ConfigureSignalR(context);
         ConfigureClock();
+        ConfigureForwardedHeaders(context);
 
         // Register HttpClient for PDF conversion services
         context.Services.AddHttpClient();
 
         // Register PDF conversion service based on configuration (Gotenberg or OnlyOffice)
         context.Services.AddPdfConversionService(configuration);
+    }
+
+    /// <summary>
+    /// Configure forwarded headers to support HTTPS behind nginx ingress
+    /// This allows the backend to correctly detect the original HTTPS scheme from the load balancer
+    /// </summary>
+    private void ConfigureForwardedHeaders(ServiceConfigurationContext context)
+    {
+        context.Services.Configure<ForwardedHeadersOptions>(options =>
+        {
+            options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
+            // Clear known networks and proxies to accept any proxy (nginx ingress)
+            options.KnownNetworks.Clear();
+            options.KnownProxies.Clear();
+        });
     }
 
     /// <summary>
@@ -319,6 +337,10 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         app.UseCorrelationId();
         app.MapAbpStaticAssets();
+
+        // Use forwarded headers from nginx to detect HTTPS
+        // This must be before authentication to ensure OpenIddict uses the correct scheme
+        app.UseForwardedHeaders();
 
         // Uploads are handled via Azure Blob Storage, no local file storage needed
         // var webRootPath = env.WebRootPath ?? env.ContentRootPath;
