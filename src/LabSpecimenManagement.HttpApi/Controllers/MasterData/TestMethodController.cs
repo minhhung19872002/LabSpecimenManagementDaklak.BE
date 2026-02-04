@@ -93,6 +93,20 @@ public class TestMethodController : LabSpecimenManagementController
         return _testMethodAppService.AddIndicatorsAsync(id, input);
     }
 
+    /// <summary>
+    /// Cập nhật thông tin chỉ tiêu trong phương pháp thử (đơn giá)
+    /// </summary>
+    [HttpPut("{id}/indicators/{indicatorId}")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<TestMethodIndicatorDto> UpdateIndicatorAsync(
+        Guid id,
+        Guid indicatorId,
+        [FromQuery] Guid? specimenTypeId,
+        [FromBody] UpdateTestMethodIndicatorDto input)
+    {
+        return _testMethodAppService.UpdateIndicatorAsync(id, indicatorId, specimenTypeId, input);
+    }
+
     [HttpDelete("{id}/indicators/{indicatorId}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)

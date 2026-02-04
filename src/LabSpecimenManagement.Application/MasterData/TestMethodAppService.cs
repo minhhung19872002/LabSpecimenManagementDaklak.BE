@@ -437,6 +437,51 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         }
     }
 
+    public async Task<TestMethodIndicatorDto> UpdateIndicatorAsync(Guid testMethodId, Guid indicatorId, Guid? specimenTypeId, UpdateTestMethodIndicatorDto input)
+    {
+        var query = await _testMethodIndicatorRepository.GetQueryableAsync();
+
+        // Find by composite key (TestMethodId + IndicatorId + SpecimenTypeId)
+        var entity = await AsyncExecuter.FirstOrDefaultAsync(
+            query.Where(tmi => tmi.TestMethodId == testMethodId
+                && tmi.IndicatorId == indicatorId
+                && tmi.SpecimenTypeId == specimenTypeId)
+        );
+
+        if (entity == null)
+        {
+            throw new Common.Exceptions.EntityNotFoundException("TestMethodIndicator");
+        }
+
+        // Update fields
+        entity.UnitPrice = input.UnitPrice;
+
+        await _testMethodIndicatorRepository.UpdateAsync(entity);
+
+        // Get indicator info for response
+        var indicator = await _indicatorRepository.FindAsync(indicatorId);
+        var specimenType = specimenTypeId.HasValue
+            ? await _specimenTypeRepository.FindAsync(specimenTypeId.Value)
+            : null;
+
+        return new TestMethodIndicatorDto
+        {
+            Id = entity.Id,
+            TestMethodId = entity.TestMethodId,
+            IndicatorId = entity.IndicatorId,
+            IndicatorCode = indicator?.Code ?? "",
+            IndicatorName = indicator?.Name ?? "",
+            IndicatorFormattedName = indicator?.FormattedName,
+            UnitPrice = entity.UnitPrice,
+            IsActive = indicator?.IsActive ?? false,
+            SortOrder = entity.SortOrder,
+            ParentIndicatorId = indicator?.ParentIndicatorId,
+            SpecimenTypeId = entity.SpecimenTypeId,
+            SpecimenTypeCode = specimenType?.Code,
+            SpecimenTypeName = specimenType?.Name
+        };
+    }
+
     public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId)
     {
         var query = await _testMethodIndicatorRepository.GetQueryableAsync();

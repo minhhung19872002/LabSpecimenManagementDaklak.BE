@@ -335,8 +335,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(1000)");
 
                     b.Property<string>("Unit")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
