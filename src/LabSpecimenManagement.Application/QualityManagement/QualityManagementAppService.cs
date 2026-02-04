@@ -1542,22 +1542,54 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         // Filter out parent indicators with children - only count sub-indicators and standalone indicators
         var filteredIndicators = await FilterQualityIndicatorsForStatusCalculationAsync(allIndicators);
-        var approvedIndicators = filteredIndicators.Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
 
+        // Kiểm tra còn chỉ tiêu chờ phê duyệt không
+        var pendingApprovalIndicators = filteredIndicators.Where(i =>
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval).ToList();
+
+        var approvedIndicators = filteredIndicators.Where(i =>
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
+
+        // ƯU TIÊN 1: Còn chỉ tiêu chờ phê duyệt -> giữ PendingApproval
+        if (pendingApprovalIndicators.Any())
+        {
+            // Nếu có chỉ tiêu đã được in nhưng vẫn còn chỉ tiêu chờ duyệt
+            // -> ưu tiên giữ status PendingApproval
+            task.Status = QualityManagementStatus.PendingApproval;
+            await _taskRepository.UpdateAsync(task);
+
+            // Vẫn cập nhật TestRequest nếu có chỉ tiêu đã được in
+            var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+            if (printedCount > 0)
+            {
+                var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+                if (testRequest.Status != TestRequestStatus.ReportPublished)
+                {
+                    testRequest.Status = TestRequestStatus.ReportPublished;
+                    testRequest.ReportPublishedDate = DateTime.Now;
+                    testRequest.ReportPublishedByUserId = CurrentUser.Id;
+                    testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+                    await _testRequestRepository.UpdateAsync(testRequest);
+                }
+            }
+            return;
+        }
+
+        // Không còn chỉ tiêu chờ duyệt -> tính status dựa vào số lượng đã in
         if (!approvedIndicators.Any())
         {
             return;
         }
 
-        var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+        var totalPrintedCount = approvedIndicators.Count(i => i.IsPrinted);
         var totalApproved = approvedIndicators.Count;
 
-        if (printedCount == 0)
+        if (totalPrintedCount == 0)
         {
             // Chưa in gì - giữ PendingPublish
             return;
         }
-        else if (printedCount < totalApproved)
+        else if (totalPrintedCount < totalApproved)
         {
             // In 1 phần
             task.Status = QualityManagementStatus.PartialPublished;
@@ -1571,14 +1603,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         await _taskRepository.UpdateAsync(task);
 
         // Cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
-        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-        if (testRequest.Status != TestRequestStatus.ReportPublished)
+        var testRequest2 = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest2.Status != TestRequestStatus.ReportPublished)
         {
-            testRequest.Status = TestRequestStatus.ReportPublished;
-            testRequest.ReportPublishedDate = DateTime.Now;
-            testRequest.ReportPublishedByUserId = CurrentUser.Id;
-            testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
-            await _testRequestRepository.UpdateAsync(testRequest);
+            testRequest2.Status = TestRequestStatus.ReportPublished;
+            testRequest2.ReportPublishedDate = DateTime.Now;
+            testRequest2.ReportPublishedByUserId = CurrentUser.Id;
+            testRequest2.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+            await _testRequestRepository.UpdateAsync(testRequest2);
         }
     }
 
