@@ -74,6 +74,12 @@ public class TestingDetailDto : EntityDto<Guid>
     /// Danh sách mẫu và chỉ tiêu (grouped by sample)
     /// </summary>
     public List<TestingSampleDto> Samples { get; set; } = new();
+
+    /// <summary>
+    /// Có phải công việc của user hiện tại hay không
+    /// True nếu user hiện tại là 1 trong các KTV được gán vào task này
+    /// </summary>
+    public bool IsMy { get; set; }
 }
 
 /// <summary>

@@ -873,6 +873,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             dto.TechnicianNames = string.Join(", ", technicianNameList);
         }
 
+        // Set IsMy - true if current user is one of the assigned technicians
+        dto.IsMy = currentUserId.HasValue && technicianIds.Contains(currentUserId.Value);
+
         // Count completed indicators (loại trừ CustomerCancelled và parent indicators có children)
         // Sử dụng indicatorsForStatus đã filter parent indicators
         var activeIndicators = indicatorsForStatus.Where(i => i.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled).ToList();
