@@ -714,6 +714,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 { "Tên phương pháp", "Phương pháp đo pH" },
                 { "Mô tả", "" },
                 { "Đơn vị tính", "mg/L" },
+                { "Nền mẫu", "Nước mặt" },
                 { "Chỉ tiêu", "pH" },
                 { "Đơn giá", 50000 }
             },
@@ -722,6 +723,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 { "Tên phương pháp", "Phương pháp đo pH" },
                 { "Mô tả", "" },
                 { "Đơn vị tính", "mg/L" },
+                { "Nền mẫu", "Nước mặt" },
                 { "Chỉ tiêu", "Độ đục" },
                 { "Đơn giá", 60000 }
             }
@@ -828,8 +830,21 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 var rowErrorMessages = new List<string>();
 
-                // Validate SpecimenType if provided (not required, but must exist if provided)
-                if (!string.IsNullOrWhiteSpace(row.SpecimenTypeName))
+                // Validate SpecimenType - bắt buộc và phải tồn tại trong hệ thống
+                if (string.IsNullOrWhiteSpace(row.SpecimenTypeName))
+                {
+                    item.IsValid = false;
+                    var error = "Nền mẫu là bắt buộc";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Nền mẫu",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else
                 {
                     var specimenTypeKey = StringHelper.NormalizeAndTrim(row.SpecimenTypeName).ToLowerInvariant();
                     if (!specimenTypeDict.TryGetValue(specimenTypeKey, out var specimenType))
@@ -888,14 +903,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                         item.IndicatorId = indicatorId;
 
                         // Check duplicate indicator+specimenType in same test method
-                        var specimenTypeKeyPart = StringHelper.NormalizeAndTrim(row.SpecimenTypeName ?? "").ToLowerInvariant();
+                        var specimenTypeKeyPart = StringHelper.NormalizeAndTrim(row.SpecimenTypeName).ToLowerInvariant();
                         var uniqueKey = $"{indicatorKey}|{specimenTypeKeyPart}";
                         if (!indicatorKeys.Add(uniqueKey))
                         {
                             item.IsValid = false;
-                            var error = string.IsNullOrWhiteSpace(row.SpecimenTypeName)
-                                ? $"Chỉ tiêu '{row.IndicatorName}' bị trùng trong phương pháp này"
-                                : $"Chỉ tiêu '{row.IndicatorName}' với nền mẫu '{row.SpecimenTypeName}' bị trùng trong phương pháp này";
+                            var error = $"Chỉ tiêu '{row.IndicatorName}' với nền mẫu '{row.SpecimenTypeName}' bị trùng trong phương pháp này";
                             rowErrorMessages.Add(error);
                             validationResult.Errors.Add(new ImportRowError
                             {
@@ -1334,15 +1347,16 @@ public class ImportAppService : ApplicationService, IImportAppService
         var worksheet = workbook.Worksheets.Add("Import Errors");
 
         // Column mapping
-        var columns = new[] { "Tên phương pháp", "Mô tả", "Đơn vị tính", "Chỉ tiêu", "Đơn giá", "Lỗi" };
+        var columns = new[] { "Tên phương pháp", "Mô tả", "Đơn vị tính", "Nền mẫu", "Chỉ tiêu", "Đơn giá", "Lỗi" };
         var columnNameMapping = new Dictionary<string, int>
         {
             { "Tên phương pháp", 1 },
             { "Mô tả", 2 },
             { "Đơn vị tính", 3 },
-            { "Chỉ tiêu", 4 },
-            { "Đơn giá", 5 },
-            { "Lỗi", 6 }
+            { "Nền mẫu", 4 },
+            { "Chỉ tiêu", 5 },
+            { "Đơn giá", 6 },
+            { "Lỗi", 7 }
         };
 
         // Write header row with styling
@@ -1400,35 +1414,43 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ApplyErrorStyle(cell3);
             }
 
-            // Column 4: Chỉ tiêu
+            // Column 4: Nền mẫu
             var cell4 = worksheet.Cell(excelRowNumber, 4);
-            cell4.Value = row.IndicatorName ?? "";
-            if (errorColumnsForRow.Contains("Chỉ tiêu"))
+            cell4.Value = row.SpecimenTypeName ?? "";
+            if (errorColumnsForRow.Contains("Nền mẫu"))
             {
                 ApplyErrorStyle(cell4);
             }
 
-            // Column 5: Đơn giá
+            // Column 5: Chỉ tiêu
             var cell5 = worksheet.Cell(excelRowNumber, 5);
-            cell5.Value = row.UnitPrice;
-            if (errorColumnsForRow.Contains("Đơn giá"))
+            cell5.Value = row.IndicatorName ?? "";
+            if (errorColumnsForRow.Contains("Chỉ tiêu"))
             {
                 ApplyErrorStyle(cell5);
             }
 
-            // Column 6: Lỗi
+            // Column 6: Đơn giá
             var cell6 = worksheet.Cell(excelRowNumber, 6);
+            cell6.Value = row.UnitPrice;
+            if (errorColumnsForRow.Contains("Đơn giá"))
+            {
+                ApplyErrorStyle(cell6);
+            }
+
+            // Column 7: Lỗi
+            var cell7 = worksheet.Cell(excelRowNumber, 7);
             if (rowErrors.TryGetValue(dataRowNumber, out var errors) && errors.Count > 0)
             {
-                cell6.Value = string.Join("; ", errors);
-                cell6.Style.Font.FontColor = XLColor.Red;
-                cell6.Style.Font.Bold = true;
+                cell7.Value = string.Join("; ", errors);
+                cell7.Style.Font.FontColor = XLColor.Red;
+                cell7.Style.Font.Bold = true;
             }
 
             // Highlight entire row background if has errors
             if (hasError)
             {
-                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 6);
+                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 7);
                 rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                 rowRange.Style.Border.OutsideBorderColor = XLColor.Red;
             }
@@ -1438,9 +1460,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         worksheet.Columns().AdjustToContents();
 
         // Make error column wider if needed
-        if (worksheet.Column(6).Width < 50)
+        if (worksheet.Column(7).Width < 50)
         {
-            worksheet.Column(6).Width = 50;
+            worksheet.Column(7).Width = 50;
         }
 
         using var stream = new MemoryStream();
@@ -1885,61 +1907,35 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                 }
 
-                // Validate ComparisonOperator
+                // Validate ComparisonOperator - optional, only validate format if provided
                 var comparison = row.ComparisonOperator?.Trim() ?? "";
-                if (string.IsNullOrWhiteSpace(comparison))
+                if (!string.IsNullOrWhiteSpace(comparison))
                 {
-                    item.IsValid = false;
-                    var error = "Ký hiệu so sánh không được để trống";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
+                    if (!ValidComparisonOperators.Contains(comparison))
                     {
-                        RowNumber = rowNumber,
-                        ColumnName = "So sánh",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else if (!ValidComparisonOperators.Contains(comparison))
-                {
-                    item.IsValid = false;
-                    var error = $"Ký hiệu so sánh '{comparison}' không hợp lệ. Chỉ được: <, >, <=, >=, =, Khoảng";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "So sánh",
-                        ErrorMessage = error,
-                        Value = comparison
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else
-                {
-                    // Validate based on comparison type
-                    var isRange = comparison.Equals("Khoảng", StringComparison.OrdinalIgnoreCase);
-
-                    if (!isRange)
-                    {
-                        // Single limit validation: AllowedLimit required
-                        if (string.IsNullOrWhiteSpace(row.AllowedLimit))
+                        item.IsValid = false;
+                        var error = $"Ký hiệu so sánh '{comparison}' không hợp lệ. Chỉ được: <, >, <=, >=, =, Khoảng";
+                        rowErrorMessages.Add(error);
+                        validationResult.Errors.Add(new ImportRowError
                         {
-                            item.IsValid = false;
-                            var error = "Giới hạn không được để trống khi So sánh không phải 'Khoảng'";
-                            rowErrorMessages.Add(error);
-                            validationResult.Errors.Add(new ImportRowError
-                            {
-                                RowNumber = rowNumber,
-                                ColumnName = "Giới hạn",
-                                ErrorMessage = error
-                            });
-                            AddRowError(rowErrors, rowNumber, error);
-                        }
+                            RowNumber = rowNumber,
+                            ColumnName = "So sánh",
+                            ErrorMessage = error,
+                            Value = comparison
+                        });
+                        AddRowError(rowErrors, rowNumber, error);
                     }
                     else
                     {
-                        // Range validation
-                        ValidateRangeFields(row, rowNumber, item, rowErrorMessages, validationResult, rowErrors);
+                        // Validate based on comparison type
+                        var isRange = comparison.Equals("Khoảng", StringComparison.OrdinalIgnoreCase);
+
+                        if (isRange)
+                        {
+                            // Range validation - only validate format if provided
+                            ValidateRangeFields(row, rowNumber, item, rowErrorMessages, validationResult, rowErrors);
+                        }
+                        // Note: AllowedLimit is now optional for single comparison
                     }
                 }
 
@@ -1981,22 +1977,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         ImportValidationResult validationResult,
         Dictionary<int, List<string>> rowErrors)
     {
-        // LowerOperator required
+        // LowerOperator - optional, only validate format if provided
         var lowerOp = row.LowerOperator?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(lowerOp))
-        {
-            item.IsValid = false;
-            var error = "So sánh giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "So sánh giới hạn dưới",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-        else if (!ValidLowerOperators.Contains(lowerOp))
+        if (!string.IsNullOrWhiteSpace(lowerOp) && !ValidLowerOperators.Contains(lowerOp))
         {
             item.IsValid = false;
             var error = $"So sánh giới hạn dưới '{lowerOp}' không hợp lệ. Chỉ được: >, >=";
@@ -2011,37 +1994,9 @@ public class ImportAppService : ApplicationService, IImportAppService
             AddRowError(rowErrors, rowNumber, error);
         }
 
-        // LowerLimit required
-        if (string.IsNullOrWhiteSpace(row.LowerLimit))
-        {
-            item.IsValid = false;
-            var error = "Giới hạn dưới là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "Giới hạn dưới",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-
-        // UpperOperator required
+        // UpperOperator - optional, only validate format if provided
         var upperOp = row.UpperOperator?.Trim() ?? "";
-        if (string.IsNullOrWhiteSpace(upperOp))
-        {
-            item.IsValid = false;
-            var error = "So sánh giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "So sánh giới hạn trên",
-                ErrorMessage = error
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-        else if (!ValidUpperOperators.Contains(upperOp))
+        if (!string.IsNullOrWhiteSpace(upperOp) && !ValidUpperOperators.Contains(upperOp))
         {
             item.IsValid = false;
             var error = $"So sánh giới hạn trên '{upperOp}' không hợp lệ. Chỉ được: <, <=";
@@ -2052,21 +2007,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ColumnName = "So sánh giới hạn trên",
                 ErrorMessage = error,
                 Value = upperOp
-            });
-            AddRowError(rowErrors, rowNumber, error);
-        }
-
-        // UpperLimit required
-        if (string.IsNullOrWhiteSpace(row.UpperLimit))
-        {
-            item.IsValid = false;
-            var error = "Giới hạn trên là bắt buộc khi So sánh = 'Khoảng'";
-            rowErrorMessages.Add(error);
-            validationResult.Errors.Add(new ImportRowError
-            {
-                RowNumber = rowNumber,
-                ColumnName = "Giới hạn trên",
-                ErrorMessage = error
             });
             AddRowError(rowErrors, rowNumber, error);
         }

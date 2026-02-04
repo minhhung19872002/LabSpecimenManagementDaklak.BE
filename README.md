@@ -2,6 +2,8 @@
 
 A comprehensive laboratory specimen management system built with ABP Framework and .NET 9.
 
+> **Note**: Database migrations run automatically on deployment via init container.
+
 ## Quick Start
 
 ### Option 1: Using Start Script (Recommended)

@@ -1,0 +1,143 @@
+name: Deploy Backend to Azure AKS
+
+on:
+  push:
+    branches:
+      - main  # Auto-deploy main branch to production
+  workflow_dispatch:  # Allow manual trigger
+
+env:
+  ACR_NAME: acrlabspecimenprod
+  BACKEND_IMAGE_NAME: lab-specimen-backend
+  MIGRATOR_IMAGE_NAME: lab-specimen-migrator
+  RESOURCE_GROUP: rg-lab-specimen-prod
+  AKS_CLUSTER_NAME: aks-lab-specimen-prod
+  NAMESPACE: lab-specimen
+  DEPLOYMENT_NAME: lab-specimen-backend
+
+jobs:
+  build:
+    name: Build and Push to ACR
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get ACR Login Server
+        id: acr
+        run: |
+          ACR_LOGIN_SERVER=$(az acr show --name ${{ env.ACR_NAME }} --resource-group ${{ env.RESOURCE_GROUP }} --query loginServer -o tsv)
+          echo "login_server=$ACR_LOGIN_SERVER" >> $GITHUB_OUTPUT
+          echo "ACR Login Server: $ACR_LOGIN_SERVER"
+
+      - name: Login to Azure Container Registry
+        run: |
+          az acr login --name ${{ env.ACR_NAME }}
+
+      - name: Build and Push Backend Image
+        run: |
+          # Get commit SHA for tagging
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+
+          # Backend image names
+          IMAGE_TAG_LATEST="${{ steps.acr.outputs.login_server }}/${{ env.BACKEND_IMAGE_NAME }}:latest"
+          IMAGE_TAG_SHA="${{ steps.acr.outputs.login_server }}/${{ env.BACKEND_IMAGE_NAME }}:$SHORT_SHA"
+
+          echo "Building Backend Docker image..."
+          docker build -t $IMAGE_TAG_LATEST -t $IMAGE_TAG_SHA .
+
+          echo "Pushing backend image with 'latest' tag..."
+          docker push $IMAGE_TAG_LATEST
+
+          echo "Pushing backend image with commit SHA tag..."
+          docker push $IMAGE_TAG_SHA
+
+          echo "✅ Successfully pushed backend:"
+          echo "  - $IMAGE_TAG_LATEST"
+          echo "  - $IMAGE_TAG_SHA"
+
+      - name: Build and Push Migrator Image
+        run: |
+          # Get commit SHA for tagging
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+
+          # Migrator image names
+          IMAGE_TAG_LATEST="${{ steps.acr.outputs.login_server }}/${{ env.MIGRATOR_IMAGE_NAME }}:latest"
+          IMAGE_TAG_SHA="${{ steps.acr.outputs.login_server }}/${{ env.MIGRATOR_IMAGE_NAME }}:$SHORT_SHA"
+
+          echo "Building Migrator Docker image..."
+          docker build -f Dockerfile.Migrator -t $IMAGE_TAG_LATEST -t $IMAGE_TAG_SHA .
+
+          echo "Pushing migrator image with 'latest' tag..."
+          docker push $IMAGE_TAG_LATEST
+
+          echo "Pushing migrator image with commit SHA tag..."
+          docker push $IMAGE_TAG_SHA
+
+          echo "✅ Successfully pushed migrator:"
+          echo "  - $IMAGE_TAG_LATEST"
+          echo "  - $IMAGE_TAG_SHA"
+
+      - name: Verify Images in ACR
+        run: |
+          echo "Verifying backend image in ACR..."
+          az acr repository show --name ${{ env.ACR_NAME }} --repository ${{ env.BACKEND_IMAGE_NAME }}
+
+          echo ""
+          echo "Backend recent tags:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository ${{ env.BACKEND_IMAGE_NAME }} --orderby time_desc --top 5 -o table
+
+          echo ""
+          echo "Verifying migrator image in ACR..."
+          az acr repository show --name ${{ env.ACR_NAME }} --repository ${{ env.MIGRATOR_IMAGE_NAME }}
+
+          echo ""
+          echo "Migrator recent tags:"
+          az acr repository show-tags --name ${{ env.ACR_NAME }} --repository ${{ env.MIGRATOR_IMAGE_NAME }} --orderby time_desc --top 5 -o table
+
+      - name: Logout from Azure
+        if: always()
+        run: |
+          az logout
+          docker logout ${{ steps.acr.outputs.login_server }}
+
+  deploy:
+    name: Deploy to AKS
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Get AKS Credentials
+        run: |
+          az aks get-credentials \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --name ${{ env.AKS_CLUSTER_NAME }} \
+            --overwrite-existing
+
+      - name: Trigger Deployment Rollout
+        run: |
+          echo "Triggering backend deployment rollout (fast mode - no waiting)..."
+          kubectl rollout restart deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}
+
+          echo "✅ Backend deployment triggered successfully!"
+          echo "Kubernetes will handle the rollout in the background."
+          echo "Note: Backend includes database migrations via init container."
+          echo ""
+          echo "Check status with:"
+          echo "  kubectl rollout status deployment/${{ env.DEPLOYMENT_NAME }} -n ${{ env.NAMESPACE }}"
+
+      - name: Logout from Azure
+        if: always()
+        run: |
+          az logout

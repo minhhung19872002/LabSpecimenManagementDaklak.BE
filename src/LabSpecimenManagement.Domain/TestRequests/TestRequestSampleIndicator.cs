@@ -30,6 +30,12 @@ public class TestRequestSampleIndicator : Entity<Guid>
     public Guid? TestMethodId { get; set; }
 
     /// <summary>
+    /// Specimen Type ID - Nền mẫu (Foreign Key)
+    /// Lưu để phân biệt giá của cùng indicator+method ở các nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Đơn giá tại thời điểm tạo (snapshot)
     /// </summary>
     public decimal UnitPrice { get; set; }

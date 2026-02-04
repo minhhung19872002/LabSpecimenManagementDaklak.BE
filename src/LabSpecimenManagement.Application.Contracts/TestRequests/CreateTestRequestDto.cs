@@ -229,6 +229,11 @@ public class CreateTestRequestSampleIndicatorDto
     public Guid? TestMethodId { get; set; }
 
     /// <summary>
+    /// Nền mẫu ID - để phân biệt giá của cùng indicator+method ở các nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Khoa phòng thực hiện
     /// </summary>
     public Guid? LaboratoryId { get; set; }
@@ -294,6 +299,7 @@ public class IndicatorChangeDto
     public Guid? Id { get; set; }
     public Guid IndicatorId { get; set; }
     public Guid? TestMethodId { get; set; }
+    public Guid? SpecimenTypeId { get; set; }
     public Guid? LaboratoryId { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal? OriginalUnitPrice { get; set; }

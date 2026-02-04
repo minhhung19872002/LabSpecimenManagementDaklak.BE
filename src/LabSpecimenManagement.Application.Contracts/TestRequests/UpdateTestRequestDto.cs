@@ -242,6 +242,11 @@ public class UpdateTestRequestSampleIndicatorDto
     public Guid? TestMethodId { get; set; }
 
     /// <summary>
+    /// Nền mẫu ID - để phân biệt giá của cùng indicator+method ở các nền mẫu khác nhau
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Khoa phòng thực hiện
     /// </summary>
     public Guid? LaboratoryId { get; set; }

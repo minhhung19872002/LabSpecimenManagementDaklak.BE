@@ -4087,6 +4087,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("SentToDepartment")
                         .HasColumnType("boolean");
 
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("TestMethodId")
                         .HasColumnType("uuid");
 
