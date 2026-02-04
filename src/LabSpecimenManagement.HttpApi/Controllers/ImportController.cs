@@ -474,6 +474,54 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Note Import
+
+    /// <summary>
+    /// Get template for importing Note
+    /// Template columns: Ghi chú
+    /// </summary>
+    [HttpGet("notes/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetNoteTemplate()
+    {
+        var bytes = _importAppService.GetNoteTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ghi_chu.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Note import - validates data without saving
+    /// Upsert: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("notes/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<NoteImportPreviewDto> PreviewNotesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewNotesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Notes from Excel file
+    /// Upsert logic: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("notes")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportNotesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportNotesAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)

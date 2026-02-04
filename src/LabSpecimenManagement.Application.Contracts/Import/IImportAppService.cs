@@ -245,4 +245,28 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportSpecimenTypesAsync(byte[] fileBytes);
 
     #endregion
+
+    #region Note Import
+
+    /// <summary>
+    /// Get Note import template
+    /// Template columns: Ghi chú
+    /// </summary>
+    byte[] GetNoteTemplate();
+
+    /// <summary>
+    /// Preview Note import - validates data without saving
+    /// Upsert: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<NoteImportPreviewDto> PreviewNotesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import Notes from Excel file
+    /// Upsert logic: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportNotesAsync(byte[] fileBytes);
+
+    #endregion
 }

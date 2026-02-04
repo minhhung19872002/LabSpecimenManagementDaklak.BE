@@ -40,6 +40,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -63,6 +64,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Note, Guid> noteRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -85,6 +87,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _specimenTypeRepository = specimenTypeRepository;
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
+        _noteRepository = noteRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -4794,6 +4797,310 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var outputStream = new MemoryStream();
         workbook.SaveAs(outputStream);
         return outputStream.ToArray();
+    }
+
+    #endregion
+
+    #region Note Import
+
+    public byte[] GetNoteTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", "Ghi chú.xlsx");
+        return File.ReadAllBytes(templatePath);
+    }
+
+    public async Task<NoteImportPreviewDto> PreviewNotesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewNotesInternalAsync(memoryStream);
+    }
+
+    private async Task<NoteImportPreviewDto> PreviewNotesInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadNoteExcelRows(memoryStream);
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation (using normalized content for matching)
+        var existingNotes = await _noteRepository.GetListAsync();
+        var noteDict = existingNotes
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Content).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var result = new NoteImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var newNoteContents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateNoteContents = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+
+            var item = new NoteImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                Content = row.Content?.Trim() ?? "",
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            // Validate required fields
+            if (string.IsNullOrWhiteSpace(row.Content))
+            {
+                item.IsValid = false;
+                var error = "Nội dung ghi chú không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Ghi chú",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else
+            {
+                // Check if note exists (for upsert logic)
+                var normalizedContent = StringHelper.NormalizeAndTrim(row.Content).ToLowerInvariant();
+                if (noteDict.TryGetValue(normalizedContent, out var existingNote))
+                {
+                    item.IsNew = false;
+                    item.ExistingId = existingNote.Id;
+                    updateNoteContents.Add(normalizedContent);
+                }
+                else
+                {
+                    item.IsNew = true;
+                    newNoteContents.Add(normalizedContent);
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+            {
+                validationResult.ValidRows++;
+            }
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = validationResult.InvalidRows;
+        result.NewNotes = newNoteContents.Count;
+        result.UpdateNotes = updateNoteContents.Count;
+
+        // Generate error file if there are errors
+        if (!validationResult.IsValid)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateNoteErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Ghi_chu_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<NoteImportRow> ReadNoteExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<NoteImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        // Start from row 2 (skip header)
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty()) continue;
+
+            var content = row.Cell(1).GetString()?.Trim();
+
+            // Skip if cell is empty
+            if (string.IsNullOrWhiteSpace(content))
+                continue;
+
+            rows.Add(new NoteImportRow
+            {
+                Content = content
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportNotesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewNotesInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        // Track processed entities to avoid duplicate operations in same batch
+        var processedNotes = new Dictionary<string, Note>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            // Load existing data
+            var existingNotes = await _noteRepository.GetListAsync();
+            foreach (var note in existingNotes)
+            {
+                var key = StringHelper.NormalizeAndTrim(note.Content).ToLowerInvariant();
+                if (!processedNotes.ContainsKey(key))
+                {
+                    processedNotes[key] = note;
+                }
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            // Get next code number for new notes
+            var nextCodeNumber = await GetNextNoteCodeNumberAsync();
+
+            // Process each row
+            foreach (var item in validItems)
+            {
+                var noteKey = StringHelper.NormalizeAndTrim(item.Content).ToLowerInvariant();
+
+                // Note upsert
+                if (processedNotes.TryGetValue(noteKey, out var existingNote))
+                {
+                    // Update existing note - use Normalize for content
+                    existingNote.Content = StringHelper.Normalize(item.Content);
+                    await _noteRepository.UpdateAsync(existingNote);
+                    updatedCount++;
+                }
+                else
+                {
+                    // Create new note with generated code
+                    var code = $"GC-{nextCodeNumber:D4}";
+                    nextCodeNumber++;
+
+                    var newNote = new Note(
+                        GuidGenerator.Create(),
+                        code,
+                        StringHelper.Normalize(item.Content)
+                    )
+                    {
+                        IsActive = true,
+                        SortOrder = 0
+                    };
+                    await _noteRepository.InsertAsync(newNote);
+                    processedNotes[noteKey] = newNote;
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                Message = $"Import thành công: {newCount} ghi chú mới, {updatedCount} ghi chú cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateNoteErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        // Find or add error column (column 2 since we only have 1 column)
+        var errorColumnIndex = 2;
+        var headerRow = worksheet.Row(1);
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        // Add errors to rows
+        int dataRowNumber = 2;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var content = row.Cell(1).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(content)) continue;
+
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            // Column 2: Lỗi
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+
+            dataRowNumber++;
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    /// <summary>
+    /// Get the next code number for new notes (GC-XXXX)
+    /// </summary>
+    private async Task<int> GetNextNoteCodeNumberAsync()
+    {
+        var existingNotes = await _noteRepository.GetListAsync();
+        var codes = existingNotes
+            .Where(n => n.Code.StartsWith("GC-"))
+            .Select(n => n.Code)
+            .ToList();
+
+        int maxNumber = 0;
+        foreach (var code in codes)
+        {
+            var numberPart = code.Replace("GC-", "");
+            if (int.TryParse(numberPart, out var num) && num > maxNumber)
+            {
+                maxNumber = num;
+            }
+        }
+
+        return maxNumber + 1;
     }
 
     #endregion
