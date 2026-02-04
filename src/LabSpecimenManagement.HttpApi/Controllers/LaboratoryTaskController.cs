@@ -397,6 +397,16 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     #region Shared Sample (Mẫu chung)
 
     /// <summary>
+    /// Kiểm tra xem có cần ẩn nút từ chối cho task này không
+    /// Task của Lab Hóa trong mẫu chung không được từ chối chỉ tiêu
+    /// </summary>
+    [HttpGet("{taskId}/should-hide-reject-button")]
+    public virtual Task<bool> ShouldHideRejectButtonAsync(Guid taskId)
+    {
+        return _laboratoryTaskAppService.ShouldHideRejectButtonAsync(taskId);
+    }
+
+    /// <summary>
     /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
     /// </summary>
     [HttpPost("{id}/send-shared-sample")]

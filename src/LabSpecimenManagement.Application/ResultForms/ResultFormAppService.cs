@@ -136,10 +136,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -2048,10 +2048,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -4258,13 +4258,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
         }
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // Not just this single indicator, but all indicators in the contract
-        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
-        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
-        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
-            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
-        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+        // Calculate TimeOfTesting: Use only the selected indicator's TestDate
+        var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
 
         // Merge notes from QLKT (lab) and QLCL (quality)
         var mergedNote = await GetMergedNoteAsync(labTaskIndicator.TestRequestSampleIndicatorId, input.Note);
@@ -4506,13 +4501,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit);
         }
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // Not just the selected indicators, but all indicators in the contract
-        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
-        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
-        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
-            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
-        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected indicators only
+        var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
 
         // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
         // nên không cần merge ở BE nữa, chỉ sử dụng input.Note trực tiếp
@@ -5028,10 +5018,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // Use first sample for header info (or combine if needed)
         var firstSample = samples.FirstOrDefault();

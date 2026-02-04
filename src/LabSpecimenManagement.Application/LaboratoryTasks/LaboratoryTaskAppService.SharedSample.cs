@@ -123,20 +123,8 @@ public partial class LaboratoryTaskAppService
             return false;
         }
 
-        // Nếu là Lab Vi Sinh (priority lab), không ẩn
-        var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
-        var labDept2 = await _departmentRepository.GetAsync(laboratory.DepartmentId);
-        var labName2 = labDept2.Name;
-        var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                                labName2.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
-                                labName2.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
-
-        if (isMicrobiologyLab)
-        {
-            return false;
-        }
-
-        // Lab khác (Hóa) trong shared sample task -> ẩn nút từ chối
-        return true;
+        // Lab Vi Sinh (lab đầu tiên): PriorLabTaskId = null → hiện nút từ chối
+        // Lab Hóa (lab thứ 2): PriorLabTaskId có giá trị → ẩn nút từ chối
+        return task.PriorLabTaskId != null;
     }
 }
