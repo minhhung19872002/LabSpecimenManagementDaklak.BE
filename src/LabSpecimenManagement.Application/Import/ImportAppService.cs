@@ -2247,11 +2247,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
                 Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
                 ComparisonOperator = comparisonCol > 0 ? row.Cell(comparisonCol).GetString()?.Trim() ?? "" : "",
-                AllowedLimit = limitCol > 0 ? row.Cell(limitCol).GetString()?.Trim() : null,
+                AllowedLimit = limitCol > 0 ? GetCellRichTextAsHtml(row.Cell(limitCol)) : null,
                 LowerOperator = lowerOpCol > 0 ? row.Cell(lowerOpCol).GetString()?.Trim() : null,
-                LowerLimit = lowerLimitCol > 0 ? row.Cell(lowerLimitCol).GetString()?.Trim() : null,
+                LowerLimit = lowerLimitCol > 0 ? GetCellRichTextAsHtml(row.Cell(lowerLimitCol)) : null,
                 UpperOperator = upperOpCol > 0 ? row.Cell(upperOpCol).GetString()?.Trim() : null,
-                UpperLimit = upperLimitCol > 0 ? row.Cell(upperLimitCol).GetString()?.Trim() : null
+                UpperLimit = upperLimitCol > 0 ? GetCellRichTextAsHtml(row.Cell(upperLimitCol)) : null
             };
 
             result.Add(importRow);
