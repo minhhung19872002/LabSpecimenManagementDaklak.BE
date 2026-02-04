@@ -1538,8 +1538,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
             }
-            // Handle Parameters and TestMethod placeholders with HTML formatting or newlines
-            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}"))
+            // Handle Parameters, TestMethod, CompareWithStandard, Allowlimit, Standards placeholders with HTML formatting or newlines
+            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}") ||
+                     text.Text.Contains("{{CompareWithStandard}}") || text.Text.Contains("{{Allowlimit}}") ||
+                     text.Text.Contains("{{Standards}}"))
             {
                 // Use formatted names if available, otherwise plain names
                 var parametersDisplayName = !string.IsNullOrEmpty(data.ParametersFormattedName)
@@ -1551,13 +1553,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                 var hasParametersHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName);
                 var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+                var hasCompareWithStandardHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.CompareWithStandard);
+                var hasAllowlimitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Allowlimit);
+                var hasStandardsHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Standards);
                 var hasParametersNewlines = parametersDisplayName?.Contains('\n') ?? false;
                 var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
+                var hasCompareWithStandardNewlines = data.CompareWithStandard?.Contains('\n') ?? false;
+                var hasAllowlimitNewlines = data.Allowlimit?.Contains('\n') ?? false;
+                var hasStandardsNewlines = data.Standards?.Contains('\n') ?? false;
 
-                // If either contains HTML or newlines, we need special handling
-                if (hasParametersHtml || hasTestMethodHtml || hasParametersNewlines || hasTestMethodNewlines)
+                // If any field contains HTML or newlines, we need special handling
+                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml ||
+                    hasParametersNewlines || hasTestMethodNewlines || hasCompareWithStandardNewlines || hasAllowlimitNewlines || hasStandardsNewlines)
                 {
-                    // Replace non-HTML placeholders first
+                    // Replace non-HTML placeholders first (excluding Standards which may have HTML/newlines)
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
@@ -1565,10 +1574,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
                         .Replace("{{Unit}}", data.Unit ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
-                        .Replace("{{Standards}}", data.Standards ?? "")
-                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
                         .Replace("{{n}}", data.FootnoteNumber ?? "")
-                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
 
@@ -1591,6 +1597,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     else
                     {
                         text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                    }
+
+                    // Handle CompareWithStandard with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasCompareWithStandardHtml || hasCompareWithStandardNewlines) && text.Text.Contains("{{CompareWithStandard}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{CompareWithStandard}}", data.CompareWithStandard ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "");
+                    }
+
+                    // Handle Allowlimit with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasAllowlimitHtml || hasAllowlimitNewlines) && text.Text.Contains("{{Allowlimit}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Allowlimit}}", data.Allowlimit ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Allowlimit}}", data.Allowlimit ?? "");
+                    }
+
+                    // Handle Standards with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasStandardsHtml || hasStandardsNewlines) && text.Text.Contains("{{Standards}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Standards}}", data.Standards ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Standards}}", data.Standards ?? "");
                     }
                 }
                 else
@@ -4319,6 +4355,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             placeholders.Add("{{Standard}}", "So với QCVN…/ TCVN…./ QĐ…");
         }
 
+        // Get StandardIndicator for proper limit formatting (with operators and range values)
+        var compareWithStandard = qualityIndicator.ReferenceLimit ?? "";
+        if (qualityIndicator.StandardId.HasValue)
+        {
+            var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                x => x.StandardId == qualityIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+            if (standardIndicator != null)
+            {
+                compareWithStandard = BuildCompareWithStandard(
+                    standardIndicator.ComparisonOperator,
+                    standardIndicator.AllowedLimit,
+                    standardIndicator.LowerOperator,
+                    standardIndicator.LowerLimit,
+                    standardIndicator.UpperOperator,
+                    standardIndicator.UpperLimit);
+            }
+        }
+
         // 4. Build table data - single indicator
         var tableData = new List<ResultFormTableRow>
         {
@@ -4331,10 +4385,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 TestMethod = method?.Name ?? "",
                 TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
-                Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "", // Single indicator = no footnote needed
+                Standards = compareWithStandard, // {{Standards}} = properly formatted limit
+                CompareWithStandard = compareWithStandard, // Single indicator = no footnote needed
                 FootnoteNumber = "", // Single indicator = no footnote needed
-                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
+                Allowlimit = compareWithStandard, // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             }
@@ -4497,8 +4551,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             string.Join(",", standardIds), string.Join(",", indicatorIds), standardIndicators.Count);
         foreach (var si in standardIndicators)
         {
-            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}",
-                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit);
+            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}, LowerOperator={LowerOp}, LowerLimit={LowerLim}, UpperOperator={UpperOp}, UpperLimit={UpperLim}",
+                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit, si.LowerOperator, si.LowerLimit, si.UpperOperator, si.UpperLimit);
         }
 
         // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected indicators only
@@ -4672,10 +4726,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     processedParentMethodKeys.Add(childKey);
 
-                    // Build combined Parameter and Result
+                    // Build combined Parameter, Result, and Limits
                     var paramPlainBuilder = new StringBuilder();
                     var paramFormattedBuilder = new StringBuilder();
                     var resultBuilder = new StringBuilder();
+                    var limitBuilder = new StringBuilder();
                     var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
 
                     // Add parent name
@@ -4700,6 +4755,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                         resultBuilder.Append("- ");
                         resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+
+                        // Build limit for this child (use plain text version for combined display)
+                        var childStandardId = childItem.QualityIndicator.StandardId ?? childItem.LabTaskIndicator.StandardId;
+                        if (childStandardId.HasValue)
+                        {
+                            var stdLookupKey = (childStandardId.Value, childInd.Id);
+                            if (standardIndicatorLookup.TryGetValue(stdLookupKey, out var childStdIndicator) && childStdIndicator != null)
+                            {
+                                var childLimit = BuildCompareWithStandardPlainText(
+                                    childStdIndicator.ComparisonOperator,
+                                    childStdIndicator.AllowedLimit,
+                                    childStdIndicator.LowerOperator,
+                                    childStdIndicator.LowerLimit,
+                                    childStdIndicator.UpperOperator,
+                                    childStdIndicator.UpperLimit);
+                                if (!string.IsNullOrWhiteSpace(childLimit))
+                                {
+                                    if (limitBuilder.Length > 0) limitBuilder.Append('\n');
+                                    limitBuilder.Append("- ");
+                                    limitBuilder.Append(childLimit);
+                                }
+                            }
+                        }
                     }
 
                     // Get first child's method and unit
@@ -4720,7 +4798,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Result = resultBuilder.ToString(),
                         ReferenceLimit = "",
                         StandardId = null,
-                        IndicatorId = indicator.Id
+                        IndicatorId = indicator.Id,
+                        // Store combined limits directly in AllowedLimit (BuildCompareWithStandard will return it as-is)
+                        AllowedLimit = limitBuilder.ToString()
                     });
                 }
                 else
@@ -4754,6 +4834,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             lowerLimit = stdIndicator.LowerLimit ?? "";
                             upperOperator = stdIndicator.UpperOperator ?? "";
                             upperLimit = stdIndicator.UpperLimit ?? "";
+                            _logger.LogInformation("StandardIndicator Lookup: IndicatorId={IndicatorId}, LowerOp={LowerOp}, LowerLim={LowerLim}, UpperOp={UpperOp}, UpperLim={UpperLim}",
+                                indicator.Id, lowerOperator, lowerLimit, upperOperator, upperLimit);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("StandardIndicator NOT FOUND for StandardId={StandardId}, IndicatorId={IndicatorId}",
+                                effectiveStandardId.Value, indicator.Id);
                         }
                     }
 
@@ -4788,6 +4875,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var paramPlainBuilder = new StringBuilder();
                 var paramFormattedBuilder = new StringBuilder();
                 var resultBuilder = new StringBuilder();
+                var limitBuilder = new StringBuilder();
                 var hasAnyFormattedName = parentIndicator != null && !string.IsNullOrEmpty(parentIndicator.FormattedName);
 
                 // Add parent name
@@ -4817,6 +4905,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                     resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+
+                    // Build limit for this child (use plain text version for combined display)
+                    var childStandardId = childItem.QualityIndicator.StandardId ?? childItem.LabTaskIndicator.StandardId;
+                    if (childStandardId.HasValue)
+                    {
+                        var childKey = (childStandardId.Value, childInd.Id);
+                        if (standardIndicatorLookup.TryGetValue(childKey, out var childStdIndicator) && childStdIndicator != null)
+                        {
+                            var childLimit = BuildCompareWithStandardPlainText(
+                                childStdIndicator.ComparisonOperator,
+                                childStdIndicator.AllowedLimit,
+                                childStdIndicator.LowerOperator,
+                                childStdIndicator.LowerLimit,
+                                childStdIndicator.UpperOperator,
+                                childStdIndicator.UpperLimit);
+                            if (!string.IsNullOrWhiteSpace(childLimit))
+                            {
+                                if (limitBuilder.Length > 0) limitBuilder.Append('\n');
+                                limitBuilder.Append("- ");
+                                limitBuilder.Append(childLimit);
+                            }
+                        }
+                    }
                 }
 
                 // Get first child's method and unit
@@ -4837,7 +4948,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Result = resultBuilder.ToString(),
                     ReferenceLimit = "",
                     StandardId = null,
-                    IndicatorId = parentIndicator?.Id
+                    IndicatorId = parentIndicator?.Id,
+                    // Store combined limits directly in AllowedLimit
+                    AllowedLimit = limitBuilder.ToString()
                 });
             }
 
@@ -4906,6 +5019,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                     // Build CompareWithStandard from ComparisonOperator + AllowedLimit (or range fields)
                     // Format: "≤ 4", "≥ 6", "= 7", "> 5 và < 10", etc.
+                    _logger.LogInformation("BuildCompareWithStandard: Parameter={Parameter}, LowerOp={LowerOp}, LowerLim={LowerLim}, UpperOp={UpperOp}, UpperLim={UpperLim}",
+                        indicator.Parameter, indicator.LowerOperator, indicator.LowerLimit, indicator.UpperOperator, indicator.UpperLimit);
                     var compareWithStandard = BuildCompareWithStandard(
                         indicator.ComparisonOperator,
                         indicator.AllowedLimit,
@@ -4923,7 +5038,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         TestMethod = indicator.TestMethod,
                         TestMethodFormattedName = indicator.TestMethodFormattedName,
                         Result = indicator.Result,
-                        Standards = indicator.AllowedLimit,
+                        Standards = compareWithStandard, // {{Standards}} = same as CompareWithStandard for BM03 template
                         CompareWithStandard = compareWithStandard, // {{CompareWithStandard}} = ComparisonOperator + AllowedLimit
                         FootnoteNumber = footnoteNumber, // {{n}} = Superscript footnote (BM04 & BM05)
                         Allowlimit = indicator.AllowedLimit,
@@ -5666,8 +5781,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
         if (!string.IsNullOrWhiteSpace(lowerLimit) && !string.IsNullOrWhiteSpace(upperLimit))
         {
-            var lower = ConvertOperatorSymbol(lowerOperator);
-            var upper = ConvertOperatorSymbol(upperOperator);
+            // Default operators: > for lower, < for upper
+            // HTML-encode operators to avoid confusion with HTML tags when limits contain HTML (e.g., <sup>)
+            var lower = string.IsNullOrWhiteSpace(lowerOperator) ? "&gt;" : HtmlEncodeOperator(lowerOperator);
+            var upper = string.IsNullOrWhiteSpace(upperOperator) ? "&lt;" : HtmlEncodeOperator(upperOperator);
             return $"{lower} {lowerLimit.Trim()} và {upper} {upperLimit.Trim()}";
         }
 
@@ -5684,8 +5801,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
-        var op = ConvertOperatorSymbol(comparisonOperator);
+        // HTML-encode operator to avoid confusion with HTML tags
+        var op = HtmlEncodeOperator(comparisonOperator);
         return $"{op} {allowedLimit.Trim()}";
+    }
+
+    /// <summary>
+    /// HTML-encode comparison operators to avoid confusion with HTML tags
+    /// Converts < to &lt;, > to &gt;, and also handles <= and >= symbols
+    /// </summary>
+    private static string HtmlEncodeOperator(string? op)
+    {
+        if (string.IsNullOrWhiteSpace(op)) return "";
+
+        return op.Trim() switch
+        {
+            "<=" => "≤",
+            ">=" => "≥",
+            "<" => "&lt;",
+            ">" => "&gt;",
+            _ => System.Net.WebUtility.HtmlEncode(op.Trim())
+        };
     }
 
     /// <summary>
@@ -5701,6 +5837,50 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ">=" => "≥",
             _ => op.Trim()
         };
+    }
+
+    /// <summary>
+    /// Build CompareWithStandard as plain text (no HTML encoding)
+    /// Used for combined limits where values are stripped to plain text
+    /// </summary>
+    private static string BuildCompareWithStandardPlainText(
+        string? comparisonOperator,
+        string? allowedLimit,
+        string? lowerOperator = null,
+        string? lowerLimit = null,
+        string? upperOperator = null,
+        string? upperLimit = null)
+    {
+        // Strip HTML from limit values to get plain text
+        var plainAllowedLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(allowedLimit);
+        var plainLowerLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(lowerLimit);
+        var plainUpperLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(upperLimit);
+
+        // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
+        if (!string.IsNullOrWhiteSpace(plainLowerLimit) && !string.IsNullOrWhiteSpace(plainUpperLimit))
+        {
+            // Default operators: > for lower, < for upper
+            // Use ConvertOperatorSymbol (no HTML encoding since values are plain text)
+            var lower = string.IsNullOrWhiteSpace(lowerOperator) ? ">" : ConvertOperatorSymbol(lowerOperator);
+            var upper = string.IsNullOrWhiteSpace(upperOperator) ? "<" : ConvertOperatorSymbol(upperOperator);
+            return $"{lower} {plainLowerLimit.Trim()} và {upper} {plainUpperLimit.Trim()}";
+        }
+
+        // Nếu không có allowedLimit, trả về empty
+        if (string.IsNullOrWhiteSpace(plainAllowedLimit))
+        {
+            return "";
+        }
+
+        // Nếu có allowedLimit nhưng không có comparisonOperator, chỉ trả về allowedLimit
+        if (string.IsNullOrWhiteSpace(comparisonOperator))
+        {
+            return plainAllowedLimit.Trim();
+        }
+
+        // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
+        var op = ConvertOperatorSymbol(comparisonOperator);
+        return $"{op} {plainAllowedLimit.Trim()}";
     }
 
     #endregion

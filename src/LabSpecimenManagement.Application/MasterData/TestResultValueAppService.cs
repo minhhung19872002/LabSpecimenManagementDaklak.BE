@@ -68,7 +68,7 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
             SortOrder = 0
         };
 
-        await _repository.InsertAsync(entity);
+        await _repository.InsertAsync(entity, autoSave: true);
 
         return ObjectMapper.Map<TestResultValue, TestResultValueDto>(entity);
     }
@@ -126,24 +126,54 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
     /// <summary>
     /// Get or create a test result value by name
     /// Used for auto-creating text values when submitting results for approval
+    /// Includes retry mechanism for handling concurrent insert race conditions
     /// </summary>
     public async Task<TestResultValueDto?> GetOrCreateByNameAsync(string name)
     {
         if (string.IsNullOrWhiteSpace(name)) return null;
 
-        // Tìm existing (case-insensitive)
-        var query = await _repository.GetQueryableAsync();
-        var existing = await AsyncExecuter.FirstOrDefaultAsync(
-            query.Where(x => x.Name.ToLower() == name.ToLower())
-        );
-
-        if (existing != null)
+        const int maxRetries = 3;
+        for (int attempt = 0; attempt < maxRetries; attempt++)
         {
-            return ObjectMapper.Map<TestResultValue, TestResultValueDto>(existing);
+            // Tìm existing (case-insensitive)
+            var query = await _repository.GetQueryableAsync();
+            var existing = await AsyncExecuter.FirstOrDefaultAsync(
+                query.Where(x => x.Name.ToLower() == name.ToLower())
+            );
+
+            if (existing != null)
+            {
+                return ObjectMapper.Map<TestResultValue, TestResultValueDto>(existing);
+            }
+
+            // Tạo mới - wrap in try-catch to handle race condition
+            try
+            {
+                return await CreateAsync(new CreateUpdateTestResultValueDto { Name = name });
+            }
+            catch (Volo.Abp.UserFriendlyException ex) when (ex.Message.Contains("đã tồn tại"))
+            {
+                // Name was created by another concurrent request, continue to retry and fetch it
+                if (attempt == maxRetries - 1) throw;
+                await Task.Delay(10 * (attempt + 1)); // Small backoff
+                continue;
+            }
+            catch (Exception ex) when (IsDuplicateKeyException(ex))
+            {
+                // Duplicate key constraint violation - another concurrent request created the same code
+                // Retry to fetch the newly created record or create with a new code
+                if (attempt == maxRetries - 1) throw;
+                await Task.Delay(10 * (attempt + 1)); // Small backoff
+                continue;
+            }
         }
 
-        // Tạo mới
-        return await CreateAsync(new CreateUpdateTestResultValueDto { Name = name });
+        // Final attempt - just return existing if found
+        var finalQuery = await _repository.GetQueryableAsync();
+        var finalExisting = await AsyncExecuter.FirstOrDefaultAsync(
+            finalQuery.Where(x => x.Name.ToLower() == name.ToLower())
+        );
+        return finalExisting != null ? ObjectMapper.Map<TestResultValue, TestResultValueDto>(finalExisting) : null;
     }
 
     /// <summary>
@@ -182,5 +212,29 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
 
             return $"{datePrefix}{nextSeq:D3}";
         }
+    }
+
+    /// <summary>
+    /// Check if exception is a duplicate key constraint violation
+    /// Works with PostgreSQL (23505) and other databases
+    /// </summary>
+    private static bool IsDuplicateKeyException(Exception ex)
+    {
+        // Check exception type name (avoid direct reference to EF Core)
+        if (ex.GetType().Name == "DbUpdateException")
+        {
+            var innerMessage = ex.InnerException?.Message ?? "";
+            return innerMessage.Contains("duplicate key") ||
+                   innerMessage.Contains("23505") ||
+                   innerMessage.Contains("unique constraint");
+        }
+
+        // Also check if it's wrapped in an AbpDbConcurrencyException
+        if (ex.InnerException != null)
+        {
+            return IsDuplicateKeyException(ex.InnerException);
+        }
+
+        return false;
     }
 }

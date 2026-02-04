@@ -1005,6 +1005,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             string? limitDescription = null;
             string? comparisonOperator = null;
             string? allowedLimit = null;
+            string? lowerOperator = null;
+            string? lowerLimit = null;
+            string? upperOperator = null;
+            string? upperLimit = null;
             if (taskIndicator.StandardId.HasValue)
             {
                 var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
@@ -1024,6 +1028,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         {
                             comparisonOperator = standardIndicator.ComparisonOperator;
                             allowedLimit = standardIndicator.AllowedLimit;
+                            lowerOperator = standardIndicator.LowerOperator;
+                            lowerLimit = standardIndicator.LowerLimit;
+                            upperOperator = standardIndicator.UpperOperator;
+                            upperLimit = standardIndicator.UpperLimit;
                         }
                     }
                 }
@@ -1107,6 +1115,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 LimitDescription = limitDescription,
                 ComparisonOperator = comparisonOperator,
                 AllowedLimit = allowedLimit,
+                LowerOperator = lowerOperator,
+                LowerLimit = lowerLimit,
+                UpperOperator = upperOperator,
+                UpperLimit = upperLimit,
                 ParentIndicatorId = indicator?.ParentIndicatorId
             });
         }
@@ -2130,6 +2142,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         string? limitDescription = null;
         string? comparisonOperator = null;
         string? allowedLimit = null;
+        string? lowerOperator = null;
+        string? lowerLimit = null;
+        string? upperOperator = null;
+        string? upperLimit = null;
 
         if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
         {
@@ -2148,6 +2164,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 }
                 comparisonOperator = standardIndicator.ComparisonOperator;
                 allowedLimit = standardIndicator.AllowedLimit;
+                lowerOperator = standardIndicator.LowerOperator;
+                lowerLimit = standardIndicator.LowerLimit;
+                upperOperator = standardIndicator.UpperOperator;
+                upperLimit = standardIndicator.UpperLimit;
             }
         }
 
@@ -2206,7 +2226,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             StandardName = standardName,
             LimitDescription = limitDescription,
             ComparisonOperator = comparisonOperator,
-            AllowedLimit = allowedLimit
+            AllowedLimit = allowedLimit,
+            LowerOperator = lowerOperator,
+            LowerLimit = lowerLimit,
+            UpperOperator = upperOperator,
+            UpperLimit = upperLimit
         };
     }
 

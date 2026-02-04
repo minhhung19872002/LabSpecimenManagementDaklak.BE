@@ -1342,6 +1342,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         string? standardName = null;
         string? comparisonOperator = null;
         string? allowedLimit = null;
+        string? lowerOperator = null;
+        string? lowerLimit = null;
+        string? upperOperator = null;
+        string? upperLimit = null;
 
         // Try to get standard info from LaboratoryTaskIndicator first (KTV's selection)
         var standardId = labIndicator.StandardId ?? indicator.StandardId;
@@ -1374,6 +1378,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             {
                 comparisonOperator = standardIndicator.ComparisonOperator;
                 allowedLimit = standardIndicator.AllowedLimit;
+                lowerOperator = standardIndicator.LowerOperator;
+                lowerLimit = standardIndicator.LowerLimit;
+                upperOperator = standardIndicator.UpperOperator;
+                upperLimit = standardIndicator.UpperLimit;
             }
         }
 
@@ -1416,6 +1424,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             ReferenceLimit = indicator.ReferenceLimit,
             ComparisonOperator = comparisonOperator,
             AllowedLimit = allowedLimit,
+            LowerOperator = lowerOperator,
+            LowerLimit = lowerLimit,
+            UpperOperator = upperOperator,
+            UpperLimit = upperLimit,
             ApprovalStatus = indicator.ApprovalStatus,
             RejectionReason = indicator.RejectionReason,
             IsResultSent = indicator.IsResultSent,

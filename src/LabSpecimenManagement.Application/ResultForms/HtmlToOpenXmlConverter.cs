@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -50,7 +51,7 @@ public static class HtmlToOpenXmlConverter
     }
 
     /// <summary>
-    /// Converts HTML formatted text to plain text (strips all tags)
+    /// Converts HTML formatted text to plain text (strips all tags and decodes entities)
     /// </summary>
     public static string ConvertHtmlToPlainText(string? html)
     {
@@ -58,7 +59,10 @@ public static class HtmlToOpenXmlConverter
             return string.Empty;
 
         // Remove all HTML tags
-        return Regex.Replace(html, "<[^>]+>", string.Empty);
+        var stripped = Regex.Replace(html, "<[^>]+>", string.Empty);
+
+        // Decode HTML entities (e.g., &nbsp; -> space)
+        return WebUtility.HtmlDecode(stripped);
     }
 
     /// <summary>
@@ -203,8 +207,11 @@ public static class HtmlToOpenXmlConverter
             run.Append(runProps);
         }
 
+        // Decode HTML entities (e.g., &nbsp; -> space, &lt; -> <, &gt; -> >)
+        var decodedText = DecodeHtmlEntities(text);
+
         // Handle line breaks in text (both HTML <br> tags and \n newlines)
-        var lines = text.Split(new[] { "<br>", "<br/>", "<br />", "\r\n", "\n" }, StringSplitOptions.None);
+        var lines = decodedText.Split(new[] { "<br>", "<br/>", "<br />", "\r\n", "\n" }, StringSplitOptions.None);
         for (int i = 0; i < lines.Length; i++)
         {
             if (!string.IsNullOrEmpty(lines[i]))
@@ -218,6 +225,18 @@ public static class HtmlToOpenXmlConverter
         }
 
         return run;
+    }
+
+    /// <summary>
+    /// Decode HTML entities to their corresponding characters
+    /// </summary>
+    private static string DecodeHtmlEntities(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        // Use WebUtility.HtmlDecode to handle all standard HTML entities
+        return WebUtility.HtmlDecode(text);
     }
 
     private class FormattingContext
