@@ -118,6 +118,7 @@ public class LabSpecimenManagementDbContext :
 
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
+    public DbSet<TestResultValueIndicator> TestResultValueIndicators { get; set; }
 
     // Notes (Master Data)
     public DbSet<Note> Notes { get; set; }
@@ -524,6 +525,18 @@ public class LabSpecimenManagementDbContext :
 
             // Filtered unique index - only enforce uniqueness for non-deleted records
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+        });
+
+        // TestResultValueIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<TestResultValueIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestResultValueIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.TestResultValueId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.SpecimenTypeId);
+            // Composite unique key: (TestResultValueId, IndicatorId, SpecimenTypeId)
+            b.HasIndex(x => new { x.TestResultValueId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
         });
 
         // Note configuration

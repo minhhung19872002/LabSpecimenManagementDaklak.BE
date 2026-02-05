@@ -62,4 +62,64 @@ public class TestResultValueController : LabSpecimenManagementController
     {
         return _testResultValueAppService.GetActiveTestResultValuesAsync();
     }
+
+    /// <summary>
+    /// Lấy danh sách kết quả recommend cho chỉ tiêu
+    /// - Nếu chỉ tiêu có kết quả riêng: chỉ trả về kết quả của chỉ tiêu đó
+    /// - Nếu chỉ tiêu không có kết quả riêng: trả về tất cả kết quả không gắn chỉ tiêu
+    /// </summary>
+    [HttpGet("for-indicator/{indicatorId}")]
+    public virtual Task<ListResultDto<TestResultValueDto>> GetResultsForIndicatorAsync(Guid indicatorId)
+    {
+        return _testResultValueAppService.GetResultsForIndicatorAsync(indicatorId);
+    }
+
+    #region Indicator Management
+
+    /// <summary>
+    /// Lấy danh sách kết quả kèm theo danh sách chỉ tiêu
+    /// </summary>
+    [HttpGet("with-indicators")]
+    public virtual Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync()
+    {
+        return _testResultValueAppService.GetWithIndicatorsAsync();
+    }
+
+    /// <summary>
+    /// Thêm chỉ tiêu vào kết quả thử nghiệm
+    /// </summary>
+    [HttpPost("{id}/indicators")]
+    public virtual Task AddIndicatorsAsync(Guid id, [FromBody] AddIndicatorsToTestResultValueDto input)
+    {
+        return _testResultValueAppService.AddIndicatorsAsync(id, input);
+    }
+
+    /// <summary>
+    /// Xóa một chỉ tiêu khỏi kết quả thử nghiệm
+    /// </summary>
+    [HttpDelete("{id}/indicators/{indicatorId}")]
+    public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId, [FromQuery] Guid specimenTypeId)
+    {
+        return _testResultValueAppService.RemoveIndicatorAsync(id, indicatorId, specimenTypeId);
+    }
+
+    /// <summary>
+    /// Toggle trạng thái active của chỉ tiêu trong kết quả thử nghiệm
+    /// </summary>
+    [HttpPost("{id}/indicators/{indicatorId}/toggle-active")]
+    public virtual Task<TestResultValueIndicatorDto> ToggleIndicatorActiveAsync(Guid id, Guid indicatorId, [FromQuery] Guid specimenTypeId)
+    {
+        return _testResultValueAppService.ToggleIndicatorActiveAsync(id, indicatorId, specimenTypeId);
+    }
+
+    /// <summary>
+    /// Xóa nhiều chỉ tiêu khỏi kết quả thử nghiệm (batch)
+    /// </summary>
+    [HttpPost("{id}/indicators/batch-remove")]
+    public virtual Task<int> BatchRemoveIndicatorsAsync(Guid id, [FromBody] BatchRemoveIndicatorsDto input)
+    {
+        return _testResultValueAppService.BatchRemoveIndicatorsAsync(id, input);
+    }
+
+    #endregion
 }

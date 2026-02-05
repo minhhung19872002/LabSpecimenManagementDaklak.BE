@@ -1811,6 +1811,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<Guid?>("IndicatorId")
+                        .HasColumnType("uuid");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -1841,6 +1844,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Code")
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("IndicatorId");
 
                     b.ToTable("AppTestResultValues", (string)null);
                 });
