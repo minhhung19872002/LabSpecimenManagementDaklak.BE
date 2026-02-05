@@ -2811,6 +2811,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
         var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
 
         // Build base query from LaboratoryTaskIndicator
         var query = from li in labIndicatorQuery
@@ -2821,6 +2822,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
                     join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
                     from tm in tmJoin.DefaultIfEmpty()
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
                     select new
                     {
                         // TestRequest info
@@ -2843,6 +2846,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         IndicatorId = li.Id,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
+                        MethodId = li.MethodId,
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
@@ -2858,6 +2862,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                         // Status
                         IndicatorApprovalStatus = li.ApprovalStatus,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
 
                         // Laboratory info (for filtering)
                         LaboratoryId = lt.LaboratoryId
@@ -2984,7 +2989,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             QlktApprovalDate = x.QlktApprovalDate,
             IndicatorApprovalStatus = x.IndicatorApprovalStatus,
             TestingStatus = MapSampleAssignmentTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
-            QualityApprovalStatus = null,
+            QLKTDisplayStatus = MapQLKTDisplayStatus(
+                x.IndicatorApprovalStatus,
+                x.MethodId,
+                x.TechnicianId,
+                x.TestDate,
+                x.Result,
+                x.QualityApprovalStatus),
+            QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
 
@@ -3039,6 +3051,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         DateTime? testDate,
         string? result)
     {
+        // Handle Rejected and CannotTest first - these are terminal states
+        if (approvalStatus == IndicatorApprovalStatus.Rejected)
+        {
+            return TestingStatus.Rejected;
+        }
+
+        if (approvalStatus == IndicatorApprovalStatus.CannotTest)
+        {
+            return TestingStatus.CannotTest;
+        }
+
+        // If already has result, it's completed or pending approval
         if (!string.IsNullOrWhiteSpace(result))
         {
             return approvalStatus == IndicatorApprovalStatus.Approved
@@ -3046,14 +3070,101 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 : TestingStatus.PendingApproval;
         }
 
+        // If test date is set but no result, it's in progress
         if (testDate.HasValue)
         {
             return TestingStatus.InProgress;
         }
 
-        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
-            ? TestingStatus.NotStarted
-            : null;
+        // Pending or AcceptedForTesting → NotStarted
+        // (indicator is waiting to be processed/tested)
+        return TestingStatus.NotStarted;
+    }
+
+    /// <summary>
+    /// Map indicator data to QLKTDisplayStatus for "Sổ nhận việc" tab
+    /// Based on KH flow diagram
+    /// </summary>
+    private static QLKTDisplayStatus MapQLKTDisplayStatus(
+        IndicatorApprovalStatus approvalStatus,
+        Guid? methodId,
+        Guid? technicianId,
+        DateTime? testDate,
+        string? result,
+        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+    {
+        // 1. Handle special statuses first (terminal or special states)
+        switch (approvalStatus)
+        {
+            case IndicatorApprovalStatus.MethodChangeRequested:
+                return QLKTDisplayStatus.MethodChangeRequested;
+
+            case IndicatorApprovalStatus.MethodChanged:
+                // Theo flow KH: sau khi đổi PP xong → quay lại xem xét YC
+                return QLKTDisplayStatus.UnderReview;
+
+            case IndicatorApprovalStatus.TestingRejected:
+                return QLKTDisplayStatus.TestingRejected;
+
+            case IndicatorApprovalStatus.SupplementaryRequested:
+                return QLKTDisplayStatus.SupplementaryRequested;
+
+            case IndicatorApprovalStatus.CustomerCancelled:
+                return QLKTDisplayStatus.CustomerCancelled;
+
+            case IndicatorApprovalStatus.CannotTest:
+                return QLKTDisplayStatus.CannotTest;
+
+            case IndicatorApprovalStatus.Rejected:
+                return QLKTDisplayStatus.ResultRejected;
+
+            case IndicatorApprovalStatus.Pending:
+                // Đang xem xét YC - QLKT chưa đánh giá
+                return QLKTDisplayStatus.UnderReview;
+        }
+
+        // 2. Handle Approved status - check QLCL approval
+        if (approvalStatus == IndicatorApprovalStatus.Approved)
+        {
+            if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Approved)
+            {
+                return QLKTDisplayStatus.Completed;
+            }
+            if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+            {
+                return QLKTDisplayStatus.QLCLRejected;
+            }
+            // PendingApproval or null (not yet sent to QLCL)
+            return QLKTDisplayStatus.WaitingQLCLApproval;
+        }
+
+        // 3. Handle Entered status - Chờ QLKT phê duyệt
+        if (approvalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return QLKTDisplayStatus.WaitingQLKTApproval;
+        }
+
+        // 4. Handle AcceptedForTesting - check assignment and testing progress
+        if (approvalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+        {
+            // Chưa có KTV hoặc PP → Chờ giao việc
+            if (!technicianId.HasValue || !methodId.HasValue)
+            {
+                return QLKTDisplayStatus.WaitingForAssignment;
+            }
+
+            // Có KTV + PP nhưng chưa có testDate → Cần làm
+            if (!testDate.HasValue)
+            {
+                return QLKTDisplayStatus.ToDo;
+            }
+
+            // Có testDate → Đang thử nghiệm
+            return QLKTDisplayStatus.Testing;
+        }
+
+        // Fallback (should not reach here)
+        return QLKTDisplayStatus.UnderReview;
     }
 
     #endregion

@@ -1849,6 +1849,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
                         IsReportPublished = qi != null && qi.IsPrinted,
 
+                        // Additional fields for QLCLDisplayStatus mapping
+                        TechnicianId = li != null ? (Guid?)li.TechnicianId : null,
+                        MethodId = li != null ? (Guid?)li.MethodId : null,
+
                         // Laboratory info (for filtering)
                         LaboratoryId = lt != null ? (Guid?)lt.LaboratoryId : null
                     };
@@ -1939,6 +1943,16 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TestingStatus = x.IndicatorApprovalStatus.HasValue
                 ? DetermineTestingStatus(x.IndicatorApprovalStatus.Value, x.TestDate, x.Result)
                 : null,
+            // QLCLDisplayStatus - trạng thái hiển thị cho trang QLCL
+            QLCLDisplayStatus = MapQLCLDisplayStatus(
+                x.TestRequestStatus,
+                x.IndicatorApprovalStatus,
+                x.QualityApprovalStatus,
+                x.IsReportPublished,
+                x.TechnicianId,
+                x.MethodId,
+                x.TestDate,
+                x.Result),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = x.IsReportPublished
         }).ToList();
@@ -1972,6 +1986,110 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
             ? TestingStatus.NotStarted
             : null;
+    }
+
+    /// <summary>
+    /// Map to QLCLDisplayStatus for QLCL page - Sổ nhận việc
+    /// Flow: Mới → Chờ thanh toán → Đang xem xét YC → Từ chối/Chờ giao việc → Cần làm → Đang TN → Chờ QLKT duyệt → Chờ QLCL duyệt → Chờ phát hành → Đã phát hành
+    /// </summary>
+    private static QLCLDisplayStatus? MapQLCLDisplayStatus(
+        TestRequestStatus testRequestStatus,
+        IndicatorApprovalStatus? indicatorApprovalStatus,
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        bool isReportPublished,
+        Guid? technicianId,
+        Guid? methodId,
+        DateTime? testDate,
+        string? result)
+    {
+        // 1. Đã phát hành báo cáo
+        if (isReportPublished)
+        {
+            return QLCLDisplayStatus.Published;
+        }
+
+        // 2. Chờ phát hành - QLCL đã duyệt nhưng chưa phát hành
+        if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Approved)
+        {
+            return QLCLDisplayStatus.WaitingForPublishing;
+        }
+
+        // 3. QLCL từ chối kết quả
+        if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+        {
+            return QLCLDisplayStatus.QLCLRejected;
+        }
+
+        // 4. Chờ QLCL duyệt - QLKT đã duyệt, chờ QLCL
+        // Bao gồm cả trường hợp qualityApprovalStatus == null (edge case khi QLKT duyệt nhưng chưa tạo QualityManagementIndicator)
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Approved &&
+            (qualityApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval || qualityApprovalStatus == null))
+        {
+            return QLCLDisplayStatus.WaitingQLCLApproval;
+        }
+
+        // 5. QLKT từ chối kết quả
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Rejected)
+        {
+            return QLCLDisplayStatus.ResultRejected;
+        }
+
+        // 6. Chờ QLKT duyệt - KTV đã gửi kết quả
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return QLCLDisplayStatus.WaitingQLKTApproval;
+        }
+
+        // 7. Đang thử nghiệm - đã có testDate hoặc đã bắt đầu TN
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            (testDate.HasValue || !string.IsNullOrWhiteSpace(result)))
+        {
+            return QLCLDisplayStatus.Testing;
+        }
+
+        // 8. Cần làm - đã giao việc (có TechnicianId và MethodId)
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            technicianId.HasValue && methodId.HasValue)
+        {
+            return QLCLDisplayStatus.ToDo;
+        }
+
+        // 9. Chờ giao việc - đã chấp nhận nhưng chưa giao KTV
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+        {
+            return QLCLDisplayStatus.WaitingForAssignment;
+        }
+
+        // 10. QLCL/QLKT từ chối yêu cầu TN
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.TestingRejected)
+        {
+            return QLCLDisplayStatus.Rejected;
+        }
+
+        // 11. Kiểm tra theo TestRequestStatus
+        switch (testRequestStatus)
+        {
+            case TestRequestStatus.New:
+                return QLCLDisplayStatus.New;
+
+            case TestRequestStatus.PendingPayment:
+                return QLCLDisplayStatus.WaitingForPayment;
+
+            case TestRequestStatus.UnderReview:
+            case TestRequestStatus.WaitingCustomerConfirm:
+                return QLCLDisplayStatus.UnderReview;
+
+            case TestRequestStatus.Completed:
+                return QLCLDisplayStatus.Published;
+
+            default:
+                // Các trạng thái khác map về UnderReview nếu chưa có IndicatorApprovalStatus
+                if (!indicatorApprovalStatus.HasValue)
+                {
+                    return QLCLDisplayStatus.UnderReview;
+                }
+                return QLCLDisplayStatus.ToDo;
+        }
     }
 
     /// <summary>

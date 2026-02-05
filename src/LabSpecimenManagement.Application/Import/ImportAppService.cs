@@ -41,6 +41,8 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
+    private readonly IRepository<TestResultValueIndicator, Guid> _testResultValueIndicatorRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -65,6 +67,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Note, Guid> noteRepository,
+        IRepository<TestResultValue, Guid> testResultValueRepository,
+        IRepository<TestResultValueIndicator, Guid> testResultValueIndicatorRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -88,6 +92,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
         _noteRepository = noteRepository;
+        _testResultValueRepository = testResultValueRepository;
+        _testResultValueIndicatorRepository = testResultValueIndicatorRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -5101,6 +5107,490 @@ public class ImportAppService : ApplicationService, IImportAppService
         }
 
         return maxNumber + 1;
+    }
+
+    #endregion
+
+    #region TestResultValue Import
+
+    public byte[] GetTestResultValueTemplate()
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Kết quả.xlsx");
+
+        if (!File.Exists(templatePath))
+        {
+            throw new UserFriendlyException("Template file not found: Kết quả.xlsx");
+        }
+
+        return File.ReadAllBytes(templatePath);
+    }
+
+    public async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewTestResultValuesInternalAsync(memoryStream);
+    }
+
+    private async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadTestResultValueExcelRows(memoryStream);
+
+        if (rows.Count == 0)
+        {
+            return new TestResultValueImportPreviewDto
+            {
+                ValidationResult = new ImportValidationResult { TotalRows = 0 }
+            };
+        }
+
+        // Store row errors for error file generation
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Load existing data for validation
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var existingSpecimenTypes = await _specimenTypeRepository.GetListAsync();
+            var specimenTypeDict = existingSpecimenTypes
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var existingIndicators = await _indicatorRepository.GetListAsync();
+            var indicatorDict = existingIndicators
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // Get specimen type indicators for validation (indicator must belong to specimen type)
+            var specimenTypeIndicators = await _specimenTypeIndicatorRepository.GetListAsync();
+            var specimenTypeIndicatorSet = specimenTypeIndicators
+                .Where(x => x.IsActive)
+                .Select(x => (x.SpecimenTypeId, x.IndicatorId))
+                .ToHashSet();
+
+            var existingTestResultValues = await _testResultValueRepository.GetListAsync();
+            var testResultValueDict = existingTestResultValues
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // Get existing TestResultValue-Indicator links
+            var existingLinks = await _testResultValueIndicatorRepository.GetListAsync();
+            var existingLinkSet = existingLinks
+                .Select(x => (x.TestResultValueId, x.IndicatorId, x.SpecimenTypeId))
+                .ToHashSet();
+
+            var result = new TestResultValueImportPreviewDto();
+            var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+            // Group rows by ResultName (Tên kết quả)
+            var groupedRows = rows
+                .Select((row, index) => new { Row = row, Index = index, RowNumber = index + 2 })
+                .GroupBy(x => StringHelper.NormalizeAndTrim(x.Row.ResultName).ToLowerInvariant())
+                .ToList();
+
+            foreach (var group in groupedRows)
+            {
+                var firstRow = group.First();
+                var resultNameKey = group.Key;
+
+                var previewGroup = new TestResultValueImportPreviewGroup
+                {
+                    ResultName = firstRow.Row.ResultName?.Trim() ?? "",
+                    Description = firstRow.Row.Description?.Trim()
+                };
+
+                // Validate result name (required)
+                if (string.IsNullOrWhiteSpace(firstRow.Row.ResultName))
+                {
+                    foreach (var item in group)
+                    {
+                        var error = "Tên kết quả không được để trống";
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = item.RowNumber,
+                            ColumnName = "Tên kết quả",
+                            ErrorMessage = error
+                        });
+                        AddRowError(rowErrors, item.RowNumber, error);
+                    }
+                    // Skip this group as result name is invalid
+                    continue;
+                }
+
+                // Check if result exists (for upsert logic)
+                if (testResultValueDict.TryGetValue(resultNameKey, out var existingResult))
+                {
+                    previewGroup.IsNew = false;
+                    previewGroup.ExistingId = existingResult.Id;
+                }
+                else
+                {
+                    previewGroup.IsNew = true;
+                }
+
+                var groupIsValid = true;
+
+                // Validate indicators for each row in the group
+                foreach (var item in group)
+                {
+                    // Skip rows without SpecimenType AND Indicator (they just define the result itself)
+                    if (string.IsNullOrWhiteSpace(item.Row.SpecimenTypeName) &&
+                        string.IsNullOrWhiteSpace(item.Row.IndicatorName))
+                    {
+                        continue;
+                    }
+
+                    var indicatorItem = new TestResultValueIndicatorImportItem
+                    {
+                        RowNumber = item.RowNumber,
+                        SpecimenTypeName = item.Row.SpecimenTypeName?.Trim(),
+                        IndicatorName = item.Row.IndicatorName?.Trim(),
+                        IsValid = true
+                    };
+
+                    // If indicator is provided, specimen type must also be provided
+                    if (!string.IsNullOrWhiteSpace(item.Row.IndicatorName) &&
+                        string.IsNullOrWhiteSpace(item.Row.SpecimenTypeName))
+                    {
+                        indicatorItem.IsValid = false;
+                        indicatorItem.ErrorMessage = "Cần chọn nền mẫu khi có chỉ tiêu";
+                        groupIsValid = false;
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = item.RowNumber,
+                            ColumnName = "Nền mẫu",
+                            ErrorMessage = indicatorItem.ErrorMessage
+                        });
+                        AddRowError(rowErrors, item.RowNumber, indicatorItem.ErrorMessage);
+                        previewGroup.Indicators.Add(indicatorItem);
+                        continue;
+                    }
+
+                    // Validate specimen type exists
+                    SpecimenType? specimenType = null;
+                    if (!string.IsNullOrWhiteSpace(item.Row.SpecimenTypeName))
+                    {
+                        var specimenTypeKey = StringHelper.NormalizeAndTrim(item.Row.SpecimenTypeName).ToLowerInvariant();
+                        if (!specimenTypeDict.TryGetValue(specimenTypeKey, out specimenType))
+                        {
+                            indicatorItem.IsValid = false;
+                            indicatorItem.ErrorMessage = $"Không tìm thấy nền mẫu: {item.Row.SpecimenTypeName}";
+                            groupIsValid = false;
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = item.RowNumber,
+                                ColumnName = "Nền mẫu",
+                                ErrorMessage = indicatorItem.ErrorMessage,
+                                Value = item.Row.SpecimenTypeName
+                            });
+                            AddRowError(rowErrors, item.RowNumber, indicatorItem.ErrorMessage);
+                            previewGroup.Indicators.Add(indicatorItem);
+                            continue;
+                        }
+                        indicatorItem.SpecimenTypeId = specimenType.Id;
+                    }
+
+                    // Validate indicator exists
+                    Indicator? indicator = null;
+                    if (!string.IsNullOrWhiteSpace(item.Row.IndicatorName))
+                    {
+                        var indicatorKey = StringHelper.NormalizeAndTrim(item.Row.IndicatorName).ToLowerInvariant();
+                        if (!indicatorDict.TryGetValue(indicatorKey, out indicator))
+                        {
+                            indicatorItem.IsValid = false;
+                            indicatorItem.ErrorMessage = $"Không tìm thấy chỉ tiêu: {item.Row.IndicatorName}";
+                            groupIsValid = false;
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = item.RowNumber,
+                                ColumnName = "Chỉ tiêu",
+                                ErrorMessage = indicatorItem.ErrorMessage,
+                                Value = item.Row.IndicatorName
+                            });
+                            AddRowError(rowErrors, item.RowNumber, indicatorItem.ErrorMessage);
+                            previewGroup.Indicators.Add(indicatorItem);
+                            continue;
+                        }
+                        indicatorItem.IndicatorId = indicator.Id;
+
+                        // Validate indicator belongs to specimen type
+                        if (specimenType != null && !specimenTypeIndicatorSet.Contains((specimenType.Id, indicator.Id)))
+                        {
+                            indicatorItem.IsValid = false;
+                            indicatorItem.ErrorMessage = $"Chỉ tiêu '{item.Row.IndicatorName}' không thuộc nền mẫu '{item.Row.SpecimenTypeName}'";
+                            groupIsValid = false;
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = item.RowNumber,
+                                ColumnName = "Chỉ tiêu",
+                                ErrorMessage = indicatorItem.ErrorMessage,
+                                Value = item.Row.IndicatorName
+                            });
+                            AddRowError(rowErrors, item.RowNumber, indicatorItem.ErrorMessage);
+                        }
+                    }
+
+                    previewGroup.Indicators.Add(indicatorItem);
+                }
+
+                // Count valid rows
+                if (groupIsValid)
+                {
+                    validationResult.ValidRows += group.Count();
+                }
+
+                result.Groups.Add(previewGroup);
+            }
+
+            result.ValidationResult = validationResult;
+            result.TotalResults = result.Groups.Count;
+            result.NewResults = result.Groups.Count(g => g.IsNew);
+            result.UpdateResults = result.Groups.Count(g => !g.IsNew);
+            result.TotalIndicators = result.Groups.Sum(g => g.Indicators.Count(i => i.IsValid && i.IndicatorId.HasValue));
+
+            // Generate error file if there are errors
+            if (!validationResult.IsValid)
+            {
+                memoryStream.Position = 0;
+                var errorFileBytes = GenerateTestResultValueErrorFile(memoryStream, rowErrors);
+                result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+                result.ErrorFileName = "Ket_Qua_Loi.xlsx";
+            }
+
+            return result;
+        }
+    }
+
+    private List<TestResultValueImportRow> ReadTestResultValueExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<TestResultValueImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        // Start from row 2 (skip header)
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+
+            // Skip empty rows
+            if (row.IsEmpty()) continue;
+
+            var resultName = row.Cell(1).GetString()?.Trim();
+            var description = row.Cell(2).GetString()?.Trim();
+            var specimenTypeName = row.Cell(3).GetString()?.Trim();
+            var indicatorName = row.Cell(4).GetString()?.Trim();
+
+            // Skip if all cells are empty
+            if (string.IsNullOrWhiteSpace(resultName) &&
+                string.IsNullOrWhiteSpace(description) &&
+                string.IsNullOrWhiteSpace(specimenTypeName) &&
+                string.IsNullOrWhiteSpace(indicatorName))
+                continue;
+
+            rows.Add(new TestResultValueImportRow
+            {
+                ResultName = resultName ?? "",
+                Description = description,
+                SpecimenTypeName = specimenTypeName,
+                IndicatorName = indicatorName
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportTestResultValuesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewTestResultValuesInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newResultCount = 0;
+        var updatedResultCount = 0;
+        var newIndicatorLinkCount = 0;
+
+        try
+        {
+            // Get existing TestResultValue-Indicator links for duplicate check
+            var existingLinks = await _testResultValueIndicatorRepository.GetListAsync();
+            var linkSet = existingLinks
+                .Select(x => (x.TestResultValueId, x.IndicatorId, x.SpecimenTypeId))
+                .ToHashSet();
+
+            // Get max code number for auto-generation
+            var existingTestResultValues = await _testResultValueRepository.GetListAsync();
+            var maxCodeNumber = existingTestResultValues
+                .Where(x => x.Code.StartsWith("KQ-"))
+                .Select(x =>
+                {
+                    var numPart = x.Code.Substring(3);
+                    return int.TryParse(numPart, out var num) ? num : 0;
+                })
+                .DefaultIfEmpty(0)
+                .Max();
+            var codeCounter = maxCodeNumber;
+
+            var validGroups = preview.Groups.Where(g =>
+                !string.IsNullOrWhiteSpace(g.ResultName) &&
+                g.Indicators.All(i => i.IsValid || (!i.IndicatorId.HasValue && !i.SpecimenTypeId.HasValue))
+            ).ToList();
+
+            foreach (var group in validGroups)
+            {
+                TestResultValue testResultValue;
+
+                if (group.IsNew)
+                {
+                    // Generate new code
+                    codeCounter++;
+                    var code = $"KQ-{codeCounter:D4}";
+
+                    // Create new test result value
+                    testResultValue = new TestResultValue(
+                        _guidGenerator.Create(),
+                        code,
+                        StringHelper.Normalize(group.ResultName)
+                    )
+                    {
+                        Description = group.Description != null ? StringHelper.Normalize(group.Description) : null,
+                        IsActive = true,
+                        SortOrder = 0
+                    };
+                    await _testResultValueRepository.InsertAsync(testResultValue);
+                    newResultCount++;
+                }
+                else
+                {
+                    // Update existing test result value
+                    testResultValue = await _testResultValueRepository.GetAsync(group.ExistingId!.Value);
+                    testResultValue.Name = StringHelper.Normalize(group.ResultName);
+                    testResultValue.Description = group.Description != null ? StringHelper.Normalize(group.Description) : null;
+                    await _testResultValueRepository.UpdateAsync(testResultValue);
+                    updatedResultCount++;
+                }
+
+                // Add indicator links
+                foreach (var indicatorItem in group.Indicators.Where(i => i.IsValid && i.IndicatorId.HasValue && i.SpecimenTypeId.HasValue))
+                {
+                    var linkKey = (testResultValue.Id, indicatorItem.IndicatorId!.Value, indicatorItem.SpecimenTypeId!.Value);
+
+                    // Skip if already exists
+                    if (linkSet.Contains(linkKey))
+                        continue;
+
+                    var indicator = new TestResultValueIndicator(
+                        _guidGenerator.Create(),
+                        testResultValue.Id,
+                        indicatorItem.IndicatorId!.Value,
+                        indicatorItem.SpecimenTypeId!.Value
+                    );
+                    await _testResultValueIndicatorRepository.InsertAsync(indicator);
+                    linkSet.Add(linkKey);
+                    newIndicatorLinkCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newResultCount + updatedResultCount,
+                Message = $"Import thành công! Đã tạo mới {newResultCount} kết quả, cập nhật {updatedResultCount} kết quả, thêm {newIndicatorLinkCount} liên kết chỉ tiêu."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateTestResultValueErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        originalStream.Position = 0;
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        // Add error column header
+        var headerRow = worksheet.Row(1);
+        var errorColumnIndex = 5; // Column E for errors (after 4 data columns)
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Fill.BackgroundColor = XLColor.Yellow;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int excelRowNumber = 2; excelRowNumber <= lastRowUsed; excelRowNumber++)
+        {
+            var dataRowNumber = excelRowNumber;
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            // Highlight error cells
+            var errorColumnsForRow = new HashSet<string>();
+            if (hasError)
+            {
+                foreach (var errorMsg in rowErrors[dataRowNumber])
+                {
+                    if (errorMsg.Contains("Tên kết quả"))
+                        errorColumnsForRow.Add("ResultName");
+                    if (errorMsg.Contains("nền mẫu") || errorMsg.Contains("Nền mẫu"))
+                        errorColumnsForRow.Add("SpecimenTypeName");
+                    if (errorMsg.Contains("chỉ tiêu") || errorMsg.Contains("Chỉ tiêu"))
+                        errorColumnsForRow.Add("IndicatorName");
+                }
+            }
+
+            var row = worksheet.Row(excelRowNumber);
+
+            // Column 1: Tên kết quả
+            if (errorColumnsForRow.Contains("ResultName"))
+            {
+                ApplyErrorStyle(row.Cell(1));
+            }
+
+            // Column 3: Nền mẫu
+            if (errorColumnsForRow.Contains("SpecimenTypeName"))
+            {
+                ApplyErrorStyle(row.Cell(3));
+            }
+
+            // Column 4: Chỉ tiêu
+            if (errorColumnsForRow.Contains("IndicatorName"))
+            {
+                ApplyErrorStyle(row.Cell(4));
+            }
+
+            // Column 5: Lỗi
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+        }
+
+        // Auto-fit columns
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
     }
 
     #endregion

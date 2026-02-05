@@ -1845,6 +1845,40 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTestResultValues", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.TestResultValueIndicator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TestResultValueId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("SpecimenTypeId");
+
+                    b.HasIndex("TestResultValueId");
+
+                    b.HasIndex("TestResultValueId", "IndicatorId", "SpecimenTypeId")
+                        .IsUnique();
+
+                    b.ToTable("AppTestResultValueIndicators", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.NCRs.NCR", b =>
                 {
                     b.Property<Guid>("Id")

@@ -522,6 +522,54 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region TestResultValue Import
+
+    /// <summary>
+    /// Get template for importing TestResultValue
+    /// Template columns: Tên kết quả, Mô tả, Nền mẫu, Chỉ tiêu
+    /// </summary>
+    [HttpGet("test-result-values/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetTestResultValueTemplate()
+    {
+        var bytes = _importAppService.GetTestResultValueTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ket_Qua.xlsx");
+    }
+
+    /// <summary>
+    /// Preview TestResultValue import - validates data without saving
+    /// Upsert: match by ResultName (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("test-result-values/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewTestResultValuesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import TestResultValues from Excel file
+    /// Upsert logic: match by ResultName (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("test-result-values")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportTestResultValuesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportTestResultValuesAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)
