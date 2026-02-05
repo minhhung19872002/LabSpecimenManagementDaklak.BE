@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Hangfire;
 using Hangfire.PostgreSql;
 using LabSpecimenManagement.BackgroundJobs;
@@ -88,7 +89,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 .DisableTransportSecurityRequirement();
 
             // Set token lifetimes
-            builder.SetAccessTokenLifetime(TimeSpan.FromHours(2));
+            builder.SetAccessTokenLifetime(TimeSpan.FromHours(8));
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
         });
     }
