@@ -72,8 +72,8 @@ public partial class LaboratoryTaskAppService
         // Validate: Task status and indicator status
         // Cho phép đánh giá khi:
         // 1. Task đang ở trạng thái UnderEvaluation hoặc WaitingCustomerResponse (flow bình thường)
-        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, SentToQuality)
-        //    NHƯNG indicator vẫn còn Pending (trường hợp gửi QLKT sau)
+        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, InProgress, WaitingApproval, SentToQuality)
+        //    NHƯNG indicator vẫn còn Pending (trường hợp gửi QLKT sau hoặc một số chỉ tiêu chưa được duyệt)
         var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
                                        task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
                                        task.Status == LaboratoryTaskStatus.WaitingSharedSample;
@@ -81,6 +81,8 @@ public partial class LaboratoryTaskAppService
         var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
                                    task.Status == LaboratoryTaskStatus.PartialAccepted ||
                                    task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.InProgress ||
+                                   task.Status == LaboratoryTaskStatus.WaitingApproval ||
                                    task.Status == LaboratoryTaskStatus.SentToQuality) &&
                                   (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
                                    taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
