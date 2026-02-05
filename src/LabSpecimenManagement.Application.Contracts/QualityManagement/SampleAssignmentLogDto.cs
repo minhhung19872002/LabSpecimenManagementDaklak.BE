@@ -173,9 +173,14 @@ public class SampleAssignmentLogDto
     public TestingStatus? TestingStatus { get; set; }
 
     /// <summary>
-    /// Trạng thái hiển thị QLKT - QLKT Display Status (cột Tình trạng tab Sổ nhận việc)
+    /// Trạng thái hiển thị QLKT - QLKT Display Status (cột Tình trạng tab Sổ nhận việc QLKT/Testing)
     /// </summary>
     public QLKTDisplayStatus? QLKTDisplayStatus { get; set; }
+
+    /// <summary>
+    /// Trạng thái hiển thị QLCL - QLCL Display Status (cột Tình trạng tab Sổ nhận việc QLCL)
+    /// </summary>
+    public QLCLDisplayStatus? QLCLDisplayStatus { get; set; }
 
     /// <summary>
     /// Trạng thái duyệt QLCL - Quality Approval Status
