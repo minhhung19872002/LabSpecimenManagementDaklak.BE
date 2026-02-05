@@ -1076,6 +1076,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 Id = taskIndicator.Id,
                 TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
                 IndicatorId = sampleIndicator.IndicatorId,
+                SpecimenTypeId = sampleIndicator.SpecimenTypeId,
                 IndicatorName = indicator?.Name,
                 IndicatorFormattedName = indicator?.FormattedName,
                 MethodId = taskIndicator.MethodId,

@@ -192,6 +192,11 @@ public class TestingIndicatorDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
+    /// Specimen Type ID - Nền mẫu (để filter kết quả recommend theo indicator+specimenType)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Tên chỉ tiêu - Indicator Name
     /// </summary>
     public string? IndicatorName { get; set; }

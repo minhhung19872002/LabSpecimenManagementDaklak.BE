@@ -1811,9 +1811,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
-                    b.Property<Guid?>("IndicatorId")
-                        .HasColumnType("uuid");
-
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -1845,9 +1842,41 @@ namespace LabSpecimenManagement.Migrations
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
 
+                    b.ToTable("AppTestResultValues", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.TestResultValueIndicator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TestResultValueId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
                     b.HasIndex("IndicatorId");
 
-                    b.ToTable("AppTestResultValues", (string)null);
+                    b.HasIndex("SpecimenTypeId");
+
+                    b.HasIndex("TestResultValueId");
+
+                    b.HasIndex("TestResultValueId", "IndicatorId", "SpecimenTypeId")
+                        .IsUnique();
+
+                    b.ToTable("AppTestResultValueIndicators", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.NCRs.NCR", b =>
