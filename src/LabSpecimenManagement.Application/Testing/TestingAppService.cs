@@ -10,6 +10,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -49,6 +50,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly ITestResultValueAppService _testResultValueAppService;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityUserRepository _identityUserRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -73,7 +75,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IGuidGenerator guidGenerator,
         INotificationCreator notificationCreator,
         ITestResultValueAppService testResultValueAppService,
-        IIdentityUserRepository identityUserRepository)
+        IIdentityUserRepository identityUserRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -98,6 +101,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _notificationCreator = notificationCreator;
         _testResultValueAppService = testResultValueAppService;
         _identityUserRepository = identityUserRepository;
+        _qualityIndicatorRepository = qualityIndicatorRepository;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -2256,6 +2260,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
         var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
 
         // Build base query from LaboratoryTaskIndicator (without user joins - resolve names later)
         var query = from li in labIndicatorQuery
@@ -2266,6 +2271,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
                     join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
                     from tm in tmJoin.DefaultIfEmpty()
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
                     select new
                     {
                         // TestRequest info
@@ -2287,6 +2294,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         LaboratoryTaskIndicatorId = li.Id,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
+                        MethodId = li.MethodId,
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
@@ -2302,6 +2310,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
                         // Status
                         IndicatorApprovalStatus = li.ApprovalStatus,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
 
                         // Laboratory info (for filtering)
                         LaboratoryId = lt.LaboratoryId
@@ -2436,7 +2445,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             QlktApprovalDate = x.QlktApprovalDate,
             IndicatorApprovalStatus = x.IndicatorApprovalStatus,
             TestingStatus = MapTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
-            QualityApprovalStatus = null,
+            QLKTDisplayStatus = MapQLKTDisplayStatus(
+                x.IndicatorApprovalStatus,
+                x.MethodId,
+                x.TechnicianId,
+                x.TestDate,
+                x.Result,
+                x.QualityApprovalStatus),
+            QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
 
@@ -2463,6 +2479,78 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
             ? TestingStatus.NotStarted
             : null;
+    }
+
+    /// <summary>
+    /// Map indicator data to QLKTDisplayStatus for "Sổ nhận mẫu" tab (Testing page)
+    /// Based on KH flow: Cần làm → Đang TN → Chờ QLKT phê duyệt → Hoàn thành
+    /// </summary>
+    private static QLKTDisplayStatus MapQLKTDisplayStatus(
+        IndicatorApprovalStatus approvalStatus,
+        Guid? methodId,
+        Guid? technicianId,
+        DateTime? testDate,
+        string? result,
+        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+    {
+        // 1. Handle special statuses first (terminal or special states)
+        switch (approvalStatus)
+        {
+            case IndicatorApprovalStatus.MethodChangeRequested:
+                return QLKTDisplayStatus.MethodChangeRequested;
+
+            case IndicatorApprovalStatus.MethodChanged:
+                // Theo flow KH: sau khi đổi PP xong → quay lại xem xét YC
+                return QLKTDisplayStatus.UnderReview;
+
+            case IndicatorApprovalStatus.TestingRejected:
+                return QLKTDisplayStatus.TestingRejected;
+
+            case IndicatorApprovalStatus.SupplementaryRequested:
+                return QLKTDisplayStatus.SupplementaryRequested;
+
+            case IndicatorApprovalStatus.CustomerCancelled:
+                return QLKTDisplayStatus.CustomerCancelled;
+
+            case IndicatorApprovalStatus.CannotTest:
+                return QLKTDisplayStatus.CannotTest;
+
+            case IndicatorApprovalStatus.Rejected:
+                return QLKTDisplayStatus.ResultRejected;
+
+            case IndicatorApprovalStatus.Pending:
+                return QLKTDisplayStatus.UnderReview;
+        }
+
+        // 2. Handle Approved status - QLKT đã duyệt → Hoàn thành (không cần check QLCL ở trang Testing)
+        if (approvalStatus == IndicatorApprovalStatus.Approved)
+        {
+            return QLKTDisplayStatus.Completed;
+        }
+
+        // 3. Handle Entered status - Chờ QLKT phê duyệt
+        if (approvalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return QLKTDisplayStatus.WaitingQLKTApproval;
+        }
+
+        // 4. Handle AcceptedForTesting - check assignment and testing progress
+        if (approvalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+        {
+            if (!technicianId.HasValue || !methodId.HasValue)
+            {
+                return QLKTDisplayStatus.WaitingForAssignment;
+            }
+
+            if (!testDate.HasValue)
+            {
+                return QLKTDisplayStatus.ToDo;
+            }
+
+            return QLKTDisplayStatus.Testing;
+        }
+
+        return QLKTDisplayStatus.UnderReview;
     }
 
     /// <summary>
