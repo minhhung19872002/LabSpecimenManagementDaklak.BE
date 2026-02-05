@@ -168,9 +168,14 @@ public class SampleAssignmentLogDto
     public IndicatorApprovalStatus? IndicatorApprovalStatus { get; set; }
 
     /// <summary>
-    /// Trạng thái testing của chỉ tiêu - Testing Status
+    /// Trạng thái testing của chỉ tiêu - Testing Status (DEPRECATED - use QLKTDisplayStatus)
     /// </summary>
     public TestingStatus? TestingStatus { get; set; }
+
+    /// <summary>
+    /// Trạng thái hiển thị QLKT - QLKT Display Status (cột Tình trạng tab Sổ nhận việc)
+    /// </summary>
+    public QLKTDisplayStatus? QLKTDisplayStatus { get; set; }
 
     /// <summary>
     /// Trạng thái duyệt QLCL - Quality Approval Status
