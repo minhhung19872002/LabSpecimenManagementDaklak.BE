@@ -269,4 +269,30 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportNotesAsync(byte[] fileBytes);
 
     #endregion
+
+    #region TestResultValue Import
+
+    /// <summary>
+    /// Get TestResultValue import template
+    /// Template columns: Tên kết quả, Mô tả, Nền mẫu, Chỉ tiêu
+    /// </summary>
+    byte[] GetTestResultValueTemplate();
+
+    /// <summary>
+    /// Preview TestResultValue import - validates data without saving
+    /// Upsert: match by ResultName (normalized, case-insensitive)
+    /// If SpecimenType and Indicator provided, they must exist and Indicator must belong to SpecimenType
+    /// </summary>
+    [DisableValidation]
+    Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import TestResultValues from Excel file
+    /// Upsert logic: match by ResultName (normalized, case-insensitive)
+    /// Creates/updates TestResultValue and links to Indicators via TestResultValueIndicator
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportTestResultValuesAsync(byte[] fileBytes);
+
+    #endregion
 }
