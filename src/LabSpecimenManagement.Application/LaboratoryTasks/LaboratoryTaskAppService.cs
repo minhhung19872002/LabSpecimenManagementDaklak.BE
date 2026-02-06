@@ -311,12 +311,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     private async Task<LaboratoryTaskDto> MapToListDtoAsync(LaboratoryTask task)
     {
-        // Lấy ngày thí nghiệm sớm nhất từ các indicators (ngày KTV bắt đầu thực hiện chỉ tiêu đầu tiên)
+        // Lấy ngày thí nghiệm từ các indicators
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-        var earliestTestDate = taskIndicators
-            .Where(ti => ti.TestDate.HasValue)
-            .OrderBy(ti => ti.TestDate)
-            .FirstOrDefault()?.TestDate;
+
+        // Tính Min/Max TestDate giống báo cáo
+        var indicatorsWithTestDate = taskIndicators.Where(ti => ti.TestDate.HasValue).ToList();
+        var earliestTestDate = indicatorsWithTestDate.OrderBy(ti => ti.TestDate).FirstOrDefault()?.TestDate;
+        var latestTestDate = indicatorsWithTestDate.OrderByDescending(ti => ti.TestDate).FirstOrDefault()?.TestDate;
+
+        // Calculate TestDateRange: "dd/MM/yyyy - dd/MM/yyyy"
+        var testDateRange = CalculateTestDateRange(earliestTestDate, latestTestDate);
 
         var dto = new LaboratoryTaskDto
         {
@@ -329,6 +333,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
             TestDate = earliestTestDate ?? task.TestDate, // Ưu tiên ngày sớm nhất từ indicators, fallback về task.TestDate
+            TestDateRange = testDateRange, // Khoảng ngày: Min - Max
             Status = task.Status,
             Notes = task.Notes,
             ResultRejectionReason = task.ResultRejectionReason,
@@ -1900,6 +1905,37 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .ToList();
 
         return contents.Count > 0 ? contents : null;
+    }
+
+    /// <summary>
+    /// Calculate Test Date Range from Min/Max test dates
+    /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
+    /// - Start date = Min(TestDate) of all indicators (thời gian thử nghiệm sớm nhất)
+    /// - End date = Max(TestDate) of all indicators (thời gian thử nghiệm muộn nhất)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
+    /// Giống logic trong ResultFormAppService.CalculateTimeOfTesting
+    /// </summary>
+    private static string? CalculateTestDateRange(DateTime? minTestDate, DateTime? maxTestDate)
+    {
+        if (!minTestDate.HasValue && !maxTestDate.HasValue)
+        {
+            return null;
+        }
+
+        if (!minTestDate.HasValue)
+        {
+            // Only have max date, show it twice
+            return $"{maxTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
+        }
+
+        if (!maxTestDate.HasValue)
+        {
+            // Only have min date, show it twice
+            return $"{minTestDate:dd/MM/yyyy} - {minTestDate:dd/MM/yyyy}";
+        }
+
+        // Always show both dates (even if same day: "07/01/2025 - 07/01/2025")
+        return $"{minTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
     }
 
     /// <summary>

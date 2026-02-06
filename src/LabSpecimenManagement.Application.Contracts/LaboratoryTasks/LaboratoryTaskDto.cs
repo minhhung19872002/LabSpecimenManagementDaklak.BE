@@ -66,9 +66,16 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date
+    /// Ngày thí nghiệm - Test Date (ngày sớm nhất từ indicators)
     /// </summary>
     public DateTime? TestDate { get; set; }
+
+    /// <summary>
+    /// Khoảng ngày thử nghiệm - Test Date Range
+    /// Format: "dd/MM/yyyy - dd/MM/yyyy" (Min - Max từ tất cả indicators)
+    /// Giống format trên báo cáo
+    /// </summary>
+    public string? TestDateRange { get; set; }
 
     /// <summary>
     /// Trạng thái - Status
