@@ -1,8 +1,10 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Employees;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.RoleManagement;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
@@ -68,4 +70,78 @@ public class EmployeeController : LabSpecimenManagementController
     {
         return _employeeAppService.ResetPasswordAsync(id, input);
     }
+
+    #region Permissions Management
+
+    /// <summary>
+    /// Get all available permissions
+    /// </summary>
+    [HttpGet("permissions/all")]
+    public virtual Task<List<PermissionGroupDto>> GetAllPermissionsAsync()
+    {
+        return _employeeAppService.GetAllPermissionsAsync();
+    }
+
+    /// <summary>
+    /// Get user's individual permissions (Quyền User)
+    /// </summary>
+    [HttpGet("{id}/permissions")]
+    public virtual Task<List<PermissionGroupDto>> GetUserPermissionsAsync(Guid id)
+    {
+        return _employeeAppService.GetUserPermissionsAsync(id);
+    }
+
+    /// <summary>
+    /// Update user's individual permissions (Quyền User)
+    /// </summary>
+    [HttpPut("{id}/permissions")]
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public virtual Task UpdateUserPermissionsAsync(Guid id, [FromBody] UpdateUserPermissionsInput input)
+    {
+        return _employeeAppService.UpdateUserPermissionsAsync(id, input);
+    }
+
+    /// <summary>
+    /// Get user's full permission info including role permissions
+    /// </summary>
+    [HttpGet("{id}/permissions/full")]
+    public virtual Task<UserPermissionsDto> GetUserFullPermissionsAsync(Guid id)
+    {
+        return _employeeAppService.GetUserFullPermissionsAsync(id);
+    }
+
+    #endregion
+
+    #region Roles Management
+
+    /// <summary>
+    /// Get all roles with assignment status for a user
+    /// </summary>
+    [HttpGet("{id}/roles")]
+    public virtual Task<List<UserRoleDto>> GetUserRolesAsync(Guid id)
+    {
+        return _employeeAppService.GetUserRolesAsync(id);
+    }
+
+    /// <summary>
+    /// Add a role to user
+    /// </summary>
+    [HttpPost("{id}/roles/{roleName}")]
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public virtual Task AddRoleToUserAsync(Guid id, string roleName)
+    {
+        return _employeeAppService.AddRoleToUserAsync(id, roleName);
+    }
+
+    /// <summary>
+    /// Remove a role from user
+    /// </summary>
+    [HttpDelete("{id}/roles/{roleName}")]
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public virtual Task RemoveRoleFromUserAsync(Guid id, string roleName)
+    {
+        return _employeeAppService.RemoveRoleFromUserAsync(id, roleName);
+    }
+
+    #endregion
 }

@@ -7,6 +7,9 @@ using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Shared;
+using RolePermissionGroupDto = LabSpecimenManagement.RoleManagement.PermissionGroupDto;
+using RolePermissionDto = LabSpecimenManagement.RoleManagement.PermissionDto;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
@@ -14,7 +17,9 @@ using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Authorization.Permissions;
 using Volo.Abp.Identity;
+using Volo.Abp.PermissionManagement;
 using IdentityUser = Volo.Abp.Identity.IdentityUser;
 
 namespace LabSpecimenManagement.Employees;
@@ -28,19 +33,25 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly IEmailService _emailService;
+    private readonly IPermissionManager _permissionManager;
+    private readonly IPermissionGrantRepository _permissionGrantRepository;
 
     public EmployeeAppService(
         IIdentityUserRepository userRepository,
         IdentityUserManager userManager,
         IRepository<Department, Guid> departmentRepository,
         IIdentityRoleRepository roleRepository,
-        IEmailService emailService)
+        IEmailService emailService,
+        IPermissionManager permissionManager,
+        IPermissionGrantRepository permissionGrantRepository)
     {
         _userRepository = userRepository;
         _userManager = userManager;
         _departmentRepository = departmentRepository;
         _roleRepository = roleRepository;
         _emailService = emailService;
+        _permissionManager = permissionManager;
+        _permissionGrantRepository = permissionGrantRepository;
     }
 
     public async Task<PagedResultDto<EmployeeDto>> GetListAsync(GetEmployeesInput input)
@@ -505,4 +516,285 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
         return isExpired;
     }
+
+    #region User Permissions Management
+
+    /// <summary>
+    /// Get all available permissions (same as role management)
+    /// </summary>
+    public Task<List<RolePermissionGroupDto>> GetAllPermissionsAsync()
+    {
+        var result = PermissionGroupConfigs.All.Select(config => new RolePermissionGroupDto
+        {
+            Name = config.Name,
+            DisplayName = config.DisplayName,
+            Permissions = config.Permissions.Select(p => new RolePermissionDto
+            {
+                Name = p.PermissionName,
+                DisplayName = p.DisplayName,
+                IsGranted = false
+            }).ToList()
+        }).ToList();
+
+        return Task.FromResult(result);
+    }
+
+    /// <summary>
+    /// Get user's individual permissions (Quyền User)
+    /// Only returns permissions granted directly to user (provider "U"), not from roles
+    /// </summary>
+    public async Task<List<RolePermissionGroupDto>> GetUserPermissionsAsync(Guid userId)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        // Query database directly for user-specific permission grants (provider "U" only)
+        // This ensures we only get permissions stored in AbpPermissionGrants table with ProviderName = "U"
+        var userPermissionGrants = await _permissionGrantRepository.GetListAsync(
+            UserPermissionValueProvider.ProviderName, // "U"
+            userId.ToString()
+        );
+        var grantedUserPermissions = new HashSet<string>(
+            userPermissionGrants.Select(p => p.Name)
+        );
+
+        var result = new List<RolePermissionGroupDto>();
+
+        foreach (var config in PermissionGroupConfigs.All)
+        {
+            var group = new RolePermissionGroupDto
+            {
+                Name = config.Name,
+                DisplayName = config.DisplayName,
+                Permissions = new List<RolePermissionDto>()
+            };
+
+            foreach (var (permissionName, displayName) in config.Permissions)
+            {
+                // Check if this permission is granted directly to user (not from roles)
+                var isGranted = grantedUserPermissions.Contains(permissionName);
+                group.Permissions.Add(new RolePermissionDto
+                {
+                    Name = permissionName,
+                    DisplayName = displayName,
+                    IsGranted = isGranted
+                });
+            }
+
+            result.Add(group);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Update user's individual permissions (Quyền User)
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public async Task UpdateUserPermissionsAsync(Guid userId, UpdateUserPermissionsInput input)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        // Get all permissions from config
+        var allPermissions = PermissionGroupConfigs.GetAllPermissionNames();
+
+        // Update each permission for the user
+        foreach (var permissionName in allPermissions)
+        {
+            var isGranted = input.Permissions.Contains(permissionName);
+            await _permissionManager.SetForUserAsync(userId, permissionName, isGranted);
+        }
+    }
+
+    /// <summary>
+    /// Get user's full permission info including role permissions
+    /// </summary>
+    public async Task<UserPermissionsDto> GetUserFullPermissionsAsync(Guid userId)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        var fullName = $"{user.Surname} {user.Name}".Trim();
+        if (string.IsNullOrWhiteSpace(fullName))
+        {
+            fullName = user.UserName ?? string.Empty;
+        }
+
+        var result = new UserPermissionsDto
+        {
+            UserId = userId,
+            FullName = fullName,
+            UserPermissions = new List<RolePermissionGroupDto>(),
+            RolePermissions = new List<RolePermissionGroupDto>(),
+            EffectivePermissions = new List<string>()
+        };
+
+        // Get user's roles
+        var userRoles = await _userManager.GetRolesAsync(user);
+
+        // Collect all role permissions
+        var rolePermissionSet = new HashSet<string>();
+        foreach (var roleName in userRoles)
+        {
+            var rolePermissions = await _permissionManager.GetAllForRoleAsync(roleName);
+            foreach (var perm in rolePermissions.Where(p => p.IsGranted))
+            {
+                rolePermissionSet.Add(perm.Name);
+            }
+        }
+
+        // Build permission groups
+        foreach (var config in PermissionGroupConfigs.All)
+        {
+            var userGroup = new RolePermissionGroupDto
+            {
+                Name = config.Name,
+                DisplayName = config.DisplayName,
+                Permissions = new List<RolePermissionDto>()
+            };
+
+            var roleGroup = new RolePermissionGroupDto
+            {
+                Name = config.Name,
+                DisplayName = config.DisplayName,
+                Permissions = new List<RolePermissionDto>()
+            };
+
+            foreach (var (permissionName, displayName) in config.Permissions)
+            {
+                // Get user's direct permission
+                var userPermission = await _permissionManager.GetAsync(permissionName, UserPermissionValueProvider.ProviderName, userId.ToString());
+                userGroup.Permissions.Add(new RolePermissionDto
+                {
+                    Name = permissionName,
+                    DisplayName = displayName,
+                    IsGranted = userPermission.IsGranted
+                });
+
+                // Get role permission (combined from all roles)
+                var isRoleGranted = rolePermissionSet.Contains(permissionName);
+                roleGroup.Permissions.Add(new RolePermissionDto
+                {
+                    Name = permissionName,
+                    DisplayName = displayName,
+                    IsGranted = isRoleGranted
+                });
+
+                // Effective permission = user permission OR role permission
+                if (userPermission.IsGranted || isRoleGranted)
+                {
+                    result.EffectivePermissions.Add(permissionName);
+                }
+            }
+
+            result.UserPermissions.Add(userGroup);
+            result.RolePermissions.Add(roleGroup);
+        }
+
+        return result;
+    }
+
+    #endregion
+
+    #region User Roles Management
+
+    /// <summary>
+    /// Get all roles with assignment status for a user
+    /// </summary>
+    public async Task<List<UserRoleDto>> GetUserRolesAsync(Guid userId)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        var userRoles = await _userManager.GetRolesAsync(user);
+        var allRoles = await _roleRepository.GetListAsync();
+
+        var result = new List<UserRoleDto>();
+        foreach (var role in allRoles.OrderBy(r => r.Name))
+        {
+            // Count permissions for this role
+            var rolePermissions = await _permissionManager.GetAllForRoleAsync(role.Name);
+            var permissionCount = rolePermissions.Count(p => p.IsGranted);
+
+            result.Add(new UserRoleDto
+            {
+                Id = role.Id,
+                Name = role.Name,
+                PermissionCount = permissionCount,
+                IsAssigned = userRoles.Contains(role.Name),
+                IsStatic = role.IsStatic
+            });
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Add a role to user
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public async Task AddRoleToUserAsync(Guid userId, string roleName)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        var role = await _roleRepository.FindByNormalizedNameAsync(roleName.ToUpperInvariant());
+        if (role == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy nhóm quyền");
+        }
+
+        var currentRoles = await _userManager.GetRolesAsync(user);
+        if (currentRoles.Contains(roleName))
+        {
+            throw new UserFriendlyException("Người dùng đã có nhóm quyền này");
+        }
+
+        await _userManager.AddToRoleAsync(user, roleName);
+    }
+
+    /// <summary>
+    /// Remove a role from user
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public async Task RemoveRoleFromUserAsync(Guid userId, string roleName)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy người dùng");
+        }
+
+        var role = await _roleRepository.FindByNormalizedNameAsync(roleName.ToUpperInvariant());
+        if (role == null)
+        {
+            throw new UserFriendlyException("Không tìm thấy nhóm quyền");
+        }
+
+        var currentRoles = await _userManager.GetRolesAsync(user);
+        if (!currentRoles.Contains(roleName))
+        {
+            throw new UserFriendlyException("Người dùng không có nhóm quyền này");
+        }
+
+        await _userManager.RemoveFromRoleAsync(user, roleName);
+    }
+
+    #endregion
 }
