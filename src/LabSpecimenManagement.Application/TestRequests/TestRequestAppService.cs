@@ -2965,6 +2965,9 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Lấy thông tin tiến trình (timeline) của phiếu yêu cầu
+    /// Timeline mới theo workflow:
+    /// New → PendingPayment/NoPaymentRequired → Paid → UnderReview → RequestApproved
+    /// → SampleSent → InProgress → ReportPublished → Completed
     /// </summary>
     public async Task<TestRequestTimelineDto> GetTimelineAsync(Guid id)
     {
@@ -3009,11 +3012,13 @@ public partial class TestRequestAppService :
         }
 
         // Build steps from newest to oldest (top to bottom in UI)
-
-        // Khi status = Cancelled, dùng date fields để xác định step nào đã hoàn thành
+        // Sử dụng date fields để xác định step nào đã hoàn thành (vì status enum values không theo thứ tự timeline)
         var isCancelled = currentStatus == TestRequestStatus.Cancelled;
 
-        // Step 0: Đã hủy (Cancelled) - chỉ hiện khi đã bị hủy
+        // Get creator name for fallback (used in New step if no specific data)
+        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
+
+        // === Step 0: Đã hủy (Cancelled) - chỉ hiện khi đã bị hủy ===
         if (isCancelled)
         {
             result.Steps.Add(new TimelineStepDto
@@ -3027,7 +3032,7 @@ public partial class TestRequestAppService :
             });
         }
 
-        // Step 1: Hoàn thành (Completed)
+        // === Step 1: Hoàn thành (Completed) ===
         var isCompleted = currentStatus == TestRequestStatus.Completed;
         result.Steps.Add(new TimelineStepDto
         {
@@ -3038,37 +3043,49 @@ public partial class TestRequestAppService :
             UserName = testRequest.CompletedByUserName
         });
 
-        // Step 2: Gửi khách hàng (ResultSent)
-        // Khi cancelled: check ResultSentDate để biết đã qua step này chưa
-        var isResultSent = isCancelled
-            ? testRequest.ResultSentDate.HasValue
-            : currentStatus >= TestRequestStatus.ResultSent;
+        // === Step 2: Đã phát hành BC (ReportPublished) - replaces old ResultSent ===
+        // Check date field hoặc status
+        var isReportPublished = isCancelled
+            ? testRequest.ReportPublishedDate.HasValue
+            : (currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed ||
+               testRequest.ReportPublishedDate.HasValue);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Gửi khách hàng",
-            Status = isResultSent ? "completed" : "pending",
-            Date = testRequest.ResultSentDate,
-            UserId = testRequest.ResultSentByUserId,
-            UserName = testRequest.ResultSentByUserName
+            Title = "Đã phát hành BC",
+            Status = isReportPublished ? "completed" : "pending",
+            Date = testRequest.ReportPublishedDate,
+            UserId = testRequest.ReportPublishedByUserId,
+            UserName = testRequest.ReportPublishedByUserName
         });
 
-        // Step 3: Đã phê duyệt (Approved)
+        // === Step 2.5: Đã duyệt KQ (Approved) - QLCL đã duyệt toàn bộ chỉ tiêu ===
+        // ApprovedDate được set khi QLCL duyệt tất cả chỉ tiêu (QualityManagementTask -> PendingPublish)
         var isApproved = isCancelled
             ? testRequest.ApprovedDate.HasValue
-            : currentStatus >= TestRequestStatus.Approved;
+            : (testRequest.ApprovedDate.HasValue ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Đã phê duyệt",
+            Title = "Đã duyệt KQ",
             Status = isApproved ? "completed" : "pending",
             Date = testRequest.ApprovedDate,
             UserId = testRequest.ApprovedByUserId,
             UserName = testRequest.ApprovedByUserName
         });
 
-        // Step 4: Chờ phê duyệt KQ (PendingApproval)
+        // === Step 2.6: Chờ phê duyệt KQ (PendingApproval) - KTV gửi KQ chờ QLCL phê duyệt ===
         var isPendingApproval = isCancelled
             ? testRequest.PendingApprovalDate.HasValue
-            : (currentStatus >= TestRequestStatus.PendingApproval && currentStatus != TestRequestStatus.PendingChangeApproval);
+            : (testRequest.PendingApprovalDate.HasValue ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Chờ phê duyệt KQ",
@@ -3078,10 +3095,17 @@ public partial class TestRequestAppService :
             UserName = testRequest.PendingApprovalByUserName
         });
 
-        // Step 5: Đang thử nghiệm (InProgress)
+        // === Step 3: Đang thử nghiệm (InProgress) ===
         var isInProgress = isCancelled
             ? testRequest.InProgressDate.HasValue
-            : currentStatus >= TestRequestStatus.InProgress;
+            : (testRequest.InProgressDate.HasValue ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Đang thử nghiệm",
@@ -3091,10 +3115,18 @@ public partial class TestRequestAppService :
             UserName = testRequest.InProgressByUserName
         });
 
-        // Step 6: Đã gửi mẫu (SampleSent)
+        // === Step 4: Đã gửi mẫu (SampleSent) ===
         var isSampleSent = isCancelled
             ? testRequest.SampleSentDate.HasValue
-            : currentStatus >= TestRequestStatus.SampleSent;
+            : (testRequest.SampleSentDate.HasValue ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Đã gửi mẫu",
@@ -3105,36 +3137,89 @@ public partial class TestRequestAppService :
             ExtraInfo = isSampleSent && laboratories.Count > 0 ? laboratories : null
         });
 
-        // Get creator name for fallback (used in New step if no specific data)
-        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
-
-        // Step 7: Đã thanh toán (Paid)
-        var isPaid = isCancelled
-            ? testRequest.PaymentReceived
-            : currentStatus >= TestRequestStatus.Paid;
+        // === Step 5: Đã duyệt yêu cầu (RequestApproved) ===
+        // Khi tất cả phòng lab đã xét duyệt xong
+        var isRequestApproved = isCancelled
+            ? testRequest.SampleSentDate.HasValue // Nếu đã gửi mẫu thì yêu cầu đã được duyệt
+            : (currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Đã thanh toán",
-            Status = isPaid ? "completed" : "pending",
-            Date = testRequest.PaymentReceived ? testRequest.PendingDate : null,
-            UserId = testRequest.PaymentReceived ? testRequest.PendingByUserId : null,
-            UserName = testRequest.PaymentReceived ? testRequest.PendingByUserName : null
+            Title = "Đã duyệt yêu cầu",
+            Status = isRequestApproved ? "completed" : "pending",
+            Date = testRequest.SampleSentDate, // Không có RequestApprovedDate, dùng SampleSentDate làm proxy
+            UserId = null,
+            UserName = null
         });
 
-        // Step 8: Chờ thanh toán (PendingPayment)
-        var isPendingPayment = isCancelled
-            ? testRequest.SentToAccounting
-            : currentStatus >= TestRequestStatus.PendingPayment;
+        // === Step 6: Đang xem xét YC (UnderReview) ===
+        var isUnderReview = isCancelled
+            ? testRequest.UnderReviewDate.HasValue
+            : (testRequest.UnderReviewDate.HasValue ||
+               currentStatus == TestRequestStatus.UnderReview ||
+               currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+               currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Chờ thanh toán",
-            Status = isPendingPayment ? "completed" : "pending",
+            Title = "Đang xem xét YC",
+            Status = isUnderReview ? "completed" : "pending",
+            Date = testRequest.UnderReviewDate,
+            UserId = testRequest.UnderReviewByUserId,
+            UserName = testRequest.UnderReviewByUserName
+        });
+
+        // === Step 7: Đã thanh toán (Paid) - CHỈ hiển thị cho mẫu thường (không phải mẫu nhiệm vụ) ===
+        // Mẫu nhiệm vụ không cần thanh toán nên bỏ qua step này
+        if (!testRequest.SampleTypeTask)
+        {
+            var isPaid = isCancelled
+                ? testRequest.PaymentReceived
+                : (testRequest.PaymentReceived || currentStatus == TestRequestStatus.Paid);
+            result.Steps.Add(new TimelineStepDto
+            {
+                Title = "Đã thanh toán",
+                Status = isPaid ? "completed" : "pending",
+                Date = testRequest.PaymentReceived ? testRequest.PendingDate : null,
+                UserId = testRequest.PaymentReceived ? testRequest.PendingByUserId : null,
+                UserName = testRequest.PaymentReceived ? testRequest.PendingByUserName : null
+            });
+        }
+
+        // === Step 8: Chờ thanh toán / Không cần thanh toán (PendingPayment / NoPaymentRequired) ===
+        // Mẫu nhiệm vụ (SampleTypeTask): hiển thị "Không cần thanh toán"
+        // Mẫu thường: hiển thị "Chờ thanh toán"
+        // Dựa vào flag SentToAccounting hoặc PaymentReceived (nếu đã thanh toán thì chờ thanh toán cũng xanh)
+        var isSentToAccounting = testRequest.SentToAccounting ||
+            testRequest.PaymentReceived ||
+            currentStatus == TestRequestStatus.PendingPayment ||
+            currentStatus == TestRequestStatus.NoPaymentRequired ||
+            currentStatus == TestRequestStatus.Paid;
+        var paymentStepTitle = testRequest.SampleTypeTask ? "Không cần thanh toán" : "Chờ thanh toán";
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = paymentStepTitle,
+            Status = isSentToAccounting ? "completed" : "pending",
             Date = testRequest.SentToAccounting ? testRequest.CreationTime : null,
             UserId = testRequest.SentToAccounting ? testRequest.CreatorId : null,
             UserName = testRequest.SentToAccounting ? creatorName : null
         });
 
-        // Step 9: Mới (New) - luôn completed vì đây là bước đầu
+        // === Step 9: Mới (New) - luôn completed vì đây là bước đầu ===
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Mới",
