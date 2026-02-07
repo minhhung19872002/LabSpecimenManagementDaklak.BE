@@ -2394,7 +2394,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     public byte[] GetOrganizationTestRequestTemplate()
     {
         var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Thông tin cơ sở doanh nghiệp.xlsx");
+            "templates", "Meta Data Template", "CNDN.xlsx");
 
         if (File.Exists(templatePath))
         {
@@ -2406,18 +2406,14 @@ public class ImportAppService : ApplicationService, IImportAppService
         {
             new()
             {
-                { "Tên cơ sở", "Công ty TNHH ABC" },
-                { "Người liên hệ", "Nguyễn Văn A" },
-                { "Điện thoại", "0901234567" },
+                { "Tên cơ sở/doanh nghiệp", "Công ty TNHH ABC" },
                 { "Địa chỉ", "123 Đường XYZ" },
-                { "Tỉnh/thành", "Đắk Lắk" },
-                { "Phường/xã", "Tân An" },
-                { "Mã số thuế", "0123456789" },
-                { "Số hợp đồng", "HĐ-2024-001" },
-                { "Tên mẫu", "Nước sinh hoạt" },
-                { "Tình trạng", "Bình thường" },
-                { "Mã số mẫu", "M001" },
-                { "Chỉ tiêu", "pH, Độ đục, COD" }
+                { "Tỉnh thành", "Đắk Lắk" },
+                { "Phường xã", "Tân An" },
+                { "Người liên hệ", "Nguyễn Văn A" },
+                { "Số điện thoại", "0901234567" },
+                { "Số điện thoại phụ", "0987654321" },
+                { "Mã số thuế", "0123456789" }
             }
         };
 
@@ -2486,6 +2482,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 OrganizationName = row.OrganizationName?.Trim() ?? "",
                 ContactPerson = row.ContactPerson?.Trim() ?? "",
                 Phone = row.Phone?.Trim(),
+                SecondaryPhone = row.SecondaryPhone?.Trim(),
                 Address = row.Address?.Trim() ?? "",
                 Province = provinceName, // Display name for preview
                 ProvinceCode = provinceCode, // Code for saving
@@ -2539,48 +2536,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     RowNumber = rowNumber,
                     ColumnName = "Địa chỉ",
-                    ErrorMessage = error
-                });
-                AddRowError(rowErrors, rowNumber, error);
-            }
-
-            if (string.IsNullOrWhiteSpace(row.Province))
-            {
-                item.IsValid = false;
-                var error = "Tỉnh/thành không được để trống";
-                rowErrorMessages.Add(error);
-                validationResult.Errors.Add(new ImportRowError
-                {
-                    RowNumber = rowNumber,
-                    ColumnName = "Tỉnh/thành",
-                    ErrorMessage = error
-                });
-                AddRowError(rowErrors, rowNumber, error);
-            }
-
-            if (string.IsNullOrWhiteSpace(row.Ward))
-            {
-                item.IsValid = false;
-                var error = "Phường/xã không được để trống";
-                rowErrorMessages.Add(error);
-                validationResult.Errors.Add(new ImportRowError
-                {
-                    RowNumber = rowNumber,
-                    ColumnName = "Phường/xã",
-                    ErrorMessage = error
-                });
-                AddRowError(rowErrors, rowNumber, error);
-            }
-
-            if (string.IsNullOrWhiteSpace(row.TaxCode))
-            {
-                item.IsValid = false;
-                var error = "Mã số thuế không được để trống";
-                rowErrorMessages.Add(error);
-                validationResult.Errors.Add(new ImportRowError
-                {
-                    RowNumber = rowNumber,
-                    ColumnName = "Mã số thuế",
                     ErrorMessage = error
                 });
                 AddRowError(rowErrors, rowNumber, error);
@@ -2707,7 +2662,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         return result;
     }
 
-    public async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes)
+    public async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes, List<LocationCodeOverride>? codeOverrides = null)
     {
         using var memoryStream = new MemoryStream(fileBytes);
         var preview = await PreviewOrganizationTestRequestsInternalAsync(memoryStream);
@@ -2723,6 +2678,22 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ErrorFileName = preview.ErrorFileName,
                 Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
             };
+        }
+
+        // Apply FE-resolved location code overrides (from new-vn-provinces library)
+        if (codeOverrides != null && codeOverrides.Count > 0)
+        {
+            var overrideDict = codeOverrides.ToDictionary(o => o.RowNumber);
+            foreach (var item in preview.Items)
+            {
+                if (overrideDict.TryGetValue(item.RowNumber, out var ovr))
+                {
+                    if (!string.IsNullOrWhiteSpace(ovr.ProvinceCode))
+                        item.ProvinceCode = ovr.ProvinceCode;
+                    if (!string.IsNullOrWhiteSpace(ovr.WardCode))
+                        item.WardCode = ovr.WardCode;
+                }
+            }
         }
 
         var newOrgCount = 0;
@@ -2770,6 +2741,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     // Update existing organization
                     existingOrg.ContactPerson = item.ContactPerson;
                     existingOrg.Phone = item.Phone ?? "";
+                    existingOrg.SecondaryPhone = item.SecondaryPhone;
                     existingOrg.Address = item.Address;
                     existingOrg.ProvinceCode = orgProvinceCode;
                     existingOrg.WardCode = orgWardCode;
@@ -2792,6 +2764,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     {
                         ContactPerson = item.ContactPerson,
                         Phone = item.Phone ?? "",
+                        SecondaryPhone = item.SecondaryPhone,
                         Address = item.Address,
                         ProvinceCode = orgProvinceCode,
                         WardCode = orgWardCode,
@@ -3022,9 +2995,10 @@ public class ImportAppService : ApplicationService, IImportAppService
         }
 
         // Find column indices for each field
-        int orgNameCol = FindColumnIndex(columnMap, "tên cơ sở", "ten co so", "cơ sở", "co so", "organization", "tên khách hàng", "ten khach hang");
+        int orgNameCol = FindColumnIndex(columnMap, "tên cơ sở/doanh nghiệp", "tên cơ sở", "ten co so", "cơ sở", "co so", "organization", "tên khách hàng", "ten khach hang");
         int contactPersonCol = FindColumnIndex(columnMap, "người liên hệ", "nguoi lien he", "contact person", "contact", "liên hệ", "lien he");
-        int phoneCol = FindColumnIndex(columnMap, "điện thoại", "dien thoai", "phone", "sđt", "sdt", "số điện thoại");
+        int phoneCol = FindColumnIndex(columnMap, "số điện thoại", "điện thoại", "dien thoai", "phone", "sđt", "sdt");
+        int secondaryPhoneCol = FindColumnIndex(columnMap, "số điện thoại phụ", "sđt phụ", "sdt phu", "secondary phone");
         int addressCol = FindColumnIndex(columnMap, "địa chỉ", "dia chi", "address");
         int provinceCol = FindColumnIndex(columnMap, "tỉnh/thành", "tỉnh/ thành", "tinh/thanh", "tinh/ thanh", "tỉnh thành", "tinh thanh", "province", "tỉnh", "tinh");
         int wardCol = FindColumnIndex(columnMap, "phường/xã", "phường/ xã", "phuong/xa", "phuong/ xa", "phường xã", "phuong xa", "ward", "xã", "xa", "phường", "phuong");
@@ -3050,6 +3024,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 OrganizationName = orgNameCol > 0 ? row.Cell(orgNameCol).GetString()?.Trim() ?? "" : "",
                 ContactPerson = contactPersonCol > 0 ? row.Cell(contactPersonCol).GetString()?.Trim() ?? "" : "",
                 Phone = phoneCol > 0 ? row.Cell(phoneCol).GetString()?.Trim() : null,
+                SecondaryPhone = secondaryPhoneCol > 0 ? row.Cell(secondaryPhoneCol).GetString()?.Trim() : null,
                 Address = addressCol > 0 ? row.Cell(addressCol).GetString()?.Trim() ?? "" : "",
                 Province = provinceCol > 0 ? row.Cell(provinceCol).GetString()?.Trim() ?? "" : "",
                 Ward = wardCol > 0 ? row.Cell(wardCol).GetString()?.Trim() ?? "" : "",
@@ -3133,8 +3108,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         // Column headers
         var columns = new[] {
-            "Tên cơ sở", "Người liên hệ", "Điện thoại", "Địa chỉ", "Tỉnh/thành", "Phường/xã",
-            "Mã số thuế", "Số hợp đồng", "Tên mẫu", "Tình trạng", "Mã số mẫu", "Chỉ tiêu", "Lỗi"
+            "Tên cơ sở/doanh nghiệp", "Địa chỉ", "Tỉnh thành", "Phường xã", "Người liên hệ", "Số điện thoại", "Số điện thoại phụ", "Mã số thuế", "Lỗi"
         };
 
         // Write header row with styling
@@ -3170,20 +3144,16 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             // Write cells
             WriteCellWithErrorHighlight(worksheet, excelRowNumber, 1, row.OrganizationName ?? "", errorColumnsForRow.Contains("Tên cơ sở"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 2, row.ContactPerson ?? "", errorColumnsForRow.Contains("Người liên hệ"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 3, row.Phone ?? "", false);
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 4, row.Address ?? "", errorColumnsForRow.Contains("Địa chỉ"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 5, row.Province ?? "", errorColumnsForRow.Contains("Tỉnh/thành"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 6, row.Ward ?? "", errorColumnsForRow.Contains("Phường/xã"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 7, row.TaxCode ?? "", errorColumnsForRow.Contains("Mã số thuế"));
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 8, row.ContractNumber ?? "", false);
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 9, row.SampleName ?? "", false);
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 10, row.SampleStatus ?? "", false);
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 11, row.SampleCode ?? "", false);
-            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 12, row.Indicators ?? "", errorColumnsForRow.Contains("Chỉ tiêu"));
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 2, row.Address ?? "", errorColumnsForRow.Contains("Địa chỉ"));
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 3, row.Province ?? "", false);
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 4, row.Ward ?? "", false);
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 5, row.ContactPerson ?? "", errorColumnsForRow.Contains("Người liên hệ"));
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 6, row.Phone ?? "", false);
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 7, row.SecondaryPhone ?? "", false);
+            WriteCellWithErrorHighlight(worksheet, excelRowNumber, 8, row.TaxCode ?? "", false);
 
             // Error column
-            var errorCell = worksheet.Cell(excelRowNumber, 13);
+            var errorCell = worksheet.Cell(excelRowNumber, 9);
             if (rowErrors.TryGetValue(dataRowNumber, out var errors) && errors.Count > 0)
             {
                 errorCell.Value = string.Join("; ", errors);
@@ -3194,7 +3164,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             // Highlight row if has errors
             if (hasError)
             {
-                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 13);
+                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 9);
                 rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                 rowRange.Style.Border.OutsideBorderColor = XLColor.Red;
             }

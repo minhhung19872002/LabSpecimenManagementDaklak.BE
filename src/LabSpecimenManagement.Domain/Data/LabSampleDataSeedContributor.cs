@@ -112,7 +112,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
         // await SeedTestMethodsAsync();
         // await SeedStorageLocationsAsync();
         await SeedCustomersAsync();
-        await SeedOrganizationsAsync();
+        // await SeedOrganizationsAsync();
         await SeedLaboratoriesAsync();
         // await SeedIndicatorGroupsAndIndicatorsAsync();
         // await SeedTestMethodIndicatorsAsync();
