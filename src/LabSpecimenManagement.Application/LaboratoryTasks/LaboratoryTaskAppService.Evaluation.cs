@@ -21,7 +21,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT đánh giá từng chỉ tiêu (Accept/RequestMethodChange/Reject)
     /// Khi evaluate chỉ tiêu cha, tự động áp dụng cho tất cả chỉ tiêu phụ trong cùng group (cùng sample)
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> EvaluateIndicatorAsync(Guid indicatorId, EvaluateIndicatorDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -214,7 +214,7 @@ public partial class LaboratoryTaskAppService
     /// <summary>
     /// QLKT yêu cầu đổi phương pháp cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> RequestMethodChangeAsync(Guid taskId, RequestMethodChangeDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -289,7 +289,7 @@ public partial class LaboratoryTaskAppService
     /// <summary>
     /// QLKT từ chối thử nghiệm cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> RejectIndicatorsForTestingAsync(Guid taskId, RejectIndicatorsForTestingDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -364,7 +364,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT duyệt tất cả chỉ tiêu còn lại (status = Pending) của task
     /// Khi approve parent indicator, tự động approve tất cả sub-indicators trong cùng group
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);

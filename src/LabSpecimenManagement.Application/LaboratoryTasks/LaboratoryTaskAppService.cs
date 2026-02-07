@@ -21,7 +21,7 @@ using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
 
-[Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+[Authorize]
 public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
@@ -50,6 +50,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<LaboratoryDepartmentSupporter, Guid> _departmentSupporterRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -77,7 +78,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IRepository<Note, Guid> noteRepository,
-        IRepository<Department, Guid> departmentRepository)
+        IRepository<Department, Guid> departmentRepository,
+        IRepository<LaboratoryDepartmentSupporter, Guid> departmentSupporterRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -105,6 +107,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _noteRepository = noteRepository;
         _departmentRepository = departmentRepository;
+        _departmentSupporterRepository = departmentSupporterRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -132,15 +135,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .Select(lab => lab.Id)
                 .ToHashSet();
 
-            // Check if user is purely a supporter (not QLKT of any lab)
-            var isPureSupporter = managedLaboratoryIds.Count == 0 && supporterTaskIds.Count > 0;
+            // Lấy danh sách LaboratoryId mà user là department supporter (chưa hết hạn)
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
 
-            // Filter: current user is QLKT của phòng ban OR QLKT của task OR supporter
+            // Filter: current user is QLKT của phòng ban OR QLKT của task OR supporter OR department supporter
             // Supporter chỉ thấy task chưa hoàn thành (status != SentToQuality)
             queryable = queryable.Where(x =>
                 managedLaboratoryIds.Contains(x.LaboratoryId) ||
                 x.TechnicalManagerId == currentUserId.Value ||
-                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality));
+                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
         }
 
         // Apply search filter - search by ContractNumber and TechnicalManager name
@@ -235,7 +242,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return new PagedResultDto<LaboratoryTaskDto>(totalCount, dtos);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> UpdateAsync(Guid id, UpdateLaboratoryTaskDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -289,7 +296,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return new ListResultDto<LaboratoryTaskDto>(dtos);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> UpdateStatusAsync(Guid id, LaboratoryTaskStatus newStatus)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -298,7 +305,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return await MapToDetailDtoAsync(task);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SetTestDateAsync(Guid id, DateTime testDate)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -390,6 +397,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Check if current user is a supporter
             var supporters = await _supporterRepository.GetListAsync(s => s.LaboratoryTaskId == task.Id);
             dto.IsCurrentUserSupporter = supporters.Any(s => s.UserId == currentUserId.Value);
+
+            // Check if current user is a department supporter (not expired)
+            dto.IsCurrentUserDepartmentSupporter = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value &&
+                      ds.LaboratoryId == task.LaboratoryId &&
+                      ds.ExpirationDate > DateTime.UtcNow)).Any();
         }
 
         return dto;
@@ -612,7 +625,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Phase 6 - Workflow Methods
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(Guid taskId, Guid sampleId, List<AssignIndicatorDto> assignments)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -751,7 +764,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorResultAsync(Guid indicatorId, UpdateIndicatorResultDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -810,7 +823,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(Guid indicatorId, ApproveIndicatorDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -947,7 +960,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -981,7 +994,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -1012,7 +1025,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -1039,7 +1052,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task BulkUpdateIndicatorNoteAsync(Guid taskId, BulkUpdateNoteDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -1104,7 +1117,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         await _laboratoryTaskIndicatorRepository.UpdateManyAsync(indicators);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -2083,7 +2096,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Bulk Approval
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(Guid taskId, BulkApproveIndicatorsDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -2284,7 +2297,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Send to Quality Management
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendToQualityAsync(Guid taskId, SendToQualityDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -2589,7 +2602,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return qualityManagerIds;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync(Guid taskId)
     {
         // Get task to find QLKT's department
@@ -2833,7 +2846,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
     {
         var currentUserId = CurrentUser.Id;
@@ -2918,10 +2931,17 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
-            // Filter: Show tasks from labs user manages OR tasks where user is supporter
+            // Get lab IDs where current user is a department supporter (not expired)
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+
+            // Filter: Show tasks from labs user manages OR tasks where user is supporter OR department supporter labs
             query = query.Where(x =>
                 managedLaboratoryIds.Contains(x.LaboratoryId) ||
-                supporterTaskIds.Contains(x.LaboratoryTaskId));
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
         }
 
         // Apply filters

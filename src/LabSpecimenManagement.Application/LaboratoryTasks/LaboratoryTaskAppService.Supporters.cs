@@ -19,7 +19,7 @@ public partial class LaboratoryTaskAppService
 {
     #region Supporter Management
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<List<LaboratoryTaskSupporterDto>> GetSupportersAsync(Guid taskId)
     {
         var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
@@ -39,7 +39,7 @@ public partial class LaboratoryTaskAppService
         return dtos.OrderBy(x => x.FullName).ToList();
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(Guid taskId, ManageSupportersDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -85,7 +85,7 @@ public partial class LaboratoryTaskAppService
         return await GetSupportersAsync(taskId);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task RemoveSupporterAsync(Guid taskId, Guid supporterId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -109,7 +109,7 @@ public partial class LaboratoryTaskAppService
         await _supporterRepository.DeleteAsync(supporter);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<ListResultDto<UserLookupDto>> GetAvailableSupportersAsync(Guid taskId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -185,20 +185,37 @@ public partial class LaboratoryTaskAppService
 
         // Supporters can manage
         var supporters = await _supporterRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-        return supporters.Any(x => x.UserId == currentUserId.Value);
+        if (supporters.Any(x => x.UserId == currentUserId.Value))
+        {
+            return true;
+        }
+
+        // Department supporters can manage (not expired)
+        return (await _departmentSupporterRepository.GetListAsync(
+            ds => ds.UserId == currentUserId.Value &&
+                  ds.LaboratoryId == task.LaboratoryId &&
+                  ds.ExpirationDate > DateTime.UtcNow)).Any();
     }
 
     /// <summary>
     /// Kiểm tra user hiện tại có phải supporter của bất kỳ task chưa hoàn thành nào không
     /// Dùng để xác định quyền truy cập sidebar "Quản lý công việc" và "Quản lý thử nghiệm"
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<bool> IsCurrentUserSupporterAsync()
     {
         var currentUserId = CurrentUser.Id;
         if (!currentUserId.HasValue)
         {
             return false;
+        }
+
+        // Check department supporter (not expired)
+        var isDepartmentSupporter = (await _departmentSupporterRepository.GetListAsync(
+            ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow)).Any();
+        if (isDepartmentSupporter)
+        {
+            return true;
         }
 
         // Lấy danh sách task IDs mà user là supporter

@@ -110,6 +110,42 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppIndicatorRejectionHistories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryDepartmentSupporter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<DateTime>("ExpirationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("LaboratoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpirationDate");
+
+                    b.HasIndex("LaboratoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("LaboratoryId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("AppLaboratoryDepartmentSupporters", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", b =>
                 {
                     b.Property<Guid>("Id")

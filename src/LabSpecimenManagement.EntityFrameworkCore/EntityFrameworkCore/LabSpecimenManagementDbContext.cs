@@ -87,6 +87,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
+    public DbSet<LaboratoryDepartmentSupporter> LaboratoryDepartmentSupporters { get; set; }
     public DbSet<LaboratoryTaskSampleReceived> LaboratoryTaskSampleReceiveds { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
     public DbSet<RejectionHistoryImage> RejectionHistoryImages { get; set; }
@@ -857,6 +858,18 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.LaboratoryTaskId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ LABORATORY DEPARTMENT SUPPORTER CONFIGURATION ============
+
+        builder.Entity<LaboratoryDepartmentSupporter>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryDepartmentSupporters", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.LaboratoryId);
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => new { x.LaboratoryId, x.UserId }).IsUnique();
+            b.HasIndex(x => x.ExpirationDate); // For efficient cleanup query
         });
 
         // ============ LABORATORY TASK SAMPLE RECEIVED CONFIGURATION ============

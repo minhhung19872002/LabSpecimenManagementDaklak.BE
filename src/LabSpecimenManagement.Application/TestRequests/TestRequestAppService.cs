@@ -557,6 +557,49 @@ public partial class TestRequestAppService :
             input.ContactPerson,
             input.Phone);
 
+        // Validate indicator and test method IDs before inserting
+        if (input.Samples != null && input.Samples.Any())
+        {
+            var allIndicatorIds = input.Samples
+                .Where(s => s.Indicators != null)
+                .SelectMany(s => s.Indicators)
+                .Select(i => i.IndicatorId)
+                .Distinct()
+                .ToList();
+
+            if (allIndicatorIds.Any())
+            {
+                var existingIndicators = await _indicatorRepository.GetListAsync(i => allIndicatorIds.Contains(i.Id));
+                var existingIndicatorIds = existingIndicators.Select(i => i.Id).ToHashSet();
+                var missingIds = allIndicatorIds.Where(id => !existingIndicatorIds.Contains(id)).ToList();
+                if (missingIds.Any())
+                {
+                    throw new Volo.Abp.BusinessException(
+                        message: $"Chỉ tiêu không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
+                }
+            }
+
+            var allTestMethodIds = input.Samples
+                .Where(s => s.Indicators != null)
+                .SelectMany(s => s.Indicators)
+                .Where(i => i.TestMethodId.HasValue)
+                .Select(i => i.TestMethodId!.Value)
+                .Distinct()
+                .ToList();
+
+            if (allTestMethodIds.Any())
+            {
+                var existingMethods = await _testMethodRepository.GetListAsync(m => allTestMethodIds.Contains(m.Id));
+                var existingMethodIds = existingMethods.Select(m => m.Id).ToHashSet();
+                var missingIds = allTestMethodIds.Where(id => !existingMethodIds.Contains(id)).ToList();
+                if (missingIds.Any())
+                {
+                    throw new Volo.Abp.BusinessException(
+                        message: $"Phương pháp thử không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
+                }
+            }
+        }
+
         var entity = await MapToEntityAsync(input);
         await Repository.InsertAsync(entity, autoSave: true);
 
