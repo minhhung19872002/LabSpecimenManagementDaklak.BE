@@ -2389,7 +2389,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #endregion
 
-    #region Organization + TestRequest Import (Legacy Data)
+    #region Organization Import (CS/DN)
 
     public byte[] GetOrganizationTestRequestTemplate()
     {
@@ -2435,40 +2435,24 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
 
-        // Load existing data for validation (use GroupBy to handle duplicate names after normalization)
+        // Load existing organizations for validation
         var organizations = await _organizationRepository.GetListAsync();
         var organizationDict = organizations
             .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
-
-        var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.First().Id);
-
-        // Load existing TestRequests by ContractNumber for upsert check
-        // Use GroupBy + First to handle duplicate ContractNumbers (take the first one)
-        var testRequests = await _testRequestRepository.GetListAsync(tr => tr.ContractNumber != null);
-        var testRequestDict = testRequests
-            .Where(tr => !string.IsNullOrWhiteSpace(tr.ContractNumber))
-            .GroupBy(x => x.ContractNumber!.Trim().ToLowerInvariant())
-            .ToDictionary(
-                g => g.Key,
-                g => g.First());
 
         var result = new OrganizationTestRequestImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
         var newOrgNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var updateOrgNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var totalIndicatorCount = 0;
 
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
             var rowNumber = i + 2; // Excel row (1-based, header = 1)
 
-            // Try to find Province/Ward code from name (for legacy import data)
+            // Try to find Province/Ward code from name
             var provinceName = row.Province?.Trim() ?? "";
             var wardName = row.Ward?.Trim() ?? "";
             var provinceCode = VietnamLocationHelper.FindProvinceCode(provinceName);
@@ -2484,15 +2468,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Phone = row.Phone?.Trim(),
                 SecondaryPhone = row.SecondaryPhone?.Trim(),
                 Address = row.Address?.Trim() ?? "",
-                Province = provinceName, // Display name for preview
-                ProvinceCode = provinceCode, // Code for saving
-                Ward = wardName, // Display name for preview
-                WardCode = wardCode, // Code for saving
+                Province = provinceName,
+                ProvinceCode = provinceCode,
+                Ward = wardName,
+                WardCode = wardCode,
                 TaxCode = row.TaxCode?.Trim() ?? "",
-                ContractNumber = row.ContractNumber?.Trim(),
-                SampleName = row.SampleName?.Trim(),
-                SampleCode = row.SampleCode?.Trim(),
-                SampleStatus = row.SampleStatus?.Trim(),
                 IsValid = true
             };
 
@@ -2558,62 +2538,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Check if TestRequest exists (by ContractNumber)
-            var contractKey = row.ContractNumber?.Trim().ToLowerInvariant() ?? "";
-            if (!string.IsNullOrWhiteSpace(contractKey))
-            {
-                if (testRequestDict.TryGetValue(contractKey, out var existingTestRequest))
-                {
-                    item.IsNewTestRequest = false;
-                    item.ExistingTestRequestId = existingTestRequest.Id;
-                }
-                else
-                {
-                    item.IsNewTestRequest = true;
-                }
-            }
-            else
-            {
-                // No ContractNumber = always new TestRequest
-                item.IsNewTestRequest = true;
-            }
-
-            // Parse and validate indicators
-            if (!string.IsNullOrWhiteSpace(row.Indicators))
-            {
-                var indicatorNames = row.Indicators.Split(new[] { ',', ';' }, StringSplitOptions.RemoveEmptyEntries)
-                    .Select(x => x.Trim())
-                    .Where(x => !string.IsNullOrEmpty(x))
-                    .ToList();
-
-                foreach (var indicatorName in indicatorNames)
-                {
-                    item.IndicatorNames.Add(indicatorName);
-                    var indicatorKey = StringHelper.NormalizeAndTrim(indicatorName).ToLowerInvariant();
-
-                    if (indicatorDict.TryGetValue(indicatorKey, out var indicatorId))
-                    {
-                        item.IndicatorIds.Add(indicatorId);
-                        totalIndicatorCount++;
-                    }
-                    else
-                    {
-                        item.InvalidIndicators.Add(indicatorName);
-                        item.IsValid = false;
-                        var error = $"Chỉ tiêu '{indicatorName}' không tồn tại trong hệ thống";
-                        rowErrorMessages.Add(error);
-                        validationResult.Errors.Add(new ImportRowError
-                        {
-                            RowNumber = rowNumber,
-                            ColumnName = "Chỉ tiêu",
-                            ErrorMessage = error,
-                            Value = indicatorName
-                        });
-                        AddRowError(rowErrors, rowNumber, error);
-                    }
-                }
-            }
-
             // Set combined error message
             if (rowErrorMessages.Count > 0)
             {
@@ -2631,32 +2555,12 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.NewOrganizations = newOrgNames.Count;
         result.UpdateOrganizations = updateOrgNames.Count;
 
-        // Count unique ContractNumbers for TestRequests (rows with same ContractNumber = 1 TestRequest)
-        var validItems = result.Items.Where(i => i.IsValid).ToList();
-
-        // Group items by ContractNumber
-        var itemsWithContract = validItems
-            .Where(i => !string.IsNullOrWhiteSpace(i.ContractNumber))
-            .GroupBy(i => i.ContractNumber!.Trim().ToLowerInvariant())
-            .ToList();
-
-        var itemsWithoutContract = validItems.Count(i => string.IsNullOrWhiteSpace(i.ContractNumber));
-
-        // Count new vs update TestRequests
-        var newTestRequestCount = itemsWithContract.Count(g => g.First().IsNewTestRequest) + itemsWithoutContract; // Items without contract are always new
-        var updateTestRequestCount = itemsWithContract.Count(g => !g.First().IsNewTestRequest);
-
-        result.TotalTestRequests = itemsWithContract.Count + itemsWithoutContract;
-        result.NewTestRequests = newTestRequestCount;
-        result.UpdateTestRequests = updateTestRequestCount;
-        result.TotalIndicators = totalIndicatorCount;
-
         // Generate error file if there are errors
         if (!validationResult.IsValid && rowErrors.Count > 0)
         {
             var errorFileBytes = GenerateOrganizationTestRequestErrorFile(rows, rowErrors, validationResult.Errors);
             result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
-            result.ErrorFileName = $"Loi_Import_CoSo_PhieuYeuCau_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
+            result.ErrorFileName = $"Loi_Import_CoSo_{DateTime.Now:yyyyMMdd_HHmmss}.xlsx";
         }
 
         return result;
@@ -2698,8 +2602,6 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         var newOrgCount = 0;
         var updatedOrgCount = 0;
-        var testRequestCount = 0;
-        var requestNumberOffset = 0;
 
         // Track processed organizations to avoid duplicate operations in same batch
         var processedOrganizations = new Dictionary<string, Organization>(StringComparer.OrdinalIgnoreCase);
@@ -2719,7 +2621,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             var validItems = preview.Items.Where(i => i.IsValid).ToList();
 
-            // First pass: Process all organizations (upsert)
+            // Process all organizations (upsert)
             var processedOrgKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var item in validItems)
             {
@@ -2731,8 +2633,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 processedOrgKeys.Add(organizationKey);
 
-                // Organization upsert
-                // Use ProvinceCode/WardCode if found, otherwise fallback to Province/Ward name (legacy)
+                // Use ProvinceCode/WardCode if found, otherwise fallback to Province/Ward name
                 var orgProvinceCode = item.ProvinceCode ?? item.Province;
                 var orgWardCode = item.WardCode ?? item.Ward;
 
@@ -2747,15 +2648,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     existingOrg.WardCode = orgWardCode;
                     existingOrg.TaxCode = item.TaxCode;
                     await _organizationRepository.UpdateAsync(existingOrg);
-
-                    if (item.IsNewOrganization)
-                    {
-                        newOrgCount++;
-                    }
-                    else
-                    {
-                        updatedOrgCount++;
-                    }
+                    updatedOrgCount++;
                 }
                 else
                 {
@@ -2777,191 +2670,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Second pass: Group items by ContractNumber and create/update TestRequests
-            // Items with same ContractNumber = 1 TestRequest with multiple Samples
-            // Items without ContractNumber = each item is a separate TestRequest
-            var itemsWithContract = validItems
-                .Where(i => !string.IsNullOrWhiteSpace(i.ContractNumber))
-                .GroupBy(i => i.ContractNumber!.Trim(), StringComparer.OrdinalIgnoreCase)
-                .ToList();
-
-            var itemsWithoutContract = validItems
-                .Where(i => string.IsNullOrWhiteSpace(i.ContractNumber))
-                .ToList();
-
-            // Load existing TestRequests by ContractNumber for upsert
-            // Use GroupBy + First to handle duplicate ContractNumbers (take the first one)
-            var contractNumbers = itemsWithContract.Select(g => g.Key).ToList();
-            var existingTestRequests = await _testRequestRepository.GetListAsync(
-                tr => tr.ContractNumber != null && contractNumbers.Contains(tr.ContractNumber));
-            var existingTestRequestDict = existingTestRequests
-                .Where(tr => !string.IsNullOrWhiteSpace(tr.ContractNumber))
-                .GroupBy(tr => tr.ContractNumber!.Trim().ToLowerInvariant())
-                .ToDictionary(g => g.Key, g => g.First());
-
-            var newTestRequestCount = 0;
-            var updatedTestRequestCount = 0;
-
-            // Process grouped items (by ContractNumber)
-            foreach (var group in itemsWithContract)
-            {
-                var firstItem = group.First();
-                var contractKey = firstItem.ContractNumber!.Trim().ToLowerInvariant();
-                TestRequest testRequest;
-
-                // Count samples in this group (items with sample info)
-                var sampleCount = group.Count(item =>
-                    !string.IsNullOrWhiteSpace(item.SampleName) || !string.IsNullOrWhiteSpace(item.SampleCode));
-
-                // Check if TestRequest with this ContractNumber already exists
-                if (existingTestRequestDict.TryGetValue(contractKey, out var existingTestRequest))
-                {
-                    // Update existing TestRequest
-                    existingTestRequest.CustomerName = firstItem.OrganizationName;
-                    existingTestRequest.ContactPerson = firstItem.ContactPerson;
-                    existingTestRequest.Phone = firstItem.Phone;
-                    existingTestRequest.Address = firstItem.Address;
-                    existingTestRequest.ProvinceCode = firstItem.ProvinceCode;
-                    existingTestRequest.Province = firstItem.Province;
-                    existingTestRequest.WardCode = firstItem.WardCode;
-                    existingTestRequest.Ward = firstItem.Ward;
-                    existingTestRequest.TaxCode = firstItem.TaxCode;
-                    existingTestRequest.TotalSampleCount += sampleCount; // Add new samples to existing count
-                    await _testRequestRepository.UpdateAsync(existingTestRequest);
-                    testRequest = existingTestRequest;
-                    updatedTestRequestCount++;
-                }
-                else
-                {
-                    // Create new TestRequest
-                    var requestNumber = await GenerateRequestNumberForImportAsync(requestNumberOffset);
-                    requestNumberOffset++;
-
-                    testRequest = new TestRequest(
-                        _guidGenerator.Create(),
-                        requestNumber,
-                        DateTime.Now,
-                        firstItem.OrganizationName
-                    )
-                    {
-                        Status = TestRequestStatus.Completed,
-                        ContractNumber = firstItem.ContractNumber,
-                        ContactPerson = firstItem.ContactPerson,
-                        Phone = firstItem.Phone,
-                        Address = firstItem.Address,
-                        ProvinceCode = firstItem.ProvinceCode,
-                        Province = firstItem.Province,
-                        WardCode = firstItem.WardCode,
-                        Ward = firstItem.Ward,
-                        TaxCode = firstItem.TaxCode,
-                        TotalSampleCount = sampleCount,
-                        CompletedDate = DateTime.Now
-                    };
-                    await _testRequestRepository.InsertAsync(testRequest);
-                    newTestRequestCount++;
-                }
-
-                // Create samples for each item in the group
-                foreach (var item in group)
-                {
-                    if (!string.IsNullOrWhiteSpace(item.SampleName) || !string.IsNullOrWhiteSpace(item.SampleCode))
-                    {
-                        var sample = new TestRequestSample(
-                            _guidGenerator.Create(),
-                            testRequest.Id,
-                            item.SampleCode ?? "",
-                            item.SampleName ?? ""
-                        )
-                        {
-                            StatusText = item.SampleStatus,
-                            Status = SampleStatus.Completed
-                        };
-                        await _testRequestSampleRepository.InsertAsync(sample);
-
-                        // Create TestRequestSampleIndicator for each indicator
-                        foreach (var indicatorId in item.IndicatorIds)
-                        {
-                            var sampleIndicator = new TestRequestSampleIndicator(
-                                _guidGenerator.Create(),
-                                sample.Id,
-                                indicatorId
-                            );
-                            await _testRequestSampleIndicatorRepository.InsertAsync(sampleIndicator);
-                        }
-                    }
-                }
-
-                testRequestCount++;
-            }
-
-            // Process items without ContractNumber (each item = 1 TestRequest, always create new)
-            foreach (var item in itemsWithoutContract)
-            {
-                var requestNumber = await GenerateRequestNumberForImportAsync(requestNumberOffset);
-                requestNumberOffset++;
-
-                // Check if this item has sample info
-                var hasSample = !string.IsNullOrWhiteSpace(item.SampleName) || !string.IsNullOrWhiteSpace(item.SampleCode);
-
-                var testRequest = new TestRequest(
-                    _guidGenerator.Create(),
-                    requestNumber,
-                    DateTime.Now,
-                    item.OrganizationName
-                )
-                {
-                    Status = TestRequestStatus.Completed,
-                    ContractNumber = item.ContractNumber,
-                    ContactPerson = item.ContactPerson,
-                    Phone = item.Phone,
-                    Address = item.Address,
-                    ProvinceCode = item.ProvinceCode,
-                    Province = item.Province,
-                    WardCode = item.WardCode,
-                    Ward = item.Ward,
-                    TaxCode = item.TaxCode,
-                    TotalSampleCount = hasSample ? 1 : 0,
-                    CompletedDate = DateTime.Now
-                };
-                await _testRequestRepository.InsertAsync(testRequest);
-                newTestRequestCount++;
-
-                // Create TestRequestSample if sample info provided
-                if (hasSample)
-                {
-                    var sample = new TestRequestSample(
-                        _guidGenerator.Create(),
-                        testRequest.Id,
-                        item.SampleCode ?? "",
-                        item.SampleName ?? ""
-                    )
-                    {
-                        StatusText = item.SampleStatus,
-                        Status = SampleStatus.Completed
-                    };
-                    await _testRequestSampleRepository.InsertAsync(sample);
-
-                    // Create TestRequestSampleIndicator for each indicator
-                    foreach (var indicatorId in item.IndicatorIds)
-                    {
-                        var sampleIndicator = new TestRequestSampleIndicator(
-                            _guidGenerator.Create(),
-                            sample.Id,
-                            indicatorId
-                        );
-                        await _testRequestSampleIndicatorRepository.InsertAsync(sampleIndicator);
-                    }
-                }
-
-                testRequestCount++;
-            }
-
             return new ImportResultDto
             {
                 Success = true,
                 TotalRows = preview.ValidationResult.TotalRows,
-                ImportedRows = testRequestCount,
-                Message = $"Import thành công: {newOrgCount} cơ sở mới, {updatedOrgCount} cơ sở cập nhật, {newTestRequestCount} phiếu yêu cầu mới, {updatedTestRequestCount} phiếu yêu cầu cập nhật."
+                ImportedRows = newOrgCount + updatedOrgCount,
+                Message = $"Import thành công: {newOrgCount} cơ sở mới, {updatedOrgCount} cơ sở cập nhật."
             };
         }
         catch (Exception ex)
@@ -2994,7 +2708,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
         }
 
-        // Find column indices for each field
+        // Find column indices for each field (Organization only)
         int orgNameCol = FindColumnIndex(columnMap, "tên cơ sở/doanh nghiệp", "tên cơ sở", "ten co so", "cơ sở", "co so", "organization", "tên khách hàng", "ten khach hang");
         int contactPersonCol = FindColumnIndex(columnMap, "người liên hệ", "nguoi lien he", "contact person", "contact", "liên hệ", "lien he");
         int phoneCol = FindColumnIndex(columnMap, "số điện thoại", "điện thoại", "dien thoai", "phone", "sđt", "sdt");
@@ -3003,11 +2717,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         int provinceCol = FindColumnIndex(columnMap, "tỉnh/thành", "tỉnh/ thành", "tinh/thanh", "tinh/ thanh", "tỉnh thành", "tinh thanh", "province", "tỉnh", "tinh");
         int wardCol = FindColumnIndex(columnMap, "phường/xã", "phường/ xã", "phuong/xa", "phuong/ xa", "phường xã", "phuong xa", "ward", "xã", "xa", "phường", "phuong");
         int taxCodeCol = FindColumnIndex(columnMap, "mã số thuế", "ma so thue", "mst", "tax code", "taxcode");
-        int contractCol = FindColumnIndex(columnMap, "số hợp đồng", "so hop dong", "hợp đồng", "hop dong", "contract");
-        int sampleNameCol = FindColumnIndex(columnMap, "tên mẫu", "ten mau", "sample name", "mẫu", "mau");
-        int sampleStatusCol = FindColumnIndex(columnMap, "tình trạng", "tinh trang", "status", "trạng thái", "trang thai");
-        int sampleCodeCol = FindColumnIndex(columnMap, "mã số mẫu", "ma so mau", "mã mẫu", "ma mau", "sample code");
-        int indicatorsCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "indicators", "indicator");
 
         // Read data rows (starting from row 2)
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
@@ -3028,12 +2737,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Address = addressCol > 0 ? row.Cell(addressCol).GetString()?.Trim() ?? "" : "",
                 Province = provinceCol > 0 ? row.Cell(provinceCol).GetString()?.Trim() ?? "" : "",
                 Ward = wardCol > 0 ? row.Cell(wardCol).GetString()?.Trim() ?? "" : "",
-                TaxCode = taxCodeCol > 0 ? row.Cell(taxCodeCol).GetString()?.Trim() ?? "" : "",
-                ContractNumber = contractCol > 0 ? row.Cell(contractCol).GetString()?.Trim() : null,
-                SampleName = sampleNameCol > 0 ? row.Cell(sampleNameCol).GetString()?.Trim() : null,
-                SampleStatus = sampleStatusCol > 0 ? row.Cell(sampleStatusCol).GetString()?.Trim() : null,
-                SampleCode = sampleCodeCol > 0 ? row.Cell(sampleCodeCol).GetString()?.Trim() : null,
-                Indicators = indicatorsCol > 0 ? row.Cell(indicatorsCol).GetString()?.Trim() : null
+                TaxCode = taxCodeCol > 0 ? row.Cell(taxCodeCol).GetString()?.Trim() ?? "" : ""
             };
 
             result.Add(importRow);

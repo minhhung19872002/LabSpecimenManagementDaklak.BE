@@ -238,23 +238,22 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
-    #region Organization + TestRequest Import (Legacy Data)
+    #region Organization Import (CS/DN)
 
     /// <summary>
-    /// Get template for importing Organization + TestRequest from legacy system
+    /// Get template for importing Organization (CS/DN)
     /// </summary>
     [HttpGet("organization-test-requests/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
     public virtual IActionResult GetOrganizationTestRequestTemplate()
     {
         var bytes = _importAppService.GetOrganizationTestRequestTemplate();
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CoSo_YeuCau.xlsx");
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CSDN.xlsx");
     }
 
     /// <summary>
-    /// Preview Organization + TestRequest import - validates data without saving
+    /// Preview Organization import - validates data without saving
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [HttpPost("organization-test-requests/preview")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
@@ -269,9 +268,8 @@ public class ImportController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Import Organization + TestRequest from Excel file
+    /// Import Organizations from Excel file
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [HttpPost("organization-test-requests")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
@@ -287,13 +285,7 @@ public class ImportController : LabSpecimenManagementController
         List<LocationCodeOverride>? overrides = null;
         if (!string.IsNullOrWhiteSpace(codeOverrides))
         {
-            Logger.LogInformation("[Import] Received codeOverrides: {CodeOverrides}", codeOverrides);
             overrides = System.Text.Json.JsonSerializer.Deserialize<List<LocationCodeOverride>>(codeOverrides, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-            Logger.LogInformation("[Import] Parsed {Count} overrides", overrides?.Count ?? 0);
-        }
-        else
-        {
-            Logger.LogWarning("[Import] No codeOverrides received from FE");
         }
 
         return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes, overrides);

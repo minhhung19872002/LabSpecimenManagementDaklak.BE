@@ -132,27 +132,24 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
-    #region Organization + TestRequest Import (Legacy Data)
+    #region Organization Import (CS/DN)
 
     /// <summary>
-    /// Get Organization + TestRequest import template
-    /// Template columns: Tên cơ sở, Người liên hệ, Điện thoại, Địa chỉ, Tỉnh/thành, Phường/xã,
-    /// Mã số thuế, Số hợp đồng, Tên mẫu, Tình trạng, Mã số mẫu, Chỉ tiêu
+    /// Get Organization import template
+    /// Template columns: Tên cơ sở/doanh nghiệp, Địa chỉ, Tỉnh thành, Phường xã, Người liên hệ, Số điện thoại, Số điện thoại phụ, Mã số thuế
     /// </summary>
     byte[] GetOrganizationTestRequestTemplate();
 
     /// <summary>
-    /// Preview Organization + TestRequest import - validates data without saving
+    /// Preview Organization import - validates data without saving
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [DisableValidation]
     Task<OrganizationTestRequestImportPreviewDto> PreviewOrganizationTestRequestsAsync(byte[] fileBytes);
 
     /// <summary>
-    /// Import Organization + TestRequest from Excel file
+    /// Import Organizations from Excel file
     /// Organization upsert logic: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [DisableValidation]
     Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes, List<LocationCodeOverride>? codeOverrides = null);
