@@ -28,7 +28,8 @@ public class OrganizationAppService : CrudAppService<
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            query = query.Where(x => x.Name.Contains(input.Search));
+            var search = input.Search.Trim().ToLower();
+            query = query.Where(x => x.Name.ToLower().Contains(search));
         }
 
         if (input.IsActive.HasValue)
