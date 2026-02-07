@@ -13,7 +13,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT Vi Sinh gửi mẫu chung cho Lab Hóa
     /// Điều kiện: IsSharedSampleTask = true, tất cả chỉ tiêu đã được duyệt (Approved), SampleSentToNextLab = false
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendSharedSampleAsync(Guid id, SendSharedSampleDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -73,7 +73,7 @@ public partial class LaboratoryTaskAppService
     /// Chỉ để ghi nhận ngày nhận mẫu - Lab Hóa đã có thể làm việc song song
     /// Điều kiện: IsSharedSampleTask = true, PriorLab đã gửi mẫu, chưa nhận mẫu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);

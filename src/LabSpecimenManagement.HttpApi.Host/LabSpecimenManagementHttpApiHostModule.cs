@@ -494,5 +494,16 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Department supporter expiration - remove expired department supporters
+        // CRON: "0 0 * * *" = At 00:00 every day (midnight Vietnam time)
+        RecurringJob.AddOrUpdate<DepartmentSupporterExpirationJob>(
+            "department-supporter-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 0 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
     }
 }

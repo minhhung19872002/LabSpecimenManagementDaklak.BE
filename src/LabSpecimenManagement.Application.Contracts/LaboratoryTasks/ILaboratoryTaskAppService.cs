@@ -142,6 +142,30 @@ public interface ILaboratoryTaskAppService : IApplicationService
 
     #endregion
 
+    #region Department Supporter Management
+
+    /// <summary>
+    /// Lấy danh sách người hỗ trợ khoa phòng
+    /// </summary>
+    Task<List<LaboratoryDepartmentSupporterDto>> GetDepartmentSupportersAsync();
+
+    /// <summary>
+    /// Thêm người hỗ trợ khoa phòng (có thời hạn)
+    /// </summary>
+    Task<List<LaboratoryDepartmentSupporterDto>> AddDepartmentSupportersAsync(AddDepartmentSupportersDto input);
+
+    /// <summary>
+    /// Xóa người hỗ trợ khoa phòng
+    /// </summary>
+    Task RemoveDepartmentSupporterAsync(Guid supporterId);
+
+    /// <summary>
+    /// Xóa người hỗ trợ khoa phòng đã hết hạn (gọi bởi cronjob)
+    /// </summary>
+    Task<int> RemoveExpiredDepartmentSupportersAsync();
+
+    #endregion
+
     #region Bulk Approval
 
     /// <summary>

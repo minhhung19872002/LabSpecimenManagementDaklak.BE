@@ -117,6 +117,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// </summary>
     public bool IsCurrentUserSupporter { get; set; }
 
+    /// <summary>
+    /// Current user là Department Supporter của khoa phòng này hay không
+    /// </summary>
+    public bool IsCurrentUserDepartmentSupporter { get; set; }
+
     // ====== Shared Sample Fields ======
 
     /// <summary>
@@ -503,6 +508,45 @@ public class ManageSupportersDto
     /// List of User IDs to add as supporters
     /// </summary>
     public List<Guid> UserIds { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for Department Supporter (người hỗ trợ khoa phòng)
+/// </summary>
+public class LaboratoryDepartmentSupporterDto
+{
+    public Guid Id { get; set; }
+    public Guid LaboratoryId { get; set; }
+    public Guid UserId { get; set; }
+    public string? UserName { get; set; }
+    public string? FullName { get; set; }
+    public string? Email { get; set; }
+    public DateTime ExpirationDate { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+/// <summary>
+/// DTO for adding department supporters with expiration dates
+/// </summary>
+public class AddDepartmentSupportersDto
+{
+    public List<DepartmentSupporterEntry> Entries { get; set; } = new();
+}
+
+/// <summary>
+/// Entry for adding a single department supporter
+/// </summary>
+public class DepartmentSupporterEntry
+{
+    /// <summary>
+    /// User ID to add as supporter
+    /// </summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>
+    /// Ngày hết hạn (ngày được chọn - BE sẽ tính end-of-day Vietnam TZ)
+    /// </summary>
+    public DateTime ExpirationDate { get; set; }
 }
 
 /// <summary>

@@ -14,7 +14,7 @@ namespace LabSpecimenManagement.Controllers;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/laboratory-tasks")]
-[Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+[Authorize]
 public class LaboratoryTaskController : LabSpecimenManagementController
 {
     private readonly ILaboratoryTaskAppService _laboratoryTaskAppService;
@@ -46,7 +46,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Update laboratory task (TestDate, Status, Notes)
     /// </summary>
     [HttpPut("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> UpdateAsync(Guid id, [FromBody] UpdateLaboratoryTaskDto input)
     {
         return _laboratoryTaskAppService.UpdateAsync(id, input);
@@ -56,7 +56,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Update laboratory task status (workflow)
     /// </summary>
     [HttpPost("{id}/status")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.UpdateStatus)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> UpdateStatusAsync(Guid id, [FromBody] LaboratoryTaskStatus newStatus)
     {
         return _laboratoryTaskAppService.UpdateStatusAsync(id, newStatus);
@@ -66,7 +66,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Set test date for laboratory task
     /// </summary>
     [HttpPost("{id}/test-date")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> SetTestDateAsync(Guid id, [FromBody] DateTime testDate)
     {
         return _laboratoryTaskAppService.SetTestDateAsync(id, testDate);
@@ -85,7 +85,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Get tasks by laboratory ID
     /// </summary>
     [HttpGet("by-laboratory/{laboratoryId}")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.ViewAll)]
+    [Authorize]
     public virtual Task<ListResultDto<LaboratoryTaskDto>> GetByLaboratoryAsync(Guid laboratoryId)
     {
         return _laboratoryTaskAppService.GetByLaboratoryAsync(laboratoryId);
@@ -95,7 +95,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Delete laboratory task
     /// </summary>
     [HttpDelete("{id}")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task DeleteAsync(Guid id)
     {
         return _laboratoryTaskAppService.DeleteAsync(id);
@@ -107,7 +107,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Gán phương pháp và Thử nghiệm viên cho các chỉ tiêu của một mẫu
     /// </summary>
     [HttpPost("{taskId}/samples/{sampleId}/assign")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(
         Guid taskId,
         Guid sampleId,
@@ -120,7 +120,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Cập nhật kết quả cho một chỉ tiêu
     /// </summary>
     [HttpPut("indicators/{indicatorId}/result")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorResultAsync(
         Guid indicatorId,
         [FromBody] UpdateIndicatorResultDto input)
@@ -132,7 +132,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Phê duyệt hoặc từ chối kết quả chỉ tiêu
     /// </summary>
     [HttpPost("indicators/{indicatorId}/approve")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(
         Guid indicatorId,
         [FromBody] ApproveIndicatorDto input)
@@ -144,7 +144,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
     /// </summary>
     [HttpPut("indicators/{indicatorId}/standard")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(
         Guid indicatorId,
         [FromBody] Guid? standardId)
@@ -156,7 +156,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
     [HttpPut("indicators/{indicatorId}/unit")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(
         Guid indicatorId,
         [FromBody] string? unit)
@@ -168,7 +168,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
     [HttpPut("indicators/{indicatorId}/note")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(
         Guid indicatorId,
         [FromBody] string? note)
@@ -180,7 +180,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
     /// </summary>
     [HttpPut("{taskId}/indicators/bulk-note")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task BulkUpdateIndicatorNoteAsync(
         Guid taskId,
         [FromBody] BulkUpdateNoteDto input)
@@ -192,7 +192,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Gửi kết quả (chuyển status sang SentToQuality) - old method, sends all approved indicators
     /// </summary>
     [HttpPost("{taskId}/send-results")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId)
     {
         return _laboratoryTaskAppService.SendResultsAsync(taskId);
@@ -242,7 +242,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Add supporters to a task
     /// </summary>
     [HttpPost("{taskId}/supporters")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<List<LaboratoryTaskSupporterDto>> AddSupportersAsync(
         Guid taskId,
         [FromBody] ManageSupportersDto input)
@@ -254,7 +254,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Remove a supporter from a task
     /// </summary>
     [HttpDelete("{taskId}/supporters/{supporterId}")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task RemoveSupporterAsync(Guid taskId, Guid supporterId)
     {
         return _laboratoryTaskAppService.RemoveSupporterAsync(taskId, supporterId);
@@ -281,13 +281,17 @@ public class LaboratoryTaskController : LabSpecimenManagementController
 
     #endregion
 
+    #region Department Supporter Management
+
+    #endregion
+
     #region Bulk Approval
 
     /// <summary>
     /// Bulk approve/reject indicators
     /// </summary>
     [HttpPost("{taskId}/bulk-approve")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(
         Guid taskId,
         [FromBody] LaboratoryTasks.BulkApproveIndicatorsDto input)
@@ -303,7 +307,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Send selected indicators to Quality Management
     /// </summary>
     [HttpPost("{taskId}/send-to-quality")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> SendToQualityAsync(
         Guid taskId,
         [FromBody] SendToQualityDto input)
@@ -350,7 +354,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// QLKT đánh giá từng chỉ tiêu (Accept/RequestMethodChange/Reject)
     /// </summary>
     [HttpPost("indicators/{indicatorId}/evaluate")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskIndicatorDto> EvaluateIndicatorAsync(
         Guid indicatorId,
         [FromBody] EvaluateIndicatorDto input)
@@ -362,7 +366,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// QLKT yêu cầu đổi phương pháp cho nhiều chỉ tiêu cùng lúc
     /// </summary>
     [HttpPost("{taskId}/request-method-change")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<List<LaboratoryTaskIndicatorDto>> RequestMethodChangeAsync(
         Guid taskId,
         [FromBody] RequestMethodChangeDto input)
@@ -374,7 +378,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// QLKT từ chối thử nghiệm cho nhiều chỉ tiêu cùng lúc
     /// </summary>
     [HttpPost("{taskId}/reject-indicators")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<List<LaboratoryTaskIndicatorDto>> RejectIndicatorsForTestingAsync(
         Guid taskId,
         [FromBody] RejectIndicatorsForTestingDto input)
@@ -386,7 +390,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// QLKT duyệt tất cả chỉ tiêu còn lại (status = Pending) của task
     /// </summary>
     [HttpPost("{taskId}/approve-all-remaining")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId)
     {
         return _laboratoryTaskAppService.ApproveAllRemainingIndicatorsAsync(taskId);
@@ -410,7 +414,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa
     /// </summary>
     [HttpPost("{id}/send-shared-sample")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> SendSharedSampleAsync(
         Guid id,
         [FromBody] SendSharedSampleDto input)
@@ -422,7 +426,7 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     /// Lab Hóa xác nhận nhận mẫu chung từ Lab Vi Sinh
     /// </summary>
     [HttpPost("{id}/receive-shared-sample")]
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public virtual Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(
         Guid id,
         [FromBody] ReceiveSharedSampleDto input)
