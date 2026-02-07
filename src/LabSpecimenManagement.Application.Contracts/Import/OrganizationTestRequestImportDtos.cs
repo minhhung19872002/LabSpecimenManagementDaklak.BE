@@ -7,8 +7,8 @@ namespace LabSpecimenManagement.Import;
 
 /// <summary>
 /// Row data từ Excel import cho Organization + TestRequest
-/// Mapping columns: Tên cơ sở, Người liên hệ, Điện thoại, Địa chỉ, Tỉnh/thành, Phường/xã,
-/// Mã số thuế, Số hợp đồng, Tên mẫu, Tình trạng, Mã số mẫu, Chỉ tiêu
+/// Mapping columns: Tên cơ sở/doanh nghiệp, Địa chỉ, Người liên hệ, Số điện thoại, Số điện thoại phụ, Mã số thuế
+/// (legacy columns vẫn được hỗ trợ: Tỉnh/thành, Phường/xã, Số hợp đồng, Tên mẫu, Tình trạng, Mã số mẫu, Chỉ tiêu)
 /// </summary>
 public class OrganizationTestRequestImportRow
 {
@@ -26,6 +26,11 @@ public class OrganizationTestRequestImportRow
     /// Điện thoại
     /// </summary>
     public string? Phone { get; set; }
+
+    /// <summary>
+    /// Số điện thoại phụ
+    /// </summary>
+    public string? SecondaryPhone { get; set; }
 
     /// <summary>
     /// Địa chỉ
@@ -113,6 +118,11 @@ public class OrganizationTestRequestPreviewItem
     /// Điện thoại
     /// </summary>
     public string? Phone { get; set; }
+
+    /// <summary>
+    /// Số điện thoại phụ
+    /// </summary>
+    public string? SecondaryPhone { get; set; }
 
     /// <summary>
     /// Địa chỉ

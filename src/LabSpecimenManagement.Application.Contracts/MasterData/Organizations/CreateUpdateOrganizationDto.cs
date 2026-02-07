@@ -32,6 +32,9 @@ public class CreateUpdateOrganizationDto
     [RegularExpression(@"^(0|\+84)[0-9]{9,10}$", ErrorMessage = "Số điện thoại không hợp lệ")]
     public string Phone { get; set; }
 
+    [StringLength(20, ErrorMessage = "Số điện thoại phụ không được quá 20 ký tự")]
+    public string? SecondaryPhone { get; set; }
+
     public bool IsActive { get; set; } = true;
 
     public int SortOrder { get; set; }

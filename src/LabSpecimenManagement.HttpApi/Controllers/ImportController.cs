@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Import;
 using LabSpecimenManagement.Permissions;
@@ -274,13 +276,27 @@ public class ImportController : LabSpecimenManagementController
     [HttpPost("organization-test-requests")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
     [DisableValidation]
-    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file)
+    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file, [FromForm] string? codeOverrides = null)
     {
         ValidateFile(file);
         using var memoryStream = new System.IO.MemoryStream();
         await file.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
-        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes);
+
+        // Parse FE-resolved location code overrides
+        List<LocationCodeOverride>? overrides = null;
+        if (!string.IsNullOrWhiteSpace(codeOverrides))
+        {
+            Logger.LogInformation("[Import] Received codeOverrides: {CodeOverrides}", codeOverrides);
+            overrides = System.Text.Json.JsonSerializer.Deserialize<List<LocationCodeOverride>>(codeOverrides, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            Logger.LogInformation("[Import] Parsed {Count} overrides", overrides?.Count ?? 0);
+        }
+        else
+        {
+            Logger.LogWarning("[Import] No codeOverrides received from FE");
+        }
+
+        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes, overrides);
     }
 
     #endregion

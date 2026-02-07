@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Services;
@@ -154,7 +155,7 @@ public interface IImportAppService : IApplicationService
     /// TestRequest: always create new with status = Completed
     /// </summary>
     [DisableValidation]
-    Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes);
+    Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes, List<LocationCodeOverride>? codeOverrides = null);
 
     #endregion
 
