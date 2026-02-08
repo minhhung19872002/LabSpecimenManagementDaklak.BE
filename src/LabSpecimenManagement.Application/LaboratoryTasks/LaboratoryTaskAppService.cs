@@ -2761,13 +2761,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return new List<LabTechnicianPendingTaskDto>();
         }
 
-        // Get all indicators assigned to current user with status Pending, Entered, or Rejected
+        // Get all indicators assigned to current user with actionable status
         var indicatorQueryable = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
         var taskQueryable = await _laboratoryTaskRepository.GetQueryableAsync();
 
         var indicators = indicatorQueryable
             .Where(x => x.TechnicianId == currentUserId.Value &&
                         (x.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                         x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
                          x.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                          x.ApprovalStatus == IndicatorApprovalStatus.Rejected))
             .ToList();
@@ -2798,7 +2799,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 continue;
             }
 
-            var pendingCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            var pendingCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                                                x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting);
             var enteredCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Entered);
             var rejectedCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Rejected);
 
