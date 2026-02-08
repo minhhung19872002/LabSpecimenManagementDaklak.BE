@@ -198,6 +198,11 @@ public class LaboratoryTaskIndicatorDto
     public string? SampleName { get; set; }
 
     /// <summary>
+    /// ID nền mẫu (loại mẫu) - Specimen Type ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
     /// Indicator ID
     /// </summary>
     public Guid IndicatorId { get; set; }
