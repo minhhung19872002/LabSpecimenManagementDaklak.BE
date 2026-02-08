@@ -1250,7 +1250,7 @@ public partial class TestRequestAppService :
         }
 
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId, Guid? SpecimenTypeId)>>();
 
         // Track which samples are shared samples and which labs they have
         var sharedSampleLabs = new Dictionary<Guid, HashSet<Guid>>(); // SampleId -> Set of LabIds
@@ -1271,10 +1271,10 @@ public partial class TestRequestAppService :
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid, Guid?)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId, sample.SpecimenTypeId));
 
                 // Track labs for shared samples
                 if (sample.IsSharedSample)
@@ -1418,11 +1418,12 @@ public partial class TestRequestAppService :
                     }
                 }
 
-                // Auto-set StandardId - lookup first standard for this indicator + method pair
+                // Auto-set StandardId - lookup first standard for this indicator + method + specimenType
                 var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
                     si => si.IndicatorId == indicator.IndicatorId
                           && si.IsActive
-                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value));
+                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value)
+                          && (!indicator.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == indicator.SpecimenTypeId.Value));
                 if (standardIndicator != null)
                 {
                     taskIndicator.StandardId = standardIndicator.StandardId;

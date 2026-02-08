@@ -561,25 +561,28 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
             var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
 
             // Try to find matching StandardIndicator
             StandardIndicator? standardIndicator = null;
 
             if (labIndicator.MethodId.HasValue)
             {
-                // First try with exact method match
+                // First try with exact method + specimenType match
                 standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
                     si.StandardId == standardId.Value &&
                     si.IndicatorId == sampleIndicator.IndicatorId &&
-                    si.TestMethodId == labIndicator.MethodId.Value);
+                    si.TestMethodId == labIndicator.MethodId.Value &&
+                    (!sample.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == sample.SpecimenTypeId.Value));
             }
 
-            // If not found with method, try matching by indicator only
+            // If not found with method, try matching by indicator + specimenType only
             if (standardIndicator == null)
             {
                 standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
                     si.StandardId == standardId.Value &&
-                    si.IndicatorId == sampleIndicator.IndicatorId);
+                    si.IndicatorId == sampleIndicator.IndicatorId &&
+                    (!sample.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == sample.SpecimenTypeId.Value));
             }
 
             if (standardIndicator != null)
