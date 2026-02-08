@@ -280,13 +280,29 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             await _receiptRepository.InsertAsync(receipt);
         }
 
+        // Tự động thanh toán nếu tổng chi phí = 0 hoặc mẫu nhiệm vụ (SampleTypeTask) và chưa thanh toán
+        var totalCost = testRequest.TotalCost;
+        if ((totalCost <= 0 || testRequest.SampleTypeTask) && receipt.Status != ReceiptStatus.Paid)
+        {
+            receipt.MarkAsPaid();
+            await _receiptRepository.UpdateAsync(receipt);
+
+            // Cập nhật TestRequest
+            testRequest.PaymentReceived = true;
+            var shouldUpdateStatus = !StatusesBeyondPayment.Contains(testRequest.Status);
+            if (shouldUpdateStatus)
+            {
+                testRequest.Status = TestRequestStatus.Paid;
+            }
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
+
         // Lấy danh sách PaymentHistory
         var paymentHistories = await _paymentHistoryRepository.GetListAsync(ph => ph.ReceiptId == receipt.Id);
         paymentHistories = paymentHistories.OrderBy(ph => ph.PaymentNumber).ToList();
 
         // Tính tổng đã thanh toán
         var paidAmount = paymentHistories.Sum(ph => ph.Amount);
-        var totalCost = testRequest.TotalCost;
         var remainingAmount = totalCost - paidAmount;
 
         // Lấy thông tin người tạo cho từng payment history
@@ -315,14 +331,18 @@ public class ReceiptAppService : LabSpecimenManagementAppService, IReceiptAppSer
             });
         }
 
+        // Mẫu nhiệm vụ: hiển thị chi phí = 0
+        var displayTotalCost = testRequest.SampleTypeTask ? 0 : totalCost;
+        var displayRemainingAmount = testRequest.SampleTypeTask ? 0 : remainingAmount;
+
         return new PaymentInfoDto
         {
             ReceiptId = receipt.Id,
             TestRequestId = testRequestId,
             ContractNumber = testRequest.ContractNumber,
-            TotalCost = totalCost,
+            TotalCost = displayTotalCost,
             PaidAmount = paidAmount,
-            RemainingAmount = remainingAmount,
+            RemainingAmount = displayRemainingAmount,
             Status = receipt.Status,
             PaymentHistories = paymentHistoryDtos
         };
