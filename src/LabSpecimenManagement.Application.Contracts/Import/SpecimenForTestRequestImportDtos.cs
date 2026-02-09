@@ -7,10 +7,15 @@ namespace LabSpecimenManagement.Import;
 
 /// <summary>
 /// Row data từ Excel import cho Specimen trong TestRequestForm
-/// Mapping columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+/// Mapping columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm, Phương pháp
 /// </summary>
 public class SpecimenForTestRequestImportRow
 {
+    /// <summary>
+    /// Số dòng thực tế trong Excel (1-based, header = 1)
+    /// </summary>
+    public int ExcelRowNumber { get; set; }
+
     /// <summary>
     /// Tên mẫu - bắt buộc
     /// </summary>
@@ -40,6 +45,11 @@ public class SpecimenForTestRequestImportRow
     /// Tên chỉ tiêu kiểm nghiệm - bắt buộc
     /// </summary>
     public string IndicatorName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tên phương pháp kiểm nghiệm - optional
+    /// </summary>
+    public string? TestMethodName { get; set; }
 }
 
 #endregion
@@ -75,6 +85,11 @@ public class SpecimenIndicatorImportItem
     /// Tên phương pháp mặc định
     /// </summary>
     public string? TestMethodName { get; set; }
+
+    /// <summary>
+    /// ID nền mẫu (resolved từ TestMethodIndicator)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
     /// Hợp lệ hay không
