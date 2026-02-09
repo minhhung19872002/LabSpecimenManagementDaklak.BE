@@ -323,6 +323,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     public string? SampleSentByUserName { get; set; }
 
     /// <summary>
+    /// Ngày duyệt yêu cầu (RequestApproved) - tự động khi tất cả phòng lab đã xử lý xong
+    /// </summary>
+    public DateTime? RequestApprovedDate { get; set; }
+
+    /// <summary>
     /// Ngày chuyển sang trạng thái InProgress (Đang thử nghiệm)
     /// </summary>
     public DateTime? InProgressDate { get; set; }

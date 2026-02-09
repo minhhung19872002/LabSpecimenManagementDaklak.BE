@@ -3031,29 +3031,37 @@ public partial class TestRequestAppService :
 
         var currentStatus = testRequest.Status;
 
-        // Get laboratories from sample indicators for SampleSent step
-        var laboratories = new List<string>();
+        // Get laboratories from sample indicators for SampleSent step (batch loading to avoid N+1)
         var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
-        foreach (var sample in samples)
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var allIndicators = sampleIds.Count > 0
+            ? await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId))
+            : new List<TestRequestSampleIndicator>();
+        var labIds = allIndicators
+            .Where(i => i.LaboratoryId.HasValue)
+            .Select(i => i.LaboratoryId!.Value)
+            .Distinct()
+            .ToList();
+        var labs = labIds.Count > 0
+            ? await _laboratoryRepository.GetListAsync(l => labIds.Contains(l.Id))
+            : new List<Laboratory>();
+        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = deptIds.Count > 0
+            ? await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id))
+            : new List<Department>();
+        var laboratories = new List<string>();
+        foreach (var lab in labs)
         {
-            var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
-            foreach (var indicator in indicators)
+            var dept = depts.FirstOrDefault(d => d.Id == lab.DepartmentId);
+            var labName = dept?.Name ?? "";
+            if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
             {
-                if (indicator.LaboratoryId.HasValue)
-                {
-                    var lab = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    if (lab != null)
-                    {
-                        var labDept = await _departmentRepository.FindAsync(lab.DepartmentId);
-                        var labName = labDept?.Name ?? "";
-                        if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
-                        {
-                            laboratories.Add(labName);
-                        }
-                    }
-                }
+                laboratories.Add(labName);
             }
         }
+
+        // Get receipt for payment date info (PendingDate on TestRequest is never set, Receipt.PaidDate is the real payment date)
+        var receipt = await _receiptRepository.FirstOrDefaultAsync(r => r.TestRequestId == id);
 
         // Build steps from newest to oldest (top to bottom in UI)
         // Sử dụng date fields để xác định step nào đã hoàn thành (vì status enum values không theo thứ tự timeline)
@@ -3184,7 +3192,7 @@ public partial class TestRequestAppService :
         // === Step 5: Đã duyệt yêu cầu (RequestApproved) ===
         // Khi tất cả phòng lab đã xét duyệt xong
         var isRequestApproved = isCancelled
-            ? testRequest.SampleSentDate.HasValue // Nếu đã gửi mẫu thì yêu cầu đã được duyệt
+            ? testRequest.RequestApprovedDate.HasValue
             : (currentStatus == TestRequestStatus.RequestApproved ||
                currentStatus == TestRequestStatus.SampleSent ||
                currentStatus == TestRequestStatus.InProgress ||
@@ -3198,7 +3206,7 @@ public partial class TestRequestAppService :
         {
             Title = "Đã duyệt yêu cầu",
             Status = isRequestApproved ? "completed" : "pending",
-            Date = testRequest.SampleSentDate, // Không có RequestApprovedDate, dùng SampleSentDate làm proxy
+            Date = testRequest.RequestApprovedDate,
             UserId = null,
             UserName = null
         });
@@ -3233,14 +3241,30 @@ public partial class TestRequestAppService :
         {
             var isPaid = isCancelled
                 ? testRequest.PaymentReceived
-                : (testRequest.PaymentReceived || currentStatus == TestRequestStatus.Paid);
+                : (testRequest.PaymentReceived ||
+                   currentStatus == TestRequestStatus.Paid ||
+                   currentStatus == TestRequestStatus.UnderReview ||
+                   currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+                   currentStatus == TestRequestStatus.RequestApproved ||
+                   currentStatus == TestRequestStatus.SampleSent ||
+                   currentStatus == TestRequestStatus.InProgress ||
+                   currentStatus == TestRequestStatus.PendingApproval ||
+                   currentStatus == TestRequestStatus.Approved ||
+                   currentStatus == TestRequestStatus.PendingChangeApproval ||
+                   currentStatus == TestRequestStatus.PartialResultSent ||
+                   currentStatus == TestRequestStatus.ReportPublished ||
+                   currentStatus == TestRequestStatus.Completed);
+            // Use Receipt.PaidDate as the real payment date (TestRequest.PendingDate is never set)
+            var paidByUserName = receipt?.PaidDate.HasValue == true && receipt.LastModifierId.HasValue
+                ? await _userNameProvider.GetUserNameAsync(receipt.LastModifierId)
+                : null;
             result.Steps.Add(new TimelineStepDto
             {
                 Title = "Đã thanh toán",
                 Status = isPaid ? "completed" : "pending",
-                Date = testRequest.PaymentReceived ? testRequest.PendingDate : null,
-                UserId = testRequest.PaymentReceived ? testRequest.PendingByUserId : null,
-                UserName = testRequest.PaymentReceived ? testRequest.PendingByUserName : null
+                Date = receipt?.PaidDate,
+                UserId = receipt?.PaidDate.HasValue == true ? receipt.LastModifierId : null,
+                UserName = paidByUserName
             });
         }
 
@@ -3248,19 +3272,38 @@ public partial class TestRequestAppService :
         // Mẫu nhiệm vụ (SampleTypeTask): hiển thị "Không cần thanh toán"
         // Mẫu thường: hiển thị "Chờ thanh toán"
         // Dựa vào flag SentToAccounting hoặc PaymentReceived (nếu đã thanh toán thì chờ thanh toán cũng xanh)
-        var isSentToAccounting = testRequest.SentToAccounting ||
-            testRequest.PaymentReceived ||
-            currentStatus == TestRequestStatus.PendingPayment ||
-            currentStatus == TestRequestStatus.NoPaymentRequired ||
-            currentStatus == TestRequestStatus.Paid;
+        var isSentToAccounting = isCancelled
+            ? (testRequest.SentToAccounting || testRequest.PaymentReceived)
+            : (testRequest.SentToAccounting ||
+               testRequest.PaymentReceived ||
+               currentStatus == TestRequestStatus.PendingPayment ||
+               currentStatus == TestRequestStatus.NoPaymentRequired ||
+               currentStatus == TestRequestStatus.Paid ||
+               currentStatus == TestRequestStatus.UnderReview ||
+               currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+               currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         var paymentStepTitle = testRequest.SampleTypeTask ? "Không cần thanh toán" : "Chờ thanh toán";
+        // Use Receipt.CreationTime as the actual "sent to accounting" date (more accurate than TestRequest.CreationTime)
+        var sentToAccountingDate = receipt?.CreationTime ?? testRequest.CreationTime;
+        var sentToAccountingUserId = receipt?.CreatorId ?? testRequest.CreatorId;
+        var sentToAccountingUserName = receipt?.CreatorId != null && receipt.CreatorId != testRequest.CreatorId
+            ? await _userNameProvider.GetUserNameAsync(receipt.CreatorId)
+            : creatorName;
         result.Steps.Add(new TimelineStepDto
         {
             Title = paymentStepTitle,
             Status = isSentToAccounting ? "completed" : "pending",
-            Date = testRequest.SentToAccounting ? testRequest.CreationTime : null,
-            UserId = testRequest.SentToAccounting ? testRequest.CreatorId : null,
-            UserName = testRequest.SentToAccounting ? creatorName : null
+            Date = isSentToAccounting ? sentToAccountingDate : null,
+            UserId = isSentToAccounting ? sentToAccountingUserId : null,
+            UserName = isSentToAccounting ? sentToAccountingUserName : null
         });
 
         // === Step 9: Mới (New) - luôn completed vì đây là bước đầu ===
@@ -3272,6 +3315,24 @@ public partial class TestRequestAppService :
             UserId = testRequest.CreatorId,
             UserName = creatorName
         });
+
+        // Post-processing: mark "current" step and clean up cancelled timeline
+        if (isCancelled)
+        {
+            // When cancelled, remove pending steps - only show what actually happened
+            result.Steps = result.Steps.Where(s => s.Status != "pending").ToList();
+        }
+        else if (currentStatus != TestRequestStatus.Completed)
+        {
+            // Mark the NEXT step to happen as "current" (yellow clock)
+            // This is the last pending step in the list (closest to the completed boundary)
+            // Steps already reached stay "completed" (blue check + date shown)
+            var nextStep = result.Steps.LastOrDefault(s => s.Status == "pending");
+            if (nextStep != null)
+            {
+                nextStep.Status = "current";
+            }
+        }
 
         return result;
     }

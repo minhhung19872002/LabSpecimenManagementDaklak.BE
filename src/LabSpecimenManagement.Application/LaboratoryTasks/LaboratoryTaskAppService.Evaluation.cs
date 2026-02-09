@@ -713,6 +713,7 @@ public partial class LaboratoryTaskAppService
 
         // Có ít nhất 1 phòng chấp nhận → TR được duyệt yêu cầu
         testRequest.Status = TestRequestStatus.RequestApproved;
+        testRequest.RequestApprovedDate = DateTime.Now;
         await _testRequestRepository.UpdateAsync(testRequest);
     }
 

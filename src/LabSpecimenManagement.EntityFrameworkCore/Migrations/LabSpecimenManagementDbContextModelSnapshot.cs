@@ -3730,6 +3730,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("ReportPublishedDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("RequestApprovedDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<DateTime>("RequestDate")
                         .HasColumnType("timestamp without time zone");
 
