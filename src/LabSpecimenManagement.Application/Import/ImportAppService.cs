@@ -3456,16 +3456,25 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         // Load indicators and their test methods for validation
         var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.First());
+        // BUG 3 FIX: Dùng ToLookup thay vì ToDictionary để xử lý indicator trùng tên
+        var indicatorLookup = indicators
+            .ToLookup(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant());
 
         // Load test method indicators to get default test method for each indicator
         var testMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
         var testMethods = await _testMethodRepository.GetListAsync();
         var testMethodDict = testMethods.ToDictionary(t => t.Id);
 
-        // Build indicator -> default test method map (get first by SortOrder)
+        // Build test method name lookup (normalized name -> TestMethod)
+        var testMethodNameLookup = testMethods
+            .ToLookup(t => StringHelper.NormalizeAndTrim(t.Name).ToLowerInvariant());
+
+        // Build indicator -> list of TestMethodIndicator map (for matching by method name)
+        var indicatorTmiListMap = testMethodIndicators
+            .GroupBy(tmi => tmi.IndicatorId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        // Build indicator -> default test method indicator map (get first by SortOrder)
         var indicatorTestMethodMap = testMethodIndicators
             .GroupBy(tmi => tmi.IndicatorId)
             .ToDictionary(
@@ -3483,7 +3492,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+            // BUG 1 FIX: Dùng row number thật từ Excel thay vì i + 2
+            var rowNumber = row.ExcelRowNumber;
 
             var sampleName = row.SampleName?.Trim() ?? "";
             var indicatorName = row.IndicatorName?.Trim() ?? "";
@@ -3529,10 +3539,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 specimenMap[specimenKey] = specimen;
             }
 
-            // Check if indicator exists
+            // BUG 3 FIX: Check if indicator exists - xử lý trùng tên
             var indicatorKey = StringHelper.NormalizeAndTrim(indicatorName).ToLowerInvariant();
-            Indicator? indicator = null;
-            var indicatorIsValid = indicatorDict.TryGetValue(indicatorKey, out indicator);
+            var matchedIndicators = indicatorLookup[indicatorKey].ToList();
+            Indicator? indicator = matchedIndicators.FirstOrDefault();
+            var indicatorIsValid = indicator != null;
 
             if (!indicatorIsValid)
             {
@@ -3546,10 +3557,23 @@ public class ImportAppService : ApplicationService, IImportAppService
                 });
                 AddRowError(rowErrors, rowNumber, errorMsg);
             }
+            else if (matchedIndicators.Count > 1)
+            {
+                // Cảnh báo trùng tên - vẫn cho import nhưng thông báo
+                var errorMsg = $"Chỉ tiêu \"{indicatorName}\" có {matchedIndicators.Count} kết quả trùng tên, sử dụng kết quả đầu tiên";
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Chỉ tiêu kiểm nghiệm",
+                    ErrorMessage = errorMsg,
+                    Value = indicatorName
+                });
+                AddRowError(rowErrors, rowNumber, errorMsg);
+            }
 
-            // Check duplicate indicator in same specimen
+            // BUG 4 FIX: Dùng normalized name để check duplicate (nhất quán với lookup)
             var existingIndicator = specimen.Indicators.FirstOrDefault(
-                ind => ind.IndicatorName.Equals(indicatorName, StringComparison.OrdinalIgnoreCase)
+                ind => StringHelper.NormalizeAndTrim(ind.IndicatorName).ToLowerInvariant() == indicatorKey
             );
             if (existingIndicator != null)
             {
@@ -3565,15 +3589,79 @@ public class ImportAppService : ApplicationService, IImportAppService
                 continue;
             }
 
-            // Get default test method for indicator
+            // Resolve test method for indicator
             Guid? testMethodId = null;
             string? testMethodName = null;
-            if (indicator != null && indicatorTestMethodMap.TryGetValue(indicator.Id, out var defaultTmi) && defaultTmi != null)
+            Guid? specimenTypeId = null;
+            var userTestMethodName = row.TestMethodName?.Trim();
+
+            if (indicator != null)
             {
-                testMethodId = defaultTmi.TestMethodId;
-                if (testMethodDict.TryGetValue(defaultTmi.TestMethodId, out var testMethod))
+                if (!string.IsNullOrWhiteSpace(userTestMethodName))
                 {
-                    testMethodName = testMethod.Name;
+                    // User specified a test method name → validate it
+                    var methodKey = StringHelper.NormalizeAndTrim(userTestMethodName).ToLowerInvariant();
+                    var matchedMethods = testMethodNameLookup[methodKey].ToList();
+
+                    if (matchedMethods.Count == 0)
+                    {
+                        // Test method not found in system
+                        indicatorIsValid = false;
+                        var errorMsg = $"Phương pháp \"{userTestMethodName}\" không tồn tại trong hệ thống";
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = rowNumber,
+                            ColumnName = "Phương pháp",
+                            ErrorMessage = errorMsg,
+                            Value = userTestMethodName
+                        });
+                        AddRowError(rowErrors, rowNumber, errorMsg);
+                    }
+                    else
+                    {
+                        // Found method(s) → check if any is linked to this indicator
+                        var matchedMethodIds = matchedMethods.Select(m => m.Id).ToHashSet();
+                        var tmiList = indicatorTmiListMap.GetValueOrDefault(indicator.Id, new List<MasterData.TestMethodIndicator>());
+                        var matchedTmi = tmiList.FirstOrDefault(tmi => matchedMethodIds.Contains(tmi.TestMethodId));
+
+                        if (matchedTmi == null)
+                        {
+                            // Method exists but not linked to this indicator
+                            indicatorIsValid = false;
+                            var errorMsg = $"Phương pháp \"{userTestMethodName}\" không liên kết với chỉ tiêu \"{indicatorName}\"";
+                            validationResult.Errors.Add(new ImportRowError
+                            {
+                                RowNumber = rowNumber,
+                                ColumnName = "Phương pháp",
+                                ErrorMessage = errorMsg,
+                                Value = userTestMethodName
+                            });
+                            AddRowError(rowErrors, rowNumber, errorMsg);
+                        }
+                        else
+                        {
+                            // Valid: use this specific test method
+                            testMethodId = matchedTmi.TestMethodId;
+                            specimenTypeId = matchedTmi.SpecimenTypeId;
+                            if (testMethodDict.TryGetValue(matchedTmi.TestMethodId, out var resolvedMethod))
+                            {
+                                testMethodName = resolvedMethod.Name;
+                            }
+                        }
+                    }
+                }
+                else
+                {
+                    // No method specified → use default (first by SortOrder)
+                    if (indicatorTestMethodMap.TryGetValue(indicator.Id, out var defaultTmi) && defaultTmi != null)
+                    {
+                        testMethodId = defaultTmi.TestMethodId;
+                        specimenTypeId = defaultTmi.SpecimenTypeId;
+                        if (testMethodDict.TryGetValue(defaultTmi.TestMethodId, out var testMethod))
+                        {
+                            testMethodName = testMethod.Name;
+                        }
+                    }
                 }
             }
 
@@ -3585,8 +3673,9 @@ public class ImportAppService : ApplicationService, IImportAppService
                 IndicatorId = indicator?.Id,
                 TestMethodId = testMethodId,
                 TestMethodName = testMethodName,
+                SpecimenTypeId = specimenTypeId,
                 IsValid = indicatorIsValid,
-                ErrorMessage = indicatorIsValid ? null : "Chỉ tiêu không tồn tại"
+                ErrorMessage = indicatorIsValid ? null : (indicator == null ? "Chỉ tiêu không tồn tại" : "Phương pháp không hợp lệ")
             };
             specimen.Indicators.Add(indicatorItem);
 
@@ -3630,7 +3719,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 0;
         if (lastRow < 2) return rows; // No data rows
 
-        // Expected columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+        // Expected columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm, Phương pháp
         for (int rowNum = 2; rowNum <= lastRow; rowNum++)
         {
             var row = worksheet.Row(rowNum);
@@ -3640,12 +3729,14 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             var importRow = new SpecimenForTestRequestImportRow
             {
+                ExcelRowNumber = rowNum,
                 SampleName = row.Cell(1).GetString()?.Trim() ?? "",
                 SpecimenTypeName = row.Cell(2).GetString()?.Trim(),
                 SamplingAddress = row.Cell(3).GetString()?.Trim(),
                 SampleQuantity = row.Cell(4).GetString()?.Trim(),
                 StatusText = row.Cell(5).GetString()?.Trim(),
-                IndicatorName = row.Cell(6).GetString()?.Trim() ?? ""
+                IndicatorName = row.Cell(6).GetString()?.Trim() ?? "",
+                TestMethodName = row.Cell(7).GetString()?.Trim()
             };
 
             // Skip rows with no sample name and no indicator
@@ -3666,8 +3757,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Import Errors");
 
-        // Column mapping: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm, Lỗi
-        var columns = new[] { "Tên mẫu", "Loại mẫu", "Địa chỉ lấy mẫu", "Lượng mẫu", "Tình trạng mẫu", "Chỉ tiêu kiểm nghiệm", "Lỗi" };
+        // Column mapping: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm, Phương pháp, Lỗi
+        var columns = new[] { "Tên mẫu", "Loại mẫu", "Địa chỉ lấy mẫu", "Lượng mẫu", "Tình trạng mẫu", "Chỉ tiêu kiểm nghiệm", "Phương pháp", "Lỗi" };
 
         // Write header row with styling
         for (int col = 0; col < columns.Length; col++)
@@ -3694,8 +3785,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            var excelRowNumber = i + 2; // Excel row (1-based, header = 1)
-            var dataRowNumber = i + 2; // Row number used in validation
+            var excelRowNumber = i + 2; // Row position in error file (1-based, header = 1)
+            var dataRowNumber = row.ExcelRowNumber; // Actual Excel row number used in validation
 
             var hasError = rowErrors.ContainsKey(dataRowNumber);
             var errorColumnsForRow = errorColumnsByRow.GetValueOrDefault(dataRowNumber, new HashSet<string>());
@@ -3732,12 +3823,20 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ApplyErrorStyle(cell6);
             }
 
-            // Column 7: Lỗi
+            // Column 7: Phương pháp
             var cell7 = worksheet.Cell(excelRowNumber, 7);
+            cell7.Value = row.TestMethodName ?? "";
+            if (errorColumnsForRow.Contains("Phương pháp"))
+            {
+                ApplyErrorStyle(cell7);
+            }
+
+            // Column 8: Lỗi
+            var cell8 = worksheet.Cell(excelRowNumber, 8);
             if (hasError)
             {
-                cell7.Value = string.Join("; ", rowErrors[dataRowNumber]);
-                cell7.Style.Font.FontColor = XLColor.Red;
+                cell8.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                cell8.Style.Font.FontColor = XLColor.Red;
             }
         }
 
