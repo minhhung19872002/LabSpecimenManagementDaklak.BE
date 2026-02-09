@@ -3469,18 +3469,15 @@ public class ImportAppService : ApplicationService, IImportAppService
         var testMethodNameLookup = testMethods
             .ToLookup(t => StringHelper.NormalizeAndTrim(t.Name).ToLowerInvariant());
 
+        // Load SpecimenType master data for "Loại mẫu" validation
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeNameLookup = specimenTypes
+            .ToLookup(st => StringHelper.NormalizeAndTrim(st.Name).ToLowerInvariant());
+
         // Build indicator -> list of TestMethodIndicator map (for matching by method name)
         var indicatorTmiListMap = testMethodIndicators
             .GroupBy(tmi => tmi.IndicatorId)
             .ToDictionary(g => g.Key, g => g.ToList());
-
-        // Build indicator -> default test method indicator map (get first by SortOrder)
-        var indicatorTestMethodMap = testMethodIndicators
-            .GroupBy(tmi => tmi.IndicatorId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderBy(x => x.SortOrder).FirstOrDefault()
-            );
 
         var result = new SpecimenForTestRequestImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
@@ -3523,6 +3520,58 @@ public class ImportAppService : ApplicationService, IImportAppService
                 continue;
             }
 
+            // Validate "Loại mẫu" required + existence
+            var specimenTypeName = row.SpecimenTypeName?.Trim();
+            SpecimenType? resolvedSpecimenType = null;
+            var rowHasError = false;
+            if (string.IsNullOrWhiteSpace(specimenTypeName))
+            {
+                rowHasError = true;
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Loại mẫu",
+                    ErrorMessage = "Loại mẫu là bắt buộc"
+                });
+                AddRowError(rowErrors, rowNumber, "Loại mẫu là bắt buộc");
+            }
+            else
+            {
+                var stKey = StringHelper.NormalizeAndTrim(specimenTypeName).ToLowerInvariant();
+                var matchedSpecimenTypes = specimenTypeNameLookup[stKey].ToList();
+                if (matchedSpecimenTypes.Count == 0)
+                {
+                    rowHasError = true;
+                    var errorMsg = $"Loại mẫu \"{specimenTypeName}\" không tồn tại trong hệ thống";
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Loại mẫu",
+                        ErrorMessage = errorMsg,
+                        Value = specimenTypeName
+                    });
+                    AddRowError(rowErrors, rowNumber, errorMsg);
+                }
+                else
+                {
+                    resolvedSpecimenType = matchedSpecimenTypes.First();
+                }
+            }
+
+            // Validate "Phương pháp" required
+            var userTestMethodName = row.TestMethodName?.Trim();
+            if (string.IsNullOrWhiteSpace(userTestMethodName))
+            {
+                rowHasError = true;
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Phương pháp",
+                    ErrorMessage = "Phương pháp là bắt buộc"
+                });
+                AddRowError(rowErrors, rowNumber, "Phương pháp là bắt buộc");
+            }
+
             // Get or create specimen preview item
             var specimenKey = StringHelper.NormalizeAndTrim(sampleName).ToLowerInvariant();
             if (!specimenMap.TryGetValue(specimenKey, out var specimen))
@@ -3543,10 +3592,11 @@ public class ImportAppService : ApplicationService, IImportAppService
             var indicatorKey = StringHelper.NormalizeAndTrim(indicatorName).ToLowerInvariant();
             var matchedIndicators = indicatorLookup[indicatorKey].ToList();
             Indicator? indicator = matchedIndicators.FirstOrDefault();
-            var indicatorIsValid = indicator != null;
+            var indicatorIsValid = indicator != null && !rowHasError;
 
-            if (!indicatorIsValid)
+            if (indicator == null)
             {
+                indicatorIsValid = false;
                 var errorMsg = $"Chỉ tiêu \"{indicatorName}\" không tồn tại trong hệ thống";
                 validationResult.Errors.Add(new ImportRowError
                 {
@@ -3572,8 +3622,10 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
 
             // BUG 4 FIX: Dùng normalized name để check duplicate (nhất quán với lookup)
+            // Cho phép cùng indicator ở khác loại mẫu (specimenTypeId)
             var existingIndicator = specimen.Indicators.FirstOrDefault(
                 ind => StringHelper.NormalizeAndTrim(ind.IndicatorName).ToLowerInvariant() == indicatorKey
+                    && ind.SpecimenTypeId == resolvedSpecimenType?.Id
             );
             if (existingIndicator != null)
             {
@@ -3592,22 +3644,50 @@ public class ImportAppService : ApplicationService, IImportAppService
             // Resolve test method for indicator
             Guid? testMethodId = null;
             string? testMethodName = null;
-            Guid? specimenTypeId = null;
-            var userTestMethodName = row.TestMethodName?.Trim();
+            Guid? specimenTypeId = resolvedSpecimenType?.Id;
 
-            if (indicator != null)
+            if (indicator != null && !string.IsNullOrWhiteSpace(userTestMethodName))
             {
-                if (!string.IsNullOrWhiteSpace(userTestMethodName))
-                {
-                    // User specified a test method name → validate it
-                    var methodKey = StringHelper.NormalizeAndTrim(userTestMethodName).ToLowerInvariant();
-                    var matchedMethods = testMethodNameLookup[methodKey].ToList();
+                // User specified a test method name → validate it
+                var methodKey = StringHelper.NormalizeAndTrim(userTestMethodName).ToLowerInvariant();
+                var matchedMethods = testMethodNameLookup[methodKey].ToList();
 
-                    if (matchedMethods.Count == 0)
+                if (matchedMethods.Count == 0)
+                {
+                    // Test method not found in system
+                    indicatorIsValid = false;
+                    var errorMsg = $"Phương pháp \"{userTestMethodName}\" không tồn tại trong hệ thống";
+                    validationResult.Errors.Add(new ImportRowError
                     {
-                        // Test method not found in system
+                        RowNumber = rowNumber,
+                        ColumnName = "Phương pháp",
+                        ErrorMessage = errorMsg,
+                        Value = userTestMethodName
+                    });
+                    AddRowError(rowErrors, rowNumber, errorMsg);
+                }
+                else
+                {
+                    // Found method(s) → check if any is linked to this indicator + specimenType
+                    var matchedMethodIds = matchedMethods.Select(m => m.Id).ToHashSet();
+                    var tmiList = indicatorTmiListMap.GetValueOrDefault(indicator.Id, new List<MasterData.TestMethodIndicator>());
+
+                    // Match chính xác: indicator + method + specimenType
+                    var matchedTmi = tmiList.FirstOrDefault(tmi =>
+                        matchedMethodIds.Contains(tmi.TestMethodId) &&
+                        tmi.SpecimenTypeId == resolvedSpecimenType?.Id);
+
+                    // Fallback: match với specimenType null (chỉ tiêu không gắn loại mẫu)
+                    matchedTmi ??= tmiList.FirstOrDefault(tmi =>
+                        matchedMethodIds.Contains(tmi.TestMethodId) &&
+                        !tmi.SpecimenTypeId.HasValue);
+
+                    if (matchedTmi == null)
+                    {
+                        // Method exists but not linked to this indicator at this specimenType
                         indicatorIsValid = false;
-                        var errorMsg = $"Phương pháp \"{userTestMethodName}\" không tồn tại trong hệ thống";
+                        var stName = specimenTypeName ?? "N/A";
+                        var errorMsg = $"Phương pháp \"{userTestMethodName}\" không liên kết với chỉ tiêu \"{indicatorName}\" ở loại mẫu \"{stName}\"";
                         validationResult.Errors.Add(new ImportRowError
                         {
                             RowNumber = rowNumber,
@@ -3619,47 +3699,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                     else
                     {
-                        // Found method(s) → check if any is linked to this indicator
-                        var matchedMethodIds = matchedMethods.Select(m => m.Id).ToHashSet();
-                        var tmiList = indicatorTmiListMap.GetValueOrDefault(indicator.Id, new List<MasterData.TestMethodIndicator>());
-                        var matchedTmi = tmiList.FirstOrDefault(tmi => matchedMethodIds.Contains(tmi.TestMethodId));
-
-                        if (matchedTmi == null)
+                        // Valid: use this specific test method
+                        testMethodId = matchedTmi.TestMethodId;
+                        specimenTypeId = matchedTmi.SpecimenTypeId ?? resolvedSpecimenType?.Id;
+                        if (testMethodDict.TryGetValue(matchedTmi.TestMethodId, out var resolvedMethod))
                         {
-                            // Method exists but not linked to this indicator
-                            indicatorIsValid = false;
-                            var errorMsg = $"Phương pháp \"{userTestMethodName}\" không liên kết với chỉ tiêu \"{indicatorName}\"";
-                            validationResult.Errors.Add(new ImportRowError
-                            {
-                                RowNumber = rowNumber,
-                                ColumnName = "Phương pháp",
-                                ErrorMessage = errorMsg,
-                                Value = userTestMethodName
-                            });
-                            AddRowError(rowErrors, rowNumber, errorMsg);
-                        }
-                        else
-                        {
-                            // Valid: use this specific test method
-                            testMethodId = matchedTmi.TestMethodId;
-                            specimenTypeId = matchedTmi.SpecimenTypeId;
-                            if (testMethodDict.TryGetValue(matchedTmi.TestMethodId, out var resolvedMethod))
-                            {
-                                testMethodName = resolvedMethod.Name;
-                            }
-                        }
-                    }
-                }
-                else
-                {
-                    // No method specified → use default (first by SortOrder)
-                    if (indicatorTestMethodMap.TryGetValue(indicator.Id, out var defaultTmi) && defaultTmi != null)
-                    {
-                        testMethodId = defaultTmi.TestMethodId;
-                        specimenTypeId = defaultTmi.SpecimenTypeId;
-                        if (testMethodDict.TryGetValue(defaultTmi.TestMethodId, out var testMethod))
-                        {
-                            testMethodName = testMethod.Name;
+                            testMethodName = resolvedMethod.Name;
                         }
                     }
                 }
@@ -3675,7 +3720,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 TestMethodName = testMethodName,
                 SpecimenTypeId = specimenTypeId,
                 IsValid = indicatorIsValid,
-                ErrorMessage = indicatorIsValid ? null : (indicator == null ? "Chỉ tiêu không tồn tại" : "Phương pháp không hợp lệ")
+                ErrorMessage = indicatorIsValid ? null : (indicator == null ? "Chỉ tiêu không tồn tại" : "Dữ liệu không hợp lệ")
             };
             specimen.Indicators.Add(indicatorItem);
 
@@ -3683,7 +3728,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             if (!indicatorIsValid)
             {
                 specimen.IsValid = false;
-                specimen.Errors.Add($"Chỉ tiêu \"{indicatorName}\" không tồn tại");
+                specimen.Errors.Add($"Dòng {rowNumber}: Dữ liệu không hợp lệ");
             }
         }
 
