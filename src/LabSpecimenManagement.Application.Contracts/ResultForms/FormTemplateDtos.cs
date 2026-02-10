@@ -151,6 +151,25 @@ public class OnlyOfficeCustomization
 }
 
 /// <summary>
+/// Result of uploading a form template
+/// </summary>
+public class UploadFormTemplateResultDto
+{
+    public string FileName { get; set; } = string.Empty;
+    public bool IsReplacing { get; set; }
+    public bool Success { get; set; }
+}
+
+/// <summary>
+/// Result of checking if a template file exists
+/// </summary>
+public class CheckTemplateExistsResultDto
+{
+    public string FileName { get; set; } = string.Empty;
+    public bool Exists { get; set; }
+}
+
+/// <summary>
 /// DTO for OnlyOffice callback
 /// </summary>
 public class OnlyOfficeCallbackDto
