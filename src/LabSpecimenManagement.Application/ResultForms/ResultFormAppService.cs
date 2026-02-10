@@ -3503,6 +3503,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Process table with SubTable marker (not nested table)
         ProcessMixedResultTableWithSubTable(body, sampleData);
 
+        // Handle bold placeholders separately before standard replacement
+        if (placeholders.TryGetValue("{{CustomerName}}", out var customerNameValue))
+        {
+            ReplacePlaceholderWithBold(mainPart, "{{CustomerName}}", customerNameValue);
+            placeholders.Remove("{{CustomerName}}");
+        }
+
         // Replace placeholders in entire document (including headers, footers, textboxes)
         ReplacePlaceholdersInDocument(mainPart, placeholders);
 
@@ -3644,10 +3651,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Define which columns should be merged (0-based index)
         // Columns: 0=Stt, 1=Tên mẫu, 2=Mã số mẫu, 3=Chỉ tiêu, 4=Đơn vị, 5=Phương pháp, 6=Kết quả
-        var columnsToMerge = new[] { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
+        var columnsToMerge = new List<int> { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
 
-        // Apply vertical merge to sample columns (first 3 columns)
-        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, Column 2 (Mã mẫu): center
+        // Dynamically detect cells containing {{Quantity}} or {{SampleDescription}} for vertical merge
+        for (int c = 0; c < cells.Count; c++)
+        {
+            var cellText = string.Concat(cells[c].Descendants<Text>().Select(t => t.Text ?? ""));
+            if (cellText.Contains("{{Quantity}}") || cellText.Contains("{{SampleDescription}}"))
+            {
+                if (!columnsToMerge.Contains(c))
+                    columnsToMerge.Add(c);
+            }
+        }
+
+        // Apply vertical merge to sample-level columns
+        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, others: center
         if (totalIndicators > 1)
         {
             foreach (var colIndex in columnsToMerge)
@@ -3702,6 +3720,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Unit}}", indicatorData.Unit);
 
                 // Handle Parameter
@@ -3740,6 +3760,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{Result}}", indicatorData.Result);
 
@@ -3772,6 +3794,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Parameter}}", parameterDisplayName ?? "")
                     .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
@@ -3860,6 +3884,57 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var text in cell.Descendants<Text>().ToList())
         {
             text.Text = "";
+        }
+    }
+
+    /// <summary>
+    /// Replace a placeholder in the document and apply bold formatting to the replacement text.
+    /// Processes body, headers, and footers (same scope as ReplacePlaceholdersInDocument).
+    /// </summary>
+    private void ReplacePlaceholderWithBold(MainDocumentPart mainPart, string placeholder, string value)
+    {
+        var elements = new List<OpenXmlElement>();
+        if (mainPart.Document?.Body != null)
+            elements.Add(mainPart.Document.Body);
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header != null)
+                elements.Add(headerPart.Header);
+        }
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer != null)
+                elements.Add(footerPart.Footer);
+        }
+
+        foreach (var element in elements)
+        {
+            // Merge split placeholders first (same as standard flow)
+            foreach (var para in element.Descendants<Paragraph>())
+            {
+                MergeSplitPlaceholders(para);
+            }
+
+            foreach (var text in element.Descendants<Text>().ToList())
+            {
+                if (string.IsNullOrEmpty(text.Text) || !text.Text.Contains(placeholder)) continue;
+
+                text.Text = text.Text.Replace(placeholder, value);
+
+                // Apply bold to the run containing this text
+                var run = text.Parent as Run;
+                if (run != null)
+                {
+                    var rPr = run.GetFirstChild<RunProperties>();
+                    if (rPr == null)
+                    {
+                        rPr = new RunProperties();
+                        run.InsertAt(rPr, 0);
+                    }
+                    rPr.Bold = new Bold();
+                    rPr.BoldComplexScript = new BoldComplexScript();
+                }
+            }
         }
     }
 
@@ -4015,6 +4090,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public int No { get; set; }
         public string SampleName { get; set; } = "";
         public string SampleCode { get; set; } = "";
+        public string Quantity { get; set; } = "";
+        public string SampleDescription { get; set; } = "";
         public List<MixedResultIndicatorRow> Indicators { get; set; } = new();
     }
 
@@ -4681,6 +4758,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 No = sampleNo++,
                 SampleName = sample.SampleName ?? "",
                 SampleCode = sample.SampleCode ?? "",
+                Quantity = sample.SampleQuantity ?? "",
+                SampleDescription = sample.StatusText ?? "",
                 Indicators = new List<MixedResultIndicatorRow>()
             };
 
