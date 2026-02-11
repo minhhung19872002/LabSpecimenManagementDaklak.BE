@@ -373,6 +373,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (testRequest != null)
         {
             dto.TestRequestNumber = testRequest.RequestNumber;
+            dto.TestRequestStatus = testRequest.Status;
             dto.CustomerName = testRequest.CustomerName;
         }
 
