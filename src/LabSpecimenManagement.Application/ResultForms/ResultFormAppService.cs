@@ -5495,7 +5495,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
                     foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
-                        labNote.Add($"- {note.Content}");
+                        labNote.Add(note.Content);
                     }
                 }
             }
@@ -5570,7 +5570,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
-                    .Select(x => $"- {x.Content}")
+                    .Select(x => x.Content)
                     .ToList();
 
                 if (masterNoteLines.Any())
