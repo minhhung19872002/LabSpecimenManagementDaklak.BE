@@ -165,9 +165,8 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? StandardId { get; set; }
 
     /// <summary>
-    /// Ghi chú tự do (free text) - áp dụng cho tất cả chỉ tiêu trong sample
+    /// Ghi chú tự do (free text, HTML) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>
-    [MaxLength(2000)]
     public string? FreeTextNote { get; set; }
 
     /// <summary>

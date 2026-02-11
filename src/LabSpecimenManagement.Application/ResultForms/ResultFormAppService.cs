@@ -659,7 +659,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             SetNoteFontSize(text, 11);
                             NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
 
-                            // Handle newlines in Note placeholder
+                            // Handle HTML content in Note (from rich text editor)
+                            if (HtmlToOpenXmlConverter.ContainsHtmlTags(placeholder.Value))
+                            {
+                                ReplaceNoteWithHtmlRuns(text, placeholder.Key, placeholder.Value);
+                                continue;
+                            }
+
+                            // Handle newlines in Note placeholder (plain text fallback)
                             if (placeholder.Value.Contains("\n"))
                             {
                                 ReplaceTextWithLineBreaks(text, placeholder.Key, placeholder.Value);
@@ -1736,6 +1743,76 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 afterTextElement.Space = SpaceProcessingModeValues.Preserve;
             }
             parentRun.InsertAfter(afterTextElement, insertAfter);
+        }
+    }
+
+    /// <summary>
+    /// Replace a Note placeholder with HTML-formatted OpenXML runs.
+    /// Supports bold, italic, underline, strikethrough, superscript, subscript, lists.
+    /// </summary>
+    private void ReplaceNoteWithHtmlRuns(Text textElement, string placeholder, string htmlValue)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null)
+        {
+            // Fallback - strip HTML and replace as plain text
+            textElement.Text = textElement.Text.Replace(placeholder, HtmlToOpenXmlConverter.ConvertHtmlToPlainText(htmlValue));
+            return;
+        }
+
+        var parentParagraph = parentRun.Parent as Paragraph;
+        if (parentParagraph == null)
+        {
+            textElement.Text = textElement.Text.Replace(placeholder, HtmlToOpenXmlConverter.ConvertHtmlToPlainText(htmlValue));
+            return;
+        }
+
+        // Get base RunProperties from the parent run (includes font size set by SetNoteFontSize)
+        var existingRunProps = parentRun.RunProperties?.CloneNode(true) as RunProperties;
+
+        // Convert HTML to formatted runs
+        var htmlRuns = HtmlToOpenXmlConverter.ConvertHtmlToRuns(htmlValue, existingRunProps);
+
+        // Remove trailing break from last run (avoid extra blank line at end)
+        if (htmlRuns.Count > 0)
+        {
+            var lastRun = htmlRuns[htmlRuns.Count - 1];
+            var lastChild = lastRun.LastChild;
+            if (lastChild is Break)
+            {
+                lastChild.Remove();
+            }
+        }
+
+        // Handle text before/after placeholder in the same Text element
+        var originalText = textElement.Text;
+        var placeholderIndex = originalText.IndexOf(placeholder);
+        if (placeholderIndex < 0) return;
+
+        var beforeText = originalText.Substring(0, placeholderIndex);
+        var afterText = originalText.Substring(placeholderIndex + placeholder.Length);
+
+        // Clear the placeholder from original text
+        textElement.Text = beforeText;
+
+        // Insert HTML runs after the parent run
+        var insertAfter = parentRun as OpenXmlElement;
+        foreach (var htmlRun in htmlRuns)
+        {
+            parentParagraph.InsertAfter(htmlRun, insertAfter);
+            insertAfter = htmlRun;
+        }
+
+        // Add after text if any (in a new run with base properties)
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            var afterRun = new Run();
+            if (existingRunProps != null)
+            {
+                afterRun.Append(existingRunProps.CloneNode(true));
+            }
+            afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
+            parentParagraph.InsertAfter(afterRun, insertAfter);
         }
     }
 

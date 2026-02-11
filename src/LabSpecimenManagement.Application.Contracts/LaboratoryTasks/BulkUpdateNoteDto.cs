@@ -22,9 +22,8 @@ public class BulkUpdateNoteDto
     public List<Guid> SelectedIndicatorIds { get; set; } = new();
 
     /// <summary>
-    /// Nội dung ghi chú tự do (free text) - lưu cho TẤT CẢ chỉ tiêu trong sample
+    /// Nội dung ghi chú tự do (free text, HTML) - lưu cho TẤT CẢ chỉ tiêu trong sample
     /// </summary>
-    [StringLength(2000)]
     public string? FreeTextNote { get; set; }
 
     /// <summary>
