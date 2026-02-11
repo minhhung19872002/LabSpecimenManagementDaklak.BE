@@ -300,8 +300,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("FreeTextNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsSentToQuality")
                         .HasColumnType("boolean");
