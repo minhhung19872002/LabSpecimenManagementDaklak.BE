@@ -2946,6 +2946,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeDotsWithPlaceholders(para);
         }
 
+        // Handle HTML/newline content in Note placeholder BEFORE standard processing
+        if (placeholders.TryGetValue("{{Note}}", out var noteValue) && !string.IsNullOrEmpty(noteValue))
+        {
+            foreach (var text in element.Descendants<Text>().ToList())
+            {
+                if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains("{{Note}}"))
+                {
+                    RemoveContainingCellHeightConstraint(text);
+                    SetNoteFontSize(text, 11);
+                    NormalizeParagraphIndentation(text);
+
+                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(noteValue))
+                    {
+                        ReplaceNoteWithHtmlRuns(text, "{{Note}}", noteValue);
+                    }
+                    else if (noteValue.Contains("\n"))
+                    {
+                        ReplaceTextWithLineBreaks(text, "{{Note}}", noteValue);
+                    }
+                    // else: plain text without newlines, will be handled by standard replacement below
+                }
+            }
+        }
+
         // Process each paragraph to handle dots across multiple text runs
         foreach (var para in element.Descendants<Paragraph>())
         {
