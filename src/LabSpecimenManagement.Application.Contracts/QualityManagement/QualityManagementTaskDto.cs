@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.QualityManagement;
@@ -98,6 +99,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     /// Thông tin thay đổi (cho ChangeApproval tasks)
     /// </summary>
     public ChangeHistoryInfoDto? ChangeHistory { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 
     /// <summary>
     /// Danh sách chỉ tiêu - Indicators

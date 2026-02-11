@@ -845,9 +845,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             dto.LaboratoryName = labDept?.Name;
         }
 
-        // Get customer name
+        // Get customer name and test request status
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
+        dto.TestRequestStatus = testRequest?.Status;
 
         // Collect all user IDs needed for this DTO (batch fetch)
         var allUserIds = new List<Guid?> { task.TechnicalManagerId };

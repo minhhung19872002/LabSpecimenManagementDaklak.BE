@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.Testing;
@@ -80,6 +81,11 @@ public class TestingDetailDto : EntityDto<Guid>
     /// True nếu user hiện tại là 1 trong các KTV được gán vào task này
     /// </summary>
     public bool IsMy { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 }
 
 /// <summary>

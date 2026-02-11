@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -19,6 +20,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Số phiếu yêu cầu - Test Request Number
     /// </summary>
     public string? TestRequestNumber { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 
     /// <summary>
     /// Laboratory ID

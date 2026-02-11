@@ -1275,6 +1275,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             HandoverByUserName = task.HandoverByUserName,
             HandoverNote = task.HandoverNote,
             CustomerName = testRequest?.CustomerName,
+            TestRequestStatus = testRequest?.Status,
             TechnicalManagerNames = managerNames,
             ChangeHistoryId = task.ChangeHistoryId,
             CreationTime = task.CreationTime,
