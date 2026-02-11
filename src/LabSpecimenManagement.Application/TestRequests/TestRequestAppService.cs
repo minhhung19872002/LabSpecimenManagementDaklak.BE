@@ -703,8 +703,9 @@ public partial class TestRequestAppService :
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
-        var previousStatus = entity.Status;
-        var requiresApproval = CanEditLimitedInfo(entity.Status); // SampleSent or InProgress
+        // [TEMPORARY] Tạm tắt approval flow
+        // var previousStatus = entity.Status;
+        // var requiresApproval = CanEditLimitedInfo(entity.Status);
 
         // Validate contract number is unique (exclude current record)
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
@@ -717,35 +718,33 @@ public partial class TestRequestAppService :
         }
 
         // Validate edit permission based on status
-        if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
+        if (!CanEditFullInfo(entity.Status))
         {
             throw new Common.Exceptions.InvalidOperationException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status");
         }
 
-        // Validate limited update - check locked fields
-        if (!CanEditFullInfo(entity.Status))
-        {
-            ValidateLimitedUpdate(entity, input);
-        }
+        // [TEMPORARY] Tạm tắt validate locked fields - cho phép edit tất cả fields
+        // [OLD LOGIC] Validate limited update - check locked fields
+        // if (!CanEditFullInfo(entity.Status))
+        // {
+        //     ValidateLimitedUpdate(entity, input);
+        // }
 
-        // If requires approval (SampleSent/InProgress), only save change history and change status
-        // DO NOT apply changes to entity - changes will be applied when approved
-        if (requiresApproval)
-        {
-            var changeHistoryId = await SaveChangeHistoryAsync(entity, input, previousStatus);
-            if (changeHistoryId.HasValue)
-            {
-                // Only change status to PendingChangeApproval, don't update entity data
-                entity.Status = TestRequestStatus.PendingChangeApproval;
-                await Repository.UpdateAsync(entity, autoSave: true);
+        // [TEMPORARY] Tạm tắt approval flow - luôn update trực tiếp
+        // [OLD LOGIC] If requires approval (SampleSent/InProgress), save change history
+        // if (requiresApproval)
+        // {
+        //     var changeHistoryId = await SaveChangeHistoryAsync(entity, input, previousStatus);
+        //     if (changeHistoryId.HasValue)
+        //     {
+        //         entity.Status = TestRequestStatus.PendingChangeApproval;
+        //         await Repository.UpdateAsync(entity, autoSave: true);
+        //         await CreateQualityManagementTaskForChangeApprovalAsync(entity, changeHistoryId.Value);
+        //     }
+        //     return await GetAsync(id);
+        // }
 
-                // Create QualityManagementTask for ChangeApproval
-                await CreateQualityManagementTaskForChangeApprovalAsync(entity, changeHistoryId.Value);
-            }
-            return await GetAsync(id);
-        }
-
-        // === Below code only runs when NOT requiring approval (New/Pending status) ===
+        // === Update trực tiếp cho tất cả trạng thái ===
 
         // Auto-create Organization if customerName doesn't exist
         await EnsureOrganizationExistsAsync(
@@ -1453,22 +1452,31 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Check if full edit is allowed (all fields)
-    /// New, PendingPayment, Paid can be fully edited
+    /// [TEMPORARY] KH yêu cầu cho phép edit tất cả trạng thái trừ Completed & Cancelled
     /// </summary>
     private bool CanEditFullInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.New ||
-               status == TestRequestStatus.PendingPayment ||
-               status == TestRequestStatus.Paid;
+        // [OLD LOGIC] New, PendingPayment, Paid can be fully edited
+        // return status == TestRequestStatus.New ||
+        //        status == TestRequestStatus.PendingPayment ||
+        //        status == TestRequestStatus.Paid;
+
+        // [TEMPORARY] Cho phép edit tất cả trạng thái trừ Completed & Cancelled
+        return status != TestRequestStatus.Completed &&
+               status != TestRequestStatus.Cancelled;
     }
 
     /// <summary>
     /// Check if limited edit is allowed (some fields locked)
-    /// For SampleSent and InProgress: limited edit with QLCL approval required
+    /// [TEMPORARY] Tạm tắt - không cần approval, edit trực tiếp
     /// </summary>
     private bool CanEditLimitedInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.SampleSent || status == TestRequestStatus.InProgress;
+        // [OLD LOGIC] For SampleSent and InProgress: limited edit with QLCL approval required
+        // return status == TestRequestStatus.SampleSent || status == TestRequestStatus.InProgress;
+
+        // [TEMPORARY] Không cần limited edit nữa
+        return false;
     }
 
     /// <summary>
