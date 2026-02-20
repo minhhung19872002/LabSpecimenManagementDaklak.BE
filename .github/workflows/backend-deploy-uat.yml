@@ -83,6 +83,9 @@ jobs:
           # Update backend image in docker-compose
           sed -i 's|image: .*lab-specimen-backend.*|image: ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest|' docker-compose.yml
 
+          # Update backend environment to UAT
+          sed -i 's|ASPNETCORE_ENVIRONMENT=Production|ASPNETCORE_ENVIRONMENT=UAT|' docker-compose.yml
+
           # Pull and restart using UAT environment file
           docker-compose --env-file .env.uat pull backend
           docker-compose --env-file .env.uat up -d backend
