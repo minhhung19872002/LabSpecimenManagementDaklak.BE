@@ -3,7 +3,7 @@ name: Deploy Backend to UAT
 on:
   push:
     branches:
-      - develop  # or your UAT branch
+      - develop  # UAT branch
     paths:
       - 'src/**'
       - 'Dockerfile'
