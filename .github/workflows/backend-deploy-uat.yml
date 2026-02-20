@@ -7,6 +7,7 @@ on:
     paths:
       - 'src/**'
       - 'Dockerfile'
+      - 'Dockerfile.Migrator'
       - '.github/workflows/backend-deploy-uat.yml'
 
   workflow_dispatch:  # Allow manual trigger
@@ -36,7 +37,7 @@ jobs:
         username: ${{ env.ACR_USERNAME }}
         password: ${{ secrets.UAT_ACR_PASSWORD }}
 
-    - name: Build and push Docker image
+    - name: Build and push Backend Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
@@ -45,6 +46,18 @@ jobs:
           ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest
           ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         cache-from: type=registry,ref=${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest
+        cache-to: type=inline
+
+    - name: Build and push DbMigrator Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: Dockerfile.Migrator
+        push: true
+        tags: |
+          ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
+          ${{ env.ACR_SERVER }}/lab-specimen-migrator:${{ github.sha }}
+        cache-from: type=registry,ref=${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
         cache-to: type=inline
 
     - name: Deploy to UAT VM via SSH
@@ -58,6 +71,14 @@ jobs:
 
           # Log in to ACR
           echo "${{ secrets.UAT_ACR_PASSWORD }}" | docker login ${{ env.ACR_SERVER }} -u ${{ env.ACR_USERNAME }} --password-stdin
+
+          # Run database migrations
+          echo "Running database migrations..."
+          docker pull ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
+          docker run --rm --env-file /opt/lab-specimen/.env.uat \
+            -e ConnectionStrings__Default="Host=psql-lab-specimen-uat.postgres.database.azure.com;Database=labspecimen;Username=psqladmin;Password=UatPassword2026;SSL Mode=Require" \
+            ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
+          echo "Database migrations completed successfully"
 
           # Update backend image in docker-compose
           sed -i 's|image: .*lab-specimen-backend.*|image: ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest|' docker-compose.yml
