@@ -20,7 +20,6 @@ env:
   # UAT VM Configuration
   UAT_VM_HOST: 20.205.154.96
   UAT_VM_USER: azureuser
-  UAT_VM_PASS: Vn8$$RkM9@aP2!L7Z  # Double $$ to escape in YAML
 
 jobs:
   build-and-deploy:
@@ -30,17 +29,12 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v4
 
-    - name: Parse UAT config
-      id: config
-      run: |
-        echo "acr_password=${{ fromJSON(secrets.UAT_CONFIG).acr_password }}" >> $GITHUB_OUTPUT
-
     - name: Log in to Azure Container Registry
       uses: docker/login-action@v3
       with:
         registry: ${{ env.ACR_SERVER }}
         username: ${{ env.ACR_USERNAME }}
-        password: ${{ steps.config.outputs.acr_password }}
+        password: ${{ secrets.UAT_ACR_PASSWORD }}
 
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -58,12 +52,12 @@ jobs:
       with:
         host: ${{ env.UAT_VM_HOST }}
         username: ${{ env.UAT_VM_USER }}
-        password: ${{ env.UAT_VM_PASS }}
+        key: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
         script: |
           cd /opt/lab-specimen
 
           # Log in to ACR
-          echo "${{ steps.config.outputs.acr_password }}" | docker login ${{ env.ACR_SERVER }} -u ${{ env.ACR_USERNAME }} --password-stdin
+          echo "${{ secrets.UAT_ACR_PASSWORD }}" | docker login ${{ env.ACR_SERVER }} -u ${{ env.ACR_USERNAME }} --password-stdin
 
           # Update backend image in docker-compose
           sed -i 's|image: .*lab-specimen-backend.*|image: ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest|' docker-compose.yml
@@ -80,7 +74,7 @@ jobs:
       with:
         host: ${{ env.UAT_VM_HOST }}
         username: ${{ env.UAT_VM_USER }}
-        password: ${{ env.UAT_VM_PASS }}
+        key: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
         script: |
           cd /opt/lab-specimen
           docker-compose ps backend
