@@ -62,9 +62,9 @@ jobs:
           # Update backend image in docker-compose
           sed -i 's|image: .*lab-specimen-backend.*|image: ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest|' docker-compose.yml
 
-          # Pull and restart
-          docker-compose pull backend
-          docker-compose up -d backend
+          # Pull and restart using UAT environment file
+          docker-compose --env-file .env.uat pull backend
+          docker-compose --env-file .env.uat up -d backend
 
           # Clean up old images
           docker image prune -f
@@ -77,5 +77,5 @@ jobs:
         key: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
         script: |
           cd /opt/lab-specimen
-          docker-compose ps backend
-          docker-compose logs --tail=50 backend
+          docker-compose --env-file .env.uat ps backend
+          docker-compose --env-file .env.uat logs --tail=50 backend
