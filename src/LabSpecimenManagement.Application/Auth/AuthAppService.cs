@@ -28,6 +28,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     private readonly IConfiguration _configuration;
     private readonly IPermissionChecker _permissionChecker;
     private readonly IPermissionManager _permissionManager;
+    private readonly IPermissionGrantRepository _permissionGrantRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
@@ -37,6 +38,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         IConfiguration configuration,
         IPermissionChecker permissionChecker,
         IPermissionManager permissionManager,
+        IPermissionGrantRepository permissionGrantRepository,
         IRepository<Department, Guid> departmentRepository,
         IIdentityRoleRepository roleRepository,
         IHttpContextAccessor httpContextAccessor)
@@ -45,6 +47,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         _configuration = configuration;
         _permissionChecker = permissionChecker;
         _permissionManager = permissionManager;
+        _permissionGrantRepository = permissionGrantRepository;
         _departmentRepository = departmentRepository;
         _roleRepository = roleRepository;
         _httpContextAccessor = httpContextAccessor;
@@ -467,8 +470,21 @@ public class AuthAppService : ApplicationService, IAuthAppService
         var roles = await _userManager.GetRolesAsync(user);
         dto.Roles = roles.ToList();
 
-        // Get permissions - lấy permissions thực tế từ các roles
+        // Get effective permissions = User Permissions OR Role Permissions
         var permissions = new HashSet<string>();
+
+        // 1. Get user-specific permissions (Quyền User - provider "U")
+        // Use IPermissionGrantRepository to query database directly for accurate results
+        var userPermissionGrants = await _permissionGrantRepository.GetListAsync(
+            UserPermissionValueProvider.ProviderName, // "U"
+            user.Id.ToString()
+        );
+        foreach (var grant in userPermissionGrants)
+        {
+            permissions.Add(grant.Name);
+        }
+
+        // 2. Get role permissions (Quyền Role)
         foreach (var role in roles)
         {
             // Thêm role marker để backward compatibility
@@ -481,6 +497,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
                 permissions.Add(perm.Name);
             }
         }
+
         dto.Permissions = permissions.ToList();
 
         return dto;

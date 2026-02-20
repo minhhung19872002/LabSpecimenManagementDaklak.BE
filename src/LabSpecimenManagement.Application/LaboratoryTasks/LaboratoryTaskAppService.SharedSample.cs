@@ -13,7 +13,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT Vi Sinh gửi mẫu chung cho Lab Hóa
     /// Điều kiện: IsSharedSampleTask = true, tất cả chỉ tiêu đã được duyệt (Approved), SampleSentToNextLab = false
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendSharedSampleAsync(Guid id, SendSharedSampleDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -73,7 +73,7 @@ public partial class LaboratoryTaskAppService
     /// Chỉ để ghi nhận ngày nhận mẫu - Lab Hóa đã có thể làm việc song song
     /// Điều kiện: IsSharedSampleTask = true, PriorLab đã gửi mẫu, chưa nhận mẫu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> ReceiveSharedSampleAsync(Guid id, ReceiveSharedSampleDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -123,20 +123,8 @@ public partial class LaboratoryTaskAppService
             return false;
         }
 
-        // Nếu là Lab Vi Sinh (priority lab), không ẩn
-        var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
-        var labDept2 = await _departmentRepository.GetAsync(laboratory.DepartmentId);
-        var labName2 = labDept2.Name;
-        var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
-                                labName2.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
-                                labName2.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
-
-        if (isMicrobiologyLab)
-        {
-            return false;
-        }
-
-        // Lab khác (Hóa) trong shared sample task -> ẩn nút từ chối
-        return true;
+        // Lab Vi Sinh (lab đầu tiên): PriorLabTaskId = null → hiện nút từ chối
+        // Lab Hóa (lab thứ 2): PriorLabTaskId có giá trị → ẩn nút từ chối
+        return task.PriorLabTaskId != null;
     }
 }

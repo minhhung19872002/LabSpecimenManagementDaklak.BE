@@ -12,6 +12,7 @@ using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.ResultForms;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.Extensions.Configuration;
@@ -60,11 +61,18 @@ public class FormTemplateController : LabSpecimenManagementController
         }
 
         var files = Directory.GetFiles(templatesPath)
-            .Where(f => !IsTemplateFile(Path.GetFileName(f))) // Filter out template files
-            .Select(f => new FormTemplateDto
+            .Where(f => IsTemplateFile(Path.GetFileName(f))) // Only show template files
+            .Select(f =>
             {
-                FileName = Path.GetFileName(f),
-                Name = Path.GetFileNameWithoutExtension(f)
+                var fileName = Path.GetFileName(f);
+                // Remove ".template" from display name: "form.template.docx" -> "form"
+                var name = fileName.Replace(".template", "", StringComparison.OrdinalIgnoreCase);
+                name = Path.GetFileNameWithoutExtension(name);
+                return new FormTemplateDto
+                {
+                    FileName = fileName,
+                    Name = name
+                };
             })
             .OrderBy(f => f.Name)
             .ToList();
@@ -81,6 +89,95 @@ public class FormTemplateController : LabSpecimenManagementController
     {
         // Check for ".template." pattern in the filename (case-insensitive)
         return fileName.Contains(".template.", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Upload a form template file. Replaces existing file if same name.
+    /// </summary>
+    [HttpPost("upload")]
+    [Authorize]
+    public async Task<ActionResult<UploadFormTemplateResultDto>> Upload(IFormFile file)
+    {
+        if (file == null || file.Length == 0)
+        {
+            throw new ValidationException("file", "File không được để trống");
+        }
+
+        // Validate file type
+        var allowedExtensions = new[] { ".docx", ".doc", ".xlsx", ".xls", ".pdf" };
+        var extension = Path.GetExtension(file.FileName).ToLowerInvariant();
+        if (!allowedExtensions.Contains(extension))
+        {
+            throw new ValidationException("file", $"Chỉ hỗ trợ file: {string.Join(", ", allowedExtensions)}");
+        }
+
+        // Max 50MB
+        if (file.Length > 50 * 1024 * 1024)
+        {
+            throw new ValidationException("file", "File không được vượt quá 50MB");
+        }
+
+        var templatesPath = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        if (!Directory.Exists(templatesPath))
+        {
+            Directory.CreateDirectory(templatesPath);
+        }
+
+        var fileName = file.FileName;
+        var filePath = Path.Combine(templatesPath, fileName);
+
+        // Security check: prevent directory traversal
+        var fullPath = Path.GetFullPath(filePath);
+        if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
+        {
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
+        }
+
+        var isReplacing = System.IO.File.Exists(filePath);
+
+        // Save file
+        using (var stream = new FileStream(filePath, FileMode.Create))
+        {
+            await file.CopyToAsync(stream);
+        }
+
+        _logger.LogInformation("Form template uploaded: {FileName}, Replacing: {IsReplacing}", fileName, isReplacing);
+
+        return new UploadFormTemplateResultDto
+        {
+            FileName = fileName,
+            IsReplacing = isReplacing,
+            Success = true
+        };
+    }
+
+    /// <summary>
+    /// Check if a template file already exists
+    /// </summary>
+    [HttpGet("check-exists")]
+    [Authorize]
+    public ActionResult<CheckTemplateExistsResultDto> CheckExists([FromQuery] string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            throw new ValidationException("fileName", "Tên file không được để trống");
+        }
+
+        var templatesPath = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        var filePath = Path.Combine(templatesPath, fileName);
+
+        // Security check
+        var fullPath = Path.GetFullPath(filePath);
+        if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
+        {
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
+        }
+
+        return new CheckTemplateExistsResultDto
+        {
+            FileName = fileName,
+            Exists = System.IO.File.Exists(filePath)
+        };
     }
 
     /// <summary>

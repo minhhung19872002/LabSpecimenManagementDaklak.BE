@@ -87,6 +87,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<LaboratoryTask> LaboratoryTasks { get; set; }
     public DbSet<LaboratoryTaskIndicator> LaboratoryTaskIndicators { get; set; }
     public DbSet<LaboratoryTaskSupporter> LaboratoryTaskSupporters { get; set; }
+    public DbSet<LaboratoryDepartmentSupporter> LaboratoryDepartmentSupporters { get; set; }
     public DbSet<LaboratoryTaskSampleReceived> LaboratoryTaskSampleReceiveds { get; set; }
     public DbSet<IndicatorRejectionHistory> IndicatorRejectionHistories { get; set; }
     public DbSet<RejectionHistoryImage> RejectionHistoryImages { get; set; }
@@ -118,6 +119,7 @@ public class LabSpecimenManagementDbContext :
 
     // Test Result Values (Master Data)
     public DbSet<TestResultValue> TestResultValues { get; set; }
+    public DbSet<TestResultValueIndicator> TestResultValueIndicators { get; set; }
 
     // Notes (Master Data)
     public DbSet<Note> Notes { get; set; }
@@ -526,6 +528,18 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
+        // TestResultValueIndicator configuration (Junction Table for Many-to-Many)
+        builder.Entity<TestResultValueIndicator>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestResultValueIndicators", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.TestResultValueId);
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.SpecimenTypeId);
+            // Composite unique key: (TestResultValueId, IndicatorId, SpecimenTypeId)
+            b.HasIndex(x => new { x.TestResultValueId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
+        });
+
         // Note configuration
         builder.Entity<Note>(b =>
         {
@@ -533,7 +547,7 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
-            b.Property(x => x.Content).IsRequired().HasMaxLength(1000);
+            b.Property(x => x.Content).IsRequired();
 
             // Filtered unique index - only enforce uniqueness for non-deleted records
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
@@ -807,7 +821,7 @@ public class LabSpecimenManagementDbContext :
 
             // String properties
             b.Property(x => x.Result).HasMaxLength(500);
-            b.Property(x => x.Unit).HasMaxLength(50);
+            // Unit: no length limit (text type) - copied from TestMethod which may have long values
             b.Property(x => x.RejectionReason).HasMaxLength(1000);
 
             // Indexes
@@ -844,6 +858,18 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.LaboratoryTaskId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ LABORATORY DEPARTMENT SUPPORTER CONFIGURATION ============
+
+        builder.Entity<LaboratoryDepartmentSupporter>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "LaboratoryDepartmentSupporters", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.LaboratoryId);
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => new { x.LaboratoryId, x.UserId }).IsUnique();
+            b.HasIndex(x => x.ExpirationDate); // For efficient cleanup query
         });
 
         // ============ LABORATORY TASK SAMPLE RECEIVED CONFIGURATION ============

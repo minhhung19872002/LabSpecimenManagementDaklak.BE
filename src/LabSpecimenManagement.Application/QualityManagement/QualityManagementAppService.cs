@@ -561,25 +561,28 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
             var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
+            var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
 
             // Try to find matching StandardIndicator
             StandardIndicator? standardIndicator = null;
 
             if (labIndicator.MethodId.HasValue)
             {
-                // First try with exact method match
+                // First try with exact method + specimenType match
                 standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
                     si.StandardId == standardId.Value &&
                     si.IndicatorId == sampleIndicator.IndicatorId &&
-                    si.TestMethodId == labIndicator.MethodId.Value);
+                    si.TestMethodId == labIndicator.MethodId.Value &&
+                    (!sample.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == sample.SpecimenTypeId.Value));
             }
 
-            // If not found with method, try matching by indicator only
+            // If not found with method, try matching by indicator + specimenType only
             if (standardIndicator == null)
             {
                 standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
                     si.StandardId == standardId.Value &&
-                    si.IndicatorId == sampleIndicator.IndicatorId);
+                    si.IndicatorId == sampleIndicator.IndicatorId &&
+                    (!sample.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == sample.SpecimenTypeId.Value));
             }
 
             if (standardIndicator != null)
@@ -1272,6 +1275,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             HandoverByUserName = task.HandoverByUserName,
             HandoverNote = task.HandoverNote,
             CustomerName = testRequest?.CustomerName,
+            TestRequestStatus = testRequest?.Status,
             TechnicalManagerNames = managerNames,
             ChangeHistoryId = task.ChangeHistoryId,
             CreationTime = task.CreationTime,
@@ -1342,6 +1346,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         string? standardName = null;
         string? comparisonOperator = null;
         string? allowedLimit = null;
+        string? lowerOperator = null;
+        string? lowerLimit = null;
+        string? upperOperator = null;
+        string? upperLimit = null;
 
         // Try to get standard info from LaboratoryTaskIndicator first (KTV's selection)
         var standardId = labIndicator.StandardId ?? indicator.StandardId;
@@ -1374,6 +1382,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             {
                 comparisonOperator = standardIndicator.ComparisonOperator;
                 allowedLimit = standardIndicator.AllowedLimit;
+                lowerOperator = standardIndicator.LowerOperator;
+                lowerLimit = standardIndicator.LowerLimit;
+                upperOperator = standardIndicator.UpperOperator;
+                upperLimit = standardIndicator.UpperLimit;
             }
         }
 
@@ -1416,6 +1428,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             ReferenceLimit = indicator.ReferenceLimit,
             ComparisonOperator = comparisonOperator,
             AllowedLimit = allowedLimit,
+            LowerOperator = lowerOperator,
+            LowerLimit = lowerLimit,
+            UpperOperator = upperOperator,
+            UpperLimit = upperLimit,
             ApprovalStatus = indicator.ApprovalStatus,
             RejectionReason = indicator.RejectionReason,
             IsResultSent = indicator.IsResultSent,
@@ -1542,22 +1558,54 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         // Filter out parent indicators with children - only count sub-indicators and standalone indicators
         var filteredIndicators = await FilterQualityIndicatorsForStatusCalculationAsync(allIndicators);
-        var approvedIndicators = filteredIndicators.Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
 
+        // Kiểm tra còn chỉ tiêu chờ phê duyệt không
+        var pendingApprovalIndicators = filteredIndicators.Where(i =>
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval).ToList();
+
+        var approvedIndicators = filteredIndicators.Where(i =>
+            i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved).ToList();
+
+        // ƯU TIÊN 1: Còn chỉ tiêu chờ phê duyệt -> giữ PendingApproval
+        if (pendingApprovalIndicators.Any())
+        {
+            // Nếu có chỉ tiêu đã được in nhưng vẫn còn chỉ tiêu chờ duyệt
+            // -> ưu tiên giữ status PendingApproval
+            task.Status = QualityManagementStatus.PendingApproval;
+            await _taskRepository.UpdateAsync(task);
+
+            // Vẫn cập nhật TestRequest nếu có chỉ tiêu đã được in
+            var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+            if (printedCount > 0)
+            {
+                var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
+                if (testRequest.Status != TestRequestStatus.ReportPublished)
+                {
+                    testRequest.Status = TestRequestStatus.ReportPublished;
+                    testRequest.ReportPublishedDate = DateTime.Now;
+                    testRequest.ReportPublishedByUserId = CurrentUser.Id;
+                    testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+                    await _testRequestRepository.UpdateAsync(testRequest);
+                }
+            }
+            return;
+        }
+
+        // Không còn chỉ tiêu chờ duyệt -> tính status dựa vào số lượng đã in
         if (!approvedIndicators.Any())
         {
             return;
         }
 
-        var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+        var totalPrintedCount = approvedIndicators.Count(i => i.IsPrinted);
         var totalApproved = approvedIndicators.Count;
 
-        if (printedCount == 0)
+        if (totalPrintedCount == 0)
         {
             // Chưa in gì - giữ PendingPublish
             return;
         }
-        else if (printedCount < totalApproved)
+        else if (totalPrintedCount < totalApproved)
         {
             // In 1 phần
             task.Status = QualityManagementStatus.PartialPublished;
@@ -1571,14 +1619,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         await _taskRepository.UpdateAsync(task);
 
         // Cập nhật TestRequest.Status = ReportPublished ngay khi có chỉ tiêu được in
-        var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
-        if (testRequest.Status != TestRequestStatus.ReportPublished)
+        var testRequest2 = await _testRequestRepository.GetAsync(task.TestRequestId);
+        if (testRequest2.Status != TestRequestStatus.ReportPublished)
         {
-            testRequest.Status = TestRequestStatus.ReportPublished;
-            testRequest.ReportPublishedDate = DateTime.Now;
-            testRequest.ReportPublishedByUserId = CurrentUser.Id;
-            testRequest.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
-            await _testRequestRepository.UpdateAsync(testRequest);
+            testRequest2.Status = TestRequestStatus.ReportPublished;
+            testRequest2.ReportPublishedDate = DateTime.Now;
+            testRequest2.ReportPublishedByUserId = CurrentUser.Id;
+            testRequest2.ReportPublishedByUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
+            await _testRequestRepository.UpdateAsync(testRequest2);
         }
     }
 
@@ -1805,6 +1853,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
                         IsReportPublished = qi != null && qi.IsPrinted,
 
+                        // Additional fields for QLCLDisplayStatus mapping
+                        TechnicianId = li != null ? (Guid?)li.TechnicianId : null,
+                        MethodId = li != null ? (Guid?)li.MethodId : null,
+
                         // Laboratory info (for filtering)
                         LaboratoryId = lt != null ? (Guid?)lt.LaboratoryId : null
                     };
@@ -1895,6 +1947,16 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TestingStatus = x.IndicatorApprovalStatus.HasValue
                 ? DetermineTestingStatus(x.IndicatorApprovalStatus.Value, x.TestDate, x.Result)
                 : null,
+            // QLCLDisplayStatus - trạng thái hiển thị cho trang QLCL
+            QLCLDisplayStatus = MapQLCLDisplayStatus(
+                x.TestRequestStatus,
+                x.IndicatorApprovalStatus,
+                x.QualityApprovalStatus,
+                x.IsReportPublished,
+                x.TechnicianId,
+                x.MethodId,
+                x.TestDate,
+                x.Result),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = x.IsReportPublished
         }).ToList();
@@ -1928,6 +1990,110 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
             ? TestingStatus.NotStarted
             : null;
+    }
+
+    /// <summary>
+    /// Map to QLCLDisplayStatus for QLCL page - Sổ nhận việc
+    /// Flow: Mới → Chờ thanh toán → Đang xem xét YC → Từ chối/Chờ giao việc → Cần làm → Đang TN → Chờ QLKT duyệt → Chờ QLCL duyệt → Chờ phát hành → Đã phát hành
+    /// </summary>
+    private static QLCLDisplayStatus? MapQLCLDisplayStatus(
+        TestRequestStatus testRequestStatus,
+        IndicatorApprovalStatus? indicatorApprovalStatus,
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        bool isReportPublished,
+        Guid? technicianId,
+        Guid? methodId,
+        DateTime? testDate,
+        string? result)
+    {
+        // 1. Đã phát hành báo cáo
+        if (isReportPublished)
+        {
+            return QLCLDisplayStatus.Published;
+        }
+
+        // 2. Chờ phát hành - QLCL đã duyệt nhưng chưa phát hành
+        if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Approved)
+        {
+            return QLCLDisplayStatus.WaitingForPublishing;
+        }
+
+        // 3. QLCL từ chối kết quả
+        if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+        {
+            return QLCLDisplayStatus.QLCLRejected;
+        }
+
+        // 4. Chờ QLCL duyệt - QLKT đã duyệt, chờ QLCL
+        // Bao gồm cả trường hợp qualityApprovalStatus == null (edge case khi QLKT duyệt nhưng chưa tạo QualityManagementIndicator)
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Approved &&
+            (qualityApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval || qualityApprovalStatus == null))
+        {
+            return QLCLDisplayStatus.WaitingQLCLApproval;
+        }
+
+        // 5. QLKT từ chối kết quả
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Rejected)
+        {
+            return QLCLDisplayStatus.ResultRejected;
+        }
+
+        // 6. Chờ QLKT duyệt - KTV đã gửi kết quả
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return QLCLDisplayStatus.WaitingQLKTApproval;
+        }
+
+        // 7. Đang thử nghiệm - đã có testDate hoặc đã bắt đầu TN
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            (testDate.HasValue || !string.IsNullOrWhiteSpace(result)))
+        {
+            return QLCLDisplayStatus.Testing;
+        }
+
+        // 8. Cần làm - đã giao việc (có TechnicianId và MethodId)
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting &&
+            technicianId.HasValue && methodId.HasValue)
+        {
+            return QLCLDisplayStatus.ToDo;
+        }
+
+        // 9. Chờ giao việc - đã chấp nhận nhưng chưa giao KTV
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+        {
+            return QLCLDisplayStatus.WaitingForAssignment;
+        }
+
+        // 10. QLCL/QLKT từ chối yêu cầu TN
+        if (indicatorApprovalStatus == IndicatorApprovalStatus.TestingRejected)
+        {
+            return QLCLDisplayStatus.Rejected;
+        }
+
+        // 11. Kiểm tra theo TestRequestStatus
+        switch (testRequestStatus)
+        {
+            case TestRequestStatus.New:
+                return QLCLDisplayStatus.New;
+
+            case TestRequestStatus.PendingPayment:
+                return QLCLDisplayStatus.WaitingForPayment;
+
+            case TestRequestStatus.UnderReview:
+            case TestRequestStatus.WaitingCustomerConfirm:
+                return QLCLDisplayStatus.UnderReview;
+
+            case TestRequestStatus.Completed:
+                return QLCLDisplayStatus.Published;
+
+            default:
+                // Các trạng thái khác map về UnderReview nếu chưa có IndicatorApprovalStatus
+                if (!indicatorApprovalStatus.HasValue)
+                {
+                    return QLCLDisplayStatus.UnderReview;
+                }
+                return QLCLDisplayStatus.ToDo;
+        }
     }
 
     /// <summary>

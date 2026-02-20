@@ -168,6 +168,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                 {
                     dto.SampleCode = sample.SampleCode;
                     dto.SampleName = sample.SampleName;
+                    dto.SpecimenTypeId = sample.SpecimenTypeId;
                 }
 
                 // Set indicator info

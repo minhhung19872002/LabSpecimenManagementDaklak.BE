@@ -358,6 +358,7 @@ public partial class TestRequestAppService
         else if (allTasksProcessed)
         {
             testRequest.Status = TestRequestStatus.RequestApproved;
+            testRequest.RequestApprovedDate = DateTime.Now;
         }
 
         // ===== THÊM MỚI: Recalculate TotalCost sau khi xác nhận =====

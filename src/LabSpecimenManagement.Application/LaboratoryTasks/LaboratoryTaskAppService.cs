@@ -21,7 +21,7 @@ using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
 
-[Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+[Authorize]
 public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
 {
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
@@ -50,6 +50,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<LaboratoryDepartmentSupporter, Guid> _departmentSupporterRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -77,7 +78,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<SampleIndicatorNote, Guid> sampleIndicatorNoteRepository,
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IRepository<Note, Guid> noteRepository,
-        IRepository<Department, Guid> departmentRepository)
+        IRepository<Department, Guid> departmentRepository,
+        IRepository<LaboratoryDepartmentSupporter, Guid> departmentSupporterRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -105,6 +107,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _noteRepository = noteRepository;
         _departmentRepository = departmentRepository;
+        _departmentSupporterRepository = departmentSupporterRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -132,15 +135,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .Select(lab => lab.Id)
                 .ToHashSet();
 
-            // Check if user is purely a supporter (not QLKT of any lab)
-            var isPureSupporter = managedLaboratoryIds.Count == 0 && supporterTaskIds.Count > 0;
+            // Lấy danh sách LaboratoryId mà user là department supporter (chưa hết hạn)
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
 
-            // Filter: current user is QLKT của phòng ban OR QLKT của task OR supporter
+            // Filter: current user is QLKT của phòng ban OR QLKT của task OR supporter OR department supporter
             // Supporter chỉ thấy task chưa hoàn thành (status != SentToQuality)
             queryable = queryable.Where(x =>
                 managedLaboratoryIds.Contains(x.LaboratoryId) ||
                 x.TechnicalManagerId == currentUserId.Value ||
-                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality));
+                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
         }
 
         // Apply search filter - search by ContractNumber and TechnicalManager name
@@ -235,7 +242,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return new PagedResultDto<LaboratoryTaskDto>(totalCount, dtos);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> UpdateAsync(Guid id, UpdateLaboratoryTaskDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -289,7 +296,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return new ListResultDto<LaboratoryTaskDto>(dtos);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> UpdateStatusAsync(Guid id, LaboratoryTaskStatus newStatus)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -298,7 +305,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return await MapToDetailDtoAsync(task);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SetTestDateAsync(Guid id, DateTime testDate)
     {
         var task = await _laboratoryTaskRepository.GetAsync(id);
@@ -311,12 +318,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     private async Task<LaboratoryTaskDto> MapToListDtoAsync(LaboratoryTask task)
     {
-        // Lấy ngày thí nghiệm sớm nhất từ các indicators (ngày KTV bắt đầu thực hiện chỉ tiêu đầu tiên)
+        // Lấy ngày thí nghiệm từ các indicators
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-        var earliestTestDate = taskIndicators
-            .Where(ti => ti.TestDate.HasValue)
-            .OrderBy(ti => ti.TestDate)
-            .FirstOrDefault()?.TestDate;
+
+        // Tính Min/Max TestDate giống báo cáo
+        var indicatorsWithTestDate = taskIndicators.Where(ti => ti.TestDate.HasValue).ToList();
+        var earliestTestDate = indicatorsWithTestDate.OrderBy(ti => ti.TestDate).FirstOrDefault()?.TestDate;
+        var latestTestDate = indicatorsWithTestDate.OrderByDescending(ti => ti.TestDate).FirstOrDefault()?.TestDate;
+
+        // Calculate TestDateRange: "dd/MM/yyyy - dd/MM/yyyy"
+        var testDateRange = CalculateTestDateRange(earliestTestDate, latestTestDate);
 
         var dto = new LaboratoryTaskDto
         {
@@ -329,6 +340,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
             TestDate = earliestTestDate ?? task.TestDate, // Ưu tiên ngày sớm nhất từ indicators, fallback về task.TestDate
+            TestDateRange = testDateRange, // Khoảng ngày: Min - Max
             Status = task.Status,
             Notes = task.Notes,
             ResultRejectionReason = task.ResultRejectionReason,
@@ -361,6 +373,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (testRequest != null)
         {
             dto.TestRequestNumber = testRequest.RequestNumber;
+            dto.TestRequestStatus = testRequest.Status;
             dto.CustomerName = testRequest.CustomerName;
         }
 
@@ -385,6 +398,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Check if current user is a supporter
             var supporters = await _supporterRepository.GetListAsync(s => s.LaboratoryTaskId == task.Id);
             dto.IsCurrentUserSupporter = supporters.Any(s => s.UserId == currentUserId.Value);
+
+            // Check if current user is a department supporter (not expired)
+            dto.IsCurrentUserDepartmentSupporter = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value &&
+                      ds.LaboratoryId == task.LaboratoryId &&
+                      ds.ExpirationDate > DateTime.UtcNow)).Any();
         }
 
         return dto;
@@ -607,7 +626,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Phase 6 - Workflow Methods
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> AssignSampleIndicatorsAsync(Guid taskId, Guid sampleId, List<AssignIndicatorDto> assignments)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -746,7 +765,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorResultAsync(Guid indicatorId, UpdateIndicatorResultDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -805,7 +824,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> ApproveIndicatorAsync(Guid indicatorId, ApproveIndicatorDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -942,7 +961,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật tiêu chuẩn so sánh cho chỉ tiêu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -976,7 +995,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -1007,7 +1026,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật ghi chú cho chỉ tiêu
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorNoteAsync(Guid indicatorId, string? note)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -1034,7 +1053,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Cập nhật ghi chú cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task BulkUpdateIndicatorNoteAsync(Guid taskId, BulkUpdateNoteDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -1099,7 +1118,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         await _laboratoryTaskIndicatorRepository.UpdateManyAsync(indicators);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendResultsAsync(Guid taskId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -1903,6 +1922,37 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     /// <summary>
+    /// Calculate Test Date Range from Min/Max test dates
+    /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
+    /// - Start date = Min(TestDate) of all indicators (thời gian thử nghiệm sớm nhất)
+    /// - End date = Max(TestDate) of all indicators (thời gian thử nghiệm muộn nhất)
+    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
+    /// Giống logic trong ResultFormAppService.CalculateTimeOfTesting
+    /// </summary>
+    private static string? CalculateTestDateRange(DateTime? minTestDate, DateTime? maxTestDate)
+    {
+        if (!minTestDate.HasValue && !maxTestDate.HasValue)
+        {
+            return null;
+        }
+
+        if (!minTestDate.HasValue)
+        {
+            // Only have max date, show it twice
+            return $"{maxTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
+        }
+
+        if (!maxTestDate.HasValue)
+        {
+            // Only have min date, show it twice
+            return $"{minTestDate:dd/MM/yyyy} - {minTestDate:dd/MM/yyyy}";
+        }
+
+        // Always show both dates (even if same day: "07/01/2025 - 07/01/2025")
+        return $"{minTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
+    }
+
+    /// <summary>
     /// Tự động duyệt chỉ tiêu cha khi chỉ tiêu phụ được duyệt.
     /// Logic: Khi duyệt sub-indicator, cần auto-approve parent để QLCL có thể group đúng.
     /// </summary>
@@ -2047,7 +2097,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Bulk Approval
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> BulkApproveIndicatorsAsync(Guid taskId, BulkApproveIndicatorsDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -2248,7 +2298,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     #region Send to Quality Management
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> SendToQualityAsync(Guid taskId, SendToQualityDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -2553,7 +2603,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         return qualityManagerIds;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<ListResultDto<UserLookupDto>> GetQualityManagersAsync(Guid taskId)
     {
         // Get task to find QLKT's department
@@ -2712,13 +2762,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return new List<LabTechnicianPendingTaskDto>();
         }
 
-        // Get all indicators assigned to current user with status Pending, Entered, or Rejected
+        // Get all indicators assigned to current user with actionable status
         var indicatorQueryable = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
         var taskQueryable = await _laboratoryTaskRepository.GetQueryableAsync();
 
         var indicators = indicatorQueryable
             .Where(x => x.TechnicianId == currentUserId.Value &&
                         (x.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                         x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
                          x.ApprovalStatus == IndicatorApprovalStatus.Entered ||
                          x.ApprovalStatus == IndicatorApprovalStatus.Rejected))
             .ToList();
@@ -2749,7 +2800,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 continue;
             }
 
-            var pendingCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Pending);
+            var pendingCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                                                x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting);
             var enteredCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Entered);
             var rejectedCount = group.Count(x => x.ApprovalStatus == IndicatorApprovalStatus.Rejected);
 
@@ -2797,7 +2849,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     /// <summary>
     /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Default)]
+    [Authorize]
     public async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input)
     {
         var currentUserId = CurrentUser.Id;
@@ -2811,6 +2863,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
         var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
 
         // Build base query from LaboratoryTaskIndicator
         var query = from li in labIndicatorQuery
@@ -2821,6 +2874,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
                     join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
                     from tm in tmJoin.DefaultIfEmpty()
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
                     select new
                     {
                         // TestRequest info
@@ -2843,6 +2898,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         IndicatorId = li.Id,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
+                        MethodId = li.MethodId,
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
@@ -2858,6 +2914,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
                         // Status
                         IndicatorApprovalStatus = li.ApprovalStatus,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
 
                         // Laboratory info (for filtering)
                         LaboratoryId = lt.LaboratoryId
@@ -2877,10 +2934,17 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
-            // Filter: Show tasks from labs user manages OR tasks where user is supporter
+            // Get lab IDs where current user is a department supporter (not expired)
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+
+            // Filter: Show tasks from labs user manages OR tasks where user is supporter OR department supporter labs
             query = query.Where(x =>
                 managedLaboratoryIds.Contains(x.LaboratoryId) ||
-                supporterTaskIds.Contains(x.LaboratoryTaskId));
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
         }
 
         // Apply filters
@@ -2984,7 +3048,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             QlktApprovalDate = x.QlktApprovalDate,
             IndicatorApprovalStatus = x.IndicatorApprovalStatus,
             TestingStatus = MapSampleAssignmentTestingStatus(x.IndicatorApprovalStatus, x.TestDate, x.Result),
-            QualityApprovalStatus = null,
+            QLKTDisplayStatus = MapQLKTDisplayStatus(
+                x.IndicatorApprovalStatus,
+                x.MethodId,
+                x.TechnicianId,
+                x.TestDate,
+                x.Result,
+                x.QualityApprovalStatus),
+            QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
 
@@ -3039,6 +3110,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         DateTime? testDate,
         string? result)
     {
+        // Handle Rejected and CannotTest first - these are terminal states
+        if (approvalStatus == IndicatorApprovalStatus.Rejected)
+        {
+            return TestingStatus.Rejected;
+        }
+
+        if (approvalStatus == IndicatorApprovalStatus.CannotTest)
+        {
+            return TestingStatus.CannotTest;
+        }
+
+        // If already has result, it's completed or pending approval
         if (!string.IsNullOrWhiteSpace(result))
         {
             return approvalStatus == IndicatorApprovalStatus.Approved
@@ -3046,14 +3129,101 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 : TestingStatus.PendingApproval;
         }
 
+        // If test date is set but no result, it's in progress
         if (testDate.HasValue)
         {
             return TestingStatus.InProgress;
         }
 
-        return approvalStatus == IndicatorApprovalStatus.AcceptedForTesting
-            ? TestingStatus.NotStarted
-            : null;
+        // Pending or AcceptedForTesting → NotStarted
+        // (indicator is waiting to be processed/tested)
+        return TestingStatus.NotStarted;
+    }
+
+    /// <summary>
+    /// Map indicator data to QLKTDisplayStatus for "Sổ nhận việc" tab
+    /// Based on KH flow diagram
+    /// </summary>
+    private static QLKTDisplayStatus MapQLKTDisplayStatus(
+        IndicatorApprovalStatus approvalStatus,
+        Guid? methodId,
+        Guid? technicianId,
+        DateTime? testDate,
+        string? result,
+        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+    {
+        // 1. Handle special statuses first (terminal or special states)
+        switch (approvalStatus)
+        {
+            case IndicatorApprovalStatus.MethodChangeRequested:
+                return QLKTDisplayStatus.MethodChangeRequested;
+
+            case IndicatorApprovalStatus.MethodChanged:
+                // Theo flow KH: sau khi đổi PP xong → quay lại xem xét YC
+                return QLKTDisplayStatus.UnderReview;
+
+            case IndicatorApprovalStatus.TestingRejected:
+                return QLKTDisplayStatus.TestingRejected;
+
+            case IndicatorApprovalStatus.SupplementaryRequested:
+                return QLKTDisplayStatus.SupplementaryRequested;
+
+            case IndicatorApprovalStatus.CustomerCancelled:
+                return QLKTDisplayStatus.CustomerCancelled;
+
+            case IndicatorApprovalStatus.CannotTest:
+                return QLKTDisplayStatus.CannotTest;
+
+            case IndicatorApprovalStatus.Rejected:
+                return QLKTDisplayStatus.ResultRejected;
+
+            case IndicatorApprovalStatus.Pending:
+                // Đang xem xét YC - QLKT chưa đánh giá
+                return QLKTDisplayStatus.UnderReview;
+        }
+
+        // 2. Handle Approved status - check QLCL approval
+        if (approvalStatus == IndicatorApprovalStatus.Approved)
+        {
+            if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Approved)
+            {
+                return QLKTDisplayStatus.Completed;
+            }
+            if (qualityApprovalStatus == QualityIndicatorApprovalStatus.Rejected)
+            {
+                return QLKTDisplayStatus.QLCLRejected;
+            }
+            // PendingApproval or null (not yet sent to QLCL)
+            return QLKTDisplayStatus.WaitingQLCLApproval;
+        }
+
+        // 3. Handle Entered status - Chờ QLKT phê duyệt
+        if (approvalStatus == IndicatorApprovalStatus.Entered)
+        {
+            return QLKTDisplayStatus.WaitingQLKTApproval;
+        }
+
+        // 4. Handle AcceptedForTesting - check assignment and testing progress
+        if (approvalStatus == IndicatorApprovalStatus.AcceptedForTesting)
+        {
+            // Chưa có KTV hoặc PP → Chờ giao việc
+            if (!technicianId.HasValue || !methodId.HasValue)
+            {
+                return QLKTDisplayStatus.WaitingForAssignment;
+            }
+
+            // Có KTV + PP nhưng chưa có testDate → Cần làm
+            if (!testDate.HasValue)
+            {
+                return QLKTDisplayStatus.ToDo;
+            }
+
+            // Có testDate → Đang thử nghiệm
+            return QLKTDisplayStatus.Testing;
+        }
+
+        // Fallback (should not reach here)
+        return QLKTDisplayStatus.UnderReview;
     }
 
     #endregion

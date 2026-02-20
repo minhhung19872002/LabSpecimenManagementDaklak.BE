@@ -130,6 +130,26 @@ public class QualityManagementIndicatorDto
     public string? AllowedLimit { get; set; }
 
     /// <summary>
+    /// Ký hiệu cận dưới (>, >=) - cho khoảng - Lower Operator
+    /// </summary>
+    public string? LowerOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận dưới - cho khoảng - Lower Limit
+    /// </summary>
+    public string? LowerLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu cận trên (<, <=) - cho khoảng - Upper Operator
+    /// </summary>
+    public string? UpperOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận trên - cho khoảng - Upper Limit
+    /// </summary>
+    public string? UpperLimit { get; set; }
+
+    /// <summary>
     /// Trạng thái phê duyệt - Approval Status
     /// </summary>
     public QualityIndicatorApprovalStatus ApprovalStatus { get; set; }

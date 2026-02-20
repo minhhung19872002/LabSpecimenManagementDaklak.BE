@@ -136,10 +136,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -152,7 +152,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -659,7 +659,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             SetNoteFontSize(text, 11);
                             NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
 
-                            // Handle newlines in Note placeholder
+                            // Handle HTML content in Note (from rich text editor)
+                            if (HtmlToOpenXmlConverter.ContainsHtmlTags(placeholder.Value))
+                            {
+                                ReplaceNoteWithHtmlRuns(text, placeholder.Key, placeholder.Value);
+                                continue;
+                            }
+
+                            // Handle newlines in Note placeholder (plain text fallback)
                             if (placeholder.Value.Contains("\n"))
                             {
                                 ReplaceTextWithLineBreaks(text, placeholder.Key, placeholder.Value);
@@ -1538,8 +1545,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 ReplaceTextWithLineBreaks(text, "{{Result}}", data.Result);
             }
-            // Handle Parameters and TestMethod placeholders with HTML formatting or newlines
-            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}"))
+            // Handle Parameters, TestMethod, CompareWithStandard, Allowlimit, Standards placeholders with HTML formatting or newlines
+            else if (text.Text.Contains("{{Parameters}}") || text.Text.Contains("{{TestMethod}}") ||
+                     text.Text.Contains("{{CompareWithStandard}}") || text.Text.Contains("{{Allowlimit}}") ||
+                     text.Text.Contains("{{Standards}}"))
             {
                 // Use formatted names if available, otherwise plain names
                 var parametersDisplayName = !string.IsNullOrEmpty(data.ParametersFormattedName)
@@ -1551,13 +1560,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                 var hasParametersHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parametersDisplayName);
                 var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+                var hasCompareWithStandardHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.CompareWithStandard);
+                var hasAllowlimitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Allowlimit);
+                var hasStandardsHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Standards);
                 var hasParametersNewlines = parametersDisplayName?.Contains('\n') ?? false;
                 var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
+                var hasCompareWithStandardNewlines = data.CompareWithStandard?.Contains('\n') ?? false;
+                var hasAllowlimitNewlines = data.Allowlimit?.Contains('\n') ?? false;
+                var hasStandardsNewlines = data.Standards?.Contains('\n') ?? false;
 
-                // If either contains HTML or newlines, we need special handling
-                if (hasParametersHtml || hasTestMethodHtml || hasParametersNewlines || hasTestMethodNewlines)
+                // If any field contains HTML or newlines, we need special handling
+                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml ||
+                    hasParametersNewlines || hasTestMethodNewlines || hasCompareWithStandardNewlines || hasAllowlimitNewlines || hasStandardsNewlines)
                 {
-                    // Replace non-HTML placeholders first
+                    // Replace non-HTML placeholders first (excluding Standards which may have HTML/newlines)
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
@@ -1565,10 +1581,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
                         .Replace("{{Unit}}", data.Unit ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
-                        .Replace("{{Standards}}", data.Standards ?? "")
-                        .Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "")
                         .Replace("{{n}}", data.FootnoteNumber ?? "")
-                        .Replace("{{Allowlimit}}", data.Allowlimit ?? "")
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
 
@@ -1591,6 +1604,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     else
                     {
                         text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName ?? "");
+                    }
+
+                    // Handle CompareWithStandard with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasCompareWithStandardHtml || hasCompareWithStandardNewlines) && text.Text.Contains("{{CompareWithStandard}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{CompareWithStandard}}", data.CompareWithStandard ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{CompareWithStandard}}", data.CompareWithStandard ?? "");
+                    }
+
+                    // Handle Allowlimit with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasAllowlimitHtml || hasAllowlimitNewlines) && text.Text.Contains("{{Allowlimit}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Allowlimit}}", data.Allowlimit ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Allowlimit}}", data.Allowlimit ?? "");
+                    }
+
+                    // Handle Standards with HTML or newlines (superscript/subscript in limits, or multiple children)
+                    if ((hasStandardsHtml || hasStandardsNewlines) && text.Text.Contains("{{Standards}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Standards}}", data.Standards ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Standards}}", data.Standards ?? "");
                     }
                 }
                 else
@@ -1700,6 +1743,76 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 afterTextElement.Space = SpaceProcessingModeValues.Preserve;
             }
             parentRun.InsertAfter(afterTextElement, insertAfter);
+        }
+    }
+
+    /// <summary>
+    /// Replace a Note placeholder with HTML-formatted OpenXML runs.
+    /// Supports bold, italic, underline, strikethrough, superscript, subscript, lists.
+    /// </summary>
+    private void ReplaceNoteWithHtmlRuns(Text textElement, string placeholder, string htmlValue)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null)
+        {
+            // Fallback - strip HTML and replace as plain text
+            textElement.Text = textElement.Text.Replace(placeholder, HtmlToOpenXmlConverter.ConvertHtmlToPlainText(htmlValue));
+            return;
+        }
+
+        var parentParagraph = parentRun.Parent as Paragraph;
+        if (parentParagraph == null)
+        {
+            textElement.Text = textElement.Text.Replace(placeholder, HtmlToOpenXmlConverter.ConvertHtmlToPlainText(htmlValue));
+            return;
+        }
+
+        // Get base RunProperties from the parent run (includes font size set by SetNoteFontSize)
+        var existingRunProps = parentRun.RunProperties?.CloneNode(true) as RunProperties;
+
+        // Convert HTML to formatted runs
+        var htmlRuns = HtmlToOpenXmlConverter.ConvertHtmlToRuns(htmlValue, existingRunProps);
+
+        // Remove trailing break from last run (avoid extra blank line at end)
+        if (htmlRuns.Count > 0)
+        {
+            var lastRun = htmlRuns[htmlRuns.Count - 1];
+            var lastChild = lastRun.LastChild;
+            if (lastChild is Break)
+            {
+                lastChild.Remove();
+            }
+        }
+
+        // Handle text before/after placeholder in the same Text element
+        var originalText = textElement.Text;
+        var placeholderIndex = originalText.IndexOf(placeholder);
+        if (placeholderIndex < 0) return;
+
+        var beforeText = originalText.Substring(0, placeholderIndex);
+        var afterText = originalText.Substring(placeholderIndex + placeholder.Length);
+
+        // Clear the placeholder from original text
+        textElement.Text = beforeText;
+
+        // Insert HTML runs after the parent run
+        var insertAfter = parentRun as OpenXmlElement;
+        foreach (var htmlRun in htmlRuns)
+        {
+            parentParagraph.InsertAfter(htmlRun, insertAfter);
+            insertAfter = htmlRun;
+        }
+
+        // Add after text if any (in a new run with base properties)
+        if (!string.IsNullOrEmpty(afterText))
+        {
+            var afterRun = new Run();
+            if (existingRunProps != null)
+            {
+                afterRun.Append(existingRunProps.CloneNode(true));
+            }
+            afterRun.Append(new Text(afterText) { Space = SpaceProcessingModeValues.Preserve });
+            parentParagraph.InsertAfter(afterRun, insertAfter);
         }
     }
 
@@ -2048,10 +2161,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
@@ -2064,7 +2177,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2833,6 +2946,30 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             MergeDotsWithPlaceholders(para);
         }
 
+        // Handle HTML/newline content in Note placeholder BEFORE standard processing
+        if (placeholders.TryGetValue("{{Note}}", out var noteValue) && !string.IsNullOrEmpty(noteValue))
+        {
+            foreach (var text in element.Descendants<Text>().ToList())
+            {
+                if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains("{{Note}}"))
+                {
+                    RemoveContainingCellHeightConstraint(text);
+                    SetNoteFontSize(text, 11);
+                    NormalizeParagraphIndentation(text);
+
+                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(noteValue))
+                    {
+                        ReplaceNoteWithHtmlRuns(text, "{{Note}}", noteValue);
+                    }
+                    else if (noteValue.Contains("\n"))
+                    {
+                        ReplaceTextWithLineBreaks(text, "{{Note}}", noteValue);
+                    }
+                    // else: plain text without newlines, will be handled by standard replacement below
+                }
+            }
+        }
+
         // Process each paragraph to handle dots across multiple text runs
         foreach (var para in element.Descendants<Paragraph>())
         {
@@ -3467,6 +3604,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Process table with SubTable marker (not nested table)
         ProcessMixedResultTableWithSubTable(body, sampleData);
 
+        // Handle bold placeholders separately before standard replacement
+        if (placeholders.TryGetValue("{{CustomerName}}", out var customerNameValue))
+        {
+            ReplacePlaceholderWithBold(mainPart, "{{CustomerName}}", customerNameValue);
+            placeholders.Remove("{{CustomerName}}");
+        }
+
         // Replace placeholders in entire document (including headers, footers, textboxes)
         ReplacePlaceholdersInDocument(mainPart, placeholders);
 
@@ -3608,10 +3752,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Define which columns should be merged (0-based index)
         // Columns: 0=Stt, 1=Tên mẫu, 2=Mã số mẫu, 3=Chỉ tiêu, 4=Đơn vị, 5=Phương pháp, 6=Kết quả
-        var columnsToMerge = new[] { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
+        var columnsToMerge = new List<int> { 0, 1, 2 }; // Stt, Tên mẫu, Mã số mẫu
 
-        // Apply vertical merge to sample columns (first 3 columns)
-        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, Column 2 (Mã mẫu): center
+        // Dynamically detect cells containing {{Quantity}} or {{SampleDescription}} for vertical merge
+        for (int c = 0; c < cells.Count; c++)
+        {
+            var cellText = string.Concat(cells[c].Descendants<Text>().Select(t => t.Text ?? ""));
+            if (cellText.Contains("{{Quantity}}") || cellText.Contains("{{SampleDescription}}"))
+            {
+                if (!columnsToMerge.Contains(c))
+                    columnsToMerge.Add(c);
+            }
+        }
+
+        // Apply vertical merge to sample-level columns
+        // Column 0 (Stt): center, Column 1 (Tên mẫu): left, others: center
         if (totalIndicators > 1)
         {
             foreach (var colIndex in columnsToMerge)
@@ -3666,6 +3821,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Unit}}", indicatorData.Unit);
 
                 // Handle Parameter
@@ -3704,6 +3861,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{Result}}", indicatorData.Result);
 
@@ -3736,6 +3895,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{No}}", isFirstIndicator ? sampleData.No.ToString() : "")
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
+                    .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
                     .Replace("{{Parameter}}", parameterDisplayName ?? "")
                     .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{TestMethod}}", testMethodDisplayName ?? "")
@@ -3824,6 +3985,57 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         foreach (var text in cell.Descendants<Text>().ToList())
         {
             text.Text = "";
+        }
+    }
+
+    /// <summary>
+    /// Replace a placeholder in the document and apply bold formatting to the replacement text.
+    /// Processes body, headers, and footers (same scope as ReplacePlaceholdersInDocument).
+    /// </summary>
+    private void ReplacePlaceholderWithBold(MainDocumentPart mainPart, string placeholder, string value)
+    {
+        var elements = new List<OpenXmlElement>();
+        if (mainPart.Document?.Body != null)
+            elements.Add(mainPart.Document.Body);
+        foreach (var headerPart in mainPart.HeaderParts)
+        {
+            if (headerPart.Header != null)
+                elements.Add(headerPart.Header);
+        }
+        foreach (var footerPart in mainPart.FooterParts)
+        {
+            if (footerPart.Footer != null)
+                elements.Add(footerPart.Footer);
+        }
+
+        foreach (var element in elements)
+        {
+            // Merge split placeholders first (same as standard flow)
+            foreach (var para in element.Descendants<Paragraph>())
+            {
+                MergeSplitPlaceholders(para);
+            }
+
+            foreach (var text in element.Descendants<Text>().ToList())
+            {
+                if (string.IsNullOrEmpty(text.Text) || !text.Text.Contains(placeholder)) continue;
+
+                text.Text = text.Text.Replace(placeholder, value);
+
+                // Apply bold to the run containing this text
+                var run = text.Parent as Run;
+                if (run != null)
+                {
+                    var rPr = run.GetFirstChild<RunProperties>();
+                    if (rPr == null)
+                    {
+                        rPr = new RunProperties();
+                        run.InsertAt(rPr, 0);
+                    }
+                    rPr.Bold = new Bold();
+                    rPr.BoldComplexScript = new BoldComplexScript();
+                }
+            }
         }
     }
 
@@ -3979,6 +4191,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         public int No { get; set; }
         public string SampleName { get; set; } = "";
         public string SampleCode { get; set; } = "";
+        public string Quantity { get; set; } = "";
+        public string SampleDescription { get; set; } = "";
         public List<MixedResultIndicatorRow> Indicators { get; set; } = new();
     }
 
@@ -4258,13 +4472,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
         }
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // Not just this single indicator, but all indicators in the contract
-        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
-        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
-        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
-            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
-        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+        // Calculate TimeOfTesting: Use only the selected indicator's TestDate
+        var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
 
         // Merge notes from QLKT (lab) and QLCL (quality)
         var mergedNote = await GetMergedNoteAsync(labTaskIndicator.TestRequestSampleIndicatorId, input.Note);
@@ -4281,7 +4490,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -4324,6 +4533,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             placeholders.Add("{{Standard}}", "So với QCVN…/ TCVN…./ QĐ…");
         }
 
+        // Get StandardIndicator for proper limit formatting (with operators and range values)
+        var compareWithStandard = qualityIndicator.ReferenceLimit ?? "";
+        if (qualityIndicator.StandardId.HasValue)
+        {
+            var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                x => x.StandardId == qualityIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
+            if (standardIndicator != null)
+            {
+                compareWithStandard = BuildCompareWithStandard(
+                    standardIndicator.ComparisonOperator,
+                    standardIndicator.AllowedLimit,
+                    standardIndicator.LowerOperator,
+                    standardIndicator.LowerLimit,
+                    standardIndicator.UpperOperator,
+                    standardIndicator.UpperLimit);
+            }
+        }
+
         // 4. Build table data - single indicator
         var tableData = new List<ResultFormTableRow>
         {
@@ -4336,10 +4563,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 TestMethod = method?.Name ?? "",
                 TestMethodFormattedName = method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
-                Standards = qualityIndicator.ReferenceLimit ?? "",
-                CompareWithStandard = qualityIndicator.ReferenceLimit ?? "", // Single indicator = no footnote needed
+                Standards = compareWithStandard, // {{Standards}} = properly formatted limit
+                CompareWithStandard = compareWithStandard, // Single indicator = no footnote needed
                 FootnoteNumber = "", // Single indicator = no footnote needed
-                Allowlimit = qualityIndicator.ReferenceLimit ?? "", // BM04 - Giới hạn cho phép
+                Allowlimit = compareWithStandard, // BM04 - Giới hạn cho phép
                 Uncertainty = "",
                 Proclaim = ""
             }
@@ -4502,17 +4729,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             string.Join(",", standardIds), string.Join(",", indicatorIds), standardIndicators.Count);
         foreach (var si in standardIndicators)
         {
-            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}",
-                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit);
+            _logger.LogInformation("StandardIndicator: StandardId={StandardId}, IndicatorId={IndicatorId}, ComparisonOperator={Op}, AllowedLimit={Limit}, LowerOperator={LowerOp}, LowerLimit={LowerLim}, UpperOperator={UpperOp}, UpperLimit={UpperLim}",
+                si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit, si.LowerOperator, si.LowerLimit, si.UpperOperator, si.UpperLimit);
         }
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // Not just the selected indicators, but all indicators in the contract
-        var allLabTasksInContract = await _laboratoryTaskRepository.GetListAsync(x => x.TestRequestId == testRequest.Id);
-        var allLabTaskIdsInContract = allLabTasksInContract.Select(t => t.Id).ToList();
-        var allLabTaskIndicatorsInContract = await _laboratoryTaskIndicatorRepository.GetListAsync(
-            x => allLabTaskIdsInContract.Contains(x.LaboratoryTaskId));
-        var timeOfTesting = CalculateTimeOfTesting(allLabTaskIndicatorsInContract);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected indicators only
+        var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
 
         // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
         // nên không cần merge ở BE nữa, chỉ sử dụng input.Note trực tiếp
@@ -4529,7 +4751,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
@@ -4637,6 +4859,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 No = sampleNo++,
                 SampleName = sample.SampleName ?? "",
                 SampleCode = sample.SampleCode ?? "",
+                Quantity = sample.SampleQuantity ?? "",
+                SampleDescription = sample.StatusText ?? "",
                 Indicators = new List<MixedResultIndicatorRow>()
             };
 
@@ -4682,10 +4906,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     processedParentMethodKeys.Add(childKey);
 
-                    // Build combined Parameter and Result
+                    // Build combined Parameter, Result, and Limits
                     var paramPlainBuilder = new StringBuilder();
                     var paramFormattedBuilder = new StringBuilder();
                     var resultBuilder = new StringBuilder();
+                    var limitBuilder = new StringBuilder();
                     var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
 
                     // Add parent name
@@ -4710,6 +4935,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                         resultBuilder.Append("- ");
                         resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+
+                        // Build limit for this child (use plain text version for combined display)
+                        var childStandardId = childItem.QualityIndicator.StandardId ?? childItem.LabTaskIndicator.StandardId;
+                        if (childStandardId.HasValue)
+                        {
+                            var stdLookupKey = (childStandardId.Value, childInd.Id);
+                            if (standardIndicatorLookup.TryGetValue(stdLookupKey, out var childStdIndicator) && childStdIndicator != null)
+                            {
+                                var childLimit = BuildCompareWithStandardPlainText(
+                                    childStdIndicator.ComparisonOperator,
+                                    childStdIndicator.AllowedLimit,
+                                    childStdIndicator.LowerOperator,
+                                    childStdIndicator.LowerLimit,
+                                    childStdIndicator.UpperOperator,
+                                    childStdIndicator.UpperLimit);
+                                if (!string.IsNullOrWhiteSpace(childLimit))
+                                {
+                                    if (limitBuilder.Length > 0) limitBuilder.Append('\n');
+                                    limitBuilder.Append("- ");
+                                    limitBuilder.Append(childLimit);
+                                }
+                            }
+                        }
                     }
 
                     // Get first child's method and unit
@@ -4730,7 +4978,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Result = resultBuilder.ToString(),
                         ReferenceLimit = "",
                         StandardId = null,
-                        IndicatorId = indicator.Id
+                        IndicatorId = indicator.Id,
+                        // Store combined limits directly in AllowedLimit (BuildCompareWithStandard will return it as-is)
+                        AllowedLimit = limitBuilder.ToString()
                     });
                 }
                 else
@@ -4764,6 +5014,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             lowerLimit = stdIndicator.LowerLimit ?? "";
                             upperOperator = stdIndicator.UpperOperator ?? "";
                             upperLimit = stdIndicator.UpperLimit ?? "";
+                            _logger.LogInformation("StandardIndicator Lookup: IndicatorId={IndicatorId}, LowerOp={LowerOp}, LowerLim={LowerLim}, UpperOp={UpperOp}, UpperLim={UpperLim}",
+                                indicator.Id, lowerOperator, lowerLimit, upperOperator, upperLimit);
+                        }
+                        else
+                        {
+                            _logger.LogWarning("StandardIndicator NOT FOUND for StandardId={StandardId}, IndicatorId={IndicatorId}",
+                                effectiveStandardId.Value, indicator.Id);
                         }
                     }
 
@@ -4798,6 +5055,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var paramPlainBuilder = new StringBuilder();
                 var paramFormattedBuilder = new StringBuilder();
                 var resultBuilder = new StringBuilder();
+                var limitBuilder = new StringBuilder();
                 var hasAnyFormattedName = parentIndicator != null && !string.IsNullOrEmpty(parentIndicator.FormattedName);
 
                 // Add parent name
@@ -4827,6 +5085,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                     resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
+
+                    // Build limit for this child (use plain text version for combined display)
+                    var childStandardId = childItem.QualityIndicator.StandardId ?? childItem.LabTaskIndicator.StandardId;
+                    if (childStandardId.HasValue)
+                    {
+                        var childKey = (childStandardId.Value, childInd.Id);
+                        if (standardIndicatorLookup.TryGetValue(childKey, out var childStdIndicator) && childStdIndicator != null)
+                        {
+                            var childLimit = BuildCompareWithStandardPlainText(
+                                childStdIndicator.ComparisonOperator,
+                                childStdIndicator.AllowedLimit,
+                                childStdIndicator.LowerOperator,
+                                childStdIndicator.LowerLimit,
+                                childStdIndicator.UpperOperator,
+                                childStdIndicator.UpperLimit);
+                            if (!string.IsNullOrWhiteSpace(childLimit))
+                            {
+                                if (limitBuilder.Length > 0) limitBuilder.Append('\n');
+                                limitBuilder.Append("- ");
+                                limitBuilder.Append(childLimit);
+                            }
+                        }
+                    }
                 }
 
                 // Get first child's method and unit
@@ -4847,7 +5128,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Result = resultBuilder.ToString(),
                     ReferenceLimit = "",
                     StandardId = null,
-                    IndicatorId = parentIndicator?.Id
+                    IndicatorId = parentIndicator?.Id,
+                    // Store combined limits directly in AllowedLimit
+                    AllowedLimit = limitBuilder.ToString()
                 });
             }
 
@@ -4916,6 +5199,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                     // Build CompareWithStandard from ComparisonOperator + AllowedLimit (or range fields)
                     // Format: "≤ 4", "≥ 6", "= 7", "> 5 và < 10", etc.
+                    _logger.LogInformation("BuildCompareWithStandard: Parameter={Parameter}, LowerOp={LowerOp}, LowerLim={LowerLim}, UpperOp={UpperOp}, UpperLim={UpperLim}",
+                        indicator.Parameter, indicator.LowerOperator, indicator.LowerLimit, indicator.UpperOperator, indicator.UpperLimit);
                     var compareWithStandard = BuildCompareWithStandard(
                         indicator.ComparisonOperator,
                         indicator.AllowedLimit,
@@ -4933,7 +5218,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         TestMethod = indicator.TestMethod,
                         TestMethodFormattedName = indicator.TestMethodFormattedName,
                         Result = indicator.Result,
-                        Standards = indicator.AllowedLimit,
+                        Standards = compareWithStandard, // {{Standards}} = same as CompareWithStandard for BM03 template
                         CompareWithStandard = compareWithStandard, // {{CompareWithStandard}} = ComparisonOperator + AllowedLimit
                         FootnoteNumber = footnoteNumber, // {{n}} = Superscript footnote (BM04 & BM05)
                         Allowlimit = indicator.AllowedLimit,
@@ -5028,10 +5313,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of ALL indicators in this TestRequest (contract)
-        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên trong hợp đồng
-        // - Ngày chỉ tiêu cuối cùng kết thúc: Ngày gửi kết quả cho QLKT của chỉ tiêu cuối cùng trong hợp đồng
-        var timeOfTesting = CalculateTimeOfTesting(allTaskIndicators);
+        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
+        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // Use first sample for header info (or combine if needed)
         var firstSample = samples.FirstOrDefault();
@@ -5049,7 +5334,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sampleNames },
-            { "{{DateOfReceiving}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
@@ -5311,7 +5596,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
                     foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
-                        labNote.Add($"- {note.Content}");
+                        labNote.Add(note.Content);
                     }
                 }
             }
@@ -5386,7 +5671,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
-                    .Select(x => $"- {x.Content}")
+                    .Select(x => x.Content)
                     .ToList();
 
                 if (masterNoteLines.Any())
@@ -5676,8 +5961,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
         if (!string.IsNullOrWhiteSpace(lowerLimit) && !string.IsNullOrWhiteSpace(upperLimit))
         {
-            var lower = ConvertOperatorSymbol(lowerOperator);
-            var upper = ConvertOperatorSymbol(upperOperator);
+            // Default operators: > for lower, < for upper
+            // HTML-encode operators to avoid confusion with HTML tags when limits contain HTML (e.g., <sup>)
+            var lower = string.IsNullOrWhiteSpace(lowerOperator) ? "&gt;" : HtmlEncodeOperator(lowerOperator);
+            var upper = string.IsNullOrWhiteSpace(upperOperator) ? "&lt;" : HtmlEncodeOperator(upperOperator);
             return $"{lower} {lowerLimit.Trim()} và {upper} {upperLimit.Trim()}";
         }
 
@@ -5694,8 +5981,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
-        var op = ConvertOperatorSymbol(comparisonOperator);
+        // HTML-encode operator to avoid confusion with HTML tags
+        var op = HtmlEncodeOperator(comparisonOperator);
         return $"{op} {allowedLimit.Trim()}";
+    }
+
+    /// <summary>
+    /// HTML-encode comparison operators to avoid confusion with HTML tags
+    /// Converts < to &lt;, > to &gt;, and also handles <= and >= symbols
+    /// </summary>
+    private static string HtmlEncodeOperator(string? op)
+    {
+        if (string.IsNullOrWhiteSpace(op)) return "";
+
+        return op.Trim() switch
+        {
+            "<=" => "≤",
+            ">=" => "≥",
+            "<" => "&lt;",
+            ">" => "&gt;",
+            _ => System.Net.WebUtility.HtmlEncode(op.Trim())
+        };
     }
 
     /// <summary>
@@ -5711,6 +6017,50 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ">=" => "≥",
             _ => op.Trim()
         };
+    }
+
+    /// <summary>
+    /// Build CompareWithStandard as plain text (no HTML encoding)
+    /// Used for combined limits where values are stripped to plain text
+    /// </summary>
+    private static string BuildCompareWithStandardPlainText(
+        string? comparisonOperator,
+        string? allowedLimit,
+        string? lowerOperator = null,
+        string? lowerLimit = null,
+        string? upperOperator = null,
+        string? upperLimit = null)
+    {
+        // Strip HTML from limit values to get plain text
+        var plainAllowedLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(allowedLimit);
+        var plainLowerLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(lowerLimit);
+        var plainUpperLimit = HtmlToOpenXmlConverter.ConvertHtmlToPlainText(upperLimit);
+
+        // Nếu có range (cả lowerLimit và upperLimit đều có giá trị)
+        if (!string.IsNullOrWhiteSpace(plainLowerLimit) && !string.IsNullOrWhiteSpace(plainUpperLimit))
+        {
+            // Default operators: > for lower, < for upper
+            // Use ConvertOperatorSymbol (no HTML encoding since values are plain text)
+            var lower = string.IsNullOrWhiteSpace(lowerOperator) ? ">" : ConvertOperatorSymbol(lowerOperator);
+            var upper = string.IsNullOrWhiteSpace(upperOperator) ? "<" : ConvertOperatorSymbol(upperOperator);
+            return $"{lower} {plainLowerLimit.Trim()} và {upper} {plainUpperLimit.Trim()}";
+        }
+
+        // Nếu không có allowedLimit, trả về empty
+        if (string.IsNullOrWhiteSpace(plainAllowedLimit))
+        {
+            return "";
+        }
+
+        // Nếu có allowedLimit nhưng không có comparisonOperator, chỉ trả về allowedLimit
+        if (string.IsNullOrWhiteSpace(comparisonOperator))
+        {
+            return plainAllowedLimit.Trim();
+        }
+
+        // Ghép: "comparisonOperator allowedLimit" (e.g., "≤ 4", "≥ 6", "= 7")
+        var op = ConvertOperatorSymbol(comparisonOperator);
+        return $"{op} {plainAllowedLimit.Trim()}";
     }
 
     #endregion

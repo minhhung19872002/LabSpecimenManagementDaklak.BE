@@ -176,4 +176,15 @@ public class ImportPreviewDto<T> where T : class
     public List<T> ValidData { get; set; } = new();
 }
 
+/// <summary>
+/// FE-resolved location code override for import
+/// Used when FE resolves Province/Ward codes via new-vn-provinces library
+/// </summary>
+public class LocationCodeOverride
+{
+    public int RowNumber { get; set; }
+    public string? ProvinceCode { get; set; }
+    public string? WardCode { get; set; }
+}
+
 #endregion

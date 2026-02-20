@@ -21,7 +21,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT đánh giá từng chỉ tiêu (Accept/RequestMethodChange/Reject)
     /// Khi evaluate chỉ tiêu cha, tự động áp dụng cho tất cả chỉ tiêu phụ trong cùng group (cùng sample)
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskIndicatorDto> EvaluateIndicatorAsync(Guid indicatorId, EvaluateIndicatorDto input)
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
@@ -72,8 +72,8 @@ public partial class LaboratoryTaskAppService
         // Validate: Task status and indicator status
         // Cho phép đánh giá khi:
         // 1. Task đang ở trạng thái UnderEvaluation hoặc WaitingCustomerResponse (flow bình thường)
-        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, SentToQuality)
-        //    NHƯNG indicator vẫn còn Pending (trường hợp gửi QLKT sau)
+        // 2. HOẶC Task đã ở trạng thái khác (FullyAccepted, PartialAccepted, Assigned, InProgress, WaitingApproval, SentToQuality)
+        //    NHƯNG indicator vẫn còn Pending (trường hợp gửi QLKT sau hoặc một số chỉ tiêu chưa được duyệt)
         var isNormalEvaluationStatus = task.Status == LaboratoryTaskStatus.UnderEvaluation ||
                                        task.Status == LaboratoryTaskStatus.WaitingCustomerResponse ||
                                        task.Status == LaboratoryTaskStatus.WaitingSharedSample;
@@ -81,6 +81,8 @@ public partial class LaboratoryTaskAppService
         var isLateIndicatorCase = (task.Status == LaboratoryTaskStatus.FullyAccepted ||
                                    task.Status == LaboratoryTaskStatus.PartialAccepted ||
                                    task.Status == LaboratoryTaskStatus.Assigned ||
+                                   task.Status == LaboratoryTaskStatus.InProgress ||
+                                   task.Status == LaboratoryTaskStatus.WaitingApproval ||
                                    task.Status == LaboratoryTaskStatus.SentToQuality) &&
                                   (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
                                    taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
@@ -212,7 +214,7 @@ public partial class LaboratoryTaskAppService
     /// <summary>
     /// QLKT yêu cầu đổi phương pháp cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> RequestMethodChangeAsync(Guid taskId, RequestMethodChangeDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -287,7 +289,7 @@ public partial class LaboratoryTaskAppService
     /// <summary>
     /// QLKT từ chối thử nghiệm cho nhiều chỉ tiêu cùng lúc
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<List<LaboratoryTaskIndicatorDto>> RejectIndicatorsForTestingAsync(Guid taskId, RejectIndicatorsForTestingDto input)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -362,7 +364,7 @@ public partial class LaboratoryTaskAppService
     /// QLKT duyệt tất cả chỉ tiêu còn lại (status = Pending) của task
     /// Khi approve parent indicator, tự động approve tất cả sub-indicators trong cùng group
     /// </summary>
-    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    [Authorize]
     public async Task<LaboratoryTaskDto> ApproveAllRemainingIndicatorsAsync(Guid taskId)
     {
         var task = await _laboratoryTaskRepository.GetAsync(taskId);
@@ -711,6 +713,7 @@ public partial class LaboratoryTaskAppService
 
         // Có ít nhất 1 phòng chấp nhận → TR được duyệt yêu cầu
         testRequest.Status = TestRequestStatus.RequestApproved;
+        testRequest.RequestApprovedDate = DateTime.Now;
         await _testRequestRepository.UpdateAsync(testRequest);
     }
 

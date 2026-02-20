@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Services;
@@ -131,30 +132,27 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
-    #region Organization + TestRequest Import (Legacy Data)
+    #region Organization Import (CS/DN)
 
     /// <summary>
-    /// Get Organization + TestRequest import template
-    /// Template columns: Tên cơ sở, Người liên hệ, Điện thoại, Địa chỉ, Tỉnh/thành, Phường/xã,
-    /// Mã số thuế, Số hợp đồng, Tên mẫu, Tình trạng, Mã số mẫu, Chỉ tiêu
+    /// Get Organization import template
+    /// Template columns: Tên cơ sở/doanh nghiệp, Địa chỉ, Tỉnh thành, Phường xã, Người liên hệ, Số điện thoại, Số điện thoại phụ, Mã số thuế
     /// </summary>
     byte[] GetOrganizationTestRequestTemplate();
 
     /// <summary>
-    /// Preview Organization + TestRequest import - validates data without saving
+    /// Preview Organization import - validates data without saving
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [DisableValidation]
     Task<OrganizationTestRequestImportPreviewDto> PreviewOrganizationTestRequestsAsync(byte[] fileBytes);
 
     /// <summary>
-    /// Import Organization + TestRequest from Excel file
+    /// Import Organizations from Excel file
     /// Organization upsert logic: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [DisableValidation]
-    Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes);
+    Task<ImportResultDto> ImportOrganizationTestRequestsAsync(byte[] fileBytes, List<LocationCodeOverride>? codeOverrides = null);
 
     #endregion
 
@@ -243,6 +241,56 @@ public interface IImportAppService : IApplicationService
     /// </summary>
     [DisableValidation]
     Task<ImportResultDto> ImportSpecimenTypesAsync(byte[] fileBytes);
+
+    #endregion
+
+    #region Note Import
+
+    /// <summary>
+    /// Get Note import template
+    /// Template columns: Ghi chú
+    /// </summary>
+    byte[] GetNoteTemplate();
+
+    /// <summary>
+    /// Preview Note import - validates data without saving
+    /// Upsert: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<NoteImportPreviewDto> PreviewNotesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import Notes from Excel file
+    /// Upsert logic: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportNotesAsync(byte[] fileBytes);
+
+    #endregion
+
+    #region TestResultValue Import
+
+    /// <summary>
+    /// Get TestResultValue import template
+    /// Template columns: Tên kết quả, Mô tả, Nền mẫu, Chỉ tiêu
+    /// </summary>
+    byte[] GetTestResultValueTemplate();
+
+    /// <summary>
+    /// Preview TestResultValue import - validates data without saving
+    /// Upsert: match by ResultName (normalized, case-insensitive)
+    /// If SpecimenType and Indicator provided, they must exist and Indicator must belong to SpecimenType
+    /// </summary>
+    [DisableValidation]
+    Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(byte[] fileBytes);
+
+    /// <summary>
+    /// Import TestResultValues from Excel file
+    /// Upsert logic: match by ResultName (normalized, case-insensitive)
+    /// Creates/updates TestResultValue and links to Indicators via TestResultValueIndicator
+    /// </summary>
+    [DisableValidation]
+    Task<ImportResultDto> ImportTestResultValuesAsync(byte[] fileBytes);
 
     #endregion
 }

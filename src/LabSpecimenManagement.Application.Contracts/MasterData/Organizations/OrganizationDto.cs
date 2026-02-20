@@ -12,6 +12,7 @@ public class OrganizationDto : FullAuditedEntityDto<Guid>
     public string TaxCode { get; set; }
     public string ContactPerson { get; set; }
     public string Phone { get; set; }
+    public string? SecondaryPhone { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
 }

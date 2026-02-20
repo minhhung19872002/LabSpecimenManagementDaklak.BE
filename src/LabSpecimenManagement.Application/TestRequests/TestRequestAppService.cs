@@ -557,6 +557,49 @@ public partial class TestRequestAppService :
             input.ContactPerson,
             input.Phone);
 
+        // Validate indicator and test method IDs before inserting
+        if (input.Samples != null && input.Samples.Any())
+        {
+            var allIndicatorIds = input.Samples
+                .Where(s => s.Indicators != null)
+                .SelectMany(s => s.Indicators)
+                .Select(i => i.IndicatorId)
+                .Distinct()
+                .ToList();
+
+            if (allIndicatorIds.Any())
+            {
+                var existingIndicators = await _indicatorRepository.GetListAsync(i => allIndicatorIds.Contains(i.Id));
+                var existingIndicatorIds = existingIndicators.Select(i => i.Id).ToHashSet();
+                var missingIds = allIndicatorIds.Where(id => !existingIndicatorIds.Contains(id)).ToList();
+                if (missingIds.Any())
+                {
+                    throw new Volo.Abp.BusinessException(
+                        message: $"Chỉ tiêu không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
+                }
+            }
+
+            var allTestMethodIds = input.Samples
+                .Where(s => s.Indicators != null)
+                .SelectMany(s => s.Indicators)
+                .Where(i => i.TestMethodId.HasValue)
+                .Select(i => i.TestMethodId!.Value)
+                .Distinct()
+                .ToList();
+
+            if (allTestMethodIds.Any())
+            {
+                var existingMethods = await _testMethodRepository.GetListAsync(m => allTestMethodIds.Contains(m.Id));
+                var existingMethodIds = existingMethods.Select(m => m.Id).ToHashSet();
+                var missingIds = allTestMethodIds.Where(id => !existingMethodIds.Contains(id)).ToList();
+                if (missingIds.Any())
+                {
+                    throw new Volo.Abp.BusinessException(
+                        message: $"Phương pháp thử không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
+                }
+            }
+        }
+
         var entity = await MapToEntityAsync(input);
         await Repository.InsertAsync(entity, autoSave: true);
 
@@ -660,8 +703,9 @@ public partial class TestRequestAppService :
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
-        var previousStatus = entity.Status;
-        var requiresApproval = CanEditLimitedInfo(entity.Status); // SampleSent or InProgress
+        // [TEMPORARY] Tạm tắt approval flow
+        // var previousStatus = entity.Status;
+        // var requiresApproval = CanEditLimitedInfo(entity.Status);
 
         // Validate contract number is unique (exclude current record)
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
@@ -674,35 +718,33 @@ public partial class TestRequestAppService :
         }
 
         // Validate edit permission based on status
-        if (!CanEditFullInfo(entity.Status) && !CanEditLimitedInfo(entity.Status))
+        if (!CanEditFullInfo(entity.Status))
         {
             throw new Common.Exceptions.InvalidOperationException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status");
         }
 
-        // Validate limited update - check locked fields
-        if (!CanEditFullInfo(entity.Status))
-        {
-            ValidateLimitedUpdate(entity, input);
-        }
+        // [TEMPORARY] Tạm tắt validate locked fields - cho phép edit tất cả fields
+        // [OLD LOGIC] Validate limited update - check locked fields
+        // if (!CanEditFullInfo(entity.Status))
+        // {
+        //     ValidateLimitedUpdate(entity, input);
+        // }
 
-        // If requires approval (SampleSent/InProgress), only save change history and change status
-        // DO NOT apply changes to entity - changes will be applied when approved
-        if (requiresApproval)
-        {
-            var changeHistoryId = await SaveChangeHistoryAsync(entity, input, previousStatus);
-            if (changeHistoryId.HasValue)
-            {
-                // Only change status to PendingChangeApproval, don't update entity data
-                entity.Status = TestRequestStatus.PendingChangeApproval;
-                await Repository.UpdateAsync(entity, autoSave: true);
+        // [TEMPORARY] Tạm tắt approval flow - luôn update trực tiếp
+        // [OLD LOGIC] If requires approval (SampleSent/InProgress), save change history
+        // if (requiresApproval)
+        // {
+        //     var changeHistoryId = await SaveChangeHistoryAsync(entity, input, previousStatus);
+        //     if (changeHistoryId.HasValue)
+        //     {
+        //         entity.Status = TestRequestStatus.PendingChangeApproval;
+        //         await Repository.UpdateAsync(entity, autoSave: true);
+        //         await CreateQualityManagementTaskForChangeApprovalAsync(entity, changeHistoryId.Value);
+        //     }
+        //     return await GetAsync(id);
+        // }
 
-                // Create QualityManagementTask for ChangeApproval
-                await CreateQualityManagementTaskForChangeApprovalAsync(entity, changeHistoryId.Value);
-            }
-            return await GetAsync(id);
-        }
-
-        // === Below code only runs when NOT requiring approval (New/Pending status) ===
+        // === Update trực tiếp cho tất cả trạng thái ===
 
         // Auto-create Organization if customerName doesn't exist
         await EnsureOrganizationExistsAsync(
@@ -1207,7 +1249,7 @@ public partial class TestRequestAppService :
         }
 
         // Group indicators by LaboratoryId
-        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId)>>();
+        var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId, Guid? SpecimenTypeId)>>();
 
         // Track which samples are shared samples and which labs they have
         var sharedSampleLabs = new Dictionary<Guid, HashSet<Guid>>(); // SampleId -> Set of LabIds
@@ -1228,10 +1270,10 @@ public partial class TestRequestAppService :
                 var labId = indicator.LaboratoryId!.Value;
                 if (!indicatorsByLab.ContainsKey(labId))
                 {
-                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid)>();
+                    indicatorsByLab[labId] = new List<(Guid, Guid, DateTime?, DateTime?, Guid?, bool, Guid, Guid?)>();
                 }
 
-                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId));
+                indicatorsByLab[labId].Add((indicator.Id, sample.Id, indicator.TransferDate, indicator.RequestDate, indicator.TestMethodId, sample.IsSharedSample, indicator.IndicatorId, sample.SpecimenTypeId));
 
                 // Track labs for shared samples
                 if (sample.IsSharedSample)
@@ -1375,11 +1417,12 @@ public partial class TestRequestAppService :
                     }
                 }
 
-                // Auto-set StandardId - lookup first standard for this indicator + method pair
+                // Auto-set StandardId - lookup first standard for this indicator + method + specimenType
                 var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
                     si => si.IndicatorId == indicator.IndicatorId
                           && si.IsActive
-                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value));
+                          && (!indicator.TestMethodId.HasValue || si.TestMethodId == indicator.TestMethodId.Value)
+                          && (!indicator.SpecimenTypeId.HasValue || !si.SpecimenTypeId.HasValue || si.SpecimenTypeId == indicator.SpecimenTypeId.Value));
                 if (standardIndicator != null)
                 {
                     taskIndicator.StandardId = standardIndicator.StandardId;
@@ -1409,22 +1452,31 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Check if full edit is allowed (all fields)
-    /// New, PendingPayment, Paid can be fully edited
+    /// [TEMPORARY] KH yêu cầu cho phép edit tất cả trạng thái trừ Completed & Cancelled
     /// </summary>
     private bool CanEditFullInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.New ||
-               status == TestRequestStatus.PendingPayment ||
-               status == TestRequestStatus.Paid;
+        // [OLD LOGIC] New, PendingPayment, Paid can be fully edited
+        // return status == TestRequestStatus.New ||
+        //        status == TestRequestStatus.PendingPayment ||
+        //        status == TestRequestStatus.Paid;
+
+        // [TEMPORARY] Cho phép edit tất cả trạng thái trừ Completed & Cancelled
+        return status != TestRequestStatus.Completed &&
+               status != TestRequestStatus.Cancelled;
     }
 
     /// <summary>
     /// Check if limited edit is allowed (some fields locked)
-    /// For SampleSent and InProgress: limited edit with QLCL approval required
+    /// [TEMPORARY] Tạm tắt - không cần approval, edit trực tiếp
     /// </summary>
     private bool CanEditLimitedInfo(TestRequestStatus status)
     {
-        return status == TestRequestStatus.SampleSent || status == TestRequestStatus.InProgress;
+        // [OLD LOGIC] For SampleSent and InProgress: limited edit with QLCL approval required
+        // return status == TestRequestStatus.SampleSent || status == TestRequestStatus.InProgress;
+
+        // [TEMPORARY] Không cần limited edit nữa
+        return false;
     }
 
     /// <summary>
@@ -2965,6 +3017,9 @@ public partial class TestRequestAppService :
 
     /// <summary>
     /// Lấy thông tin tiến trình (timeline) của phiếu yêu cầu
+    /// Timeline mới theo workflow:
+    /// New → PendingPayment/NoPaymentRequired → Paid → UnderReview → RequestApproved
+    /// → SampleSent → InProgress → ReportPublished → Completed
     /// </summary>
     public async Task<TestRequestTimelineDto> GetTimelineAsync(Guid id)
     {
@@ -2984,36 +3039,46 @@ public partial class TestRequestAppService :
 
         var currentStatus = testRequest.Status;
 
-        // Get laboratories from sample indicators for SampleSent step
-        var laboratories = new List<string>();
+        // Get laboratories from sample indicators for SampleSent step (batch loading to avoid N+1)
         var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
-        foreach (var sample in samples)
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var allIndicators = sampleIds.Count > 0
+            ? await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId))
+            : new List<TestRequestSampleIndicator>();
+        var labIds = allIndicators
+            .Where(i => i.LaboratoryId.HasValue)
+            .Select(i => i.LaboratoryId!.Value)
+            .Distinct()
+            .ToList();
+        var labs = labIds.Count > 0
+            ? await _laboratoryRepository.GetListAsync(l => labIds.Contains(l.Id))
+            : new List<Laboratory>();
+        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = deptIds.Count > 0
+            ? await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id))
+            : new List<Department>();
+        var laboratories = new List<string>();
+        foreach (var lab in labs)
         {
-            var indicators = await _sampleIndicatorRepository.GetListAsync(i => i.TestRequestSampleId == sample.Id);
-            foreach (var indicator in indicators)
+            var dept = depts.FirstOrDefault(d => d.Id == lab.DepartmentId);
+            var labName = dept?.Name ?? "";
+            if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
             {
-                if (indicator.LaboratoryId.HasValue)
-                {
-                    var lab = await _laboratoryRepository.FindAsync(indicator.LaboratoryId.Value);
-                    if (lab != null)
-                    {
-                        var labDept = await _departmentRepository.FindAsync(lab.DepartmentId);
-                        var labName = labDept?.Name ?? "";
-                        if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
-                        {
-                            laboratories.Add(labName);
-                        }
-                    }
-                }
+                laboratories.Add(labName);
             }
         }
 
-        // Build steps from newest to oldest (top to bottom in UI)
+        // Get receipt for payment date info (PendingDate on TestRequest is never set, Receipt.PaidDate is the real payment date)
+        var receipt = await _receiptRepository.FirstOrDefaultAsync(r => r.TestRequestId == id);
 
-        // Khi status = Cancelled, dùng date fields để xác định step nào đã hoàn thành
+        // Build steps from newest to oldest (top to bottom in UI)
+        // Sử dụng date fields để xác định step nào đã hoàn thành (vì status enum values không theo thứ tự timeline)
         var isCancelled = currentStatus == TestRequestStatus.Cancelled;
 
-        // Step 0: Đã hủy (Cancelled) - chỉ hiện khi đã bị hủy
+        // Get creator name for fallback (used in New step if no specific data)
+        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
+
+        // === Step 0: Đã hủy (Cancelled) - chỉ hiện khi đã bị hủy ===
         if (isCancelled)
         {
             result.Steps.Add(new TimelineStepDto
@@ -3027,7 +3092,7 @@ public partial class TestRequestAppService :
             });
         }
 
-        // Step 1: Hoàn thành (Completed)
+        // === Step 1: Hoàn thành (Completed) ===
         var isCompleted = currentStatus == TestRequestStatus.Completed;
         result.Steps.Add(new TimelineStepDto
         {
@@ -3038,37 +3103,49 @@ public partial class TestRequestAppService :
             UserName = testRequest.CompletedByUserName
         });
 
-        // Step 2: Gửi khách hàng (ResultSent)
-        // Khi cancelled: check ResultSentDate để biết đã qua step này chưa
-        var isResultSent = isCancelled
-            ? testRequest.ResultSentDate.HasValue
-            : currentStatus >= TestRequestStatus.ResultSent;
+        // === Step 2: Đã phát hành BC (ReportPublished) - replaces old ResultSent ===
+        // Check date field hoặc status
+        var isReportPublished = isCancelled
+            ? testRequest.ReportPublishedDate.HasValue
+            : (currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed ||
+               testRequest.ReportPublishedDate.HasValue);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Gửi khách hàng",
-            Status = isResultSent ? "completed" : "pending",
-            Date = testRequest.ResultSentDate,
-            UserId = testRequest.ResultSentByUserId,
-            UserName = testRequest.ResultSentByUserName
+            Title = "Đã phát hành BC",
+            Status = isReportPublished ? "completed" : "pending",
+            Date = testRequest.ReportPublishedDate,
+            UserId = testRequest.ReportPublishedByUserId,
+            UserName = testRequest.ReportPublishedByUserName
         });
 
-        // Step 3: Đã phê duyệt (Approved)
+        // === Step 2.5: Đã duyệt KQ (Approved) - QLCL đã duyệt toàn bộ chỉ tiêu ===
+        // ApprovedDate được set khi QLCL duyệt tất cả chỉ tiêu (QualityManagementTask -> PendingPublish)
         var isApproved = isCancelled
             ? testRequest.ApprovedDate.HasValue
-            : currentStatus >= TestRequestStatus.Approved;
+            : (testRequest.ApprovedDate.HasValue ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Đã phê duyệt",
+            Title = "Đã duyệt KQ",
             Status = isApproved ? "completed" : "pending",
             Date = testRequest.ApprovedDate,
             UserId = testRequest.ApprovedByUserId,
             UserName = testRequest.ApprovedByUserName
         });
 
-        // Step 4: Chờ phê duyệt KQ (PendingApproval)
+        // === Step 2.6: Chờ phê duyệt KQ (PendingApproval) - KTV gửi KQ chờ QLCL phê duyệt ===
         var isPendingApproval = isCancelled
             ? testRequest.PendingApprovalDate.HasValue
-            : (currentStatus >= TestRequestStatus.PendingApproval && currentStatus != TestRequestStatus.PendingChangeApproval);
+            : (testRequest.PendingApprovalDate.HasValue ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Chờ phê duyệt KQ",
@@ -3078,10 +3155,17 @@ public partial class TestRequestAppService :
             UserName = testRequest.PendingApprovalByUserName
         });
 
-        // Step 5: Đang thử nghiệm (InProgress)
+        // === Step 3: Đang thử nghiệm (InProgress) ===
         var isInProgress = isCancelled
             ? testRequest.InProgressDate.HasValue
-            : currentStatus >= TestRequestStatus.InProgress;
+            : (testRequest.InProgressDate.HasValue ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Đang thử nghiệm",
@@ -3091,10 +3175,18 @@ public partial class TestRequestAppService :
             UserName = testRequest.InProgressByUserName
         });
 
-        // Step 6: Đã gửi mẫu (SampleSent)
+        // === Step 4: Đã gửi mẫu (SampleSent) ===
         var isSampleSent = isCancelled
             ? testRequest.SampleSentDate.HasValue
-            : currentStatus >= TestRequestStatus.SampleSent;
+            : (testRequest.SampleSentDate.HasValue ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Đã gửi mẫu",
@@ -3105,36 +3197,124 @@ public partial class TestRequestAppService :
             ExtraInfo = isSampleSent && laboratories.Count > 0 ? laboratories : null
         });
 
-        // Get creator name for fallback (used in New step if no specific data)
-        var creatorName = await _userNameProvider.GetUserNameAsync(testRequest.CreatorId);
-
-        // Step 7: Đã thanh toán (Paid)
-        var isPaid = isCancelled
-            ? testRequest.PaymentReceived
-            : currentStatus >= TestRequestStatus.Paid;
+        // === Step 5: Đã duyệt yêu cầu (RequestApproved) ===
+        // Khi tất cả phòng lab đã xét duyệt xong
+        var isRequestApproved = isCancelled
+            ? testRequest.RequestApprovedDate.HasValue
+            : (currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Đã thanh toán",
-            Status = isPaid ? "completed" : "pending",
-            Date = testRequest.PaymentReceived ? testRequest.PendingDate : null,
-            UserId = testRequest.PaymentReceived ? testRequest.PendingByUserId : null,
-            UserName = testRequest.PaymentReceived ? testRequest.PendingByUserName : null
+            Title = "Đã duyệt yêu cầu",
+            Status = isRequestApproved ? "completed" : "pending",
+            Date = testRequest.RequestApprovedDate,
+            UserId = null,
+            UserName = null
         });
 
-        // Step 8: Chờ thanh toán (PendingPayment)
-        var isPendingPayment = isCancelled
-            ? testRequest.SentToAccounting
-            : currentStatus >= TestRequestStatus.PendingPayment;
+        // === Step 6: Đang xem xét YC (UnderReview) ===
+        var isUnderReview = isCancelled
+            ? testRequest.UnderReviewDate.HasValue
+            : (testRequest.UnderReviewDate.HasValue ||
+               currentStatus == TestRequestStatus.UnderReview ||
+               currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+               currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
         result.Steps.Add(new TimelineStepDto
         {
-            Title = "Chờ thanh toán",
-            Status = isPendingPayment ? "completed" : "pending",
-            Date = testRequest.SentToAccounting ? testRequest.CreationTime : null,
-            UserId = testRequest.SentToAccounting ? testRequest.CreatorId : null,
-            UserName = testRequest.SentToAccounting ? creatorName : null
+            Title = "Đang xem xét YC",
+            Status = isUnderReview ? "completed" : "pending",
+            Date = testRequest.UnderReviewDate,
+            UserId = testRequest.UnderReviewByUserId,
+            UserName = testRequest.UnderReviewByUserName
         });
 
-        // Step 9: Mới (New) - luôn completed vì đây là bước đầu
+        // === Step 7: Đã thanh toán (Paid) - CHỈ hiển thị cho mẫu thường (không phải mẫu nhiệm vụ) ===
+        // Mẫu nhiệm vụ không cần thanh toán nên bỏ qua step này
+        if (!testRequest.SampleTypeTask)
+        {
+            var isPaid = isCancelled
+                ? testRequest.PaymentReceived
+                : (testRequest.PaymentReceived ||
+                   currentStatus == TestRequestStatus.Paid ||
+                   currentStatus == TestRequestStatus.UnderReview ||
+                   currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+                   currentStatus == TestRequestStatus.RequestApproved ||
+                   currentStatus == TestRequestStatus.SampleSent ||
+                   currentStatus == TestRequestStatus.InProgress ||
+                   currentStatus == TestRequestStatus.PendingApproval ||
+                   currentStatus == TestRequestStatus.Approved ||
+                   currentStatus == TestRequestStatus.PendingChangeApproval ||
+                   currentStatus == TestRequestStatus.PartialResultSent ||
+                   currentStatus == TestRequestStatus.ReportPublished ||
+                   currentStatus == TestRequestStatus.Completed);
+            // Use Receipt.PaidDate as the real payment date (TestRequest.PendingDate is never set)
+            var paidByUserName = receipt?.PaidDate.HasValue == true && receipt.LastModifierId.HasValue
+                ? await _userNameProvider.GetUserNameAsync(receipt.LastModifierId)
+                : null;
+            result.Steps.Add(new TimelineStepDto
+            {
+                Title = "Đã thanh toán",
+                Status = isPaid ? "completed" : "pending",
+                Date = receipt?.PaidDate,
+                UserId = receipt?.PaidDate.HasValue == true ? receipt.LastModifierId : null,
+                UserName = paidByUserName
+            });
+        }
+
+        // === Step 8: Chờ thanh toán / Không cần thanh toán (PendingPayment / NoPaymentRequired) ===
+        // Mẫu nhiệm vụ (SampleTypeTask): hiển thị "Không cần thanh toán"
+        // Mẫu thường: hiển thị "Chờ thanh toán"
+        // Dựa vào flag SentToAccounting hoặc PaymentReceived (nếu đã thanh toán thì chờ thanh toán cũng xanh)
+        var isSentToAccounting = isCancelled
+            ? (testRequest.SentToAccounting || testRequest.PaymentReceived)
+            : (testRequest.SentToAccounting ||
+               testRequest.PaymentReceived ||
+               currentStatus == TestRequestStatus.PendingPayment ||
+               currentStatus == TestRequestStatus.NoPaymentRequired ||
+               currentStatus == TestRequestStatus.Paid ||
+               currentStatus == TestRequestStatus.UnderReview ||
+               currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
+               currentStatus == TestRequestStatus.RequestApproved ||
+               currentStatus == TestRequestStatus.SampleSent ||
+               currentStatus == TestRequestStatus.InProgress ||
+               currentStatus == TestRequestStatus.PendingApproval ||
+               currentStatus == TestRequestStatus.Approved ||
+               currentStatus == TestRequestStatus.PendingChangeApproval ||
+               currentStatus == TestRequestStatus.PartialResultSent ||
+               currentStatus == TestRequestStatus.ReportPublished ||
+               currentStatus == TestRequestStatus.Completed);
+        var paymentStepTitle = testRequest.SampleTypeTask ? "Không cần thanh toán" : "Chờ thanh toán";
+        // Use Receipt.CreationTime as the actual "sent to accounting" date (more accurate than TestRequest.CreationTime)
+        var sentToAccountingDate = receipt?.CreationTime ?? testRequest.CreationTime;
+        var sentToAccountingUserId = receipt?.CreatorId ?? testRequest.CreatorId;
+        var sentToAccountingUserName = receipt?.CreatorId != null && receipt.CreatorId != testRequest.CreatorId
+            ? await _userNameProvider.GetUserNameAsync(receipt.CreatorId)
+            : creatorName;
+        result.Steps.Add(new TimelineStepDto
+        {
+            Title = paymentStepTitle,
+            Status = isSentToAccounting ? "completed" : "pending",
+            Date = isSentToAccounting ? sentToAccountingDate : null,
+            UserId = isSentToAccounting ? sentToAccountingUserId : null,
+            UserName = isSentToAccounting ? sentToAccountingUserName : null
+        });
+
+        // === Step 9: Mới (New) - luôn completed vì đây là bước đầu ===
         result.Steps.Add(new TimelineStepDto
         {
             Title = "Mới",
@@ -3143,6 +3323,24 @@ public partial class TestRequestAppService :
             UserId = testRequest.CreatorId,
             UserName = creatorName
         });
+
+        // Post-processing: mark "current" step and clean up cancelled timeline
+        if (isCancelled)
+        {
+            // When cancelled, remove pending steps - only show what actually happened
+            result.Steps = result.Steps.Where(s => s.Status != "pending").ToList();
+        }
+        else if (currentStatus != TestRequestStatus.Completed)
+        {
+            // Mark the NEXT step to happen as "current" (yellow clock)
+            // This is the last pending step in the list (closest to the completed boundary)
+            // Steps already reached stay "completed" (blue check + date shown)
+            var nextStep = result.Steps.LastOrDefault(s => s.Status == "pending");
+            if (nextStep != null)
+            {
+                nextStep.Status = "current";
+            }
+        }
 
         return result;
     }

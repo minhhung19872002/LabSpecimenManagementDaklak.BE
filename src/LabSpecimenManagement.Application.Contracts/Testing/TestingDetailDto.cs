@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.Testing;
@@ -74,6 +75,17 @@ public class TestingDetailDto : EntityDto<Guid>
     /// Danh sách mẫu và chỉ tiêu (grouped by sample)
     /// </summary>
     public List<TestingSampleDto> Samples { get; set; } = new();
+
+    /// <summary>
+    /// Có phải công việc của user hiện tại hay không
+    /// True nếu user hiện tại là 1 trong các KTV được gán vào task này
+    /// </summary>
+    public bool IsMy { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 }
 
 /// <summary>
@@ -184,6 +196,11 @@ public class TestingIndicatorDto
     /// Indicator ID
     /// </summary>
     public Guid IndicatorId { get; set; }
+
+    /// <summary>
+    /// Specimen Type ID - Nền mẫu (để filter kết quả recommend theo indicator+specimenType)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
     /// Tên chỉ tiêu - Indicator Name
@@ -330,6 +347,26 @@ public class TestingIndicatorDto
     /// Giới hạn cho phép (giá trị cụ thể) - Allowed Limit
     /// </summary>
     public string? AllowedLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu cận dưới (>, >=) - cho khoảng - Lower Operator
+    /// </summary>
+    public string? LowerOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận dưới - cho khoảng - Lower Limit
+    /// </summary>
+    public string? LowerLimit { get; set; }
+
+    /// <summary>
+    /// Ký hiệu cận trên (<, <=) - cho khoảng - Upper Operator
+    /// </summary>
+    public string? UpperOperator { get; set; }
+
+    /// <summary>
+    /// Giá trị cận trên - cho khoảng - Upper Limit
+    /// </summary>
+    public string? UpperLimit { get; set; }
 
     /// <summary>
     /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc) - Parent Indicator ID

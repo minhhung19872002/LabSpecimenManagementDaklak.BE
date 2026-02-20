@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Import;
 using LabSpecimenManagement.Permissions;
@@ -236,23 +238,22 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
-    #region Organization + TestRequest Import (Legacy Data)
+    #region Organization Import (CS/DN)
 
     /// <summary>
-    /// Get template for importing Organization + TestRequest from legacy system
+    /// Get template for importing Organization (CS/DN)
     /// </summary>
     [HttpGet("organization-test-requests/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
     public virtual IActionResult GetOrganizationTestRequestTemplate()
     {
         var bytes = _importAppService.GetOrganizationTestRequestTemplate();
-        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CoSo_YeuCau.xlsx");
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CSDN.xlsx");
     }
 
     /// <summary>
-    /// Preview Organization + TestRequest import - validates data without saving
+    /// Preview Organization import - validates data without saving
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [HttpPost("organization-test-requests/preview")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
@@ -267,20 +268,27 @@ public class ImportController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Import Organization + TestRequest from Excel file
+    /// Import Organizations from Excel file
     /// Organization upsert: match by OrganizationName (trim, case-insensitive)
-    /// TestRequest: always create new with status = Completed
     /// </summary>
     [HttpPost("organization-test-requests")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
     [DisableValidation]
-    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file)
+    public virtual async Task<ImportResultDto> ImportOrganizationTestRequestsAsync(IFormFile file, [FromForm] string? codeOverrides = null)
     {
         ValidateFile(file);
         using var memoryStream = new System.IO.MemoryStream();
         await file.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
-        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes);
+
+        // Parse FE-resolved location code overrides
+        List<LocationCodeOverride>? overrides = null;
+        if (!string.IsNullOrWhiteSpace(codeOverrides))
+        {
+            overrides = System.Text.Json.JsonSerializer.Deserialize<List<LocationCodeOverride>>(codeOverrides, new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        }
+
+        return await _importAppService.ImportOrganizationTestRequestsAsync(fileBytes, overrides);
     }
 
     #endregion
@@ -470,6 +478,102 @@ public class ImportController : LabSpecimenManagementController
         await file.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
         return await _importAppService.ImportSpecimenTypesAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Note Import
+
+    /// <summary>
+    /// Get template for importing Note
+    /// Template columns: Ghi chú
+    /// </summary>
+    [HttpGet("notes/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetNoteTemplate()
+    {
+        var bytes = _importAppService.GetNoteTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ghi_chu.xlsx");
+    }
+
+    /// <summary>
+    /// Preview Note import - validates data without saving
+    /// Upsert: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("notes/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<NoteImportPreviewDto> PreviewNotesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewNotesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import Notes from Excel file
+    /// Upsert logic: match by Content (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("notes")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportNotesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportNotesAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region TestResultValue Import
+
+    /// <summary>
+    /// Get template for importing TestResultValue
+    /// Template columns: Tên kết quả, Mô tả, Nền mẫu, Chỉ tiêu
+    /// </summary>
+    [HttpGet("test-result-values/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual IActionResult GetTestResultValueTemplate()
+    {
+        var bytes = _importAppService.GetTestResultValueTemplate();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ket_Qua.xlsx");
+    }
+
+    /// <summary>
+    /// Preview TestResultValue import - validates data without saving
+    /// Upsert: match by ResultName (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("test-result-values/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewTestResultValuesAsync(fileBytes);
+    }
+
+    /// <summary>
+    /// Import TestResultValues from Excel file
+    /// Upsert logic: match by ResultName (normalized, case-insensitive)
+    /// </summary>
+    [HttpPost("test-result-values")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportTestResultValuesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportTestResultValuesAsync(fileBytes);
     }
 
     #endregion

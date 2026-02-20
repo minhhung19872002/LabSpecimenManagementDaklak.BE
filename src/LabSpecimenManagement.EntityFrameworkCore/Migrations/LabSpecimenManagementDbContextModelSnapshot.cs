@@ -110,6 +110,42 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppIndicatorRejectionHistories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryDepartmentSupporter", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<DateTime>("ExpirationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("LaboratoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpirationDate");
+
+                    b.HasIndex("LaboratoryId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("LaboratoryId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("AppLaboratoryDepartmentSupporters", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.LaboratoryTasks.LaboratoryTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -264,8 +300,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("FreeTextNote")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsSentToQuality")
                         .HasColumnType("boolean");
@@ -335,8 +370,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(1000)");
 
                     b.Property<string>("Unit")
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -1023,8 +1057,7 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<string>("Content")
                         .IsRequired()
-                        .HasMaxLength(1000)
-                        .HasColumnType("character varying(1000)");
+                        .HasColumnType("text");
 
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("timestamp without time zone")
@@ -1147,6 +1180,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<string>("ProvinceCode")
                         .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("SecondaryPhone")
                         .HasColumnType("text");
 
                     b.Property<int>("SortOrder")
@@ -1844,6 +1880,40 @@ namespace LabSpecimenManagement.Migrations
                         .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppTestResultValues", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.TestResultValueIndicator", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("SortOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("TestResultValueId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("IndicatorId");
+
+                    b.HasIndex("SpecimenTypeId");
+
+                    b.HasIndex("TestResultValueId");
+
+                    b.HasIndex("TestResultValueId", "IndicatorId", "SpecimenTypeId")
+                        .IsUnique();
+
+                    b.ToTable("AppTestResultValueIndicators", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.NCRs.NCR", b =>
@@ -3656,6 +3726,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime?>("ReportPublishedDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime?>("RequestApprovedDate")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<DateTime>("RequestDate")

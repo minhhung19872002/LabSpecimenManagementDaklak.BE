@@ -142,6 +142,30 @@ public interface ILaboratoryTaskAppService : IApplicationService
 
     #endregion
 
+    #region Department Supporter Management
+
+    /// <summary>
+    /// Lấy danh sách người hỗ trợ khoa phòng
+    /// </summary>
+    Task<List<LaboratoryDepartmentSupporterDto>> GetDepartmentSupportersAsync();
+
+    /// <summary>
+    /// Thêm người hỗ trợ khoa phòng (có thời hạn)
+    /// </summary>
+    Task<List<LaboratoryDepartmentSupporterDto>> AddDepartmentSupportersAsync(AddDepartmentSupportersDto input);
+
+    /// <summary>
+    /// Xóa người hỗ trợ khoa phòng
+    /// </summary>
+    Task RemoveDepartmentSupporterAsync(Guid supporterId);
+
+    /// <summary>
+    /// Xóa người hỗ trợ khoa phòng đã hết hạn (gọi bởi cronjob)
+    /// </summary>
+    Task<int> RemoveExpiredDepartmentSupportersAsync();
+
+    #endregion
+
     #region Bulk Approval
 
     /// <summary>
@@ -215,6 +239,14 @@ public interface ILaboratoryTaskAppService : IApplicationService
     #endregion
 
     #region Shared Sample (Mẫu chung)
+
+    /// <summary>
+    /// Kiểm tra xem có cần ẩn nút từ chối cho task này không
+    /// Task của Lab Hóa trong mẫu chung không được từ chối chỉ tiêu
+    /// </summary>
+    /// <param name="taskId">LaboratoryTask ID</param>
+    /// <returns>true nếu cần ẩn nút từ chối, false nếu không</returns>
+    Task<bool> ShouldHideRejectButtonAsync(Guid taskId);
 
     /// <summary>
     /// Lab Vi Sinh gửi mẫu chung cho Lab Hóa

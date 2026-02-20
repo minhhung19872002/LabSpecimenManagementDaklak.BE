@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -19,6 +20,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Số phiếu yêu cầu - Test Request Number
     /// </summary>
     public string? TestRequestNumber { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 
     /// <summary>
     /// Laboratory ID
@@ -66,9 +72,16 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date
+    /// Ngày thí nghiệm - Test Date (ngày sớm nhất từ indicators)
     /// </summary>
     public DateTime? TestDate { get; set; }
+
+    /// <summary>
+    /// Khoảng ngày thử nghiệm - Test Date Range
+    /// Format: "dd/MM/yyyy - dd/MM/yyyy" (Min - Max từ tất cả indicators)
+    /// Giống format trên báo cáo
+    /// </summary>
+    public string? TestDateRange { get; set; }
 
     /// <summary>
     /// Trạng thái - Status
@@ -109,6 +122,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     /// Current user là Supporter của task này hay không
     /// </summary>
     public bool IsCurrentUserSupporter { get; set; }
+
+    /// <summary>
+    /// Current user là Department Supporter của khoa phòng này hay không
+    /// </summary>
+    public bool IsCurrentUserDepartmentSupporter { get; set; }
 
     // ====== Shared Sample Fields ======
 
@@ -184,6 +202,11 @@ public class LaboratoryTaskIndicatorDto
     /// Tên mẫu - Sample Name
     /// </summary>
     public string? SampleName { get; set; }
+
+    /// <summary>
+    /// ID nền mẫu (loại mẫu) - Specimen Type ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
     /// Indicator ID
@@ -496,6 +519,45 @@ public class ManageSupportersDto
     /// List of User IDs to add as supporters
     /// </summary>
     public List<Guid> UserIds { get; set; } = new();
+}
+
+/// <summary>
+/// DTO for Department Supporter (người hỗ trợ khoa phòng)
+/// </summary>
+public class LaboratoryDepartmentSupporterDto
+{
+    public Guid Id { get; set; }
+    public Guid LaboratoryId { get; set; }
+    public Guid UserId { get; set; }
+    public string? UserName { get; set; }
+    public string? FullName { get; set; }
+    public string? Email { get; set; }
+    public DateTime ExpirationDate { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+/// <summary>
+/// DTO for adding department supporters with expiration dates
+/// </summary>
+public class AddDepartmentSupportersDto
+{
+    public List<DepartmentSupporterEntry> Entries { get; set; } = new();
+}
+
+/// <summary>
+/// Entry for adding a single department supporter
+/// </summary>
+public class DepartmentSupporterEntry
+{
+    /// <summary>
+    /// User ID to add as supporter
+    /// </summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>
+    /// Ngày hết hạn (ngày được chọn - BE sẽ tính end-of-day Vietnam TZ)
+    /// </summary>
+    public DateTime ExpirationDate { get; set; }
 }
 
 /// <summary>

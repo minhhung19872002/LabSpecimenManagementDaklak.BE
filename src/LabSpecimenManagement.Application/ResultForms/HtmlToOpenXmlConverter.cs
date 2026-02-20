@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net;
 using System.Text.RegularExpressions;
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Wordprocessing;
@@ -8,7 +9,8 @@ namespace LabSpecimenManagement.ResultForms;
 
 /// <summary>
 /// Helper class to convert simple HTML formatting to OpenXML runs
-/// Supports: bold (b/strong), italic (i/em), underline (u), subscript (sub), superscript (sup)
+/// Supports: bold (b/strong), italic (i/em), underline (u), strikethrough (s/strike),
+/// subscript (sub), superscript (sup), paragraph (p), bullet list (ul/li), ordered list (ol/li)
 /// </summary>
 public static class HtmlToOpenXmlConverter
 {
@@ -44,13 +46,14 @@ public static class HtmlToOpenXmlConverter
         }
 
         // Parse HTML and create runs
-        ParseHtml(trimmedHtml, runs, new FormattingContext(), baseProperties);
+        var context = new FormattingContext();
+        ParseHtml(trimmedHtml, runs, context, baseProperties);
 
         return runs;
     }
 
     /// <summary>
-    /// Converts HTML formatted text to plain text (strips all tags)
+    /// Converts HTML formatted text to plain text (strips all tags and decodes entities)
     /// </summary>
     public static string ConvertHtmlToPlainText(string? html)
     {
@@ -58,7 +61,10 @@ public static class HtmlToOpenXmlConverter
             return string.Empty;
 
         // Remove all HTML tags
-        return Regex.Replace(html, "<[^>]+>", string.Empty);
+        var stripped = Regex.Replace(html, "<[^>]+>", string.Empty);
+
+        // Decode HTML entities (e.g., &nbsp; -> space)
+        return WebUtility.HtmlDecode(stripped);
     }
 
     /// <summary>
@@ -117,19 +123,127 @@ public static class HtmlToOpenXmlConverter
                 break;
             }
 
-            // Parse tag
-            var tag = html.Substring(tagStart + 1, tagEnd - tagStart - 1).Trim().ToLowerInvariant();
-            var isClosingTag = tag.StartsWith("/");
+            // Parse tag - extract tag name (ignore attributes like class="...")
+            var tagContent = html.Substring(tagStart + 1, tagEnd - tagStart - 1).Trim();
+            var isClosingTag = tagContent.StartsWith("/");
+            var isSelfClosing = tagContent.EndsWith("/");
             if (isClosingTag)
             {
-                tag = tag.Substring(1);
+                tagContent = tagContent.Substring(1);
             }
+            // Get just the tag name (before any space/attributes)
+            var spaceIdx = tagContent.IndexOf(' ');
+            var tag = (spaceIdx >= 0 ? tagContent.Substring(0, spaceIdx) : tagContent).ToLowerInvariant();
+            // Remove trailing "/" for self-closing tags like <br/>
+            tag = tag.TrimEnd('/');
 
-            // Update context based on tag
+            // Handle block-level tags that need line breaks
+            HandleBlockTag(tag, isClosingTag, isSelfClosing, context, runs, baseProperties);
+
+            // Update inline formatting context
             UpdateContext(tag, isClosingTag, context);
 
             position = tagEnd + 1;
         }
+    }
+
+    /// <summary>
+    /// Handle block-level tags (p, ul, ol, li) by inserting line breaks.
+    /// TipTap generates <li><p>text</p></li> - we skip the </p> break when inside a list item
+    /// to avoid double line breaks.
+    /// </summary>
+    private static void HandleBlockTag(string tag, bool isClosingTag, bool isSelfClosing, FormattingContext context, List<Run> runs, RunProperties? baseProperties)
+    {
+        switch (tag)
+        {
+            case "p":
+                if (isClosingTag)
+                {
+                    // Skip break for </p> inside <li> - the </li> will add its own break
+                    // TipTap generates: <li><p>text</p></li>
+                    if (context.InListItem)
+                        return;
+
+                    // Add line break after paragraph
+                    AddBreakRun(runs, baseProperties);
+                }
+                break;
+
+            case "ul":
+                if (!isClosingTag)
+                {
+                    context.InUnorderedList = true;
+                    context.ListItemIndex = 0;
+                }
+                else
+                {
+                    context.InUnorderedList = false;
+                }
+                break;
+
+            case "ol":
+                if (!isClosingTag)
+                {
+                    context.InOrderedList = true;
+                    context.ListItemIndex = 0;
+                }
+                else
+                {
+                    context.InOrderedList = false;
+                }
+                break;
+
+            case "li":
+                if (!isClosingTag)
+                {
+                    context.InListItem = true;
+                    context.ListItemIndex++;
+                    // Add list item prefix
+                    string prefix;
+                    if (context.InOrderedList)
+                    {
+                        prefix = $"{context.ListItemIndex}. ";
+                    }
+                    else
+                    {
+                        prefix = "• ";
+                    }
+                    var prefixRun = CreateRun(prefix, baseProperties);
+                    runs.Add(prefixRun);
+                }
+                else
+                {
+                    context.InListItem = false;
+                    // Add line break after list item
+                    AddBreakRun(runs, baseProperties);
+                }
+                break;
+
+            case "br":
+                // Self-closing <br> or <br/> - add line break
+                if (!isClosingTag || isSelfClosing)
+                {
+                    AddBreakRun(runs, baseProperties);
+                }
+                break;
+        }
+    }
+
+    /// <summary>
+    /// Helper to add a Run containing only a Break element
+    /// </summary>
+    private static void AddBreakRun(List<Run> runs, RunProperties? baseProperties)
+    {
+        var breakRun = new Run();
+        if (baseProperties != null)
+        {
+            var props = new RunProperties();
+            foreach (var child in baseProperties.ChildElements)
+                props.Append(child.CloneNode(true));
+            breakRun.Append(props);
+        }
+        breakRun.Append(new Break());
+        runs.Add(breakRun);
     }
 
     private static void UpdateContext(string tag, bool isClosingTag, FormattingContext context)
@@ -147,14 +261,15 @@ public static class HtmlToOpenXmlConverter
             case "u":
                 context.Underline = !isClosingTag;
                 break;
+            case "s":
+            case "strike":
+                context.Strikethrough = !isClosingTag;
+                break;
             case "sub":
                 context.Subscript = !isClosingTag;
                 break;
             case "sup":
                 context.Superscript = !isClosingTag;
-                break;
-            case "br":
-                // Line break - handled separately
                 break;
         }
     }
@@ -188,6 +303,10 @@ public static class HtmlToOpenXmlConverter
             {
                 runProps.Append(new Underline { Val = UnderlineValues.Single });
             }
+            if (context.Strikethrough)
+            {
+                runProps.Append(new Strike());
+            }
             if (context.Subscript)
             {
                 runProps.Append(new VerticalTextAlignment { Val = VerticalPositionValues.Subscript });
@@ -203,8 +322,11 @@ public static class HtmlToOpenXmlConverter
             run.Append(runProps);
         }
 
-        // Handle line breaks in text (both HTML <br> tags and \n newlines)
-        var lines = text.Split(new[] { "<br>", "<br/>", "<br />", "\r\n", "\n" }, StringSplitOptions.None);
+        // Decode HTML entities (e.g., &nbsp; -> space, &lt; -> <, &gt; -> >)
+        var decodedText = DecodeHtmlEntities(text);
+
+        // Handle \n newlines in text (e.g., from merged note with \n\n separators)
+        var lines = decodedText.Split(new[] { "\r\n", "\n" }, StringSplitOptions.None);
         for (int i = 0; i < lines.Length; i++)
         {
             if (!string.IsNullOrEmpty(lines[i]))
@@ -220,12 +342,30 @@ public static class HtmlToOpenXmlConverter
         return run;
     }
 
+    /// <summary>
+    /// Decode HTML entities to their corresponding characters
+    /// </summary>
+    private static string DecodeHtmlEntities(string text)
+    {
+        if (string.IsNullOrEmpty(text))
+            return text;
+
+        // Use WebUtility.HtmlDecode to handle all standard HTML entities
+        return WebUtility.HtmlDecode(text);
+    }
+
     private class FormattingContext
     {
         public bool Bold { get; set; }
         public bool Italic { get; set; }
         public bool Underline { get; set; }
+        public bool Strikethrough { get; set; }
         public bool Subscript { get; set; }
         public bool Superscript { get; set; }
+        // List context
+        public bool InUnorderedList { get; set; }
+        public bool InOrderedList { get; set; }
+        public bool InListItem { get; set; }
+        public int ListItemIndex { get; set; }
     }
 }

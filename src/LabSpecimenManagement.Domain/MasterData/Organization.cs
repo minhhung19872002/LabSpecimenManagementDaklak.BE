@@ -45,6 +45,11 @@ public class Organization : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Phone { get; set; } = string.Empty;
 
     /// <summary>
+    /// So dien thoai phu
+    /// </summary>
+    public string? SecondaryPhone { get; set; }
+
+    /// <summary>
     /// Trang thai hoat dong
     /// </summary>
     public bool IsActive { get; set; }

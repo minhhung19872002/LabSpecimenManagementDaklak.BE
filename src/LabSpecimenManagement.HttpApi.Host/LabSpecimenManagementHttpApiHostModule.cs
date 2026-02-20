@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using Hangfire;
 using Hangfire.PostgreSql;
 using LabSpecimenManagement.BackgroundJobs;
@@ -88,7 +89,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 .DisableTransportSecurityRequirement();
 
             // Set token lifetimes
-            builder.SetAccessTokenLifetime(TimeSpan.FromHours(2));
+            builder.SetAccessTokenLifetime(TimeSpan.FromHours(8));
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
         });
     }
@@ -489,6 +490,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             "account-expiration-job",
             job => job.ExecuteAsync(),
             "0 1 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Department supporter expiration - remove expired department supporters
+        // CRON: "0 0 * * *" = At 00:00 every day (midnight Vietnam time)
+        RecurringJob.AddOrUpdate<DepartmentSupporterExpirationJob>(
+            "department-supporter-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 0 * * *",
             new RecurringJobOptions
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
