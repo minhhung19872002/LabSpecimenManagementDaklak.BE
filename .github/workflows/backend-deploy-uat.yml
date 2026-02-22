@@ -76,7 +76,7 @@ jobs:
           echo "Running database migrations..."
           docker pull ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
           docker run --rm --env-file /opt/lab-specimen/.env.uat \
-            -e ConnectionStrings__Default="Host=psql-lab-specimen-uat.postgres.database.azure.com;Database=labspecimen;Username=psqladmin;Password=UatPassword2026;SSL Mode=Require" \
+            -e ConnectionStrings__Default="Host=psql-lab-specimen-uat.postgres.database.azure.com;Database=labspecimen;Username=psqladmin;Password=qwchadZPozZ6omqSvbvQsSVmw;SSL Mode=Require" \
             ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
           echo "Database migrations completed successfully"
 
