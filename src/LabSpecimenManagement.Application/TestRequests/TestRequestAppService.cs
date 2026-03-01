@@ -1487,8 +1487,7 @@ public partial class TestRequestAppService :
     {
         return status == TestRequestStatus.New ||
                status == TestRequestStatus.PendingPayment ||
-               status == TestRequestStatus.Paid ||
-               status == TestRequestStatus.Cancelled;
+               status == TestRequestStatus.Paid;
     }
 
     /// <summary>
