@@ -90,7 +90,8 @@ public partial class LaboratoryTaskAppService
             }
 
             // Compute end-of-day in Vietnam timezone → UTC
-            var expirationDateVn = entry.ExpirationDate.Date.AddDays(1);
+            // Ensure DateTime.Kind is Unspecified so DateTimeOffset accepts VietnamOffset
+            var expirationDateVn = DateTime.SpecifyKind(entry.ExpirationDate.Date.AddDays(1), DateTimeKind.Unspecified);
             var expirationDateUtc = new DateTimeOffset(expirationDateVn, VietnamOffset).UtcDateTime;
 
             // Add supporter to ALL accessible labs

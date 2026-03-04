@@ -2411,9 +2411,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private Dictionary<string, string> BuildPreviewFormPlaceholders(PreviewTestRequestFormInput input)
     {
         var address = input.Address ?? "";
-        var wardText = !string.IsNullOrWhiteSpace(input.Ward) ? input.Ward : "";
-        var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
-        var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
+        var wardText = LowercaseAdministrativePrefix(input.Ward, "Phường", "Xã");
+        var districtText = LowercaseAdministrativePrefix(input.District, "Quận");
+        var provinceText = LowercaseAdministrativePrefix(input.Province, "Tỉnh");
         var resultCopies = input.ResultCopyCount ?? "";
         // Chỉ hiển thị CustomerTestMethod khi MethodCustomer = true
         var customerTestMethod = input.MethodCustomer ? (input.MethodCustomerDetail ?? "") : "";
@@ -4232,10 +4232,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Address = chỉ lấy địa chỉ người dùng nhập, không nối tỉnh/huyện/xã
         var address = testRequest.Address ?? "";
 
-        // Build address parts - thêm khoảng trắng phía sau để tránh bị sát với text khác
-        var wardText = !string.IsNullOrWhiteSpace(testRequest.Ward) ? testRequest.Ward : "";
-        var districtText = !string.IsNullOrWhiteSpace(testRequest.District) ? testRequest.District : "";
-        var provinceText = !string.IsNullOrWhiteSpace(testRequest.Province) ? testRequest.Province : "";
+        // Build address parts - lowercase prefix hành chính (Tỉnh → tỉnh, Quận → quận, Phường/Xã → phường/xã)
+        var wardText = LowercaseAdministrativePrefix(testRequest.Ward, "Phường", "Xã");
+        var districtText = LowercaseAdministrativePrefix(testRequest.District, "Quận");
+        var provinceText = LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh");
 
         // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
         var resultCopies = testRequest.ResultCopyCount ?? "";
@@ -4357,6 +4357,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         ReplacePlaceholdersInBody(body, placeholders);
 
         document.MainDocumentPart?.Document?.Save();
+    }
+
+    /// <summary>
+    /// Lowercase prefix hành chính: "Tỉnh Đắk Lắk" → "tỉnh Đắk Lắk", "Quận 1" → "quận 1", etc.
+    /// </summary>
+    private static string LowercaseAdministrativePrefix(string? value, params string[] prefixes)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        foreach (var prefix in prefixes)
+        {
+            if (value.StartsWith(prefix + " ", StringComparison.Ordinal))
+            {
+                return char.ToLower(value[0]) + value[1..];
+            }
+        }
+        return value;
     }
 
     /// <summary>

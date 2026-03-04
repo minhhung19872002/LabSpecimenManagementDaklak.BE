@@ -24,6 +24,12 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 [Authorize]
 public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
 {
+    // Support both English role names (from seed data) and Vietnamese role names (from production)
+    private static readonly string[] QualityManagerRoleNames = { "QualityManager", "Quản lý chất lượng" };
+
+    // Positions that are considered as technicians (for dropdown filtering)
+    private static readonly string[] TechnicianPositions = { "Nhân viên", "Thử nghiệm viên" };
+
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
@@ -1341,15 +1347,15 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId)
     {
-        // Get all active users with LabTechnician role
+        // Get all active users filtered by Position (Nhân viên, Thử nghiệm viên)
         var users = await _userRepository.GetListAsync();
         var technicians = new List<UserLookupDto>();
 
         foreach (var user in users.Where(u => u.IsActive))
         {
-            // Filter by role: only LabTechnician
-            var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            // Filter by position
+            var position = user.GetProperty<string>("Position");
+            if (string.IsNullOrWhiteSpace(position) || !TechnicianPositions.Contains(position))
             {
                 continue;
             }
@@ -1390,9 +1396,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         foreach (var user in users.Where(u => u.IsActive))
         {
-            // Filter by role: only LabTechnician
-            var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            // Filter by position: only "Nhân viên" or "Thử nghiệm viên"
+            var position = user.GetProperty<string>("Position");
+            if (string.IsNullOrWhiteSpace(position) || !TechnicianPositions.Contains(position))
             {
                 continue;
             }
@@ -2582,7 +2588,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         foreach (var user in users.Where(u => u.IsActive))
         {
             var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            if (!userRoles.Any(r => QualityManagerRoleNames.Contains(r.Name)))
             {
                 continue;
             }
@@ -2623,7 +2629,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         {
             // Check if user has QualityManager role
             var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            if (!userRoles.Any(r => QualityManagerRoleNames.Contains(r.Name)))
             {
                 continue;
             }
