@@ -227,9 +227,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(testRequest.Address)) parts.Add(testRequest.Address);
-        if (!string.IsNullOrWhiteSpace(testRequest.Ward)) parts.Add(testRequest.Ward);
-        if (!string.IsNullOrWhiteSpace(testRequest.District)) parts.Add(testRequest.District);
-        if (!string.IsNullOrWhiteSpace(testRequest.Province)) parts.Add(testRequest.Province);
+        if (!string.IsNullOrWhiteSpace(testRequest.Ward)) parts.Add(LowercaseAdministrativePrefix(testRequest.Ward, "Phường", "Xã"));
+        if (!string.IsNullOrWhiteSpace(testRequest.District)) parts.Add(LowercaseAdministrativePrefix(testRequest.District, "Quận"));
+        if (!string.IsNullOrWhiteSpace(testRequest.Province)) parts.Add(LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh", "Thành phố"));
         return string.Join(", ", parts);
     }
 
@@ -2413,7 +2413,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var address = input.Address ?? "";
         var wardText = LowercaseAdministrativePrefix(input.Ward, "Phường", "Xã");
         var districtText = LowercaseAdministrativePrefix(input.District, "Quận");
-        var provinceText = LowercaseAdministrativePrefix(input.Province, "Tỉnh");
+        var provinceText = LowercaseAdministrativePrefix(input.Province, "Tỉnh", "Thành phố");
         var resultCopies = input.ResultCopyCount ?? "";
         // Chỉ hiển thị CustomerTestMethod khi MethodCustomer = true
         var customerTestMethod = input.MethodCustomer ? (input.MethodCustomerDetail ?? "") : "";
@@ -4235,7 +4235,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Build address parts - lowercase prefix hành chính (Tỉnh → tỉnh, Quận → quận, Phường/Xã → phường/xã)
         var wardText = LowercaseAdministrativePrefix(testRequest.Ward, "Phường", "Xã");
         var districtText = LowercaseAdministrativePrefix(testRequest.District, "Quận");
-        var provinceText = LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh");
+        var provinceText = LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh", "Thành phố");
 
         // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
         var resultCopies = testRequest.ResultCopyCount ?? "";
