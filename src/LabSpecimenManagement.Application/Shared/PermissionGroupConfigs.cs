@@ -23,8 +23,7 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.TestRequests.Default, "Xem phiếu yêu cầu"),
             (LabSpecimenManagementPermissions.TestRequests.Create, "Tạo phiếu yêu cầu"),
             (LabSpecimenManagementPermissions.TestRequests.Edit, "Chỉnh sửa phiếu yêu cầu"),
-            (LabSpecimenManagementPermissions.Specimens.Create, "Gửi mẫu"),
-            (LabSpecimenManagementPermissions.Specimens.Edit, "Duyệt thay đổi"),
+            (LabSpecimenManagementPermissions.TestRequests.SendSample, "Gửi mẫu"),
             (LabSpecimenManagementPermissions.TestRequests.Delete, "Hủy yêu cầu"),
         }),
         new PermissionGroupConfig("QuanLyCongViec", "Quản lý công việc", new[]
