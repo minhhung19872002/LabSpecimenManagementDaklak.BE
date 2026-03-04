@@ -143,7 +143,6 @@ public class TestRequestController : LabSpecimenManagementController
     /// Send sample - update status from Pending to SampleSent
     /// </summary>
     [HttpPost("{id}/send-sample")]
-    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
     public virtual Task SendSampleAsync(Guid id)
     {
         return _testRequestAppService.SendSampleAsync(id);
