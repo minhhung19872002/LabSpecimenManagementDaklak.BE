@@ -1254,10 +1254,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
         var labNames = string.Join(", ", labs.Select(l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : ""));
 
-        // Get technical manager names
+        // Get technical manager names (QLKT của phòng thử nghiệm)
         var managerIds = labTasks.Where(lt => lt.TechnicalManagerId.HasValue).Select(lt => lt.TechnicalManagerId!.Value).Distinct().ToList();
         var managers = await _userRepository.GetListAsync(u => managerIds.Contains(u.Id));
-        var managerNames = string.Join(", ", managers.Select(m => m.Name ?? m.UserName));
+        var managerNames = string.Join(", ", managers.Select(m =>
+        {
+            var fullName = $"{m.Surname} {m.Name}".Trim();
+            return string.IsNullOrWhiteSpace(fullName) ? m.UserName : fullName;
+        }));
 
         return new QualityManagementTaskDto
         {

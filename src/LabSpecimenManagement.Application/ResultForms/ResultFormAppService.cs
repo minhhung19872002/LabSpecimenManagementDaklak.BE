@@ -268,26 +268,35 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             return "";
         }
 
-        var approverIds = taskIndicators
-            .Where(i => i.ApprovedById.HasValue)
-            .Select(i => i.ApprovedById!.Value)
+        // Get TechnicalManagerId from LaboratoryTask (QLKT của phòng thử nghiệm)
+        var labTaskIds = taskIndicators
+            .Select(i => i.LaboratoryTaskId)
             .Distinct()
             .ToList();
 
-        // Only show name if exactly 1 approver
-        if (approverIds.Count != 1)
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => labTaskIds.Contains(lt.Id));
+        var managerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (!managerIds.Any())
         {
             return "";
         }
 
-        var user = await _userRepository.FindAsync(approverIds[0]);
-        if (user == null)
+        var managers = (await _userRepository.GetListAsync())
+            .Where(u => managerIds.Contains(u.Id))
+            .ToList();
+        
+        var managerNames = managers.Select(m =>
         {
-            return "";
-        }
+            var fullName = $"{m.Surname} {m.Name}".Trim();
+            return string.IsNullOrWhiteSpace(fullName) ? m.UserName : fullName;
+        });
 
-        var fullName = $"{user.Surname} {user.Name}".Trim();
-        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+        return string.Join(", ", managerNames);
     }
 
     /// <summary>
@@ -652,11 +661,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     }
                     else
                     {
-                        // For Note placeholder, remove height constraint on containing cell/row and set font size to 11
+                        // For Note placeholder, remove height constraint on containing cell/row and preserve font size from template
                         if (placeholder.Key == "{{Note}}" && !string.IsNullOrEmpty(placeholder.Value))
                         {
                             RemoveContainingCellHeightConstraint(text);
-                            SetNoteFontSize(text, 11);
+                            // Get font size from placeholder in template (default 11pt if not set)
+                            var fontSize = GetFontSizeFromText(text);
+                            SetNoteFontSize(text, fontSize);
                             NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
 
                             // Handle HTML content in Note (from rich text editor)
@@ -776,6 +787,44 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Set font size for the Note text element to ensure consistent formatting
     /// Font size in OpenXML is in half-points (e.g., 11pt = 22 half-points)
     /// </summary>
+    /// <summary>
+    /// Get font size from text element in template (in points)
+    /// </summary>
+    /// <param name="textElement">Text element containing placeholder</param>
+    /// <returns>Font size in points (default 11 if not found)</returns>
+    private int GetFontSizeFromText(Text textElement)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null) return 11;
+
+        var runProps = parentRun.GetFirstChild<RunProperties>();
+        if (runProps == null) return 11;
+
+        // Try to get FontSize first
+        var fontSize = runProps.GetFirstChild<FontSize>();
+        if (fontSize?.Val?.Value != null)
+        {
+            // Font size in OpenXML is in half-points, convert to points
+            if (int.TryParse(fontSize.Val.Value, out var halfPoints))
+            {
+                return halfPoints / 2;
+            }
+        }
+
+        // Try FontSizeComplexScript as fallback
+        var fontSizeCs = runProps.GetFirstChild<FontSizeComplexScript>();
+        if (fontSizeCs?.Val?.Value != null)
+        {
+            if (int.TryParse(fontSizeCs.Val.Value, out var halfPoints))
+            {
+                return halfPoints / 2;
+            }
+        }
+
+        // Default to 11pt if not found
+        return 11;
+    }
+
     private void SetNoteFontSize(Text textElement, int fontSizeInPoints)
     {
         var parentRun = textElement.Parent as Run;
@@ -804,7 +853,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             existingFontSizeCs.Remove();
         }
 
-        // Set new font size (11pt = 22 half-points)
+        // Set new font size
         runProps.Append(new FontSize { Val = halfPoints });
         runProps.Append(new FontSizeComplexScript { Val = halfPoints });
     }
