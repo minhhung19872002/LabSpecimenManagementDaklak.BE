@@ -3003,7 +3003,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains("{{Note}}"))
                 {
                     RemoveContainingCellHeightConstraint(text);
-                    SetNoteFontSize(text, 11);
+                    // Get font size from placeholder in template and preserve it
+                    var fontSize = GetFontSizeFromText(text);
+                    SetNoteFontSize(text, fontSize);
                     NormalizeParagraphIndentation(text);
 
                     if (HtmlToOpenXmlConverter.ContainsHtmlTags(noteValue))
