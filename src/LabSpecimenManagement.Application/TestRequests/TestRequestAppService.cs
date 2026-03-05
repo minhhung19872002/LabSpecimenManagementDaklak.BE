@@ -815,6 +815,9 @@ public partial class TestRequestAppService :
 
         await Repository.UpdateAsync(entity, autoSave: true);
 
+        // Sync ContractNumber to related LaboratoryTasks and QualityManagementTasks
+        await SyncContractNumberToRelatedTasksAsync(id, entity.ContractNumber);
+
         // Update samples
         if (input.Samples != null)
         {
@@ -2062,6 +2065,12 @@ public partial class TestRequestAppService :
         entity.Status = previousStatus;
 
         await Repository.UpdateAsync(entity, autoSave: true);
+
+        // Sync ContractNumber if it was changed
+        if (changes.Any(c => c.FieldName?.ToLower() == SortingFields.ContractNumber))
+        {
+            await SyncContractNumberToRelatedTasksAsync(entity.Id, entity.ContractNumber);
+        }
     }
 
     /// <summary>
@@ -4063,6 +4072,36 @@ public partial class TestRequestAppService :
         }
 
         return result;
+    }
+
+    #endregion
+
+    #region Sync Denormalized Fields
+
+    /// <summary>
+    /// Đồng bộ ContractNumber từ TestRequest sang LaboratoryTask và QualityManagementTask
+    /// </summary>
+    private async Task SyncContractNumberToRelatedTasksAsync(Guid testRequestId, string? contractNumber)
+    {
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        foreach (var labTask in labTasks)
+        {
+            if (labTask.ContractNumber != contractNumber)
+            {
+                labTask.ContractNumber = contractNumber;
+                await _laboratoryTaskRepository.UpdateAsync(labTask, autoSave: true);
+            }
+        }
+
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        foreach (var qualityTask in qualityTasks)
+        {
+            if (qualityTask.ContractNumber != contractNumber)
+            {
+                qualityTask.ContractNumber = contractNumber ?? "";
+                await _qualityTaskRepository.UpdateAsync(qualityTask, autoSave: true);
+            }
+        }
     }
 
     #endregion
