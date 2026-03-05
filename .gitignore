@@ -75,6 +75,12 @@ logs/
 *.p12
 !openiddict.pfx
 
+# OpenIddict Signing/Encryption Keys (IMPORTANT: Keep these secure!)
+# These keys persist tokens across deployments - DO NOT COMMIT TO GIT
+# Backup these files separately for production deployment
+Keys/
+*.key
+
 # Database
 *.db
 *.db-shm

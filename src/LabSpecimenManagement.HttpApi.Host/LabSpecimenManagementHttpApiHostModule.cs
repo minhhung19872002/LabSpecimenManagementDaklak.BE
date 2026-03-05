@@ -26,6 +26,7 @@ using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Microsoft.OpenApi.Models;
+using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp;
@@ -69,6 +70,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
         var hostingEnvironment = context.Services.GetHostingEnvironment();
+        var configuration = context.Services.GetConfiguration();
 
         PreConfigure<OpenIddictBuilder>(builder =>
         {
@@ -89,8 +91,98 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 .DisableTransportSecurityRequirement();
 
             // Set token lifetimes
+            // AccessToken: 8 hours for security (short-lived)
+            // RefreshToken: 90 days to minimize re-login after deployment
             builder.SetAccessTokenLifetime(TimeSpan.FromHours(8));
-            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
+            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
+
+            // Use persistent signing/encryption keys to prevent token invalidation on server restart
+            // Priority:
+            // 1. Environment variables (for CI/CD - base64 encoded)
+            // 2. File-based keys (for local/manual deployment)
+            // 3. Auto-generate new keys (first run only)
+
+            // Encryption Key
+            byte[] encryptionKey;
+            var encryptionKeyEnv = configuration["OpenIddict:EncryptionKey"];
+            if (!string.IsNullOrEmpty(encryptionKeyEnv))
+            {
+                // Read from environment variable (base64 encoded)
+                encryptionKey = Convert.FromBase64String(encryptionKeyEnv);
+                Console.WriteLine("[OpenIddict] Using encryption key from environment variable");
+            }
+            else
+            {
+                // Read from file or generate new
+                var keysPath = Path.Combine(hostingEnvironment.ContentRootPath, "Keys");
+                if (!Directory.Exists(keysPath))
+                {
+                    Directory.CreateDirectory(keysPath);
+                }
+
+                var encryptionKeyFile = Path.Combine(keysPath, "encryption.key");
+                if (File.Exists(encryptionKeyFile))
+                {
+                    encryptionKey = File.ReadAllBytes(encryptionKeyFile);
+                    Console.WriteLine("[OpenIddict] Using encryption key from file: {0}", encryptionKeyFile);
+                }
+                else
+                {
+                    // Generate and save new encryption key
+                    encryptionKey = new byte[32]; // 256 bits
+                    using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                    {
+                        rng.GetBytes(encryptionKey);
+                    }
+                    File.WriteAllBytes(encryptionKeyFile, encryptionKey);
+                    var base64Key = Convert.ToBase64String(encryptionKey);
+                    Console.WriteLine("[OpenIddict] Generated NEW encryption key");
+                    Console.WriteLine("[IMPORTANT] Add this to your CI/CD secrets as 'OPENIDDICT__ENCRYPTIONKEY':");
+                    Console.WriteLine(base64Key);
+                }
+            }
+            builder.AddEncryptionKey(new SymmetricSecurityKey(encryptionKey));
+
+            // Signing Key
+            byte[] signingKey;
+            var signingKeyEnv = configuration["OpenIddict:SigningKey"];
+            if (!string.IsNullOrEmpty(signingKeyEnv))
+            {
+                // Read from environment variable (base64 encoded)
+                signingKey = Convert.FromBase64String(signingKeyEnv);
+                Console.WriteLine("[OpenIddict] Using signing key from environment variable");
+            }
+            else
+            {
+                // Read from file or generate new
+                var keysPath = Path.Combine(hostingEnvironment.ContentRootPath, "Keys");
+                if (!Directory.Exists(keysPath))
+                {
+                    Directory.CreateDirectory(keysPath);
+                }
+
+                var signingKeyFile = Path.Combine(keysPath, "signing.key");
+                if (File.Exists(signingKeyFile))
+                {
+                    signingKey = File.ReadAllBytes(signingKeyFile);
+                    Console.WriteLine("[OpenIddict] Using signing key from file: {0}", signingKeyFile);
+                }
+                else
+                {
+                    // Generate and save new signing key
+                    signingKey = new byte[64]; // 512 bits for HMAC-SHA512
+                    using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                    {
+                        rng.GetBytes(signingKey);
+                    }
+                    File.WriteAllBytes(signingKeyFile, signingKey);
+                    var base64Key = Convert.ToBase64String(signingKey);
+                    Console.WriteLine("[OpenIddict] Generated NEW signing key");
+                    Console.WriteLine("[IMPORTANT] Add this to your CI/CD secrets as 'OPENIDDICT__SIGNINGKEY':");
+                    Console.WriteLine(base64Key);
+                }
+            }
+            builder.AddSigningKey(new SymmetricSecurityKey(signingKey));
         });
     }
 
