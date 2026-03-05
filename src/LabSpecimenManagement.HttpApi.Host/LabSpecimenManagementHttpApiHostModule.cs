@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -26,7 +27,6 @@ using LabSpecimenManagement.MultiTenancy;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite;
 using Volo.Abp.AspNetCore.Mvc.UI.Theme.LeptonXLite.Bundling;
 using Microsoft.OpenApi.Models;
-using Microsoft.IdentityModel.Tokens;
 using OpenIddict.Server;
 using OpenIddict.Validation.AspNetCore;
 using Volo.Abp;
@@ -70,7 +70,6 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
     public override void PreConfigureServices(ServiceConfigurationContext context)
     {
         var hostingEnvironment = context.Services.GetHostingEnvironment();
-        var configuration = context.Services.GetConfiguration();
 
         PreConfigure<OpenIddictBuilder>(builder =>
         {
@@ -97,92 +96,52 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
 
             // Use persistent signing/encryption keys to prevent token invalidation on server restart
-            // Priority:
-            // 1. Environment variables (for CI/CD - base64 encoded)
-            // 2. File-based keys (for local/manual deployment)
-            // 3. Auto-generate new keys (first run only)
-
-            // Encryption Key
-            byte[] encryptionKey;
-            var encryptionKeyEnv = configuration["OpenIddict:EncryptionKey"];
-            if (!string.IsNullOrEmpty(encryptionKeyEnv))
+            // Keys stored in wwwroot/Keys (has proper permissions in Docker)
+            // Note: Static file access to /Keys is blocked for security
+            var webRoot = hostingEnvironment.WebRootPath ?? Path.Combine(hostingEnvironment.ContentRootPath, "wwwroot");
+            var keysPath = Path.Combine(webRoot, "Keys");
+            if (!Directory.Exists(keysPath))
             {
-                // Read from environment variable (base64 encoded)
-                encryptionKey = Convert.FromBase64String(encryptionKeyEnv);
-                Console.WriteLine("[OpenIddict] Using encryption key from environment variable");
+                Directory.CreateDirectory(keysPath);
+            }
+
+            // Add encryption key (for encrypting tokens at rest)
+            var encryptionKeyFile = Path.Combine(keysPath, "encryption.key");
+            if (File.Exists(encryptionKeyFile))
+            {
+                var encryptionKey = File.ReadAllBytes(encryptionKeyFile);
+                builder.AddEncryptionKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(encryptionKey));
             }
             else
             {
-                // Read from file or generate new
-                var keysPath = Path.Combine(hostingEnvironment.ContentRootPath, "Keys");
-                if (!Directory.Exists(keysPath))
+                // Generate and save new encryption key
+                var newEncryptionKey = new byte[32]; // 256 bits
+                using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 {
-                    Directory.CreateDirectory(keysPath);
+                    rng.GetBytes(newEncryptionKey);
                 }
-
-                var encryptionKeyFile = Path.Combine(keysPath, "encryption.key");
-                if (File.Exists(encryptionKeyFile))
-                {
-                    encryptionKey = File.ReadAllBytes(encryptionKeyFile);
-                    Console.WriteLine("[OpenIddict] Using encryption key from file: {0}", encryptionKeyFile);
-                }
-                else
-                {
-                    // Generate and save new encryption key
-                    encryptionKey = new byte[32]; // 256 bits
-                    using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
-                    {
-                        rng.GetBytes(encryptionKey);
-                    }
-                    File.WriteAllBytes(encryptionKeyFile, encryptionKey);
-                    var base64Key = Convert.ToBase64String(encryptionKey);
-                    Console.WriteLine("[OpenIddict] Generated NEW encryption key");
-                    Console.WriteLine("[IMPORTANT] Add this to your CI/CD secrets as 'OPENIDDICT__ENCRYPTIONKEY':");
-                    Console.WriteLine(base64Key);
-                }
+                File.WriteAllBytes(encryptionKeyFile, newEncryptionKey);
+                builder.AddEncryptionKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(newEncryptionKey));
             }
-            builder.AddEncryptionKey(new SymmetricSecurityKey(encryptionKey));
 
-            // Signing Key
-            byte[] signingKey;
-            var signingKeyEnv = configuration["OpenIddict:SigningKey"];
-            if (!string.IsNullOrEmpty(signingKeyEnv))
+            // Add signing key (for signing tokens to prevent tampering)
+            var signingKeyFile = Path.Combine(keysPath, "signing.key");
+            if (File.Exists(signingKeyFile))
             {
-                // Read from environment variable (base64 encoded)
-                signingKey = Convert.FromBase64String(signingKeyEnv);
-                Console.WriteLine("[OpenIddict] Using signing key from environment variable");
+                var signingKey = File.ReadAllBytes(signingKeyFile);
+                builder.AddSigningKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(signingKey));
             }
             else
             {
-                // Read from file or generate new
-                var keysPath = Path.Combine(hostingEnvironment.ContentRootPath, "Keys");
-                if (!Directory.Exists(keysPath))
+                // Generate and save new signing key
+                var newSigningKey = new byte[64]; // 512 bits for HMAC-SHA512
+                using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
                 {
-                    Directory.CreateDirectory(keysPath);
+                    rng.GetBytes(newSigningKey);
                 }
-
-                var signingKeyFile = Path.Combine(keysPath, "signing.key");
-                if (File.Exists(signingKeyFile))
-                {
-                    signingKey = File.ReadAllBytes(signingKeyFile);
-                    Console.WriteLine("[OpenIddict] Using signing key from file: {0}", signingKeyFile);
-                }
-                else
-                {
-                    // Generate and save new signing key
-                    signingKey = new byte[64]; // 512 bits for HMAC-SHA512
-                    using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
-                    {
-                        rng.GetBytes(signingKey);
-                    }
-                    File.WriteAllBytes(signingKeyFile, signingKey);
-                    var base64Key = Convert.ToBase64String(signingKey);
-                    Console.WriteLine("[OpenIddict] Generated NEW signing key");
-                    Console.WriteLine("[IMPORTANT] Add this to your CI/CD secrets as 'OPENIDDICT__SIGNINGKEY':");
-                    Console.WriteLine(base64Key);
-                }
+                File.WriteAllBytes(signingKeyFile, newSigningKey);
+                builder.AddSigningKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(newSigningKey));
             }
-            builder.AddSigningKey(new SymmetricSecurityKey(signingKey));
         });
     }
 
@@ -447,6 +406,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         //     FileProvider = new PhysicalFileProvider(uploadsPath),
         //     RequestPath = "/uploads"
         // });
+
+        // Block static file access to Keys folder (security)
+        app.Use(async (context, next) =>
+        {
+            if (context.Request.Path.StartsWithSegments("/Keys", StringComparison.OrdinalIgnoreCase))
+            {
+                context.Response.StatusCode = 403; // Forbidden
+                await context.Response.WriteAsync("Access denied");
+                return;
+            }
+            await next();
+        });
 
         // CORS must be before routing to handle preflight OPTIONS requests
         app.UseCors();
