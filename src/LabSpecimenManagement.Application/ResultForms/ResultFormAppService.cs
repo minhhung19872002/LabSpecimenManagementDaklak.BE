@@ -460,7 +460,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Process orphan children (parent not in this sample)
-        var orphanParentIds = childrenByParent.Keys.Except(processedParentIds).ToList();
+        var orphanParentIds = childrenByParent.Keys.Except(processedParentIds)
+            .OrderBy(pid => indicatorDict.GetValueOrDefault(pid)?.SortOrder ?? 0)
+            .ToList();
         foreach (var parentId in orphanParentIds)
         {
             var children = childrenByParent[parentId];
@@ -522,6 +524,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Uncertainty = "",
                 Proclaim = ""
             });
+        }
+
+        // Sort by TestMethod name so indicators with the same method are grouped together
+        tableData = tableData
+            .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Re-number after sorting
+        for (int i = 0; i < tableData.Count; i++)
+        {
+            tableData[i].No = i + 1;
         }
 
         return tableData;
@@ -4252,6 +4265,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private class MixedResultIndicatorRow
     {
+        public int No { get; set; }
         public string Parameter { get; set; } = "";
         /// <summary>
         /// Tên chỉ tiêu có định dạng HTML (nếu có)
@@ -5201,6 +5215,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 });
             }
 
+            // Sort indicators by TestMethod so same-method indicators are grouped together
+            sampleRow.Indicators = sampleRow.Indicators
+                .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Re-number indicators within sample
+            for (int i = 0; i < sampleRow.Indicators.Count; i++)
+            {
+                sampleRow.Indicators[i].No = i + 1;
+            }
+
             sampleData.Add(sampleRow);
         }
 
@@ -5293,6 +5318,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Proclaim = ""
                     });
                 }
+            }
+
+            // Sort by TestMethod name so indicators with the same method are grouped together
+            tableData = tableData
+                .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Re-number after sorting
+            for (int i = 0; i < tableData.Count; i++)
+            {
+                tableData[i].No = i + 1;
             }
 
             // Process document
@@ -5451,6 +5487,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Uncertainty = "",
                 Proclaim = ""
             });
+        }
+
+        // Sort by TestMethod name so indicators with the same method are grouped together
+        tableData = tableData
+            .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Re-number after sorting
+        for (int i = 0; i < tableData.Count; i++)
+        {
+            tableData[i].No = i + 1;
         }
 
         // 4. Generate document
