@@ -482,11 +482,13 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         };
     }
 
-    public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId)
+    public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId, Guid? specimenTypeId = null)
     {
         var query = await _testMethodIndicatorRepository.GetQueryableAsync();
         var entity = await AsyncExecuter.FirstOrDefaultAsync(
-            query.Where(tmi => tmi.TestMethodId == testMethodId && tmi.IndicatorId == indicatorId)
+            query.Where(tmi => tmi.TestMethodId == testMethodId
+                && tmi.IndicatorId == indicatorId
+                && tmi.SpecimenTypeId == specimenTypeId)
         );
 
         if (entity == null)
