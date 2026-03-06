@@ -140,6 +140,7 @@ public partial class LaboratoryTaskAppService
     /// <summary>
     /// Xóa department supporters đã hết hạn (gọi bởi cronjob)
     /// </summary>
+    [AllowAnonymous]
     public async Task<int> RemoveExpiredDepartmentSupportersAsync()
     {
         var expiredSupporters = await _departmentSupporterRepository.GetListAsync(
