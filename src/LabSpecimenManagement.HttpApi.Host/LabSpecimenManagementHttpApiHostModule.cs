@@ -10,7 +10,6 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Cors;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Extensions.DependencyInjection;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.StaticFiles;
 using Microsoft.AspNetCore.HttpOverrides;
@@ -96,10 +95,8 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
 
             // Use persistent signing/encryption keys to prevent token invalidation on server restart
-            // Keys stored in wwwroot/Keys (has proper permissions in Docker)
-            // Note: Static file access to /Keys is blocked for security
-            var webRoot = hostingEnvironment.WebRootPath ?? Path.Combine(hostingEnvironment.ContentRootPath, "wwwroot");
-            var keysPath = Path.Combine(webRoot, "Keys");
+            // Keys are stored in wwwroot/Keys (matches Dockerfile volume mount path)
+            var keysPath = Path.Combine(hostingEnvironment.WebRootPath ?? Path.Combine(hostingEnvironment.ContentRootPath, "wwwroot"), "Keys");
             if (!Directory.Exists(keysPath))
             {
                 Directory.CreateDirectory(keysPath);
@@ -338,25 +335,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         {
             options.AddDefaultPolicy(builder =>
             {
+                var corsOrigins = configuration["App:CorsOrigins"]?
+                    .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                    .Select(o => o.RemovePostFix("/"))
+                    .ToArray() ?? Array.Empty<string>();
+
                 builder
-                    .WithOrigins(configuration["App:CorsOrigins"]?
-                        .Split(",", StringSplitOptions.RemoveEmptyEntries)
-                        .Select(o => o.RemovePostFix("/"))
-                        .ToArray() ?? Array.Empty<string>())
+                    .WithOrigins(corsOrigins)
                     .WithAbpExposedHeaders()
                     .SetIsOriginAllowedToAllowWildcardSubdomains()
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
-            });
-
-            // WOPI endpoints need permissive CORS for Collabora integration
-            options.AddPolicy("WopiPolicy", builder =>
-            {
-                builder
-                    .AllowAnyOrigin()
-                    .AllowAnyHeader()
-                    .AllowAnyMethod();
             });
         });
     }
@@ -406,18 +396,6 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         //     FileProvider = new PhysicalFileProvider(uploadsPath),
         //     RequestPath = "/uploads"
         // });
-
-        // Block static file access to Keys folder (security)
-        app.Use(async (context, next) =>
-        {
-            if (context.Request.Path.StartsWithSegments("/Keys", StringComparison.OrdinalIgnoreCase))
-            {
-                context.Response.StatusCode = 403; // Forbidden
-                await context.Response.WriteAsync("Access denied");
-                return;
-            }
-            await next();
-        });
 
         // CORS must be before routing to handle preflight OPTIONS requests
         app.UseCors();
