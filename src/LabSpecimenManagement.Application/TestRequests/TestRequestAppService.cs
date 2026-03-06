@@ -1416,7 +1416,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
                     }
                 }
 
@@ -2656,7 +2656,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
                     }
                 }
 

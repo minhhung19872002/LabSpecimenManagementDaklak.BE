@@ -1801,10 +1801,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
             methodName = method?.Name;
             methodFormattedName = method?.FormattedName;
-            // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+            // Fallback to TestMethod.FormattedUnit/Unit if LaboratoryTaskIndicator.Unit is not set
             if (string.IsNullOrEmpty(unit) && method != null)
             {
-                unit = method.Unit;
+                unit = method.FormattedUnit ?? method.Unit;
             }
         }
 

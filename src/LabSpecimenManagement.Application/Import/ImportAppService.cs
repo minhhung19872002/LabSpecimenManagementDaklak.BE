@@ -814,6 +814,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 FormattedName = firstRow.FormattedName,
                 Description = firstRow.Description?.Trim(),
                 Unit = firstRow.Unit?.Trim() ?? "",
+                FormattedUnit = firstRow.FormattedUnit,
                 IsNew = !testMethodDict.ContainsKey(testMethodKey)
             };
 
@@ -1031,7 +1032,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                     )
                     {
                         // Use FormattedName (with HTML formatting) from Excel
-                        FormattedName = group.FormattedName
+                        FormattedName = group.FormattedName,
+                        FormattedUnit = group.FormattedUnit
                     };
                     await _testMethodRepository.InsertAsync(testMethod);
                     importedCount++;
@@ -1041,6 +1043,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     // Update existing TestMethod
                     testMethod = await _testMethodRepository.GetAsync(group.ExistingId!.Value);
                     testMethod.Unit = group.Unit;
+                    testMethod.FormattedUnit = group.FormattedUnit;
                     // Update FormattedName if provided
                     if (!string.IsNullOrWhiteSpace(group.FormattedName))
                     {
@@ -1140,6 +1143,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 FormattedName = testMethodCol > 0 ? GetCellRichTextAsHtml(row.Cell(testMethodCol)) : null,
                 Description = descriptionCol > 0 ? row.Cell(descriptionCol).GetString()?.Trim() : null,
                 Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
+                FormattedUnit = unitCol > 0 ? GetCellRichTextAsHtml(row.Cell(unitCol)) : null,
                 SpecimenTypeName = specimenTypeCol > 0 ? row.Cell(specimenTypeCol).GetString()?.Trim() : null,
                 IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
                 UnitPrice = priceCol > 0 ? GetCellDecimalValue(row.Cell(priceCol)) : 0

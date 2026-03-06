@@ -13,6 +13,7 @@ public class TestMethodWithIndicatorsDto : FullAuditedEntityDto<Guid>
     /// </summary>
     public string? FormattedName { get; set; }
     public string Unit { get; set; }
+    public string? FormattedUnit { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
     public int IndicatorCount { get; set; }

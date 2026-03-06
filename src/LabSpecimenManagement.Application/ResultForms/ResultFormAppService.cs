@@ -1625,6 +1625,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var hasCompareWithStandardHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.CompareWithStandard);
                 var hasAllowlimitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Allowlimit);
                 var hasStandardsHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Standards);
+                var hasUnitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Unit);
                 var hasParametersNewlines = parametersDisplayName?.Contains('\n') ?? false;
                 var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
                 var hasCompareWithStandardNewlines = data.CompareWithStandard?.Contains('\n') ?? false;
@@ -1632,20 +1633,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var hasStandardsNewlines = data.Standards?.Contains('\n') ?? false;
 
                 // If any field contains HTML or newlines, we need special handling
-                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml ||
+                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml || hasUnitHtml ||
                     hasParametersNewlines || hasTestMethodNewlines || hasCompareWithStandardNewlines || hasAllowlimitNewlines || hasStandardsNewlines)
                 {
-                    // Replace non-HTML placeholders first (excluding Standards which may have HTML/newlines)
+                    // Replace non-HTML placeholders first
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
                         .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
-                        .Replace("{{Unit}}", data.Unit ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
                         .Replace("{{n}}", data.FootnoteNumber ?? "")
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                    // Handle Unit with HTML if applicable
+                    if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Unit}}", data.Unit ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Unit}}", data.Unit ?? "");
+                    }
 
                     // Handle Parameters with HTML/newlines if applicable
                     if ((hasParametersHtml || hasParametersNewlines) && text.Text.Contains("{{Parameters}}"))
@@ -1726,7 +1736,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{NameOfSample}}", data.NameOfSample ?? "") // BM02 - Tên mẫu
                     .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "") // BM02 - Mã số mẫu
                     .Replace("{{Parameters}}", data.Parameters ?? "")
-                    .Replace("{{Unit}}", data.Unit ?? "")
                     .Replace("{{TestMethod}}", data.TestMethod ?? "")
                     .Replace("{{Result}}", data.Result ?? "")
                     .Replace("{{Standards}}", data.Standards ?? "")
@@ -1735,6 +1744,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{Allowlimit}}", data.Allowlimit ?? "") // BM04 - Giới hạn cho phép
                     .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                     .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                // Handle Unit with HTML if applicable
+                if (HtmlToOpenXmlConverter.ContainsHtmlTags(data.Unit) && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", data.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", data.Unit ?? "");
+                }
             }
         }
 
@@ -3861,6 +3880,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var hasParameterHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName);
         var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+        var hasUnitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorData.Unit);
         var hasParameterNewlines = parameterDisplayName?.Contains('\n') ?? false;
         var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
         var hasResultNewlines = indicatorData.Result?.Contains('\n') ?? false;
@@ -3886,8 +3906,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
                     .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
-                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
-                    .Replace("{{Unit}}", indicatorData.Unit);
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "");
+
+                // Handle Unit with HTML if applicable
+                if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", indicatorData.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", indicatorData.Unit ?? "");
+                }
 
                 // Handle Parameter
                 if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))
@@ -3916,7 +3945,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 }
             }
             else if ((hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines)) ||
-                     (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines)))
+                     (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines)) ||
+                     hasUnitHtml)
             {
                 // Replace non-special placeholders first
                 text.Text = text.Text
@@ -3927,8 +3957,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
                     .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
                     .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
-                    .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{Result}}", indicatorData.Result);
+
+                // Handle Unit with HTML if applicable
+                if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", indicatorData.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", indicatorData.Unit ?? "");
+                }
 
                 // Handle Parameter with HTML/newlines if applicable
                 if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))

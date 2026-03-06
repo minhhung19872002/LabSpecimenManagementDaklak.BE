@@ -1730,6 +1730,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("FormattedName")
                         .HasColumnType("text");
 
+                    b.Property<string>("FormattedUnit")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 

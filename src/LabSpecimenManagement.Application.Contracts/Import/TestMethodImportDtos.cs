@@ -39,6 +39,12 @@ public class TestMethodWithIndicatorImportRow
     public string Unit { get; set; } = string.Empty;
 
     /// <summary>
+    /// Đơn vị tính có định dạng HTML (bold, italic, underline từ Excel)
+    /// </summary>
+    [MaxLength(512)]
+    public string? FormattedUnit { get; set; }
+
+    /// <summary>
     /// Tên chỉ tiêu - phải tồn tại trong hệ thống
     /// </summary>
     [Required(ErrorMessage = "Tên chỉ tiêu là bắt buộc")]
@@ -134,6 +140,11 @@ public class TestMethodImportPreviewGroup
     /// Đơn vị tính
     /// </summary>
     public string Unit { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Đơn vị tính có định dạng HTML
+    /// </summary>
+    public string? FormattedUnit { get; set; }
 
     /// <summary>
     /// True = Tạo mới, False = Cập nhật
