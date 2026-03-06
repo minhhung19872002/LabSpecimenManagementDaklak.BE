@@ -95,7 +95,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
 
             // Use persistent signing/encryption keys to prevent token invalidation on server restart
-            // Keys are stored in wwwroot/Keys (matches Dockerfile volume mount path)
+            // Keys are stored in wwwroot/Keys (matches Dockerfile + K8s PVC volume mount path)
             var keysPath = Path.Combine(hostingEnvironment.WebRootPath ?? Path.Combine(hostingEnvironment.ContentRootPath, "wwwroot"), "Keys");
             if (!Directory.Exists(keysPath))
             {
