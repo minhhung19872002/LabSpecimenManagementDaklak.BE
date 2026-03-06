@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.QualityManagement;
@@ -32,6 +33,16 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     /// Filter by Laboratory ID (for technician view - only show indicators of their lab)
     /// </summary>
     public Guid? LaboratoryId { get; set; }
+
+    /// <summary>
+    /// Lọc theo chỉ tiêu - Indicator IDs (multi-select)
+    /// </summary>
+    public List<Guid>? IndicatorIds { get; set; }
+
+    /// <summary>
+    /// Lọc theo thử nghiệm viên - Technician IDs (multi-select)
+    /// </summary>
+    public List<Guid>? TechnicianIds { get; set; }
 
     public GetSampleAssignmentLogInput()
     {

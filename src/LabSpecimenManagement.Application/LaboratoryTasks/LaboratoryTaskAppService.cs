@@ -2961,7 +2961,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
                 (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
-                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)) ||
+                (x.MethodName != null && x.MethodName.ToLower().Contains(searchLower)));
         }
 
         if (input.TestRequestStatus.HasValue)
@@ -2982,6 +2983,23 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         if (input.LaboratoryId.HasValue)
         {
             query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+        }
+
+        // Filter by IndicatorIds (multi-select)
+        if (input.IndicatorIds != null && input.IndicatorIds.Count > 0)
+        {
+            var indicatorIdSet = input.IndicatorIds.ToHashSet();
+            var matchingSampleIndicatorIds = sampleIndicatorQuery
+                .Where(si => indicatorIdSet.Contains(si.IndicatorId))
+                .Select(si => si.Id)
+                .ToHashSet();
+            query = query.Where(x => matchingSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId));
+        }
+
+        // Filter by TechnicianIds (multi-select)
+        if (input.TechnicianIds != null && input.TechnicianIds.Count > 0)
+        {
+            query = query.Where(x => x.TechnicianId.HasValue && input.TechnicianIds.Contains(x.TechnicianId.Value));
         }
 
         // Count unique contracts (not rows) for pagination
