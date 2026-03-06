@@ -266,6 +266,15 @@ public interface ILaboratoryTaskAppService : IApplicationService
 
     #endregion
 
+    #region Task Status Statistics
+
+    /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter)
+    /// </summary>
+    Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync();
+
+    #endregion
+
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>

@@ -436,6 +436,19 @@ public class LaboratoryTaskController : LabSpecimenManagementController
 
     #endregion
 
+    #region Task Status Statistics
+
+    /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter)
+    /// </summary>
+    [HttpGet("task-status-statistics")]
+    public virtual Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync()
+    {
+        return _laboratoryTaskAppService.GetTaskStatusStatisticsAsync();
+    }
+
+    #endregion
+
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>

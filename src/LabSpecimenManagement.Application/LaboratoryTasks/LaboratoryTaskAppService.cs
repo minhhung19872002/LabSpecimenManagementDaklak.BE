@@ -2853,6 +2853,56 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter, chỉ filter theo quyền truy cập)
+    /// </summary>
+    [Authorize]
+    public async Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync()
+    {
+        var queryable = await _laboratoryTaskRepository.GetQueryableAsync();
+
+        // Filter by current user's access (same logic as GetFilteredListAsync)
+        var currentUserId = CurrentUser.Id;
+        if (currentUserId.HasValue && !CurrentUser.IsInRole(AppConstants.RoleAdmin))
+        {
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+
+            queryable = queryable.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                x.TechnicalManagerId == currentUserId.Value ||
+                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
+        }
+
+        var tasks = queryable.ToList();
+
+        return new TaskStatusStatisticsDto
+        {
+            Total = tasks.Count,
+            UnderEvaluation = tasks.Count(t => t.Status == LaboratoryTaskStatus.UnderEvaluation),
+            WaitingCustomerResponse = tasks.Count(t => t.Status == LaboratoryTaskStatus.WaitingCustomerResponse),
+            PartialAccepted = tasks.Count(t => t.Status == LaboratoryTaskStatus.PartialAccepted),
+            FullyAccepted = tasks.Count(t => t.Status == LaboratoryTaskStatus.FullyAccepted),
+            Assigned = tasks.Count(t => t.Status == LaboratoryTaskStatus.Assigned),
+            InProgress = tasks.Count(t => t.Status == LaboratoryTaskStatus.InProgress),
+            WaitingApproval = tasks.Count(t => t.Status == LaboratoryTaskStatus.WaitingApproval),
+            Approved = tasks.Count(t => t.Status == LaboratoryTaskStatus.Approved),
+            SentToQuality = tasks.Count(t => t.Status == LaboratoryTaskStatus.SentToQuality),
+        };
+    }
+
+    /// <summary>
     /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
     /// </summary>
     [Authorize]
