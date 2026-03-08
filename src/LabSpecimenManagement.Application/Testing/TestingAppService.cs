@@ -193,6 +193,29 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 x.Task.ContractNumber != null && x.Task.ContractNumber.ToLower().Contains(searchLower));
         }
 
+        // Apply RequestCompletionDate range filter
+        if (input.RequestCompletionDateFrom.HasValue)
+        {
+            taskQuery = taskQuery.Where(x => x.Task.RequestCompletionDate >= input.RequestCompletionDateFrom.Value);
+        }
+        if (input.RequestCompletionDateTo.HasValue)
+        {
+            taskQuery = taskQuery.Where(x => x.Task.RequestCompletionDate <= input.RequestCompletionDateTo.Value);
+        }
+
+        // Apply indicator filter (join through TestRequestSampleIndicator to get IndicatorId)
+        if (input.IndicatorIds != null && input.IndicatorIds.Any())
+        {
+            var sampleIndicatorQueryable = await _sampleIndicatorRepository.GetQueryableAsync();
+            var matchingSampleIndicatorIds = sampleIndicatorQueryable
+                .Where(si => input.IndicatorIds.Contains(si.IndicatorId))
+                .Select(si => si.Id)
+                .ToHashSet();
+
+            taskQuery = taskQuery.Where(x => x.Indicators.Any(i =>
+                matchingSampleIndicatorIds.Contains(i.TestRequestSampleIndicatorId)));
+        }
+
         // Get all tasks for status filtering and processing
         var allTasks = taskQuery.ToList();
 
@@ -254,6 +277,77 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         return new PagedResultDto<TestingListDto>(totalCount, dtos);
+    }
+
+    [Authorize]
+    public async Task<TestingStatusStatisticsDto> GetStatusStatisticsAsync(TestingTabType tab)
+    {
+        var currentUserId = CurrentUser.Id;
+        var queryable = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQueryable = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var taskQuery = queryable.Select(task => new
+        {
+            Task = task,
+            Indicators = indicatorQueryable.Where(i => i.LaboratoryTaskId == task.Id).ToList()
+        });
+
+        // Apply user access filter (same logic as GetListAsync)
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id).ToHashSet();
+
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(
+                s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId).ToHashSet();
+
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id).ToHashSet();
+            }
+
+            taskQuery = taskQuery.Where(x =>
+                managedLaboratoryIds.Contains(x.Task.LaboratoryId) ||
+                x.Task.TechnicalManagerId == currentUserId.Value ||
+                supporterTaskIds.Contains(x.Task.Id) ||
+                userLabIds.Contains(x.Task.LaboratoryId));
+        }
+
+        // Apply Tab filter
+        if (tab == TestingTabType.MyAssignments && currentUserId.HasValue)
+        {
+            taskQuery = taskQuery.Where(x =>
+                x.Indicators.Any(i => i.TechnicianId == currentUserId.Value));
+        }
+
+        var allTasks = taskQuery.ToList();
+
+        // Calculate testing status for each task
+        var statusCounts = new TestingStatusStatisticsDto { Total = allTasks.Count };
+        foreach (var item in allTasks)
+        {
+            var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(item.Indicators);
+            var status = CalculateTestingStatus(filteredIndicators);
+            switch (status)
+            {
+                case TestingStatus.NotStarted: statusCounts.NotStarted++; break;
+                case TestingStatus.InProgress: statusCounts.InProgress++; break;
+                case TestingStatus.PendingApproval: statusCounts.PendingApproval++; break;
+                case TestingStatus.Rejected: statusCounts.Rejected++; break;
+                case TestingStatus.Completed: statusCounts.Completed++; break;
+            }
+        }
+
+        return statusCounts;
     }
 
     public async Task<TestingDetailDto> GetAsync(Guid laboratoryTaskId, TestingTabType? viewMode = null)

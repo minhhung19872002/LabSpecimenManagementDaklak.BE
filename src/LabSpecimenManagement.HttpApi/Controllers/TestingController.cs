@@ -42,6 +42,15 @@ public class TestingController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get status statistics for testing tasks
+    /// </summary>
+    [HttpGet("statistics")]
+    public virtual async Task<TestingStatusStatisticsDto> GetStatusStatisticsAsync([FromQuery] TestingTabType tab)
+    {
+        return await _testingAppService.GetStatusStatisticsAsync(tab);
+    }
+
+    /// <summary>
     /// Get sample assignment log for testing page (query from LaboratoryTaskIndicator)
     /// </summary>
     [HttpGet("sample-assignment-log")]
