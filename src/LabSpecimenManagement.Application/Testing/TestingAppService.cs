@@ -2473,6 +2473,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
         }
 
+        if (input.IndicatorIds != null && input.IndicatorIds.Any())
+        {
+            var indicatorIdSet = input.IndicatorIds.ToHashSet();
+            var matchingSampleIndicatorIds = sampleIndicatorQuery
+                .Where(si => indicatorIdSet.Contains(si.IndicatorId))
+                .Select(si => si.Id)
+                .ToHashSet();
+
+            query = query.Where(x => matchingSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId));
+        }
+
+        if (input.TechnicianIds != null && input.TechnicianIds.Any())
+        {
+            var technicianIdSet = input.TechnicianIds.ToHashSet();
+            query = query.Where(x => x.TechnicianId.HasValue && technicianIdSet.Contains(x.TechnicianId.Value));
+        }
+
         // Count unique contracts (not rows) for pagination
         var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
 
