@@ -60,6 +60,15 @@ public class TestingController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get statistics for sample assignment log (by QLKTDisplayStatus)
+    /// </summary>
+    [HttpGet("sample-assignment-log/statistics")]
+    public virtual async Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        return await _testingAppService.GetSampleAssignmentLogStatisticsAsync();
+    }
+
+    /// <summary>
     /// Get testing task detail by LaboratoryTask ID
     /// </summary>
     /// <param name="id">The LaboratoryTask ID</param>

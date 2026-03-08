@@ -2571,6 +2571,91 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalContractCount, dtos);
     }
 
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc theo QLKTDisplayStatus (không phụ thuộc filter)
+    /// </summary>
+    public async Task<QualityManagement.SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        // Get queryables
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
+
+        // Build base query
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        LaboratoryTaskId = lt.Id,
+                        LaboratoryId = lt.LaboratoryId,
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+                        MethodId = li.MethodId,
+                        TechnicianId = li.TechnicianId,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                    };
+
+        // Apply user access control (same as GetSampleAssignmentLogAsync)
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(
+                s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id)
+                    .ToHashSet();
+            }
+
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                userLabIds.Contains(x.LaboratoryId));
+        }
+
+        // Materialize and compute display status
+        var allItems = query.ToList();
+        var statusCounts = allItems
+            .Select(x => MapQLKTDisplayStatus(
+                x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
+                x.TestDate, x.Result, x.QualityApprovalStatus))
+            .ToList();
+
+        return new QualityManagement.SampleAssignmentLogStatisticsDto
+        {
+            Total = statusCounts.Count,
+            UnderReview = statusCounts.Count(s => s == QLKTDisplayStatus.UnderReview),
+            ToDo = statusCounts.Count(s => s == QLKTDisplayStatus.ToDo),
+            Testing = statusCounts.Count(s => s == QLKTDisplayStatus.Testing),
+            WaitingApproval = statusCounts.Count(s => s == QLKTDisplayStatus.WaitingQLKTApproval),
+            ResultRejected = statusCounts.Count(s => s == QLKTDisplayStatus.ResultRejected),
+            Completed = statusCounts.Count(s => s == QLKTDisplayStatus.Completed),
+        };
+    }
+
     private static TestingStatus? MapTestingStatus(
         IndicatorApprovalStatus approvalStatus,
         DateTime? testDate,

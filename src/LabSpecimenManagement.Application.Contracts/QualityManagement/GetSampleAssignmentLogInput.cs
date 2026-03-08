@@ -50,3 +50,17 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
         Sorting = "RequestCompletionDate asc";
     }
 }
+
+/// <summary>
+/// Statistics DTO for Sample Assignment Log - counts by QLKTDisplayStatus
+/// </summary>
+public class SampleAssignmentLogStatisticsDto
+{
+    public int Total { get; set; }
+    public int UnderReview { get; set; }
+    public int ToDo { get; set; }
+    public int Testing { get; set; }
+    public int WaitingApproval { get; set; }
+    public int ResultRejected { get; set; }
+    public int Completed { get; set; }
+}
