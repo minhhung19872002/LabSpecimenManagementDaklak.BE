@@ -284,5 +284,10 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// <returns>Danh sách SampleAssignmentLogDto</returns>
     Task<PagedResultDto<QualityManagement.SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(QualityManagement.GetSampleAssignmentLogInput input);
 
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLKT theo QLKTDisplayStatus
+    /// </summary>
+    Task<QualityManagement.SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync();
+
     #endregion
 }

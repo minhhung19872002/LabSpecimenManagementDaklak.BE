@@ -460,5 +460,14 @@ public class LaboratoryTaskController : LabSpecimenManagementController
         return await _laboratoryTaskAppService.GetSampleAssignmentLogAsync(input);
     }
 
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLKT theo QLKTDisplayStatus
+    /// </summary>
+    [HttpGet("sample-assignment-log/statistics")]
+    public virtual async Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        return await _laboratoryTaskAppService.GetSampleAssignmentLogStatisticsAsync();
+    }
+
     #endregion
 }
