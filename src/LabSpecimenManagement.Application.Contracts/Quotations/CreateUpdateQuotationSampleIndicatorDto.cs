@@ -49,4 +49,15 @@ public class CreateUpdateQuotationSampleIndicatorDto
     /// Thứ tự hiển thị trong mẫu
     /// </summary>
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Loại mẫu ID (nullable)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên loại mẫu (snapshot)
+    /// </summary>
+    [StringLength(256)]
+    public string? SpecimenTypeName { get; set; }
 }

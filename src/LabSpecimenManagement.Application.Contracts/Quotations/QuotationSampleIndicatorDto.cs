@@ -52,4 +52,14 @@ public class QuotationSampleIndicatorDto : EntityDto<Guid>
     /// Thứ tự hiển thị trong mẫu
     /// </summary>
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Loại mẫu ID
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên loại mẫu
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
 }

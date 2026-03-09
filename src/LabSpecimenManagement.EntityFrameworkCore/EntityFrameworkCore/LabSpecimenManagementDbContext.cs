@@ -1177,6 +1177,14 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestMethodId)
                 .IsRequired();
+
+            b.Property(x => x.SpecimenTypeName).HasMaxLength(256);
+            b.HasIndex(x => x.SpecimenTypeId);
+
+            b.HasOne(x => x.SpecimenType)
+                .WithMany()
+                .HasForeignKey(x => x.SpecimenTypeId)
+                .IsRequired(false);
         });
 
         // ============ RECEIPT CONFIGURATION ============
