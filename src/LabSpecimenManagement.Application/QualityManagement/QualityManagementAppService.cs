@@ -135,6 +135,16 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(t => t.TransferDate <= input.ToDate.Value);
         }
 
+        // Filter overdue: RequestCompletionDate - Now <= 2 days and not HandedOver
+        if (input.IsOverdue == true)
+        {
+            var now = DateTime.Now;
+            query = query.Where(t =>
+                t.RequestCompletionDate.HasValue &&
+                (t.RequestCompletionDate.Value - now).TotalDays <= 2 &&
+                t.Status != QualityManagementStatus.HandedOver);
+        }
+
         var totalCount = query.Count();
 
         // Sorting

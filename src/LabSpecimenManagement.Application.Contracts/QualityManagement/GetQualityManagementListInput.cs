@@ -32,4 +32,9 @@ public class GetQualityManagementListInput : PagedAndSortedResultRequestDto
     /// Filter to date (TransferDate)
     /// </summary>
     public DateTime? ToDate { get; set; }
+
+    /// <summary>
+    /// Filter overdue tasks (RequestCompletionDate - Now <= 2 days and not HandedOver)
+    /// </summary>
+    public bool? IsOverdue { get; set; }
 }
