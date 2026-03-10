@@ -44,6 +44,11 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     /// </summary>
     public List<Guid>? TechnicianIds { get; set; }
 
+    /// <summary>
+    /// Filter by QLCLDisplayStatus values (computed in-memory)
+    /// </summary>
+    public List<int>? QlclDisplayStatuses { get; set; }
+
     public GetSampleAssignmentLogInput()
     {
         // Default sorting: RequestCompletionDate ascending
@@ -54,6 +59,19 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
 /// <summary>
 /// Statistics DTO for Sample Assignment Log - counts by QLKTDisplayStatus
 /// </summary>
+/// <summary>
+/// Statistics DTO for QLCL Sample Assignment Log - counts by QLCLDisplayStatus
+/// </summary>
+public class QLCLSampleAssignmentLogStatisticsDto
+{
+    public int Total { get; set; }
+    public int ToDo { get; set; }              // ToDo + Testing
+    public int WaitingQLKTApproval { get; set; }
+    public int WaitingQLCLApproval { get; set; }
+    public int WaitingForPublishing { get; set; }
+    public int Published { get; set; }
+}
+
 public class SampleAssignmentLogStatisticsDto
 {
     public int Total { get; set; }

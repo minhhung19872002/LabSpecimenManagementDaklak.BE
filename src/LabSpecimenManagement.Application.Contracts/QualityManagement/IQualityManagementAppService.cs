@@ -124,6 +124,11 @@ public interface IQualityManagementAppService : IApplicationService
     /// </summary>
     Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
 
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLCL theo QLCLDisplayStatus
+    /// </summary>
+    Task<QLCLSampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync();
+
     #endregion
 }
 
