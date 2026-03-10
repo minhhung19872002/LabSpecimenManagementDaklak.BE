@@ -2468,9 +2468,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
         }
 
-        if (input.LaboratoryId.HasValue)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
         {
-            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+            query = query.Where(x => input.LaboratoryIds.Contains(x.LaboratoryId));
         }
 
         if (input.IndicatorIds != null && input.IndicatorIds.Any())

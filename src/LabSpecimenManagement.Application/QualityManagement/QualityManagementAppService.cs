@@ -145,6 +145,27 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 t.Status != QualityManagementStatus.HandedOver);
         }
 
+        // Filter by RequestCompletionDate range (Ngày YC xong)
+        if (input.RequestCompletionDateFrom.HasValue)
+        {
+            query = query.Where(t => t.RequestCompletionDate >= input.RequestCompletionDateFrom.Value);
+        }
+        if (input.RequestCompletionDateTo.HasValue)
+        {
+            query = query.Where(t => t.RequestCompletionDate <= input.RequestCompletionDateTo.Value);
+        }
+
+        // Filter by LaboratoryIds (task chứa ít nhất 1 indicator thuộc lab được chọn)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
+        {
+            var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+            var taskIdsWithLab = labTaskQuery
+                .Where(lt => input.LaboratoryIds.Contains(lt.LaboratoryId))
+                .Select(lt => lt.TestRequestId)
+                .Distinct();
+            query = query.Where(t => taskIdsWithLab.Contains(t.TestRequestId));
+        }
+
         var totalCount = query.Count();
 
         // Sorting
@@ -1901,9 +1922,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
         }
 
-        if (input.LaboratoryId.HasValue)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
         {
-            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+            query = query.Where(x => x.LaboratoryId.HasValue && input.LaboratoryIds.Contains(x.LaboratoryId.Value));
         }
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly

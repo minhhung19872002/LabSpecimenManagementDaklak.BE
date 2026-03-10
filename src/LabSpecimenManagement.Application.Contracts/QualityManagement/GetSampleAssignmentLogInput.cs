@@ -30,9 +30,9 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     public DateTime? ToDate { get; set; }
 
     /// <summary>
-    /// Filter by Laboratory ID (for technician view - only show indicators of their lab)
+    /// Filter by Laboratory IDs (multi-select)
     /// </summary>
-    public Guid? LaboratoryId { get; set; }
+    public List<Guid>? LaboratoryIds { get; set; }
 
     /// <summary>
     /// Lọc theo chỉ tiêu - Indicator IDs (multi-select)
