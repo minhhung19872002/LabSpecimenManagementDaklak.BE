@@ -1730,6 +1730,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("FormattedName")
                         .HasColumnType("text");
 
+                    b.Property<string>("FormattedUnit")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -2554,6 +2557,13 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SpecimenTypeId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SpecimenTypeName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
 
@@ -2571,6 +2581,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("IndicatorId");
 
                     b.HasIndex("QuotationSampleId");
+
+                    b.HasIndex("SpecimenTypeId");
 
                     b.HasIndex("TestMethodId");
 
@@ -6265,6 +6277,10 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.HasOne("LabSpecimenManagement.MasterData.SpecimenType", "SpecimenType")
+                        .WithMany()
+                        .HasForeignKey("SpecimenTypeId");
+
                     b.HasOne("LabSpecimenManagement.MasterData.TestMethod", "TestMethod")
                         .WithMany()
                         .HasForeignKey("TestMethodId")
@@ -6274,6 +6290,8 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("Indicator");
 
                     b.Navigation("QuotationSample");
+
+                    b.Navigation("SpecimenType");
 
                     b.Navigation("TestMethod");
                 });

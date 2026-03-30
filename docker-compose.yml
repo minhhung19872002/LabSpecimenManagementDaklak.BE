@@ -175,6 +175,7 @@ services:
         volumes:
             - backend_logs:/app/Logs
             - uploaded_images:/app/wwwroot/images
+            - backend_keys:/app/wwwroot/Keys  # IMPORTANT: Persist OpenIddict keys (moved to wwwroot for permissions)
             - ./lab-specimen-management-be/src/LabSpecimenManagement.HttpApi.Host/wwwroot/templates:/app/wwwroot/templates
         depends_on:
             postgres:
@@ -235,6 +236,8 @@ volumes:
         driver: local
     backend_logs:
         driver: local
+    backend_keys:
+        driver: local  # Persist OpenIddict encryption/signing keys (auto-generated on first run)
     uploaded_images:
         driver: local
     onlyoffice_data:

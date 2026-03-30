@@ -24,6 +24,12 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 [Authorize]
 public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryTaskAppService
 {
+    // Support both English role names (from seed data) and Vietnamese role names (from production)
+    private static readonly string[] QualityManagerRoleNames = { "QualityManager", "Quản lý chất lượng" };
+
+    // Positions that are considered as technicians (for dropdown filtering)
+    private static readonly string[] TechnicianPositions = { "Nhân viên", "Thử nghiệm viên" };
+
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<LaboratoryTaskSupporter, Guid> _supporterRepository;
@@ -1341,15 +1347,15 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     public async Task<ListResultDto<UserLookupDto>> GetTechniciansByLaboratoryAsync(Guid? laboratoryId)
     {
-        // Get all active users with LabTechnician role
+        // Get all active users filtered by Position (Nhân viên, Thử nghiệm viên)
         var users = await _userRepository.GetListAsync();
         var technicians = new List<UserLookupDto>();
 
         foreach (var user in users.Where(u => u.IsActive))
         {
-            // Filter by role: only LabTechnician
-            var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            // Filter by position
+            var position = user.GetProperty<string>("Position");
+            if (string.IsNullOrWhiteSpace(position) || !TechnicianPositions.Contains(position))
             {
                 continue;
             }
@@ -1390,9 +1396,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         foreach (var user in users.Where(u => u.IsActive))
         {
-            // Filter by role: only LabTechnician
-            var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "LabTechnician"))
+            // Filter by position: only "Nhân viên" or "Thử nghiệm viên"
+            var position = user.GetProperty<string>("Position");
+            if (string.IsNullOrWhiteSpace(position) || !TechnicianPositions.Contains(position))
             {
                 continue;
             }
@@ -1795,10 +1801,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
             methodName = method?.Name;
             methodFormattedName = method?.FormattedName;
-            // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+            // Fallback to TestMethod.FormattedUnit/Unit if LaboratoryTaskIndicator.Unit is not set
             if (string.IsNullOrEmpty(unit) && method != null)
             {
-                unit = method.Unit;
+                unit = method.FormattedUnit ?? method.Unit;
             }
         }
 
@@ -2582,7 +2588,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         foreach (var user in users.Where(u => u.IsActive))
         {
             var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            if (!userRoles.Any(r => QualityManagerRoleNames.Contains(r.Name)))
             {
                 continue;
             }
@@ -2623,7 +2629,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         {
             // Check if user has QualityManager role
             var userRoles = await _userRepository.GetRolesAsync(user.Id);
-            if (!userRoles.Any(r => r.Name == "QualityManager"))
+            if (!userRoles.Any(r => QualityManagerRoleNames.Contains(r.Name)))
             {
                 continue;
             }
@@ -2847,6 +2853,56 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter, chỉ filter theo quyền truy cập)
+    /// </summary>
+    [Authorize]
+    public async Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync()
+    {
+        var queryable = await _laboratoryTaskRepository.GetQueryableAsync();
+
+        // Filter by current user's access (same logic as GetFilteredListAsync)
+        var currentUserId = CurrentUser.Id;
+        if (currentUserId.HasValue && !CurrentUser.IsInRole(AppConstants.RoleAdmin))
+        {
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+
+            queryable = queryable.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                x.TechnicalManagerId == currentUserId.Value ||
+                (supporterTaskIds.Contains(x.Id) && x.Status != LaboratoryTaskStatus.SentToQuality) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
+        }
+
+        var tasks = queryable.ToList();
+
+        return new TaskStatusStatisticsDto
+        {
+            Total = tasks.Count,
+            UnderEvaluation = tasks.Count(t => t.Status == LaboratoryTaskStatus.UnderEvaluation),
+            WaitingCustomerResponse = tasks.Count(t => t.Status == LaboratoryTaskStatus.WaitingCustomerResponse),
+            PartialAccepted = tasks.Count(t => t.Status == LaboratoryTaskStatus.PartialAccepted),
+            FullyAccepted = tasks.Count(t => t.Status == LaboratoryTaskStatus.FullyAccepted),
+            Assigned = tasks.Count(t => t.Status == LaboratoryTaskStatus.Assigned),
+            InProgress = tasks.Count(t => t.Status == LaboratoryTaskStatus.InProgress),
+            WaitingApproval = tasks.Count(t => t.Status == LaboratoryTaskStatus.WaitingApproval),
+            Approved = tasks.Count(t => t.Status == LaboratoryTaskStatus.Approved),
+            SentToQuality = tasks.Count(t => t.Status == LaboratoryTaskStatus.SentToQuality),
+        };
+    }
+
+    /// <summary>
     /// Lấy danh sách Sổ nhận mẫu giao việc cho QLKT - hiển thị tất cả công việc của Lab mà user quản lý
     /// </summary>
     [Authorize]
@@ -2955,7 +3011,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
                 (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
-                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)) ||
+                (x.MethodName != null && x.MethodName.ToLower().Contains(searchLower)));
         }
 
         if (input.TestRequestStatus.HasValue)
@@ -2973,9 +3030,26 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
         }
 
-        if (input.LaboratoryId.HasValue)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
         {
-            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+            query = query.Where(x => input.LaboratoryIds.Contains(x.LaboratoryId));
+        }
+
+        // Filter by IndicatorIds (multi-select)
+        if (input.IndicatorIds != null && input.IndicatorIds.Count > 0)
+        {
+            var indicatorIdSet = input.IndicatorIds.ToHashSet();
+            var matchingSampleIndicatorIds = sampleIndicatorQuery
+                .Where(si => indicatorIdSet.Contains(si.IndicatorId))
+                .Select(si => si.Id)
+                .ToHashSet();
+            query = query.Where(x => matchingSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId));
+        }
+
+        // Filter by TechnicianIds (multi-select)
+        if (input.TechnicianIds != null && input.TechnicianIds.Count > 0)
+        {
+            query = query.Where(x => x.TechnicianId.HasValue && input.TechnicianIds.Contains(x.TechnicianId.Value));
         }
 
         // Count unique contracts (not rows) for pagination
@@ -3060,6 +3134,81 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);
+    }
+
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLKT theo QLKTDisplayStatus (không phụ thuộc filter)
+    /// </summary>
+    [Authorize]
+    public async Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        // Get queryables
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
+
+        // Build base query
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        LaboratoryTaskId = lt.Id,
+                        LaboratoryId = lt.LaboratoryId,
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+                        MethodId = li.MethodId,
+                        TechnicianId = li.TechnicianId,
+                        TestDate = li.TestDate,
+                        Result = li.Result,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                    };
+
+        // Apply same access control as GetSampleAssignmentLogAsync (QLKT)
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var departmentSupporterLabIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value && ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                departmentSupporterLabIds.Contains(x.LaboratoryId));
+        }
+
+        // Materialize and compute display status
+        var allItems = query.ToList();
+        var statusCounts = allItems
+            .Select(x => MapQLKTDisplayStatus(
+                x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
+                x.TestDate, x.Result, x.QualityApprovalStatus))
+            .ToList();
+
+        return new SampleAssignmentLogStatisticsDto
+        {
+            Total = statusCounts.Count,
+            UnderReview = statusCounts.Count(s => s == QLKTDisplayStatus.UnderReview),
+            ToDo = statusCounts.Count(s => s == QLKTDisplayStatus.ToDo),
+            Testing = statusCounts.Count(s => s == QLKTDisplayStatus.Testing),
+            WaitingApproval = statusCounts.Count(s => s == QLKTDisplayStatus.WaitingQLKTApproval),
+            ResultRejected = statusCounts.Count(s => s == QLKTDisplayStatus.ResultRejected),
+            Completed = statusCounts.Count(s => s == QLKTDisplayStatus.Completed),
+        };
     }
 
     /// <summary>

@@ -109,9 +109,9 @@ public class TestMethodController : LabSpecimenManagementController
 
     [HttpDelete("{id}/indicators/{indicatorId}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
-    public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId)
+    public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId, [FromQuery] Guid? specimenTypeId = null)
     {
-        return _testMethodAppService.RemoveIndicatorAsync(id, indicatorId);
+        return _testMethodAppService.RemoveIndicatorAsync(id, indicatorId, specimenTypeId);
     }
 
     [HttpPost("{id}/toggle-active")]

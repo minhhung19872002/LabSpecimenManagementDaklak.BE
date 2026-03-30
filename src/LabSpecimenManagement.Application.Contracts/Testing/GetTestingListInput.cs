@@ -34,6 +34,21 @@ public class GetTestingListInput : PagedAndSortedResultRequestDto
     /// Lọc theo khoa phòng - Filter by Laboratory ID
     /// </summary>
     public Guid? LaboratoryId { get; set; }
+
+    /// <summary>
+    /// Lọc theo ngày yêu cầu xong - từ ngày
+    /// </summary>
+    public DateTime? RequestCompletionDateFrom { get; set; }
+
+    /// <summary>
+    /// Lọc theo ngày yêu cầu xong - đến ngày
+    /// </summary>
+    public DateTime? RequestCompletionDateTo { get; set; }
+
+    /// <summary>
+    /// Lọc theo chỉ tiêu (multiple select) - Filter by Indicator IDs
+    /// </summary>
+    public List<Guid>? IndicatorIds { get; set; }
 }
 
 /// <summary>

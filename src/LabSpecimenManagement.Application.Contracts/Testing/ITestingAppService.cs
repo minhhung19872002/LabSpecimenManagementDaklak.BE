@@ -119,4 +119,14 @@ public interface ITestingAppService : IApplicationService
     /// (Không yêu cầu QualityManagementTask đã tạo)
     /// </summary>
     Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
+
+    /// <summary>
+    /// Lấy thống kê Sổ nhận mẫu giao việc theo QLKTDisplayStatus
+    /// </summary>
+    Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync();
+
+    /// <summary>
+    /// Lấy thống kê số lượng công việc xét nghiệm theo trạng thái
+    /// </summary>
+    Task<TestingStatusStatisticsDto> GetStatusStatisticsAsync(TestingTabType tab);
 }

@@ -266,6 +266,15 @@ public interface ILaboratoryTaskAppService : IApplicationService
 
     #endregion
 
+    #region Task Status Statistics
+
+    /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter)
+    /// </summary>
+    Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync();
+
+    #endregion
+
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>
@@ -274,6 +283,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     /// <param name="input">Filter và pagination</param>
     /// <returns>Danh sách SampleAssignmentLogDto</returns>
     Task<PagedResultDto<QualityManagement.SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(QualityManagement.GetSampleAssignmentLogInput input);
+
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLKT theo QLKTDisplayStatus
+    /// </summary>
+    Task<QualityManagement.SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync();
 
     #endregion
 }

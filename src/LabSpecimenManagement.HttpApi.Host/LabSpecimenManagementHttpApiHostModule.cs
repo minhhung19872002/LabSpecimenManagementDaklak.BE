@@ -90,8 +90,56 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 .DisableTransportSecurityRequirement();
 
             // Set token lifetimes
+            // AccessToken: 8 hours for security (short-lived)
+            // RefreshToken: 90 days to minimize re-login after deployment
             builder.SetAccessTokenLifetime(TimeSpan.FromHours(8));
-            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(14));
+            builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
+
+            // Use persistent signing/encryption keys to prevent token invalidation on server restart
+            // Keys are stored in wwwroot/Keys (matches Dockerfile + K8s PVC volume mount path)
+            var keysPath = Path.Combine(hostingEnvironment.WebRootPath ?? Path.Combine(hostingEnvironment.ContentRootPath, "wwwroot"), "Keys");
+            if (!Directory.Exists(keysPath))
+            {
+                Directory.CreateDirectory(keysPath);
+            }
+
+            // Add encryption key (for encrypting tokens at rest)
+            var encryptionKeyFile = Path.Combine(keysPath, "encryption.key");
+            if (File.Exists(encryptionKeyFile))
+            {
+                var encryptionKey = File.ReadAllBytes(encryptionKeyFile);
+                builder.AddEncryptionKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(encryptionKey));
+            }
+            else
+            {
+                // Generate and save new encryption key
+                var newEncryptionKey = new byte[32]; // 256 bits
+                using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                {
+                    rng.GetBytes(newEncryptionKey);
+                }
+                File.WriteAllBytes(encryptionKeyFile, newEncryptionKey);
+                builder.AddEncryptionKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(newEncryptionKey));
+            }
+
+            // Add signing key (for signing tokens to prevent tampering)
+            var signingKeyFile = Path.Combine(keysPath, "signing.key");
+            if (File.Exists(signingKeyFile))
+            {
+                var signingKey = File.ReadAllBytes(signingKeyFile);
+                builder.AddSigningKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(signingKey));
+            }
+            else
+            {
+                // Generate and save new signing key
+                var newSigningKey = new byte[64]; // 512 bits for HMAC-SHA512
+                using (var rng = System.Security.Cryptography.RandomNumberGenerator.Create())
+                {
+                    rng.GetBytes(newSigningKey);
+                }
+                File.WriteAllBytes(signingKeyFile, newSigningKey);
+                builder.AddSigningKey(new Microsoft.IdentityModel.Tokens.SymmetricSecurityKey(newSigningKey));
+            }
         });
     }
 
@@ -288,25 +336,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         {
             options.AddDefaultPolicy(builder =>
             {
+                var corsOrigins = configuration["App:CorsOrigins"]?
+                    .Split(",", StringSplitOptions.RemoveEmptyEntries)
+                    .Select(o => o.RemovePostFix("/"))
+                    .ToArray() ?? Array.Empty<string>();
+
                 builder
-                    .WithOrigins(configuration["App:CorsOrigins"]?
-                        .Split(",", StringSplitOptions.RemoveEmptyEntries)
-                        .Select(o => o.RemovePostFix("/"))
-                        .ToArray() ?? Array.Empty<string>())
+                    .WithOrigins(corsOrigins)
                     .WithAbpExposedHeaders()
                     .SetIsOriginAllowedToAllowWildcardSubdomains()
                     .AllowAnyHeader()
                     .AllowAnyMethod()
                     .AllowCredentials();
-            });
-
-            // WOPI endpoints need permissive CORS for Collabora integration
-            options.AddPolicy("WopiPolicy", builder =>
-            {
-                builder
-                    .AllowAnyOrigin()
-                    .AllowAnyHeader()
-                    .AllowAnyMethod();
             });
         });
     }

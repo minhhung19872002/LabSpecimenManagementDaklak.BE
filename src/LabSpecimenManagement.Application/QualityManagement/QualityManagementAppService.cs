@@ -135,6 +135,37 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(t => t.TransferDate <= input.ToDate.Value);
         }
 
+        // Filter overdue: RequestCompletionDate - Now <= 2 days and not HandedOver
+        if (input.IsOverdue == true)
+        {
+            var now = DateTime.Now;
+            query = query.Where(t =>
+                t.RequestCompletionDate.HasValue &&
+                (t.RequestCompletionDate.Value - now).TotalDays <= 2 &&
+                t.Status != QualityManagementStatus.HandedOver);
+        }
+
+        // Filter by RequestCompletionDate range (Ngày YC xong)
+        if (input.RequestCompletionDateFrom.HasValue)
+        {
+            query = query.Where(t => t.RequestCompletionDate >= input.RequestCompletionDateFrom.Value);
+        }
+        if (input.RequestCompletionDateTo.HasValue)
+        {
+            query = query.Where(t => t.RequestCompletionDate <= input.RequestCompletionDateTo.Value);
+        }
+
+        // Filter by LaboratoryIds (task chứa ít nhất 1 indicator thuộc lab được chọn)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
+        {
+            var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+            var taskIdsWithLab = labTaskQuery
+                .Where(lt => input.LaboratoryIds.Contains(lt.LaboratoryId))
+                .Select(lt => lt.TestRequestId)
+                .Distinct();
+            query = query.Where(t => taskIdsWithLab.Contains(t.TestRequestId));
+        }
+
         var totalCount = query.Count();
 
         // Sorting
@@ -1254,10 +1285,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
         var labNames = string.Join(", ", labs.Select(l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : ""));
 
-        // Get technical manager names
+        // Get technical manager names (QLKT của phòng thử nghiệm)
         var managerIds = labTasks.Where(lt => lt.TechnicalManagerId.HasValue).Select(lt => lt.TechnicalManagerId!.Value).Distinct().ToList();
         var managers = await _userRepository.GetListAsync(u => managerIds.Contains(u.Id));
-        var managerNames = string.Join(", ", managers.Select(m => m.Name ?? m.UserName));
+        var managerNames = string.Join(", ", managers.Select(m =>
+        {
+            var fullName = $"{m.Surname} {m.Name}".Trim();
+            return string.IsNullOrWhiteSpace(fullName) ? m.UserName : fullName;
+        }));
 
         return new QualityManagementTaskDto
         {
@@ -1887,13 +1922,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
         }
 
-        if (input.LaboratoryId.HasValue)
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
         {
-            query = query.Where(x => x.LaboratoryId == input.LaboratoryId.Value);
+            query = query.Where(x => x.LaboratoryId.HasValue && input.LaboratoryIds.Contains(x.LaboratoryId.Value));
         }
-
-        // Count unique contracts (not rows) for pagination
-        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
@@ -1912,6 +1944,29 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         // Pagination by contract count (not row count)
         // skipCount and maxResultCount refer to number of contracts, not rows
         var allItems = sortedQuery.ToList();
+
+        // Filter by QLCLDisplayStatus if specified (computed in-memory)
+        if (input.QlclDisplayStatuses != null && input.QlclDisplayStatuses.Count > 0)
+        {
+            var statusSet = new HashSet<int>(input.QlclDisplayStatuses);
+            allItems = allItems.Where(x =>
+            {
+                var status = MapQLCLDisplayStatus(
+                    x.TestRequestStatus,
+                    x.IndicatorApprovalStatus,
+                    x.QualityApprovalStatus,
+                    x.IsReportPublished,
+                    x.TechnicianId,
+                    x.MethodId,
+                    x.TestDate,
+                    x.Result);
+                return status.HasValue && statusSet.Contains((int)status.Value);
+            }).ToList();
+        }
+
+        // Count unique contracts (not rows) for pagination - after QLCLDisplayStatus filtering
+        var totalContractCount = allItems.Select(x => x.ContractNumber).Distinct().Count();
+
         var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Map to DTOs
@@ -1962,6 +2017,68 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);
+    }
+
+    public async Task<QLCLSampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        // Reuse the same base query as GetSampleAssignmentLogAsync but without filters/pagination
+        var qualityIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+
+        // Build base query - same JOIN structure as GetSampleAssignmentLogAsync
+        var query = from si in sampleIndicatorQuery
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on s.TestRequestId equals tr.Id
+                    // LEFT JOIN với LaboratoryTaskIndicator (có thể chưa gửi KTN)
+                    join li in labIndicatorQuery on si.Id equals li.TestRequestSampleIndicatorId into liJoin
+                    from li in liJoin.DefaultIfEmpty()
+                    // LEFT JOIN với LaboratoryTask
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id into ltJoin
+                    from lt in ltJoin.DefaultIfEmpty()
+                    // LEFT JOIN với QualityManagementIndicator (có thể chưa gửi QLKT)
+                    join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+                    from qi in qiJoin.DefaultIfEmpty()
+                    select new
+                    {
+                        TestRequestStatus = tr.Status,
+                        IndicatorApprovalStatus = li != null ? (IndicatorApprovalStatus?)li.ApprovalStatus : null,
+                        QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        IsReportPublished = qi != null && qi.IsPrinted,
+                        TechnicianId = li != null ? (Guid?)li.TechnicianId : null,
+                        MethodId = li != null ? (Guid?)li.MethodId : null,
+                        TestDate = li != null ? li.TestDate : (DateTime?)null,
+                        Result = li != null ? li.Result : null,
+                    };
+
+        var allItems = query.ToList();
+
+        var statusCounts = allItems
+            .Select(x => MapQLCLDisplayStatus(
+                x.TestRequestStatus,
+                x.IndicatorApprovalStatus,
+                x.QualityApprovalStatus,
+                x.IsReportPublished,
+                x.TechnicianId,
+                x.MethodId,
+                x.TestDate,
+                x.Result))
+            .Where(s => s.HasValue)
+            .Select(s => s!.Value)
+            .ToList();
+
+        return new QLCLSampleAssignmentLogStatisticsDto
+        {
+            Total = statusCounts.Count,
+            ToDo = statusCounts.Count(s => s == QLCLDisplayStatus.ToDo || s == QLCLDisplayStatus.Testing),
+            WaitingQLKTApproval = statusCounts.Count(s => s == QLCLDisplayStatus.WaitingQLKTApproval),
+            WaitingQLCLApproval = statusCounts.Count(s => s == QLCLDisplayStatus.WaitingQLCLApproval),
+            WaitingForPublishing = statusCounts.Count(s => s == QLCLDisplayStatus.WaitingForPublishing),
+            Published = statusCounts.Count(s => s == QLCLDisplayStatus.Published),
+        };
     }
 
     /// <summary>

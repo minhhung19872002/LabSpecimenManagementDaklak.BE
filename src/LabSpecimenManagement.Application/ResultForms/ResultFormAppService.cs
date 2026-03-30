@@ -227,9 +227,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     {
         var parts = new List<string>();
         if (!string.IsNullOrWhiteSpace(testRequest.Address)) parts.Add(testRequest.Address);
-        if (!string.IsNullOrWhiteSpace(testRequest.Ward)) parts.Add(testRequest.Ward);
-        if (!string.IsNullOrWhiteSpace(testRequest.District)) parts.Add(testRequest.District);
-        if (!string.IsNullOrWhiteSpace(testRequest.Province)) parts.Add(testRequest.Province);
+        if (!string.IsNullOrWhiteSpace(testRequest.Ward)) parts.Add(LowercaseAdministrativePrefix(testRequest.Ward, "Phường", "Xã"));
+        if (!string.IsNullOrWhiteSpace(testRequest.District)) parts.Add(LowercaseAdministrativePrefix(testRequest.District, "Quận"));
+        if (!string.IsNullOrWhiteSpace(testRequest.Province)) parts.Add(LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh", "Thành phố"));
         return string.Join(", ", parts);
     }
 
@@ -268,26 +268,35 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             return "";
         }
 
-        var approverIds = taskIndicators
-            .Where(i => i.ApprovedById.HasValue)
-            .Select(i => i.ApprovedById!.Value)
+        // Get TechnicalManagerId from LaboratoryTask (QLKT của phòng thử nghiệm)
+        var labTaskIds = taskIndicators
+            .Select(i => i.LaboratoryTaskId)
             .Distinct()
             .ToList();
 
-        // Only show name if exactly 1 approver
-        if (approverIds.Count != 1)
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(lt => labTaskIds.Contains(lt.Id));
+        var managerIds = labTasks
+            .Where(lt => lt.TechnicalManagerId.HasValue)
+            .Select(lt => lt.TechnicalManagerId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (!managerIds.Any())
         {
             return "";
         }
 
-        var user = await _userRepository.FindAsync(approverIds[0]);
-        if (user == null)
+        var managers = (await _userRepository.GetListAsync())
+            .Where(u => managerIds.Contains(u.Id))
+            .ToList();
+        
+        var managerNames = managers.Select(m =>
         {
-            return "";
-        }
+            var fullName = $"{m.Surname} {m.Name}".Trim();
+            return string.IsNullOrWhiteSpace(fullName) ? m.UserName : fullName;
+        });
 
-        var fullName = $"{user.Surname} {user.Name}".Trim();
-        return string.IsNullOrWhiteSpace(fullName) ? user.UserName : fullName;
+        return string.Join(", ", managerNames);
     }
 
     /// <summary>
@@ -451,7 +460,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Process orphan children (parent not in this sample)
-        var orphanParentIds = childrenByParent.Keys.Except(processedParentIds).ToList();
+        var orphanParentIds = childrenByParent.Keys.Except(processedParentIds)
+            .OrderBy(pid => indicatorDict.GetValueOrDefault(pid)?.SortOrder ?? 0)
+            .ToList();
         foreach (var parentId in orphanParentIds)
         {
             var children = childrenByParent[parentId];
@@ -513,6 +524,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Uncertainty = "",
                 Proclaim = ""
             });
+        }
+
+        // Sort by TestMethod name so indicators with the same method are grouped together
+        tableData = tableData
+            .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Re-number after sorting
+        for (int i = 0; i < tableData.Count; i++)
+        {
+            tableData[i].No = i + 1;
         }
 
         return tableData;
@@ -652,11 +674,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     }
                     else
                     {
-                        // For Note placeholder, remove height constraint on containing cell/row and set font size to 11
+                        // For Note placeholder, remove height constraint on containing cell/row and preserve font size from template
                         if (placeholder.Key == "{{Note}}" && !string.IsNullOrEmpty(placeholder.Value))
                         {
                             RemoveContainingCellHeightConstraint(text);
-                            SetNoteFontSize(text, 11);
+                            // Get font size from placeholder in template (default 11pt if not set)
+                            var fontSize = GetFontSizeFromText(text);
+                            SetNoteFontSize(text, fontSize);
                             NormalizeParagraphIndentation(text); // Convert first line indent to left indent for all lines
 
                             // Handle HTML content in Note (from rich text editor)
@@ -776,6 +800,44 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Set font size for the Note text element to ensure consistent formatting
     /// Font size in OpenXML is in half-points (e.g., 11pt = 22 half-points)
     /// </summary>
+    /// <summary>
+    /// Get font size from text element in template (in points)
+    /// </summary>
+    /// <param name="textElement">Text element containing placeholder</param>
+    /// <returns>Font size in points (default 11 if not found)</returns>
+    private int GetFontSizeFromText(Text textElement)
+    {
+        var parentRun = textElement.Parent as Run;
+        if (parentRun == null) return 11;
+
+        var runProps = parentRun.GetFirstChild<RunProperties>();
+        if (runProps == null) return 11;
+
+        // Try to get FontSize first
+        var fontSize = runProps.GetFirstChild<FontSize>();
+        if (fontSize?.Val?.Value != null)
+        {
+            // Font size in OpenXML is in half-points, convert to points
+            if (int.TryParse(fontSize.Val.Value, out var halfPoints))
+            {
+                return halfPoints / 2;
+            }
+        }
+
+        // Try FontSizeComplexScript as fallback
+        var fontSizeCs = runProps.GetFirstChild<FontSizeComplexScript>();
+        if (fontSizeCs?.Val?.Value != null)
+        {
+            if (int.TryParse(fontSizeCs.Val.Value, out var halfPoints))
+            {
+                return halfPoints / 2;
+            }
+        }
+
+        // Default to 11pt if not found
+        return 11;
+    }
+
     private void SetNoteFontSize(Text textElement, int fontSizeInPoints)
     {
         var parentRun = textElement.Parent as Run;
@@ -804,7 +866,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             existingFontSizeCs.Remove();
         }
 
-        // Set new font size (11pt = 22 half-points)
+        // Set new font size
         runProps.Append(new FontSize { Val = halfPoints });
         runProps.Append(new FontSizeComplexScript { Val = halfPoints });
     }
@@ -1563,6 +1625,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var hasCompareWithStandardHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.CompareWithStandard);
                 var hasAllowlimitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Allowlimit);
                 var hasStandardsHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Standards);
+                var hasUnitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(data.Unit);
                 var hasParametersNewlines = parametersDisplayName?.Contains('\n') ?? false;
                 var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
                 var hasCompareWithStandardNewlines = data.CompareWithStandard?.Contains('\n') ?? false;
@@ -1570,20 +1633,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var hasStandardsNewlines = data.Standards?.Contains('\n') ?? false;
 
                 // If any field contains HTML or newlines, we need special handling
-                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml ||
+                if (hasParametersHtml || hasTestMethodHtml || hasCompareWithStandardHtml || hasAllowlimitHtml || hasStandardsHtml || hasUnitHtml ||
                     hasParametersNewlines || hasTestMethodNewlines || hasCompareWithStandardNewlines || hasAllowlimitNewlines || hasStandardsNewlines)
                 {
-                    // Replace non-HTML placeholders first (excluding Standards which may have HTML/newlines)
+                    // Replace non-HTML placeholders first
                     text.Text = text.Text
                         .Replace("{{TestTable}}", "")
                         .Replace("{{No}}", data.No.ToString())
                         .Replace("{{NameOfSample}}", data.NameOfSample ?? "")
                         .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "")
-                        .Replace("{{Unit}}", data.Unit ?? "")
                         .Replace("{{Result}}", data.Result ?? "")
                         .Replace("{{n}}", data.FootnoteNumber ?? "")
                         .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                         .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                    // Handle Unit with HTML if applicable
+                    if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{Unit}}", data.Unit ?? "");
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{Unit}}", data.Unit ?? "");
+                    }
 
                     // Handle Parameters with HTML/newlines if applicable
                     if ((hasParametersHtml || hasParametersNewlines) && text.Text.Contains("{{Parameters}}"))
@@ -1664,7 +1736,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{NameOfSample}}", data.NameOfSample ?? "") // BM02 - Tên mẫu
                     .Replace("{{CodeOfNumber}}", data.CodeOfNumber ?? "") // BM02 - Mã số mẫu
                     .Replace("{{Parameters}}", data.Parameters ?? "")
-                    .Replace("{{Unit}}", data.Unit ?? "")
                     .Replace("{{TestMethod}}", data.TestMethod ?? "")
                     .Replace("{{Result}}", data.Result ?? "")
                     .Replace("{{Standards}}", data.Standards ?? "")
@@ -1673,6 +1744,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{Allowlimit}}", data.Allowlimit ?? "") // BM04 - Giới hạn cho phép
                     .Replace("{{Uncertainty}}", data.Uncertainty ?? "")
                     .Replace("{{Proclaim}}", data.Proclaim ?? "");
+
+                // Handle Unit with HTML if applicable
+                if (HtmlToOpenXmlConverter.ContainsHtmlTags(data.Unit) && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", data.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", data.Unit ?? "");
+                }
             }
         }
 
@@ -2411,9 +2492,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private Dictionary<string, string> BuildPreviewFormPlaceholders(PreviewTestRequestFormInput input)
     {
         var address = input.Address ?? "";
-        var wardText = !string.IsNullOrWhiteSpace(input.Ward) ? input.Ward : "";
-        var districtText = !string.IsNullOrWhiteSpace(input.District) ? input.District : "";
-        var provinceText = !string.IsNullOrWhiteSpace(input.Province) ? input.Province : "";
+        var wardText = LowercaseAdministrativePrefix(input.Ward, "Phường", "Xã");
+        var districtText = LowercaseAdministrativePrefix(input.District, "Quận");
+        var provinceText = LowercaseAdministrativePrefix(input.Province, "Tỉnh", "Thành phố");
         var resultCopies = input.ResultCopyCount ?? "";
         // Chỉ hiển thị CustomerTestMethod khi MethodCustomer = true
         var customerTestMethod = input.MethodCustomer ? (input.MethodCustomerDetail ?? "") : "";
@@ -2954,7 +3035,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 if (!string.IsNullOrEmpty(text.Text) && text.Text.Contains("{{Note}}"))
                 {
                     RemoveContainingCellHeightConstraint(text);
-                    SetNoteFontSize(text, 11);
+                    // Get font size from placeholder in template and preserve it
+                    var fontSize = GetFontSizeFromText(text);
+                    SetNoteFontSize(text, fontSize);
                     NormalizeParagraphIndentation(text);
 
                     if (HtmlToOpenXmlConverter.ContainsHtmlTags(noteValue))
@@ -3797,6 +3880,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var hasParameterHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(parameterDisplayName);
         var hasTestMethodHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName);
+        var hasUnitHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorData.Unit);
         var hasParameterNewlines = parameterDisplayName?.Contains('\n') ?? false;
         var hasTestMethodNewlines = testMethodDisplayName?.Contains('\n') ?? false;
         var hasResultNewlines = indicatorData.Result?.Contains('\n') ?? false;
@@ -3822,8 +3906,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{NameOfSample}}", isFirstIndicator ? sampleData.SampleName : "")
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
                     .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
-                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
-                    .Replace("{{Unit}}", indicatorData.Unit);
+                    .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "");
+
+                // Handle Unit with HTML if applicable
+                if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", indicatorData.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", indicatorData.Unit ?? "");
+                }
 
                 // Handle Parameter
                 if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))
@@ -3852,7 +3945,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 }
             }
             else if ((hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines)) ||
-                     (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines)))
+                     (hasTestMethodPlaceholder && (hasTestMethodHtml || hasTestMethodNewlines)) ||
+                     hasUnitHtml)
             {
                 // Replace non-special placeholders first
                 text.Text = text.Text
@@ -3863,8 +3957,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     .Replace("{{CodeOfNumber}}", isFirstIndicator ? sampleData.SampleCode : "")
                     .Replace("{{Quantity}}", isFirstIndicator ? sampleData.Quantity : "")
                     .Replace("{{SampleDescription}}", isFirstIndicator ? sampleData.SampleDescription : "")
-                    .Replace("{{Unit}}", indicatorData.Unit)
                     .Replace("{{Result}}", indicatorData.Result);
+
+                // Handle Unit with HTML if applicable
+                if (hasUnitHtml && text.Text.Contains("{{Unit}}"))
+                {
+                    ReplaceTextWithFormattedRuns(text, "{{Unit}}", indicatorData.Unit ?? "");
+                }
+                else
+                {
+                    text.Text = text.Text.Replace("{{Unit}}", indicatorData.Unit ?? "");
+                }
 
                 // Handle Parameter with HTML/newlines if applicable
                 if (hasParameterPlaceholder && (hasParameterHtml || hasParameterNewlines))
@@ -4201,6 +4304,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private class MixedResultIndicatorRow
     {
+        public int No { get; set; }
         public string Parameter { get; set; } = "";
         /// <summary>
         /// Tên chỉ tiêu có định dạng HTML (nếu có)
@@ -4232,10 +4336,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Address = chỉ lấy địa chỉ người dùng nhập, không nối tỉnh/huyện/xã
         var address = testRequest.Address ?? "";
 
-        // Build address parts - thêm khoảng trắng phía sau để tránh bị sát với text khác
-        var wardText = !string.IsNullOrWhiteSpace(testRequest.Ward) ? testRequest.Ward : "";
-        var districtText = !string.IsNullOrWhiteSpace(testRequest.District) ? testRequest.District : "";
-        var provinceText = !string.IsNullOrWhiteSpace(testRequest.Province) ? testRequest.Province : "";
+        // Build address parts - lowercase prefix hành chính (Tỉnh → tỉnh, Quận → quận, Phường/Xã → phường/xã)
+        var wardText = LowercaseAdministrativePrefix(testRequest.Ward, "Phường", "Xã");
+        var districtText = LowercaseAdministrativePrefix(testRequest.District, "Quận");
+        var provinceText = LowercaseAdministrativePrefix(testRequest.Province, "Tỉnh", "Thành phố");
 
         // Calculate certified copies (KQTN yêu cầu - giấy chứng nhận)
         var resultCopies = testRequest.ResultCopyCount ?? "";
@@ -4357,6 +4461,22 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         ReplacePlaceholdersInBody(body, placeholders);
 
         document.MainDocumentPart?.Document?.Save();
+    }
+
+    /// <summary>
+    /// Lowercase prefix hành chính: "Tỉnh Đắk Lắk" → "tỉnh Đắk Lắk", "Quận 1" → "quận 1", etc.
+    /// </summary>
+    private static string LowercaseAdministrativePrefix(string? value, params string[] prefixes)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return "";
+        foreach (var prefix in prefixes)
+        {
+            if (value.StartsWith(prefix + " ", StringComparison.Ordinal))
+            {
+                return char.ToLower(value[0]) + value[1..];
+            }
+        }
+        return value;
     }
 
     /// <summary>
@@ -5134,6 +5254,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 });
             }
 
+            // Sort indicators by TestMethod so same-method indicators are grouped together
+            sampleRow.Indicators = sampleRow.Indicators
+                .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Re-number indicators within sample
+            for (int i = 0; i < sampleRow.Indicators.Count; i++)
+            {
+                sampleRow.Indicators[i].No = i + 1;
+            }
+
             sampleData.Add(sampleRow);
         }
 
@@ -5226,6 +5357,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Proclaim = ""
                     });
                 }
+            }
+
+            // Sort by TestMethod name so indicators with the same method are grouped together
+            tableData = tableData
+                .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            // Re-number after sorting
+            for (int i = 0; i < tableData.Count; i++)
+            {
+                tableData[i].No = i + 1;
             }
 
             // Process document
@@ -5384,6 +5526,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Uncertainty = "",
                 Proclaim = ""
             });
+        }
+
+        // Sort by TestMethod name so indicators with the same method are grouped together
+        tableData = tableData
+            .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Re-number after sorting
+        for (int i = 0; i < tableData.Count; i++)
+        {
+            tableData[i].No = i + 1;
         }
 
         // 4. Generate document

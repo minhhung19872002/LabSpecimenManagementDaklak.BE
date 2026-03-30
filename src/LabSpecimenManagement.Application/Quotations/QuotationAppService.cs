@@ -221,7 +221,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     indicatorDto.IndicatorName,
                     indicatorDto.TestMethodName,
                     indicatorDto.UnitPrice,
-                    indicatorDto.SortOrder);
+                    indicatorDto.SortOrder,
+                    indicatorDto.SpecimenTypeId,
+                    indicatorDto.SpecimenTypeName);
 
                 sample.Indicators.Add(indicator);
             }
@@ -320,6 +322,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         existingIndicator.TestMethodName = indicatorDto.TestMethodName;
                         existingIndicator.UnitPrice = indicatorDto.UnitPrice;
                         existingIndicator.SortOrder = indicatorDto.SortOrder;
+                        existingIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
+                        existingIndicator.SpecimenTypeName = indicatorDto.SpecimenTypeName;
                     }
                     else
                     {
@@ -332,7 +336,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             indicatorDto.IndicatorName,
                             indicatorDto.TestMethodName,
                             indicatorDto.UnitPrice,
-                            indicatorDto.SortOrder);
+                            indicatorDto.SortOrder,
+                            indicatorDto.SpecimenTypeId,
+                            indicatorDto.SpecimenTypeName);
 
                         existingSample.Indicators.Add(newIndicator);
                     }
@@ -359,7 +365,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         indicatorDto.IndicatorName,
                         indicatorDto.TestMethodName,
                         indicatorDto.UnitPrice,
-                        indicatorDto.SortOrder);
+                        indicatorDto.SortOrder,
+                        indicatorDto.SpecimenTypeId,
+                        indicatorDto.SpecimenTypeName);
 
                     newSample.Indicators.Add(indicator);
                 }
@@ -458,7 +466,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     IndicatorName = indicator.IndicatorName,
                     TestMethodName = indicator.TestMethodName,
                     UnitPrice = indicator.UnitPrice,
-                    SortOrder = indicator.SortOrder
+                    SortOrder = indicator.SortOrder,
+                    SpecimenTypeId = indicator.SpecimenTypeId,
+                    SpecimenTypeName = indicator.SpecimenTypeName
                 }).ToList()
             }).ToList()
         };
@@ -520,7 +530,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             TestMethodName = indicator.TestMethodName,
                             TestMethodFormattedName = testMethod?.FormattedName,
                             UnitPrice = indicator.UnitPrice,
-                            SortOrder = indicator.SortOrder
+                            SortOrder = indicator.SortOrder,
+                            SpecimenTypeId = indicator.SpecimenTypeId,
+                            SpecimenTypeName = indicator.SpecimenTypeName
                         };
                     }).ToList()
                 };

@@ -59,6 +59,16 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get all samples from all test requests (for "Thêm mẫu có sẵn" feature)
+    /// Sorted by contract number descending
+    /// </summary>
+    [HttpGet("all-samples")]
+    public virtual Task<PagedResultDto<ExistingSampleDto>> GetAllSamplesAsync([FromQuery] GetAllSamplesInput input)
+    {
+        return _testRequestAppService.GetAllSamplesAsync(input);
+    }
+
+    /// <summary>
     /// Generate next contract number with format HDYYYYMMDD###
     /// </summary>
     [HttpGet("generate-contract-number")]
@@ -143,7 +153,6 @@ public class TestRequestController : LabSpecimenManagementController
     /// Send sample - update status from Pending to SampleSent
     /// </summary>
     [HttpPost("{id}/send-sample")]
-    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
     public virtual Task SendSampleAsync(Guid id)
     {
         return _testRequestAppService.SendSampleAsync(id);

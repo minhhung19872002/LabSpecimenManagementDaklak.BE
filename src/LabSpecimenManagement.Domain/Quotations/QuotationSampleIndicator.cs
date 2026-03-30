@@ -45,6 +45,16 @@ public class QuotationSampleIndicator : Entity<Guid>
     public int SortOrder { get; set; }
 
     /// <summary>
+    /// Loại mẫu ID (nullable, Foreign Key)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên loại mẫu (snapshot tại thời điểm tạo)
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
     /// Navigation property to QuotationSample
     /// </summary>
     public virtual QuotationSample QuotationSample { get; set; } = null!;
@@ -59,6 +69,11 @@ public class QuotationSampleIndicator : Entity<Guid>
     /// </summary>
     public virtual TestMethod TestMethod { get; set; } = null!;
 
+    /// <summary>
+    /// Navigation property to SpecimenType
+    /// </summary>
+    public virtual SpecimenType? SpecimenType { get; set; }
+
     protected QuotationSampleIndicator()
     {
     }
@@ -71,7 +86,9 @@ public class QuotationSampleIndicator : Entity<Guid>
         string indicatorName,
         string testMethodName,
         decimal unitPrice,
-        int sortOrder) : base(id)
+        int sortOrder,
+        Guid? specimenTypeId = null,
+        string? specimenTypeName = null) : base(id)
     {
         QuotationSampleId = quotationSampleId;
         IndicatorId = indicatorId;
@@ -80,5 +97,7 @@ public class QuotationSampleIndicator : Entity<Guid>
         TestMethodName = testMethodName;
         UnitPrice = unitPrice;
         SortOrder = sortOrder;
+        SpecimenTypeId = specimenTypeId;
+        SpecimenTypeName = specimenTypeName;
     }
 }

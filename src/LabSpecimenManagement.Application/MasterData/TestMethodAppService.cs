@@ -85,7 +85,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         )
         {
             IsActive = input.IsActive,
-            FormattedName = input.FormattedName
+            FormattedName = input.FormattedName,
+            FormattedUnit = input.FormattedUnit
         };
 
         await _testMethodRepository.InsertAsync(entity);
@@ -100,6 +101,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         entity.Name = input.Name;
         entity.FormattedName = input.FormattedName;
         entity.Unit = input.Unit;
+        entity.FormattedUnit = input.FormattedUnit;
         entity.IsActive = input.IsActive;
 
         await _testMethodRepository.UpdateAsync(entity);
@@ -482,11 +484,13 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         };
     }
 
-    public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId)
+    public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId, Guid? specimenTypeId = null)
     {
         var query = await _testMethodIndicatorRepository.GetQueryableAsync();
         var entity = await AsyncExecuter.FirstOrDefaultAsync(
-            query.Where(tmi => tmi.TestMethodId == testMethodId && tmi.IndicatorId == indicatorId)
+            query.Where(tmi => tmi.TestMethodId == testMethodId
+                && tmi.IndicatorId == indicatorId
+                && tmi.SpecimenTypeId == specimenTypeId)
         );
 
         if (entity == null)

@@ -200,6 +200,16 @@ public interface ITestRequestAppService :
 
     #endregion
 
+    #region Existing Samples (for reuse)
+
+    /// <summary>
+    /// Lấy danh sách tất cả mẫu từ tất cả phiếu yêu cầu (dùng để chọn mẫu có sẵn)
+    /// Sắp xếp giảm dần theo số hợp đồng
+    /// </summary>
+    Task<PagedResultDto<ExistingSampleDto>> GetAllSamplesAsync(GetAllSamplesInput input);
+
+    #endregion
+
     #region Cost Change History
 
     /// <summary>

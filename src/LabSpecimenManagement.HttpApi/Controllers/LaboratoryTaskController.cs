@@ -436,6 +436,19 @@ public class LaboratoryTaskController : LabSpecimenManagementController
 
     #endregion
 
+    #region Task Status Statistics
+
+    /// <summary>
+    /// Lấy thống kê số lượng công việc theo trạng thái (không filter)
+    /// </summary>
+    [HttpGet("task-status-statistics")]
+    public virtual Task<TaskStatusStatisticsDto> GetTaskStatusStatisticsAsync()
+    {
+        return _laboratoryTaskAppService.GetTaskStatusStatisticsAsync();
+    }
+
+    #endregion
+
     #region Sample Assignment Log (Sổ nhận mẫu giao việc)
 
     /// <summary>
@@ -445,6 +458,15 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     public virtual async Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync([FromQuery] GetSampleAssignmentLogInput input)
     {
         return await _laboratoryTaskAppService.GetSampleAssignmentLogAsync(input);
+    }
+
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLKT theo QLKTDisplayStatus
+    /// </summary>
+    [HttpGet("sample-assignment-log/statistics")]
+    public virtual async Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        return await _laboratoryTaskAppService.GetSampleAssignmentLogStatisticsAsync();
     }
 
     #endregion

@@ -110,6 +110,7 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.TestRequests.Create,
             LabSpecimenManagementPermissions.TestRequests.Edit,
             LabSpecimenManagementPermissions.TestRequests.Delete,
+            LabSpecimenManagementPermissions.TestRequests.SendSample,
 
             // Specimens
             LabSpecimenManagementPermissions.Specimens.Default,

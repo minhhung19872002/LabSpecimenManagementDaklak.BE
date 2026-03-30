@@ -15,5 +15,8 @@ public class UpdateTestMethodDto
     [StringLength(100)]
     public string Unit { get; set; }
 
+    [StringLength(512)]
+    public string? FormattedUnit { get; set; }
+
     public bool IsActive { get; set; }
 }

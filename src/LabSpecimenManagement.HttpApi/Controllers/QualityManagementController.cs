@@ -220,5 +220,14 @@ public class QualityManagementController : LabSpecimenManagementController
         return _qualityManagementAppService.GetSampleAssignmentLogAsync(input);
     }
 
+    /// <summary>
+    /// Thống kê Sổ nhận mẫu giao việc cho QLCL theo QLCLDisplayStatus
+    /// </summary>
+    [HttpGet("sample-assignment-log/statistics")]
+    public virtual Task<QLCLSampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync()
+    {
+        return _qualityManagementAppService.GetSampleAssignmentLogStatisticsAsync();
+    }
+
     #endregion
 }

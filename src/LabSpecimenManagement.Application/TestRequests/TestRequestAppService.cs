@@ -815,6 +815,9 @@ public partial class TestRequestAppService :
 
         await Repository.UpdateAsync(entity, autoSave: true);
 
+        // Sync ContractNumber to related LaboratoryTasks and QualityManagementTasks
+        await SyncContractNumberToRelatedTasksAsync(id, entity.ContractNumber);
+
         // Update samples
         if (input.Samples != null)
         {
@@ -1413,7 +1416,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
                     }
                 }
 
@@ -2062,6 +2065,12 @@ public partial class TestRequestAppService :
         entity.Status = previousStatus;
 
         await Repository.UpdateAsync(entity, autoSave: true);
+
+        // Sync ContractNumber if it was changed
+        if (changes.Any(c => c.FieldName?.ToLower() == SortingFields.ContractNumber))
+        {
+            await SyncContractNumberToRelatedTasksAsync(entity.Id, entity.ContractNumber);
+        }
     }
 
     /// <summary>
@@ -2647,7 +2656,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
                     }
                 }
 
@@ -3776,10 +3785,10 @@ public partial class TestRequestAppService :
     {
         var entity = await Repository.GetAsync(id);
 
-        // Cho phép gửi QLKT từ PendingPayment (đã in phiếu thu), Paid (mẫu thường) hoặc NoPaymentRequired (mẫu nhiệm vụ)
-        if (entity.Status != TestRequestStatus.PendingPayment && entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
+        // Không cho gửi khi đã hoàn thành hoặc hủy
+        if (entity.Status == TestRequestStatus.Completed || entity.Status == TestRequestStatus.Cancelled)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ có thể gửi QLKT khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'", "status");
+            throw new Common.Exceptions.InvalidOperationException("Không thể gửi QLKT khi phiếu đã hoàn thành hoặc đã hủy", "status");
         }
 
         // Đếm tổng số indicators và số đã có LaboratoryId
@@ -3805,8 +3814,12 @@ public partial class TestRequestAppService :
         // Method này sẽ tự skip các indicators đã được gửi trước đó
         await CreateLaboratoryTasksAsync(entity);
 
-        // CHỈ cập nhật status khi TẤT CẢ indicators đã có LaboratoryId
-        if (indicatorsWithLabCount == totalIndicatorCount)
+        // CHỈ cập nhật status sang UnderReview khi đang ở trạng thái ban đầu (PendingPayment/Paid/NoPaymentRequired)
+        // và TẤT CẢ indicators đã có LaboratoryId
+        var isInitialSend = entity.Status == TestRequestStatus.PendingPayment
+            || entity.Status == TestRequestStatus.Paid
+            || entity.Status == TestRequestStatus.NoPaymentRequired;
+        if (isInitialSend && indicatorsWithLabCount == totalIndicatorCount)
         {
             entity.Status = TestRequestStatus.UnderReview;
             entity.UnderReviewDate = Clock.Now;
@@ -3814,7 +3827,7 @@ public partial class TestRequestAppService :
             entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
             await Repository.UpdateAsync(entity);
         }
-        // Ngược lại: Giữ nguyên status (PendingPayment/Paid/NoPaymentRequired)
+        // Ngược lại: Giữ nguyên status hiện tại
 
         // Thông báo cho QLKT về yêu cầu mới cần đánh giá
         await NotifyTechnicalManagersOnSampleSentAsync(entity);
@@ -3828,11 +3841,11 @@ public partial class TestRequestAppService :
     {
         var entity = await Repository.GetAsync(id);
 
-        // Chỉ cho phép cập nhật khi status là PendingPayment, Paid hoặc NoPaymentRequired (chuẩn bị gửi QLKT)
-        if (entity.Status != TestRequestStatus.PendingPayment && entity.Status != TestRequestStatus.Paid && entity.Status != TestRequestStatus.NoPaymentRequired)
+        // Không cho cập nhật khi đã hoàn thành hoặc hủy
+        if (entity.Status == TestRequestStatus.Completed || entity.Status == TestRequestStatus.Cancelled)
         {
             throw new Common.Exceptions.InvalidOperationException(
-                "Chỉ có thể cập nhật khoa phòng khi trạng thái là 'Chờ thanh toán', 'Đã thanh toán' hoặc 'Không cần thanh toán'",
+                "Không thể cập nhật khoa phòng khi phiếu đã hoàn thành hoặc đã hủy",
                 "status");
         }
 
@@ -4059,6 +4072,36 @@ public partial class TestRequestAppService :
         }
 
         return result;
+    }
+
+    #endregion
+
+    #region Sync Denormalized Fields
+
+    /// <summary>
+    /// Đồng bộ ContractNumber từ TestRequest sang LaboratoryTask và QualityManagementTask
+    /// </summary>
+    private async Task SyncContractNumberToRelatedTasksAsync(Guid testRequestId, string? contractNumber)
+    {
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        foreach (var labTask in labTasks)
+        {
+            if (labTask.ContractNumber != contractNumber)
+            {
+                labTask.ContractNumber = contractNumber;
+                await _laboratoryTaskRepository.UpdateAsync(labTask, autoSave: true);
+            }
+        }
+
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == testRequestId);
+        foreach (var qualityTask in qualityTasks)
+        {
+            if (qualityTask.ContractNumber != contractNumber)
+            {
+                qualityTask.ContractNumber = contractNumber ?? "";
+                await _qualityTaskRepository.UpdateAsync(qualityTask, autoSave: true);
+            }
+        }
     }
 
     #endregion

@@ -30,6 +30,11 @@ public class TestMethod : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Unit { get; set; }
 
     /// <summary>
+    /// Đơn vị tính có định dạng (HTML)
+    /// </summary>
+    public string? FormattedUnit { get; set; }
+
+    /// <summary>
     /// Trạng thái hoạt động
     /// </summary>
     public bool IsActive { get; set; }

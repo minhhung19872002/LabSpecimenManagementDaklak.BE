@@ -12,6 +12,7 @@
     "Permission:TestRequests.Create": "Create",
     "Permission:TestRequests.Edit": "Edit",
     "Permission:TestRequests.Delete": "Delete",
+    "Permission:TestRequests.SendSample": "Send Sample",
 
     "Permission:Specimens": "Specimens",
     "Permission:Specimens.Create": "Create",

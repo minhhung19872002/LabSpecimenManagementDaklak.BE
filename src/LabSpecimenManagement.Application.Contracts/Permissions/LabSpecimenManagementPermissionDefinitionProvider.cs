@@ -15,6 +15,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         testRequestPermission.AddChild(LabSpecimenManagementPermissions.TestRequests.Create, L("Permission:TestRequests.Create"));
         testRequestPermission.AddChild(LabSpecimenManagementPermissions.TestRequests.Edit, L("Permission:TestRequests.Edit"));
         testRequestPermission.AddChild(LabSpecimenManagementPermissions.TestRequests.Delete, L("Permission:TestRequests.Delete"));
+        testRequestPermission.AddChild(LabSpecimenManagementPermissions.TestRequests.SendSample, L("Permission:TestRequests.SendSample"));
 
         // Specimen Permissions
         var specimenPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Specimens.Default, L("Permission:Specimens"));
