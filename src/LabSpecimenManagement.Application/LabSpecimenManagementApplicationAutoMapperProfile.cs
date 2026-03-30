@@ -5,6 +5,7 @@ using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.MasterData.Organizations;
 using LabSpecimenManagement.MasterData.SampleTypeCategories;
 using LabSpecimenManagement.MasterData.SampleConditions;
+using LabSpecimenManagement.MasterData.Units;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
@@ -136,6 +137,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         // SampleCondition mappings
         CreateMap<SampleCondition, SampleConditionDto>();
         CreateMap<CreateUpdateSampleConditionDto, SampleCondition>();
+
+        // Unit mappings
+        CreateMap<Unit, UnitDto>();
+        CreateMap<CreateUpdateUnitDto, Unit>();
 
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()

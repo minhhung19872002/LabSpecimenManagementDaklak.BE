@@ -64,6 +64,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Indicator> Indicators { get; set; }
     public DbSet<SampleTypeCategory> SampleTypeCategories { get; set; }
     public DbSet<SampleCondition> SampleConditions { get; set; }
+    public DbSet<Unit> Units { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -416,6 +417,21 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.Description).HasMaxLength(500);
 
+            b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // Unit configuration
+        builder.Entity<Unit>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Units", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+
+            // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
             b.HasIndex(x => x.IsActive);
         });
