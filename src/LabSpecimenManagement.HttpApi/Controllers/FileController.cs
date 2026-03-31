@@ -20,7 +20,7 @@ public class FileController : LabSpecimenManagementController
     private readonly IFileAppService _fileAppService;
     private const long MaxFileSize = 10 * 1024 * 1024; // 10 MB
 
-    private static readonly string[] AllowedImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
+    private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".pdf", ".docx" };
 
     public FileController(IFileAppService fileAppService)
     {
@@ -91,7 +91,11 @@ public class FileController : LabSpecimenManagementController
             throw new EntityNotFoundException("File", fileId);
         }
 
-        return File(fileStream, contentType, fileName);
+        // Preview in browser: use inline disposition
+        // Must NOT pass fileName to File() as it forces Content-Disposition: attachment
+        Response.Headers.Append("Content-Disposition", $"inline; filename=\"{fileName}\"");
+        Response.Headers.Append("X-Content-Type-Options", "nosniff");
+        return new FileStreamResult(fileStream, contentType);
     }
 
     /// <summary>
@@ -121,9 +125,9 @@ public class FileController : LabSpecimenManagementController
 
         // Validate extension
         var extension = System.IO.Path.GetExtension(file.FileName).ToLowerInvariant();
-        if (!AllowedImageExtensions.Contains(extension))
+        if (!AllowedExtensions.Contains(extension))
         {
-            throw new ValidationException("file", $"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
+            throw new ValidationException("file", $"Chỉ cho phép upload file ({string.Join(", ", AllowedExtensions)}).");
         }
 
         // Validate file size

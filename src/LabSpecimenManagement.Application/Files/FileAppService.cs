@@ -20,8 +20,8 @@ public class FileAppService : ApplicationService, IFileAppService
     private const string UploadFolder = "uploads/samples";
     private const long MaxFileSize = 10 * 1024 * 1024; // 10 MB
 
+    private static readonly string[] AllowedExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp", ".pdf", ".docx" };
     private static readonly string[] AllowedImageExtensions = { ".jpg", ".jpeg", ".png", ".gif", ".bmp", ".webp" };
-    private static readonly string[] AllowedImageMimeTypes = { "image/jpeg", "image/png", "image/gif", "image/bmp", "image/webp" };
 
     public FileAppService(
         IWebHostEnvironment webHostEnvironment,
@@ -46,7 +46,7 @@ public class FileAppService : ApplicationService, IFileAppService
         var extension = Path.GetExtension(fileName).ToLowerInvariant();
         if (!IsAllowedExtension(extension))
         {
-            throw new ValidationException("fileName", $"Chỉ cho phép upload file hình ảnh ({string.Join(", ", AllowedImageExtensions)}).");
+            throw new ValidationException("fileName", $"Chỉ cho phép upload file ({string.Join(", ", AllowedExtensions)}).");
         }
 
         // Validate file size
@@ -104,7 +104,7 @@ public class FileAppService : ApplicationService, IFileAppService
 
         // Search in wwwroot/uploads/samples/ folder first (for sample attachments)
         var uploadPath = Path.Combine(webRootPath, UploadFolder);
-        foreach (var ext in AllowedImageExtensions)
+        foreach (var ext in AllowedExtensions)
         {
             var filePath = Path.Combine(uploadPath, $"{fileId}{ext}");
             if (File.Exists(filePath))
@@ -120,7 +120,7 @@ public class FileAppService : ApplicationService, IFileAppService
         var testingImagesPath = Path.Combine(webRootPath, "uploads", "testing-images");
         if (Directory.Exists(testingImagesPath))
         {
-            foreach (var ext in AllowedImageExtensions)
+            foreach (var ext in AllowedExtensions)
             {
                 var searchPattern = $"{fileId}{ext}";
                 var files = Directory.GetFiles(testingImagesPath, searchPattern, SearchOption.AllDirectories);
@@ -139,7 +139,7 @@ public class FileAppService : ApplicationService, IFileAppService
         var indicatorImagesPath = Path.Combine(webRootPath, "uploads", "indicator-images");
         if (Directory.Exists(indicatorImagesPath))
         {
-            foreach (var ext in AllowedImageExtensions)
+            foreach (var ext in AllowedExtensions)
             {
                 var searchPattern = $"{fileId}{ext}";
                 var files = Directory.GetFiles(indicatorImagesPath, searchPattern, SearchOption.AllDirectories);
@@ -170,7 +170,7 @@ public class FileAppService : ApplicationService, IFileAppService
         var uploadPath = GetUploadPath();
 
         // Find and delete file with any extension
-        foreach (var ext in AllowedImageExtensions)
+        foreach (var ext in AllowedExtensions)
         {
             var filePath = Path.Combine(uploadPath, $"{fileId}{ext}");
             if (File.Exists(filePath))
@@ -204,7 +204,7 @@ public class FileAppService : ApplicationService, IFileAppService
 
         var uploadPath = GetUploadPath();
 
-        foreach (var ext in AllowedImageExtensions)
+        foreach (var ext in AllowedExtensions)
         {
             var filePath = Path.Combine(uploadPath, $"{fileId}{ext}");
             if (File.Exists(filePath))
@@ -225,7 +225,7 @@ public class FileAppService : ApplicationService, IFileAppService
 
     private static bool IsAllowedExtension(string extension)
     {
-        return Array.Exists(AllowedImageExtensions, ext => ext.Equals(extension, StringComparison.OrdinalIgnoreCase));
+        return Array.Exists(AllowedExtensions, ext => ext.Equals(extension, StringComparison.OrdinalIgnoreCase));
     }
 
     private static string GetContentType(string extension)
@@ -237,6 +237,8 @@ public class FileAppService : ApplicationService, IFileAppService
             ".gif" => "image/gif",
             ".bmp" => "image/bmp",
             ".webp" => "image/webp",
+            ".pdf" => "application/pdf",
+            ".docx" => "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             _ => "application/octet-stream"
         };
     }

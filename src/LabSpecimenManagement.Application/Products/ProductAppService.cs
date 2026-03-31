@@ -1,0 +1,382 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Permissions;
+using Microsoft.AspNetCore.Authorization;
+using Volo.Abp;
+using Volo.Abp.Application.Dtos;
+using Volo.Abp.Application.Services;
+using Volo.Abp.Data;
+using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Guids;
+
+namespace LabSpecimenManagement.Products;
+
+[RemoteService(IsEnabled = false)]
+[Authorize(LabSpecimenManagementPermissions.Products.Default)]
+public class ProductAppService : ApplicationService, IProductAppService
+{
+    private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<ProductAttachment, Guid> _attachmentRepository;
+    private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
+    private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly ICodeGeneratorService _codeGenerator;
+    private readonly IDataFilter _dataFilter;
+
+    public ProductAppService(
+        IRepository<Product, Guid> productRepository,
+        IRepository<ProductAttachment, Guid> attachmentRepository,
+        IRepository<ProductUnitConversion, Guid> conversionRepository,
+        IRepository<Unit, Guid> unitRepository,
+        ICodeGeneratorService codeGenerator,
+        IDataFilter dataFilter)
+    {
+        _productRepository = productRepository;
+        _attachmentRepository = attachmentRepository;
+        _conversionRepository = conversionRepository;
+        _unitRepository = unitRepository;
+        _codeGenerator = codeGenerator;
+        _dataFilter = dataFilter;
+    }
+
+    public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
+    {
+        var query = await _productRepository.GetQueryableAsync();
+
+        // Filter by ProductType
+        if (input.ProductType.HasValue)
+        {
+            query = query.Where(x => x.ProductType == input.ProductType.Value);
+        }
+
+        // Search by Code or Name
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.Trim().ToLower();
+            query = query.Where(x =>
+                x.Code.ToLower().Contains(search) ||
+                x.Name.ToLower().Contains(search));
+        }
+
+        var totalCount = query.Count();
+
+        var items = query
+            .OrderByDescending(x => x.CreationTime)
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
+            .ToList();
+
+        var dtos = await MapToProductDtosAsync(items);
+
+        return new PagedResultDto<ProductDto>(totalCount, dtos);
+    }
+
+    public async Task<ProductDto> GetAsync(Guid id)
+    {
+        var product = await _productRepository.GetAsync(id);
+        var dtos = await MapToProductDtosAsync(new List<Product> { product });
+        return dtos.First();
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Create)]
+    public async Task<ProductDto> CreateAsync(CreateUpdateProductDto input)
+    {
+        var code = await GenerateProductCodeAsync(input.ProductType);
+
+        var product = new Product(
+            GuidGenerator.Create(),
+            code,
+            input.Name,
+            input.ProductType,
+            input.BaseUnitId)
+        {
+            PackagingSpec = input.PackagingSpec,
+            CASNumber = input.CASNumber,
+            Manufacturer = input.Manufacturer,
+            Origin = input.Origin,
+            Concentration = input.Concentration,
+            StorageConditions = input.StorageConditions,
+            Categories = input.Categories,
+            MinStockLevel = input.MinStockLevel,
+            MaxStockLevel = input.MaxStockLevel,
+            IsActive = input.IsActive,
+            IsDraft = input.IsDraft,
+        };
+
+        await _productRepository.InsertAsync(product, autoSave: true);
+
+        // Save attachments
+        if (input.Attachments != null)
+        {
+            foreach (var att in input.Attachments)
+            {
+                var attachment = new ProductAttachment(
+                    GuidGenerator.Create(),
+                    product.Id,
+                    att.FileId,
+                    att.FileName,
+                    $"uploads/samples/{att.FileId}",
+                    att.FileSize,
+                    att.FileType);
+                await _attachmentRepository.InsertAsync(attachment, autoSave: true);
+            }
+        }
+
+        // Save unit conversions
+        if (input.UnitConversions != null)
+        {
+            foreach (var conv in input.UnitConversions)
+            {
+                var conversion = new ProductUnitConversion(
+                    GuidGenerator.Create(),
+                    product.Id,
+                    conv.Quantity,
+                    conv.BaseUnitId,
+                    conv.ConvertedQuantity,
+                    conv.ConvertedUnitId);
+                await _conversionRepository.InsertAsync(conversion, autoSave: true);
+            }
+        }
+
+        return await GetAsync(product.Id);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
+    public async Task<ProductDto> UpdateAsync(Guid id, CreateUpdateProductDto input)
+    {
+        var product = await _productRepository.GetAsync(id);
+
+        product.Name = input.Name;
+        product.ProductType = input.ProductType;
+        product.BaseUnitId = input.BaseUnitId;
+        product.PackagingSpec = input.PackagingSpec;
+        product.CASNumber = input.CASNumber;
+        product.Manufacturer = input.Manufacturer;
+        product.Origin = input.Origin;
+        product.Concentration = input.Concentration;
+        product.StorageConditions = input.StorageConditions;
+        product.Categories = input.Categories;
+        product.MinStockLevel = input.MinStockLevel;
+        product.MaxStockLevel = input.MaxStockLevel;
+        product.IsActive = input.IsActive;
+        product.IsDraft = input.IsDraft;
+
+        await _productRepository.UpdateAsync(product, autoSave: true);
+
+        // Update attachments — add new ones (existing ones are managed via DeleteAttachment)
+        if (input.Attachments != null)
+        {
+            var existingAttachments = (await _attachmentRepository.GetQueryableAsync())
+                .Where(x => x.ProductId == id)
+                .Select(x => x.FileId)
+                .ToList();
+
+            foreach (var att in input.Attachments)
+            {
+                if (!existingAttachments.Contains(att.FileId))
+                {
+                    var attachment = new ProductAttachment(
+                        GuidGenerator.Create(),
+                        id,
+                        att.FileId,
+                        att.FileName,
+                        $"uploads/samples/{att.FileId}",
+                        att.FileSize,
+                        att.FileType);
+                    await _attachmentRepository.InsertAsync(attachment, autoSave: true);
+                }
+            }
+        }
+
+        // Update unit conversions — replace all
+        if (input.UnitConversions != null)
+        {
+            var existingConversions = (await _conversionRepository.GetQueryableAsync())
+                .Where(x => x.ProductId == id)
+                .ToList();
+
+            // Delete removed
+            var inputIds = input.UnitConversions
+                .Where(x => x.Id.HasValue)
+                .Select(x => x.Id!.Value)
+                .ToHashSet();
+
+            foreach (var existing in existingConversions)
+            {
+                if (!inputIds.Contains(existing.Id))
+                {
+                    await _conversionRepository.DeleteAsync(existing, autoSave: true);
+                }
+            }
+
+            // Add or update
+            foreach (var conv in input.UnitConversions)
+            {
+                if (conv.Id.HasValue)
+                {
+                    var existing = existingConversions.FirstOrDefault(x => x.Id == conv.Id.Value);
+                    if (existing != null)
+                    {
+                        existing.Quantity = conv.Quantity;
+                        existing.BaseUnitId = conv.BaseUnitId;
+                        existing.ConvertedQuantity = conv.ConvertedQuantity;
+                        existing.ConvertedUnitId = conv.ConvertedUnitId;
+                        await _conversionRepository.UpdateAsync(existing, autoSave: true);
+                    }
+                }
+                else
+                {
+                    var conversion = new ProductUnitConversion(
+                        GuidGenerator.Create(),
+                        id,
+                        conv.Quantity,
+                        conv.BaseUnitId,
+                        conv.ConvertedQuantity,
+                        conv.ConvertedUnitId);
+                    await _conversionRepository.InsertAsync(conversion, autoSave: true);
+                }
+            }
+        }
+
+        return await GetAsync(id);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Delete)]
+    public async Task DeleteAsync(Guid id)
+    {
+        await _productRepository.DeleteAsync(id);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
+    public async Task ToggleActiveAsync(Guid id)
+    {
+        var product = await _productRepository.GetAsync(id);
+        product.IsActive = !product.IsActive;
+        await _productRepository.UpdateAsync(product);
+    }
+
+    public async Task<ListResultDto<ProductDto>> GetActiveProductsAsync()
+    {
+        var query = await _productRepository.GetQueryableAsync();
+        var items = query
+            .WhereActive()
+            .OrderBy(x => x.Name)
+            .ToList();
+
+        var dtos = await MapToProductDtosAsync(items);
+        return new ListResultDto<ProductDto>(dtos);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
+    public async Task DeleteAttachmentAsync(Guid productId, Guid attachmentId)
+    {
+        var attachment = await _attachmentRepository.GetAsync(attachmentId);
+        if (attachment.ProductId != productId)
+        {
+            throw new UserFriendlyException("Tài liệu không thuộc sản phẩm này.");
+        }
+        await _attachmentRepository.DeleteAsync(attachment);
+    }
+
+    #region Private Methods
+
+    private async Task<string> GenerateProductCodeAsync(ProductType productType)
+    {
+        var prefix = productType switch
+        {
+            ProductType.Chemical => "CHE",
+            ProductType.Biological => "BIO",
+            ProductType.Supply => "SUP",
+            _ => "PRD"
+        };
+
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix);
+            var query = await _productRepository.GetQueryableAsync();
+            var count = query.Count(x => x.Code.StartsWith(todayPrefix));
+            return _codeGenerator.GenerateCodeWithDate(prefix, count);
+        }
+    }
+
+    private async Task<List<ProductDto>> MapToProductDtosAsync(List<Product> products)
+    {
+        if (!products.Any()) return new List<ProductDto>();
+
+        var productIds = products.Select(x => x.Id).ToList();
+        var unitIds = products.Select(x => x.BaseUnitId).Distinct().ToList();
+
+        // Load units
+        var unitsQuery = await _unitRepository.GetQueryableAsync();
+        var units = unitsQuery.Where(u => unitIds.Contains(u.Id)).ToList();
+        var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
+
+        // Load attachments
+        var attachmentsQuery = await _attachmentRepository.GetQueryableAsync();
+        var attachments = attachmentsQuery.Where(a => productIds.Contains(a.ProductId)).ToList();
+        var attachmentMap = attachments.GroupBy(a => a.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Load unit conversions
+        var conversionsQuery = await _conversionRepository.GetQueryableAsync();
+        var conversions = conversionsQuery.Where(c => productIds.Contains(c.ProductId)).ToList();
+        var conversionMap = conversions.GroupBy(c => c.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Load all unit names for conversions
+        var allConversionUnitIds = conversions
+            .SelectMany(c => new[] { c.BaseUnitId, c.ConvertedUnitId })
+            .Distinct()
+            .Where(id => !unitMap.ContainsKey(id))
+            .ToList();
+        if (allConversionUnitIds.Any())
+        {
+            var extraUnits = unitsQuery.Where(u => allConversionUnitIds.Contains(u.Id)).ToList();
+            foreach (var u in extraUnits)
+            {
+                unitMap[u.Id] = u.Name;
+            }
+        }
+
+        return products.Select(product =>
+        {
+            var dto = ObjectMapper.Map<Product, ProductDto>(product);
+            dto.BaseUnitName = unitMap.GetValueOrDefault(product.BaseUnitId);
+
+            // Map attachments
+            if (attachmentMap.TryGetValue(product.Id, out var productAttachments))
+            {
+                dto.Attachments = productAttachments.Select(a => new ProductAttachmentDto
+                {
+                    Id = a.Id,
+                    FileId = a.FileId,
+                    FileName = a.FileName,
+                    FileSize = a.FileSize,
+                    FileType = a.FileType,
+                    Url = $"/api/v1/files/{a.FileId}",
+                    CreationTime = a.CreationTime,
+                }).ToList();
+            }
+
+            // Map unit conversions
+            if (conversionMap.TryGetValue(product.Id, out var productConversions))
+            {
+                dto.UnitConversions = productConversions.Select(c => new ProductUnitConversionDto
+                {
+                    Id = c.Id,
+                    Quantity = c.Quantity,
+                    BaseUnitId = c.BaseUnitId,
+                    BaseUnitName = unitMap.GetValueOrDefault(c.BaseUnitId),
+                    ConvertedQuantity = c.ConvertedQuantity,
+                    ConvertedUnitId = c.ConvertedUnitId,
+                    ConvertedUnitName = unitMap.GetValueOrDefault(c.ConvertedUnitId),
+                }).ToList();
+            }
+
+            return dto;
+        }).ToList();
+    }
+
+    #endregion
+}

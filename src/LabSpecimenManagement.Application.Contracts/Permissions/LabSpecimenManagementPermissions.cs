@@ -128,6 +128,16 @@ public static class LabSpecimenManagementPermissions
         public const string Import = Default + ".Import"; // For Indicators & IndicatorGroups
     }
 
+    // Products (Quản lý vật phẩm)
+    public static class Products
+    {
+        public const string Default = GroupName + ".Products";
+        public const string View = Default + ".View";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Master Data - Department Permissions (DEPRECATED - use MasterData instead)
     public static class Departments
     {

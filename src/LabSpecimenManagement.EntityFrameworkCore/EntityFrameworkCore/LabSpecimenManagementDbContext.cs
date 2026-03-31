@@ -25,6 +25,7 @@ using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
+using LabSpecimenManagement.Products;
 using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
@@ -65,6 +66,9 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SampleTypeCategory> SampleTypeCategories { get; set; }
     public DbSet<SampleCondition> SampleConditions { get; set; }
     public DbSet<Unit> Units { get; set; }
+    public DbSet<Product> Products { get; set; }
+    public DbSet<ProductAttachment> ProductAttachments { get; set; }
+    public DbSet<ProductUnitConversion> ProductUnitConversions { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -434,6 +438,51 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
             b.HasIndex(x => x.IsActive);
+        });
+
+        // Product configuration
+        builder.Entity<Product>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Products", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(500);
+            b.Property(x => x.PackagingSpec).HasMaxLength(256);
+            b.Property(x => x.CASNumber).HasMaxLength(100);
+            b.Property(x => x.Manufacturer).HasMaxLength(256);
+            b.Property(x => x.Origin).HasMaxLength(256);
+            b.Property(x => x.Concentration).HasMaxLength(256);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.ProductType);
+            b.HasIndex(x => x.IsActive);
+            b.HasIndex(x => x.BaseUnitId);
+        });
+
+        // ProductAttachment configuration
+        builder.Entity<ProductAttachment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ProductAttachments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(50);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+            b.Property(x => x.FileType).HasMaxLength(50);
+
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.FileId);
+        });
+
+        // ProductUnitConversion configuration
+        builder.Entity<ProductUnitConversion>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ProductUnitConversions", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.HasIndex(x => x.ProductId);
         });
 
         // SpecimenType configuration
