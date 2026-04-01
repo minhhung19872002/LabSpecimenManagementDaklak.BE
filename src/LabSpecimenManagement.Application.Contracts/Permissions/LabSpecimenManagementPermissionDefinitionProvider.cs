@@ -88,6 +88,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var statisticsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Statistics.Default, L("Permission:Statistics"));
         statisticsPermission.AddChild(LabSpecimenManagementPermissions.Statistics.Export, L("Permission:Statistics.Export"));
 
+        // Suppliers Permissions (Quản lý nhà cung cấp)
+        var supplierPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Suppliers.Default, L("Permission:Suppliers"));
+        supplierPermission.AddChild(LabSpecimenManagementPermissions.Suppliers.Create, L("Permission:Suppliers.Create"));
+        supplierPermission.AddChild(LabSpecimenManagementPermissions.Suppliers.Edit, L("Permission:Suppliers.Edit"));
+        supplierPermission.AddChild(LabSpecimenManagementPermissions.Suppliers.Delete, L("Permission:Suppliers.Delete"));
+
         // Products Permissions (Quản lý vật phẩm)
         var productPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Products.Default, L("Permission:Products"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Create, L("Permission:Products.Create"));

@@ -128,6 +128,15 @@ public static class LabSpecimenManagementPermissions
         public const string Import = Default + ".Import"; // For Indicators & IndicatorGroups
     }
 
+    // Suppliers (Quản lý nhà cung cấp)
+    public static class Suppliers
+    {
+        public const string Default = GroupName + ".Suppliers";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Products (Quản lý vật phẩm)
     public static class Products
     {

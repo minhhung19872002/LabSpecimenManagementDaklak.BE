@@ -8,6 +8,7 @@ using LabSpecimenManagement.MasterData.SampleConditions;
 using LabSpecimenManagement.MasterData.Units;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Products;
+using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
@@ -142,6 +143,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         // Unit mappings
         CreateMap<Unit, UnitDto>();
         CreateMap<CreateUpdateUnitDto, Unit>();
+
+        // Supplier mappings
+        CreateMap<Supplier, SupplierDto>()
+            .ForMember(dest => dest.LogoUrl, opt => opt.Ignore());
 
         // Product mappings
         CreateMap<Product, ProductDto>()

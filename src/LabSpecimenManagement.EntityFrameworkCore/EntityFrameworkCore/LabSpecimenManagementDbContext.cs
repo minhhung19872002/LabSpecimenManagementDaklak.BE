@@ -26,6 +26,7 @@ using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Products;
+using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
@@ -67,6 +68,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SampleCondition> SampleConditions { get; set; }
     public DbSet<Unit> Units { get; set; }
     public DbSet<Product> Products { get; set; }
+    public DbSet<Supplier> SupplierEntities { get; set; }
     public DbSet<ProductAttachment> ProductAttachments { get; set; }
     public DbSet<ProductUnitConversion> ProductUnitConversions { get; set; }
     public DbSet<Organization> Organizations { get; set; }
@@ -437,6 +439,28 @@ public class LabSpecimenManagementDbContext :
             // Filtered unique index - only enforce uniqueness for non-deleted records
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.IsActive);
+        });
+
+        // Supplier configuration
+        builder.Entity<Supplier>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Suppliers", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(500);
+            b.Property(x => x.TaxCode).HasMaxLength(50);
+            b.Property(x => x.Phone).HasMaxLength(20);
+            b.Property(x => x.Email).HasMaxLength(256);
+            b.Property(x => x.Address).HasMaxLength(500);
+            b.Property(x => x.LogoFileId).HasMaxLength(50);
+            b.Property(x => x.SupplierGroup).HasMaxLength(256);
+            b.Property(x => x.Note).HasMaxLength(1000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.Name);
+            b.HasIndex(x => x.SupplierGroup);
             b.HasIndex(x => x.IsActive);
         });
 
