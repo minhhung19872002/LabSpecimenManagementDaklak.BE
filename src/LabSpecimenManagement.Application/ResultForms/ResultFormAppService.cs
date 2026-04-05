@@ -2579,7 +2579,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Người gửi mẫu và người nhận mẫu
             { "{{SampleSender}}", input.ContactPerson ?? "" },
-            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
+            { "{{SampleReceiver}}", string.IsNullOrWhiteSpace($"{_currentUser.SurName} {_currentUser.Name}".Trim()) ? _currentUser.UserName ?? "" : $"{_currentUser.SurName} {_currentUser.Name}".Trim() }
         };
 
         return placeholders;
@@ -4442,7 +4442,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Người gửi mẫu và người nhận mẫu
             { "{{SampleSender}}", testRequest.ContactPerson ?? "" },
-            { "{{SampleReceiver}}", _currentUser.Name ?? _currentUser.UserName ?? "" }
+            { "{{SampleReceiver}}", string.IsNullOrWhiteSpace($"{_currentUser.SurName} {_currentUser.Name}".Trim()) ? _currentUser.UserName ?? "" : $"{_currentUser.SurName} {_currentUser.Name}".Trim() }
         };
 
         return placeholders;
