@@ -704,42 +704,75 @@ public class ImportAppService : ApplicationService, IImportAppService
         return stream.ToArray();
     }
 
-    public byte[] GetTestMethodWithIndicatorsTemplate()
+    public async Task<byte[]> GetTestMethodWithIndicatorsTemplateAsync()
     {
-        // Try to read from static template file first
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Phương pháp.xlsx");
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (File.Exists(templatePath))
+        var query = from tmi in tmiQuery
+                    join tm in methodQuery on tmi.TestMethodId equals tm.Id
+                    join ind in indicatorQuery on tmi.IndicatorId equals ind.Id
+                    join st in specimenTypeQuery on tmi.SpecimenTypeId equals st.Id into stj
+                    from st in stj.DefaultIfEmpty()
+                    where tm.IsActive
+                    orderby tm.Name, ind.Name
+                    select new
+                    {
+                        TestMethodName = tm.Name,
+                        tm.FormattedName,
+                        Unit = tm.Unit ?? "",
+                        tm.FormattedUnit,
+                        SpecimenTypeName = st != null ? st.Name : "",
+                        IndicatorName = ind.Name,
+                        tmi.UnitPrice
+                    };
+
+        var rows = await AsyncExecuter.ToListAsync(query);
+
+        // Fallback to static template if no data
+        if (rows.Count == 0)
+            return ReadStaticTemplate("Phương pháp.xlsx");
+
+        // Use ClosedXML to preserve rich text formatting (FormattedName, FormattedUnit)
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        // Headers
+        var headers = new[] { "Tên phương pháp", "Mô tả", "Đơn vị tính", "Nền mẫu", "Chỉ tiêu", "Đơn giá" };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        // Data rows with rich text
+        for (int r = 0; r < rows.Count; r++)
         {
-            return File.ReadAllBytes(templatePath);
+            var row = rows[r];
+            var rowNum = r + 2;
+
+            // Tên phương pháp: rich text from FormattedName
+            if (!string.IsNullOrEmpty(row.FormattedName) && row.FormattedName.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 1), row.FormattedName);
+            else
+                worksheet.Cell(rowNum, 1).Value = row.TestMethodName ?? "";
+
+            worksheet.Cell(rowNum, 2).Value = ""; // Mô tả
+
+            // Đơn vị tính: rich text from FormattedUnit
+            if (!string.IsNullOrEmpty(row.FormattedUnit) && row.FormattedUnit.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 3), row.FormattedUnit);
+            else
+                worksheet.Cell(rowNum, 3).Value = row.Unit ?? "";
+
+            worksheet.Cell(rowNum, 4).Value = row.SpecimenTypeName ?? "";
+            worksheet.Cell(rowNum, 5).Value = row.IndicatorName ?? "";
+            worksheet.Cell(rowNum, 6).Value = row.UnitPrice;
         }
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
-            {
-                { "Tên phương pháp", "Phương pháp đo pH" },
-                { "Mô tả", "" },
-                { "Đơn vị tính", "mg/L" },
-                { "Nền mẫu", "Nước mặt" },
-                { "Chỉ tiêu", "pH" },
-                { "Đơn giá", 50000 }
-            },
-            new()
-            {
-                { "Tên phương pháp", "Phương pháp đo pH" },
-                { "Mô tả", "" },
-                { "Đơn vị tính", "mg/L" },
-                { "Nền mẫu", "Nước mặt" },
-                { "Chỉ tiêu", "Độ đục" },
-                { "Đơn giá", 60000 }
-            }
-        };
+        worksheet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
@@ -1248,6 +1281,126 @@ public class ImportAppService : ApplicationService, IImportAppService
         return text;
     }
 
+    /// <summary>
+    /// Write HTML-formatted text to Excel cell as rich text.
+    /// Reverse of GetCellRichTextAsHtml: converts HTML tags (b, i, u, sub, sup) to Excel formatting.
+    /// If html is null/empty or has no tags, writes plain text.
+    /// </summary>
+    private void WriteHtmlToCell(IXLCell cell, string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            cell.Value = "";
+            return;
+        }
+
+        // Check if there are any HTML tags
+        if (!html.Contains('<'))
+        {
+            cell.Value = System.Web.HttpUtility.HtmlDecode(html);
+            return;
+        }
+
+        // Parse HTML into segments with formatting
+        var richText = cell.CreateRichText();
+        ParseHtmlToRichText(richText, html, false, false, false, false, false);
+    }
+
+    private void ParseHtmlToRichText(IXLRichText richText, string html,
+        bool bold, bool italic, bool underline, bool subscript, bool superscript)
+    {
+        var pos = 0;
+        while (pos < html.Length)
+        {
+            var tagStart = html.IndexOf('<', pos);
+            if (tagStart < 0)
+            {
+                // Remaining plain text
+                var remaining = System.Web.HttpUtility.HtmlDecode(html.Substring(pos));
+                if (!string.IsNullOrEmpty(remaining))
+                {
+                    var run = richText.AddText(remaining);
+                    ApplyRunFormatting(run, bold, italic, underline, subscript, superscript);
+                }
+                break;
+            }
+
+            // Text before tag
+            if (tagStart > pos)
+            {
+                var text = System.Web.HttpUtility.HtmlDecode(html.Substring(pos, tagStart - pos));
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var run = richText.AddText(text);
+                    ApplyRunFormatting(run, bold, italic, underline, subscript, superscript);
+                }
+            }
+
+            var tagEnd = html.IndexOf('>', tagStart);
+            if (tagEnd < 0) break;
+
+            var tag = html.Substring(tagStart + 1, tagEnd - tagStart - 1).Trim().ToLower();
+            pos = tagEnd + 1;
+
+            // Find closing tag and recurse
+            string? closingTag = null;
+            bool newBold = bold, newItalic = italic, newUnderline = underline, newSub = subscript, newSup = superscript;
+
+            switch (tag)
+            {
+                case "b": case "strong": closingTag = tag == "b" ? "</b>" : "</strong>"; newBold = true; break;
+                case "i": case "em": closingTag = tag == "i" ? "</i>" : "</em>"; newItalic = true; break;
+                case "u": closingTag = "</u>"; newUnderline = true; break;
+                case "sub": closingTag = "</sub>"; newSub = true; break;
+                case "sup": closingTag = "</sup>"; newSup = true; break;
+                case "br": case "br/": case "br /":
+                    richText.AddText("\n");
+                    continue;
+                default:
+                    if (tag.StartsWith("/")) continue; // skip closing tags handled below
+                    continue;
+            }
+
+            if (closingTag != null)
+            {
+                var closeIdx = html.IndexOf(closingTag, pos, StringComparison.OrdinalIgnoreCase);
+                if (closeIdx >= 0)
+                {
+                    var innerHtml = html.Substring(pos, closeIdx - pos);
+                    ParseHtmlToRichText(richText, innerHtml, newBold, newItalic, newUnderline, newSub, newSup);
+                    pos = closeIdx + closingTag.Length;
+                }
+            }
+        }
+    }
+
+    private void ApplyRunFormatting(IXLRichString run, bool bold, bool italic, bool underline, bool subscript, bool superscript)
+    {
+        if (bold) run.Bold = true;
+        if (italic) run.Italic = true;
+        if (underline) run.Underline = XLFontUnderlineValues.Single;
+        if (subscript) run.VerticalAlignment = XLFontVerticalTextAlignmentValues.Subscript;
+        if (superscript) run.VerticalAlignment = XLFontVerticalTextAlignmentValues.Superscript;
+    }
+
+    /// <summary>
+    /// Read static template file from wwwroot/templates/Meta Data Template/.
+    /// Used as fallback when no data exists to export.
+    /// </summary>
+    private byte[] ReadStaticTemplate(string filename)
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", filename);
+
+        if (File.Exists(templatePath))
+            return File.ReadAllBytes(templatePath);
+
+        // If static file also missing, return empty Excel with headers
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, new List<Dictionary<string, object>>());
+        return stream.ToArray();
+    }
+
     private Dictionary<string, object> NormalizeKeys(IDictionary<string, object> dict)
     {
         var normalized = new Dictionary<string, object>(StringComparer.OrdinalIgnoreCase);
@@ -1511,49 +1664,76 @@ public class ImportAppService : ApplicationService, IImportAppService
         "<", "<="
     };
 
-    public byte[] GetStandardWithIndicatorsTemplate()
+    public async Task<byte[]> GetStandardWithIndicatorsTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Tiêu chuẩn.xlsx");
+        var standardQuery = await _standardRepository.GetQueryableAsync();
+        var siQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (File.Exists(templatePath))
+        var query = from si in siQuery
+                    join std in standardQuery on si.StandardId equals std.Id
+                    join ind in indicatorQuery on si.IndicatorId equals ind.Id
+                    join tm in methodQuery on si.TestMethodId equals tm.Id into tmj
+                    from tm in tmj.DefaultIfEmpty()
+                    join st in specimenTypeQuery on si.SpecimenTypeId equals st.Id into stj
+                    from st in stj.DefaultIfEmpty()
+                    where std.IsActive
+                    orderby std.Name, ind.Name
+                    select new
+                    {
+                        StandardName = std.Name,
+                        SpecimenTypeName = st != null ? st.Name : "",
+                        IndicatorName = ind.Name,
+                        SubIndicatorName = "",
+                        TestMethodName = tm != null ? tm.Name : "",
+                        si.Unit,
+                        si.ComparisonOperator,
+                        si.AllowedLimit,
+                        si.LowerOperator,
+                        si.LowerLimit,
+                        si.UpperOperator,
+                        si.UpperLimit
+                    };
+
+        var rows = await AsyncExecuter.ToListAsync(query);
+
+        if (rows.Count == 0)
+            return ReadStaticTemplate("Tiêu chuẩn.xlsx");
+
+        // Use ClosedXML to preserve rich text in limit fields (AllowedLimit, LowerLimit, UpperLimit)
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        var headers = new[] { "Tên tiêu chuẩn", "Nền mẫu", "Chỉ tiêu", "Chỉ tiêu phụ", "Phương pháp", "Đơn vị",
+            "So sánh", "Giới hạn", "So sánh giới hạn dưới", "Giới hạn dưới", "So sánh giới hạn trên", "Giới hạn trên" };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        for (int r = 0; r < rows.Count; r++)
         {
-            return File.ReadAllBytes(templatePath);
+            var row = rows[r];
+            var rowNum = r + 2;
+
+            worksheet.Cell(rowNum, 1).Value = row.StandardName ?? "";
+            worksheet.Cell(rowNum, 2).Value = row.SpecimenTypeName ?? "";
+            worksheet.Cell(rowNum, 3).Value = row.IndicatorName ?? "";
+            worksheet.Cell(rowNum, 4).Value = row.SubIndicatorName ?? "";
+            worksheet.Cell(rowNum, 5).Value = row.TestMethodName ?? "";
+            worksheet.Cell(rowNum, 6).Value = row.Unit ?? "";
+            worksheet.Cell(rowNum, 7).Value = row.ComparisonOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 8), row.AllowedLimit);
+            worksheet.Cell(rowNum, 9).Value = row.LowerOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 10), row.LowerLimit);
+            worksheet.Cell(rowNum, 11).Value = row.UpperOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 12), row.UpperLimit);
         }
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
-            {
-                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
-                { "Chỉ tiêu", "pH" },
-                { "Phương pháp", "TCVN 6492:2011" },
-                { "Đơn vị", "mg/L" },
-                { "So sánh", "<=" },
-                { "Giới hạn", "6.5" },
-                { "So sánh giới hạn dưới", "" },
-                { "Giới hạn dưới", "" },
-                { "So sánh giới hạn trên", "" },
-                { "Giới hạn trên", "" }
-            },
-            new()
-            {
-                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
-                { "Chỉ tiêu", "Độ đục" },
-                { "Phương pháp", "TCVN 6492:2011" },
-                { "Đơn vị", "NTU" },
-                { "So sánh", "Khoảng" },
-                { "Giới hạn", "" },
-                { "So sánh giới hạn dưới", ">=" },
-                { "Giới hạn dưới", "0" },
-                { "So sánh giới hạn trên", "<=" },
-                { "Giới hạn trên", "5" }
-            }
-        };
+        worksheet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
@@ -2395,34 +2575,30 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region Organization Import (CS/DN)
 
-    public byte[] GetOrganizationTestRequestTemplate()
+    public async Task<byte[]> GetOrganizationTestRequestTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "CNDN.xlsx");
+        var orgs = await _organizationRepository.GetListAsync();
+        var activeOrgs = orgs.Where(o => o.IsActive).ToList();
 
-        if (File.Exists(templatePath))
-        {
-            return File.ReadAllBytes(templatePath);
-        }
+        if (activeOrgs.Count == 0)
+            return ReadStaticTemplate("CNDN.xlsx");
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
+        var templateData = activeOrgs
+            .OrderBy(o => o.Name)
+            .Select(o => new Dictionary<string, object>
             {
-                { "Tên cơ sở/doanh nghiệp", "Công ty TNHH ABC" },
-                { "Địa chỉ", "123 Đường XYZ" },
-                { "Tỉnh thành", "Đắk Lắk" },
-                { "Phường xã", "Tân An" },
-                { "Người liên hệ", "Nguyễn Văn A" },
-                { "Số điện thoại", "0901234567" },
-                { "Số điện thoại phụ", "0987654321" },
-                { "Mã số thuế", "0123456789" }
-            }
-        };
+                { "Tên cơ sở/doanh nghiệp", o.Name ?? "" },
+                { "Địa chỉ", o.Address ?? "" },
+                { "Tỉnh/thành", o.ProvinceCode ?? "" },
+                { "Phường/xã", o.WardCode ?? "" },
+                { "Người liên hệ", o.ContactPerson ?? "" },
+                { "Số điện thoại", o.Phone ?? "" },
+                { "Số điện thoại phụ", o.SecondaryPhone ?? "" },
+                { "Mã số thuế", o.TaxCode ?? "" }
+            }).ToList();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
         return stream.ToArray();
     }
 
@@ -2906,11 +3082,104 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region IndicatorGroup + Indicator Import
 
-    public byte[] GetIndicatorGroupTemplate()
+    public async Task<byte[]> GetIndicatorGroupTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "nhóm chỉ tiêu.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labQuery = await _laboratoryRepository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
+
+        // Get groups with lab/department names
+        var groups = await AsyncExecuter.ToListAsync(
+            from g in groupQuery
+            where g.IsActive
+            orderby g.Name
+            select new { g.Id, g.Name, g.LaboratoryId }
+        );
+
+        if (groups.Count == 0)
+            return ReadStaticTemplate("nhóm chỉ tiêu.xlsx");
+
+        var labs = await AsyncExecuter.ToListAsync(
+            from lab in labQuery
+            join dept in deptQuery on lab.DepartmentId equals dept.Id into dj
+            from dept in dj.DefaultIfEmpty()
+            select new { lab.Id, DeptName = dept != null ? dept.Name : "" }
+        );
+        var labDict = labs.ToDictionary(l => l.Id, l => l.DeptName);
+
+        // Get all indicators (parent + sub) with FormattedName for rich text
+        var indicators = await AsyncExecuter.ToListAsync(
+            from ind in indicatorQuery
+            where ind.IsActive
+            orderby ind.IndicatorGroupId, ind.SortOrder, ind.Name
+            select new { ind.Id, ind.Name, ind.FormattedName, ind.IndicatorGroupId, ind.ParentIndicatorId }
+        );
+
+        // Use ClosedXML to preserve rich text formatting (FormattedIndicatorName, FormattedSubIndicatorName)
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        var headers = new[] { "Tên nhóm chỉ tiêu", "Khoa phòng thực hiện", "Tên chỉ tiêu", "Chỉ tiêu phụ" };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        var rowNum = 2;
+
+        foreach (var group in groups)
+        {
+            var deptName = group.LaboratoryId.HasValue && labDict.ContainsKey(group.LaboratoryId.Value)
+                ? labDict[group.LaboratoryId.Value] : "";
+
+            var groupIndicators = indicators.Where(i => i.IndicatorGroupId == group.Id && i.ParentIndicatorId == null).ToList();
+
+            if (groupIndicators.Count == 0)
+            {
+                worksheet.Cell(rowNum, 1).Value = group.Name ?? "";
+                worksheet.Cell(rowNum, 2).Value = deptName;
+                rowNum++;
+                continue;
+            }
+
+            foreach (var ind in groupIndicators)
+            {
+                var subIndicators = indicators.Where(i => i.ParentIndicatorId == ind.Id).ToList();
+
+                if (subIndicators.Count == 0)
+                {
+                    worksheet.Cell(rowNum, 1).Value = group.Name ?? "";
+                    worksheet.Cell(rowNum, 2).Value = deptName;
+                    if (!string.IsNullOrEmpty(ind.FormattedName) && ind.FormattedName.Contains('<'))
+                        WriteHtmlToCell(worksheet.Cell(rowNum, 3), ind.FormattedName);
+                    else
+                        worksheet.Cell(rowNum, 3).Value = ind.Name ?? "";
+                    rowNum++;
+                }
+                else
+                {
+                    foreach (var sub in subIndicators)
+                    {
+                        worksheet.Cell(rowNum, 1).Value = group.Name ?? "";
+                        worksheet.Cell(rowNum, 2).Value = deptName;
+                        if (!string.IsNullOrEmpty(ind.FormattedName) && ind.FormattedName.Contains('<'))
+                            WriteHtmlToCell(worksheet.Cell(rowNum, 3), ind.FormattedName);
+                        else
+                            worksheet.Cell(rowNum, 3).Value = ind.Name ?? "";
+                        if (!string.IsNullOrEmpty(sub.FormattedName) && sub.FormattedName.Contains('<'))
+                            WriteHtmlToCell(worksheet.Cell(rowNum, 4), sub.FormattedName);
+                        else
+                            worksheet.Cell(rowNum, 4).Value = sub.Name ?? "";
+                        rowNum++;
+                    }
+                }
+            }
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     public async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(byte[] fileBytes)
@@ -3901,11 +4170,25 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region SampleTypeCategory Import
 
-    public byte[] GetSampleTypeCategoryTemplate()
+    public async Task<byte[]> GetSampleTypeCategoryTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Danh muc loai mau.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var categories = await _sampleTypeCategoryRepository.GetListAsync();
+        var activeCategories = categories.Where(c => c.IsActive).ToList();
+
+        if (activeCategories.Count == 0)
+            return ReadStaticTemplate("Danh muc loai mau.xlsx");
+
+        var templateData = activeCategories
+            .OrderBy(c => c.Name)
+            .Select(c => new Dictionary<string, object>
+            {
+                { "Tên Danh mục loại", c.Name ?? "" },
+                { "Mô tả", c.Description ?? "" }
+            }).ToList();
+
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesAsync(byte[] fileBytes)
@@ -4189,16 +4472,64 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region SpecimenType Import
 
-    public byte[] GetSpecimenTypeTemplate()
+    public async Task<byte[]> GetSpecimenTypeTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Nen Mau.xlsx");
+        var stQuery = await _specimenTypeRepository.GetQueryableAsync();
+        var catQuery = await _sampleTypeCategoryRepository.GetQueryableAsync();
+        var stiQuery = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
 
-        if (!File.Exists(templatePath))
+        // Get specimen types with category names and indicators
+        var specimenTypes = await AsyncExecuter.ToListAsync(
+            from st in stQuery
+            join cat in catQuery on st.SampleTypeCategoryId equals cat.Id into cj
+            from cat in cj.DefaultIfEmpty()
+            where st.IsActive
+            orderby cat.Name, st.Name
+            select new { st.Id, st.Name, CategoryName = cat != null ? cat.Name : "" }
+        );
+
+        if (specimenTypes.Count == 0)
+            return ReadStaticTemplate("Nen Mau.xlsx");
+
+        var stiRows = await AsyncExecuter.ToListAsync(
+            from sti in stiQuery
+            join ind in indicatorQuery on sti.IndicatorId equals ind.Id
+            where sti.IsActive
+            select new { sti.SpecimenTypeId, IndicatorName = ind.Name }
+        );
+        var stiByType = stiRows.GroupBy(x => x.SpecimenTypeId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var templateData = new List<Dictionary<string, object>>();
+
+        foreach (var st in specimenTypes)
         {
-            throw new UserFriendlyException("Template file not found: Nen Mau.xlsx");
+            if (stiByType.TryGetValue(st.Id, out var indicators) && indicators.Count > 0)
+            {
+                foreach (var ind in indicators)
+                {
+                    templateData.Add(new Dictionary<string, object>
+                    {
+                        { "Tên Danh mục loại", st.CategoryName ?? "" },
+                        { "Nền mẫu", st.Name ?? "" },
+                        { "Tên chỉ tiêu", ind.IndicatorName ?? "" }
+                    });
+                }
+            }
+            else
+            {
+                templateData.Add(new Dictionary<string, object>
+                {
+                    { "Tên Danh mục loại", st.CategoryName ?? "" },
+                    { "Nền mẫu", st.Name ?? "" },
+                    { "Tên chỉ tiêu", "" }
+                });
+            }
         }
 
-        return File.ReadAllBytes(templatePath);
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesAsync(byte[] fileBytes)
@@ -4631,11 +4962,25 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region Note Import
 
-    public byte[] GetNoteTemplate()
+    public async Task<byte[]> GetNoteTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Ghi chú.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var notes = await _noteRepository.GetListAsync();
+        var activeNotes = notes.Where(n => n.IsActive).ToList();
+
+        if (activeNotes.Count == 0)
+            return ReadStaticTemplate("Ghi chú.xlsx");
+
+        var templateData = activeNotes
+            .OrderBy(n => n.SortOrder)
+            .ThenBy(n => n.Content)
+            .Select(n => new Dictionary<string, object>
+            {
+                { "Ghi chú", n.Content ?? "" }
+            }).ToList();
+
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<NoteImportPreviewDto> PreviewNotesAsync(byte[] fileBytes)
@@ -4935,16 +5280,65 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region TestResultValue Import
 
-    public byte[] GetTestResultValueTemplate()
+    public async Task<byte[]> GetTestResultValueTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Kết quả.xlsx");
+        var trvQuery = await _testResultValueRepository.GetQueryableAsync();
+        var trviQuery = await _testResultValueIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (!File.Exists(templatePath))
+        var resultValues = await AsyncExecuter.ToListAsync(
+            from trv in trvQuery
+            where trv.IsActive
+            orderby trv.Name
+            select new { trv.Id, trv.Name, trv.Description }
+        );
+
+        if (resultValues.Count == 0)
+            return ReadStaticTemplate("Kết quả.xlsx");
+
+        var links = await AsyncExecuter.ToListAsync(
+            from trvi in trviQuery
+            join ind in indicatorQuery on trvi.IndicatorId equals ind.Id
+            join st in specimenTypeQuery on trvi.SpecimenTypeId equals st.Id into stj
+            from st in stj.DefaultIfEmpty()
+            where trvi.IsActive
+            select new { trvi.TestResultValueId, IndicatorName = ind.Name, SpecimenTypeName = st != null ? st.Name : "" }
+        );
+        var linksByValue = links.GroupBy(x => x.TestResultValueId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var templateData = new List<Dictionary<string, object>>();
+
+        foreach (var rv in resultValues)
         {
-            throw new UserFriendlyException("Template file not found: Kết quả.xlsx");
+            if (linksByValue.TryGetValue(rv.Id, out var rvLinks) && rvLinks.Count > 0)
+            {
+                foreach (var link in rvLinks)
+                {
+                    templateData.Add(new Dictionary<string, object>
+                    {
+                        { "Tên kết quả", rv.Name ?? "" },
+                        { "Mô tả", rv.Description ?? "" },
+                        { "Nền mẫu", link.SpecimenTypeName ?? "" },
+                        { "Chỉ tiêu", link.IndicatorName ?? "" }
+                    });
+                }
+            }
+            else
+            {
+                templateData.Add(new Dictionary<string, object>
+                {
+                    { "Tên kết quả", rv.Name ?? "" },
+                    { "Mô tả", rv.Description ?? "" },
+                    { "Nền mẫu", "" },
+                    { "Chỉ tiêu", "" }
+                });
+            }
         }
 
-        return File.ReadAllBytes(templatePath);
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(byte[] fileBytes)

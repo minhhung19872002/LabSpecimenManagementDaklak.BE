@@ -85,7 +85,7 @@ public interface IImportAppService : IApplicationService
     /// Get TestMethod with Indicators import template
     /// Template columns: Tên phương pháp, Mô tả, Đơn vị tính, Chỉ tiêu, Đơn giá
     /// </summary>
-    byte[] GetTestMethodWithIndicatorsTemplate();
+    Task<byte[]> GetTestMethodWithIndicatorsTemplateAsync();
 
     #endregion
 
@@ -114,7 +114,7 @@ public interface IImportAppService : IApplicationService
     /// Template columns: Tên tiêu chuẩn, Chỉ tiêu, Phương pháp, Đơn vị, So sánh, Giới hạn,
     /// So sánh giới hạn dưới, Giới hạn dưới, So sánh giới hạn trên, Giới hạn trên
     /// </summary>
-    byte[] GetStandardWithIndicatorsTemplate();
+    Task<byte[]> GetStandardWithIndicatorsTemplateAsync();
 
     /// <summary>
     /// Preview Standard with Indicators import - validates data without saving
@@ -138,7 +138,7 @@ public interface IImportAppService : IApplicationService
     /// Get Organization import template
     /// Template columns: Tên cơ sở/doanh nghiệp, Địa chỉ, Tỉnh thành, Phường xã, Người liên hệ, Số điện thoại, Số điện thoại phụ, Mã số thuế
     /// </summary>
-    byte[] GetOrganizationTestRequestTemplate();
+    Task<byte[]> GetOrganizationTestRequestTemplateAsync();
 
     /// <summary>
     /// Preview Organization import - validates data without saving
@@ -162,7 +162,7 @@ public interface IImportAppService : IApplicationService
     /// Get IndicatorGroup + Indicator import template
     /// Template columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Tên chỉ tiêu
     /// </summary>
-    byte[] GetIndicatorGroupTemplate();
+    Task<byte[]> GetIndicatorGroupTemplateAsync();
 
     /// <summary>
     /// Preview IndicatorGroup + Indicator import - validates data without saving
@@ -200,7 +200,7 @@ public interface IImportAppService : IApplicationService
     /// Get SampleTypeCategory import template
     /// Template columns: Tên Danh mục loại, Mô tả
     /// </summary>
-    byte[] GetSampleTypeCategoryTemplate();
+    Task<byte[]> GetSampleTypeCategoryTemplateAsync();
 
     /// <summary>
     /// Preview SampleTypeCategory import - validates data without saving
@@ -224,7 +224,7 @@ public interface IImportAppService : IApplicationService
     /// Get template for importing SpecimenType
     /// Template columns: Tên Danh mục loại, Nền mẫu, Tên chỉ tiêu
     /// </summary>
-    byte[] GetSpecimenTypeTemplate();
+    Task<byte[]> GetSpecimenTypeTemplateAsync();
 
     /// <summary>
     /// Preview SpecimenType import - validates data without saving
@@ -250,7 +250,7 @@ public interface IImportAppService : IApplicationService
     /// Get Note import template
     /// Template columns: Ghi chú
     /// </summary>
-    byte[] GetNoteTemplate();
+    Task<byte[]> GetNoteTemplateAsync();
 
     /// <summary>
     /// Preview Note import - validates data without saving
@@ -274,7 +274,7 @@ public interface IImportAppService : IApplicationService
     /// Get TestResultValue import template
     /// Template columns: Tên kết quả, Mô tả, Nền mẫu, Chỉ tiêu
     /// </summary>
-    byte[] GetTestResultValueTemplate();
+    Task<byte[]> GetTestResultValueTemplateAsync();
 
     /// <summary>
     /// Preview TestResultValue import - validates data without saving

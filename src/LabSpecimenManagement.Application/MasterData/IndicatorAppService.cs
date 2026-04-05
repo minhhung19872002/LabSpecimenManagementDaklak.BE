@@ -430,56 +430,39 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     public async Task<byte[]> GetExcelTemplateAsync()
     {
-        // Get all active groups for reference
+        // Query all indicators with group names
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
-        var activeGroups = groupQuery.Where(g => g.IsActive).OrderBy(g => g.Name).Select(g => g.Name).ToList();
 
-        // Create template data with sample row
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "Ví dụ: Coliform" },
-                { "Đơn giá", 50000 },
-                { "Tên nhóm chỉ tiêu", activeGroups.FirstOrDefault() ?? "Tên nhóm" }
-            }
-        };
+        var query = from ind in indicatorQuery
+                    join g in groupQuery on ind.IndicatorGroupId equals g.Id into gj
+                    from g in gj.DefaultIfEmpty()
+                    where ind.IsActive
+                    orderby g.Name, ind.SortOrder, ind.Name
+                    select new { ind.Name, ind.IndicatorGroupId, GroupName = g != null ? g.Name : "" };
 
-        // Add instruction rows
-        var instructions = new List<Dictionary<string, object>>
-        {
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "=== HƯỚNG DẪN ===" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "Các nhóm chỉ tiêu có sẵn:" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            }
-        };
+        var indicators = await AsyncExecuter.ToListAsync(query);
 
-        // Add group names as reference
-        foreach (var groupName in activeGroups)
+        // Fallback: if no data, return template with sample row
+        if (indicators.Count == 0)
         {
-            instructions.Add(new Dictionary<string, object>
+            var activeGroups = await AsyncExecuter.ToListAsync(
+                from g in groupQuery where g.IsActive orderby g.Name select g.Name);
+            var sampleData = new List<Dictionary<string, object>>
             {
-                { "Tên chỉ tiêu", $"  - {groupName}" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            });
+                new() { { "Tên chỉ tiêu", "Ví dụ: Coliform" }, { "Đơn giá", 50000 }, { "Tên nhóm chỉ tiêu", activeGroups.FirstOrDefault() ?? "Tên nhóm" } }
+            };
+            using var s = new MemoryStream();
+            MiniExcelLibs.MiniExcel.SaveAs(s, sampleData);
+            return s.ToArray();
         }
 
-        templateData.AddRange(instructions);
+        var templateData = indicators.Select(ind => new Dictionary<string, object>
+        {
+            { "Tên chỉ tiêu", ind.Name ?? "" },
+            { "Đơn giá", 0 },
+            { "Tên nhóm chỉ tiêu", ind.GroupName ?? "" }
+        }).ToList();
 
         using var stream = new MemoryStream();
         MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
