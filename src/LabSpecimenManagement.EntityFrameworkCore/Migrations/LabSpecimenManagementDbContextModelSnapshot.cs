@@ -1759,7 +1759,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Unit")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 

@@ -469,7 +469,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
-                    unit = method.Unit;
+                    unit = method.FormattedUnit ?? method.Unit ?? "";
                 }
             }
 

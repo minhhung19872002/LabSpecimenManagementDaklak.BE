@@ -27,7 +27,7 @@ public class TestMethod : FullAuditedAggregateRoot<Guid>, IHasActive
     /// <summary>
     /// Đơn vị tính
     /// </summary>
-    public string Unit { get; set; }
+    public string? Unit { get; set; }
 
     /// <summary>
     /// Đơn vị tính có định dạng (HTML)
@@ -48,7 +48,7 @@ public class TestMethod : FullAuditedAggregateRoot<Guid>, IHasActive
     {
     }
 
-    public TestMethod(Guid id, string code, string name, string unit) : base(id)
+    public TestMethod(Guid id, string code, string name, string? unit = null) : base(id)
     {
         Code = code;
         Name = name;
