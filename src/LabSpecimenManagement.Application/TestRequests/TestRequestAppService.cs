@@ -1416,7 +1416,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 
@@ -2656,7 +2656,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 
@@ -3013,15 +3013,15 @@ public partial class TestRequestAppService :
             return false;
         }
 
-        var query = await Repository.GetQueryableAsync();
+            var query = await Repository.GetQueryableAsync();
 
-        if (excludeId.HasValue)
-        {
-            // Exclude current record when updating
-            return query.Any(x => x.ContractNumber == contractNumber && x.Id != excludeId.Value);
-        }
+            if (excludeId.HasValue)
+            {
+            // Exclude current record when updating    
+                return query.Any(x => x.ContractNumber == contractNumber && x.Id != excludeId.Value);
+            }
 
-        return query.Any(x => x.ContractNumber == contractNumber);
+            return query.Any(x => x.ContractNumber == contractNumber);
     }
 
     /// <summary>
