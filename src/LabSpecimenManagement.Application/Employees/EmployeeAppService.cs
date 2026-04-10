@@ -592,6 +592,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
 
     /// <summary>
     /// Update user's individual permissions (Quyền User)
+    /// Uses direct DB insert/delete via IPermissionGrantRepository to avoid
+    /// IPermissionManager.SetForUserAsync silently ignoring unregistered permissions.
     /// </summary>
     [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
     public async Task UpdateUserPermissionsAsync(Guid userId, UpdateUserPermissionsInput input)
@@ -602,14 +604,37 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
             throw new UserFriendlyException("Không tìm thấy người dùng");
         }
 
-        // Get all permissions from config
-        var allPermissions = PermissionGroupConfigs.GetAllPermissionNames();
+        var providerKey = userId.ToString();
+        var providerName = UserPermissionValueProvider.ProviderName; // "U"
 
-        // Update each permission for the user
-        foreach (var permissionName in allPermissions)
+        // Get current U-level grants from DB
+        var existingGrants = await _permissionGrantRepository.GetListAsync(providerName, providerKey);
+        var existingGrantNames = existingGrants.Select(g => g.Name).ToHashSet();
+        var inputPermissions = new HashSet<string>(input.Permissions ?? Enumerable.Empty<string>());
+
+        // 1. Delete grants that are NOT in the input (permissions removed by user)
+        foreach (var grant in existingGrants)
         {
-            var isGranted = input.Permissions.Contains(permissionName);
-            await _permissionManager.SetForUserAsync(userId, permissionName, isGranted);
+            if (!inputPermissions.Contains(grant.Name))
+            {
+                await _permissionGrantRepository.DeleteAsync(grant);
+            }
+        }
+
+        // 2. Insert new grants that don't exist in DB (permissions added by user)
+        foreach (var permName in inputPermissions)
+        {
+            if (!existingGrantNames.Contains(permName))
+            {
+                var newGrant = new Volo.Abp.PermissionManagement.PermissionGrant(
+                    GuidGenerator.Create(),
+                    permName,
+                    providerName,
+                    providerKey,
+                    CurrentTenant.Id
+                );
+                await _permissionGrantRepository.InsertAsync(newGrant);
+            }
         }
     }
 
