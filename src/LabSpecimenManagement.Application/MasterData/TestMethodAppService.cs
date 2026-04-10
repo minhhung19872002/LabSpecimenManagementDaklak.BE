@@ -46,7 +46,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         var items = await AsyncExecuter.ToListAsync(
             query
-                .OrderBy(x => x.SortOrder)
+                .OrderByDescending(x => x.CreationTime)
                 .ThenBy(x => x.Name)
                 .Skip(input.SkipCount)
                 .Take(input.MaxResultCount)
