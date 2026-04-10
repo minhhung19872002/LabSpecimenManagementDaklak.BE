@@ -15,6 +15,7 @@ public interface ITestMethodAppService : IApplicationService
     Task<TestMethodDto> UpdateAsync(Guid id, UpdateTestMethodDto input);
     Task DeleteAsync(Guid id);
     Task<ListResultDto<TestMethodDto>> GetActiveAsync();
+    Task<ListResultDto<TestMethodDto>> GetAllAsync();
 
     // Methods with indicators
     Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync();

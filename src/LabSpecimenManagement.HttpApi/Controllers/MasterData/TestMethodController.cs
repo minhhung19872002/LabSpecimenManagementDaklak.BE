@@ -68,6 +68,12 @@ public class TestMethodController : LabSpecimenManagementController
         return _testMethodAppService.GetActiveAsync();
     }
 
+    [HttpGet("all")]
+    public virtual Task<ListResultDto<TestMethodDto>> GetAllAsync()
+    {
+        return _testMethodAppService.GetAllAsync();
+    }
+
     [HttpGet("with-indicators")]
     public virtual Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync()
     {

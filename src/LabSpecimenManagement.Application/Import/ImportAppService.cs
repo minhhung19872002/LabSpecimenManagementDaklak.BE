@@ -948,20 +948,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                     AddRowError(rowErrors, rowNumber, error);
                 }
 
-                // Validate Unit not empty (always check regardless of other errors)
-                if (string.IsNullOrWhiteSpace(row.Unit))
-                {
-                    var error = "Đơn vị tính không được để trống";
-                    item.IsValid = false;
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Đơn vị tính",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
+                // Unit is now optional — no longer required for import
+                // Keeping the field for backwards compatibility if user wants to provide it
 
                 // Set combined error message for display
                 if (rowErrorMessages.Count > 0)

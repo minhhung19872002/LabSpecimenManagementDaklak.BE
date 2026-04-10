@@ -150,6 +150,26 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         return new ListResultDto<TestMethodDto>(dtos);
     }
 
+    public async Task<ListResultDto<TestMethodDto>> GetAllAsync()
+    {
+        var query = await _testMethodRepository.GetQueryableAsync();
+        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+
+        var items = await AsyncExecuter.ToListAsync(
+            query
+                .OrderByThenBy(x => x.SortOrder, x => x.Name)
+        );
+
+        var dtos = items.Select(item =>
+        {
+            var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(item);
+            dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == item.Id);
+            return dto;
+        }).ToList();
+
+        return new ListResultDto<TestMethodDto>(dtos);
+    }
+
     public async Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync()
     {
         var testMethods = await _testMethodRepository.GetListAsync();
