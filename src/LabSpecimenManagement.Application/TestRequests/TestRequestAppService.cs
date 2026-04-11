@@ -1393,6 +1393,9 @@ public partial class TestRequestAppService :
                 // IsWaitingForPriorLab = false - Lab Hóa làm song song với Vi Sinh
                 // Status không cần set WaitingSharedSample - mặc định là UnderEvaluation
 
+                // Set SampleSentDate from TestRequest so task page can display the send date
+                task.SampleSentDate = testRequest.SampleSentDate;
+
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 
@@ -1745,6 +1748,14 @@ public partial class TestRequestAppService :
         entity.SampleSentByUserId = _currentUser.Id;
         entity.SampleSentByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
+
+        // Update SampleSentDate for all existing LaboratoryTasks of this TestRequest
+        var existingTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == entity.Id);
+        foreach (var t in existingTasks)
+        {
+            t.SampleSentDate = entity.SampleSentDate;
+            await _laboratoryTaskRepository.UpdateAsync(t, autoSave: true);
+        }
 
         // Create LaboratoryTasks grouped by Laboratory when sample is sent
         await CreateLaboratoryTasksAsync(entity);
@@ -2637,6 +2648,9 @@ public partial class TestRequestAppService :
                 );
 
                 // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
+                // Set SampleSentDate from TestRequest so task page can display the send date
+                task.SampleSentDate = testRequest.SampleSentDate;
+
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 

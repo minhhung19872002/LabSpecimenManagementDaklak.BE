@@ -381,6 +381,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             dto.TestRequestNumber = testRequest.RequestNumber;
             dto.TestRequestStatus = testRequest.Status;
             dto.CustomerName = testRequest.CustomerName;
+            dto.SampleSentDate = testRequest.SampleSentDate ?? task.SampleSentDate; // Ưu tiên TestRequest.SampleSentDate (ngày BPGN xác nhận gửi mẫu)
         }
 
         // Get Laboratory info

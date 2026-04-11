@@ -939,10 +939,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             dto.LaboratoryName = labDept?.Name;
         }
 
-        // Get customer name and test request status
+        // Get test request info (includes SampleSentDate - ngày BPGN gửi mẫu)
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
+        dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate; // Ưu tiên TestRequest.SampleSentDate (ngày BPGN xác nhận gửi mẫu)
 
         // Collect all user IDs needed for this DTO (batch fetch)
         var allUserIds = new List<Guid?> { task.TechnicalManagerId };
