@@ -152,7 +152,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2258,7 +2258,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2502,7 +2502,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var otherRequirements = input.OtherRequirements ?? "";
         var subContractInfo = input.SubContract ?? "";
         var currentDate = DateTime.Now;
-        var dateReceiving = input.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        var contractDate = input.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "";
         // Mẫu nhiệm vụ hiển thị 0
         var actualTotalCost = input.SampleTypeTask ? 0 : input.TotalCost;
         var totalAmount = actualTotalCost.ToString("N0");
@@ -2531,7 +2531,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{CompareStandard}}", compareStandard },
             { "{{OtherRequirements}}", otherRequirements },
             { "{{SubContractInfo}}", subContractInfo },
-            { "{{DateReceiving}}", dateReceiving },
+            { "{{DateReceiving}}", contractDate },
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
@@ -4610,7 +4610,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -4871,7 +4871,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
@@ -5476,7 +5476,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sampleNames },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", testRequest.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "" },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
