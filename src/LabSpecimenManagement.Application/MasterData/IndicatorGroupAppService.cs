@@ -172,23 +172,30 @@ public class IndicatorGroupAppService :
         return result;
     }
 
-    public Task<byte[]> GetExcelTemplateAsync()
+    public async Task<byte[]> GetExcelTemplateAsync()
     {
-        var templateData = new List<Dictionary<string, object>>
+        var groups = await Repository.GetListAsync();
+        var templateData = groups
+            .Where(g => g.IsActive)
+            .OrderBy(g => g.Name)
+            .Select(g => new Dictionary<string, object>
+            {
+                { "Tên nhóm chỉ tiêu", g.Name ?? "" }
+            }).ToList();
+
+        // Fallback: if no data, return template with sample rows
+        if (templateData.Count == 0)
         {
-            new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Vi sinh" } },
-            new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Hóa lý" } },
-            new() { { "Tên nhóm chỉ tiêu", "" } },
-            new() { { "Tên nhóm chỉ tiêu", "=== HƯỚNG DẪN ===" } },
-            new() { { "Tên nhóm chỉ tiêu", "- Mỗi dòng là một nhóm chỉ tiêu" } },
-            new() { { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được để trống" } },
-            new() { { "Tên nhóm chỉ tiêu", "- Tên nhóm chỉ tiêu không được trùng" } },
-            new() { { "Tên nhóm chỉ tiêu", "- Xóa các dòng hướng dẫn này trước khi import" } }
-        };
+            templateData = new List<Dictionary<string, object>>
+            {
+                new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Vi sinh" } },
+                new() { { "Tên nhóm chỉ tiêu", "Ví dụ: Hóa lý" } }
+            };
+        }
 
         using var stream = new MemoryStream();
         MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
-        return Task.FromResult(stream.ToArray());
+        return stream.ToArray();
     }
 
     /// <summary>
