@@ -1778,8 +1778,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FormattedUnit")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
@@ -1789,6 +1798,10 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal>("UnitPrice")
                         .HasPrecision(18, 2)

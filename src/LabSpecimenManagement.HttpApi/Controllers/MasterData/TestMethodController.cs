@@ -113,6 +113,13 @@ public class TestMethodController : LabSpecimenManagementController
         return _testMethodAppService.UpdateIndicatorAsync(id, indicatorId, specimenTypeId, input);
     }
 
+    [HttpPut("{id}/indicators/{indicatorId}/toggle-active")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task ToggleIndicatorActiveAsync(Guid id, Guid indicatorId, [FromQuery] Guid? specimenTypeId)
+    {
+        return _testMethodAppService.ToggleIndicatorActiveAsync(id, indicatorId, specimenTypeId);
+    }
+
     [HttpDelete("{id}/indicators/{indicatorId}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task RemoveIndicatorAsync(Guid id, Guid indicatorId, [FromQuery] Guid? specimenTypeId = null)

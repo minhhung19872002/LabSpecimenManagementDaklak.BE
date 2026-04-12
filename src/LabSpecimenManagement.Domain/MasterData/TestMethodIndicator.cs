@@ -29,20 +29,38 @@ public class TestMethodIndicator : Entity<Guid>
     public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
+    /// Đơn vị tính riêng cho chỉ tiêu trong phương pháp này (override TestMethod.Unit nếu có)
+    /// </summary>
+    public string? Unit { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính có định dạng HTML
+    /// </summary>
+    public string? FormattedUnit { get; set; }
+
+    /// <summary>
     /// Thứ tự hiển thị trong phương pháp
     /// </summary>
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Trạng thái kích hoạt (khi ngừng thì không hiển thị trên phiếu thử nghiệm)
+    /// </summary>
+    public bool IsActive { get; set; } = true;
 
     protected TestMethodIndicator()
     {
     }
 
-    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal unitPrice, Guid? specimenTypeId = null) : base(id)
+    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal unitPrice, Guid? specimenTypeId = null, string? unit = null, string? formattedUnit = null, bool isActive = true) : base(id)
     {
         TestMethodId = testMethodId;
         IndicatorId = indicatorId;
         UnitPrice = unitPrice;
         SpecimenTypeId = specimenTypeId;
+        Unit = unit;
+        FormattedUnit = formattedUnit;
         SortOrder = 0;
+        IsActive = isActive;
     }
 }

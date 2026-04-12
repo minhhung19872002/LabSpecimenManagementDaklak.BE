@@ -197,6 +197,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
                     var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
 
+                    var effectiveUnit = tmi.Unit ?? tm.Unit;
+                    var effectiveFormattedUnit = tmi.FormattedUnit ?? tm.FormattedUnit;
+
                     // Add parent indicator
                     tmIndicatorList.Add(new TestMethodIndicatorDto
                     {
@@ -207,12 +210,14 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                         IndicatorName = indicator?.Name ?? "",
                         IndicatorFormattedName = indicator?.FormattedName,
                         UnitPrice = tmi.UnitPrice,
-                        IsActive = indicator?.IsActive ?? false,
+                        IsActive = tmi.IsActive,
                         SortOrder = tmi.SortOrder,
                         ParentIndicatorId = indicator?.ParentIndicatorId,
                         SpecimenTypeId = tmi.SpecimenTypeId,
                         SpecimenTypeCode = specimenType?.Code,
-                        SpecimenTypeName = specimenType?.Name
+                        SpecimenTypeName = specimenType?.Name,
+                        Unit = effectiveUnit,
+                        FormattedUnit = effectiveFormattedUnit
                     });
 
                     // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
@@ -238,7 +243,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                             // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
                             SpecimenTypeId = tmi.SpecimenTypeId,
                             SpecimenTypeCode = specimenType?.Code,
-                            SpecimenTypeName = specimenType?.Name
+                            SpecimenTypeName = specimenType?.Name,
+                            Unit = effectiveUnit,
+                            FormattedUnit = effectiveFormattedUnit
                         });
                     }
                 }
@@ -278,6 +285,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         {
             var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
             var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
+            var effectiveUnit = tmi.Unit ?? testMethod.Unit;
+            var effectiveFormattedUnit = tmi.FormattedUnit ?? testMethod.FormattedUnit;
 
             // Add parent indicator
             tmIndicatorList.Add(new TestMethodIndicatorDto
@@ -289,12 +298,14 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorName = indicator?.Name ?? "",
                 IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
-                IsActive = indicator?.IsActive ?? false,
+                IsActive = tmi.IsActive,
                 SortOrder = tmi.SortOrder,
                 ParentIndicatorId = indicator?.ParentIndicatorId,
                 SpecimenTypeId = tmi.SpecimenTypeId,
                 SpecimenTypeCode = specimenType?.Code,
-                SpecimenTypeName = specimenType?.Name
+                SpecimenTypeName = specimenType?.Name,
+                Unit = effectiveUnit,
+                FormattedUnit = effectiveFormattedUnit
             });
 
             // Add sub-indicators of this parent
@@ -317,10 +328,11 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     IsActive = subInd.IsActive,
                     SortOrder = tmi.SortOrder,
                     ParentIndicatorId = subInd.ParentIndicatorId,
-                    // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
                     SpecimenTypeId = tmi.SpecimenTypeId,
                     SpecimenTypeCode = specimenType?.Code,
-                    SpecimenTypeName = specimenType?.Name
+                    SpecimenTypeName = specimenType?.Name,
+                    Unit = effectiveUnit,
+                    FormattedUnit = effectiveFormattedUnit
                 });
             }
         }
@@ -333,6 +345,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
     public async Task<List<TestMethodIndicatorDto>> GetIndicatorsAsync(Guid testMethodId)
     {
+        var testMethod = await _testMethodRepository.GetAsync(testMethodId);
         var testMethodIndicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
 
@@ -353,6 +366,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         {
             var indicator = allIndicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
             var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
+            var effectiveUnit = tmi.Unit ?? testMethod.Unit;
+            var effectiveFormattedUnit = tmi.FormattedUnit ?? testMethod.FormattedUnit;
 
             // Add parent indicator
             result.Add(new TestMethodIndicatorDto
@@ -364,12 +379,14 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 IndicatorName = indicator?.Name ?? "",
                 IndicatorFormattedName = indicator?.FormattedName,
                 UnitPrice = tmi.UnitPrice,
-                IsActive = indicator?.IsActive ?? false,
+                IsActive = tmi.IsActive,
                 SortOrder = tmi.SortOrder,
                 ParentIndicatorId = indicator?.ParentIndicatorId,
                 SpecimenTypeId = tmi.SpecimenTypeId,
                 SpecimenTypeCode = specimenType?.Code,
-                SpecimenTypeName = specimenType?.Name
+                SpecimenTypeName = specimenType?.Name,
+                Unit = effectiveUnit,
+                FormattedUnit = effectiveFormattedUnit
             });
 
             // Add sub-indicators of this parent
@@ -392,10 +409,11 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     IsActive = subInd.IsActive,
                     SortOrder = tmi.SortOrder,
                     ParentIndicatorId = subInd.ParentIndicatorId,
-                    // Sub-indicator inherit SpecimenTypeId từ parent để group đúng
                     SpecimenTypeId = tmi.SpecimenTypeId,
                     SpecimenTypeCode = specimenType?.Code,
-                    SpecimenTypeName = specimenType?.Name
+                    SpecimenTypeName = specimenType?.Name,
+                    Unit = effectiveUnit,
+                    FormattedUnit = effectiveFormattedUnit
                 });
             }
         }
@@ -443,7 +461,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 testMethodId,
                 item.IndicatorId,
                 item.UnitPrice,
-                item.SpecimenTypeId
+                item.SpecimenTypeId,
+                item.Unit ?? testMethod.Unit,
+                item.FormattedUnit ?? testMethod.FormattedUnit
             )
             {
                 SortOrder = sortOrder
@@ -475,15 +495,52 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             throw new Common.Exceptions.EntityNotFoundException("TestMethodIndicator");
         }
 
+        // Determine target TestMethodId and SpecimenTypeId (if changing)
+        var targetTestMethodId = input.NewTestMethodId ?? testMethodId;
+        var targetSpecimenTypeId = input.NewSpecimenTypeId.HasValue
+            ? (input.NewSpecimenTypeId.Value == Guid.Empty ? (Guid?)null : input.NewSpecimenTypeId.Value)
+            : specimenTypeId;
+        var isChangingKey = targetTestMethodId != testMethodId || targetSpecimenTypeId != specimenTypeId;
+
+        if (isChangingKey)
+        {
+            // Check unique constraint: (targetTestMethodId, indicatorId, targetSpecimenTypeId) must not exist
+            var duplicate = await AsyncExecuter.FirstOrDefaultAsync(
+                query.Where(tmi => tmi.TestMethodId == targetTestMethodId
+                    && tmi.IndicatorId == indicatorId
+                    && tmi.SpecimenTypeId == targetSpecimenTypeId
+                    && tmi.Id != entity.Id)
+            );
+
+            if (duplicate != null)
+            {
+                var indicator2 = await _indicatorRepository.FindAsync(indicatorId);
+                var specimenType2 = targetSpecimenTypeId.HasValue
+                    ? await _specimenTypeRepository.FindAsync(targetSpecimenTypeId.Value)
+                    : null;
+                var indicatorLabel = indicator2?.Name ?? "chỉ tiêu";
+                var specimenLabel = specimenType2?.Name ?? "nền mẫu";
+                throw new Volo.Abp.UserFriendlyException($"Đã tồn tại phương pháp cho {indicatorLabel} của {specimenLabel}");
+            }
+
+            entity.TestMethodId = targetTestMethodId;
+            entity.SpecimenTypeId = targetSpecimenTypeId;
+        }
+
         // Update fields
         entity.UnitPrice = input.UnitPrice;
+        entity.Unit = input.Unit;
+        entity.FormattedUnit = input.FormattedUnit;
 
         await _testMethodIndicatorRepository.UpdateAsync(entity);
 
-        // Get indicator info for response
+        // Get indicator and test method info for response
+        var actualTestMethodId = entity.TestMethodId;
+        var actualSpecimenTypeId = entity.SpecimenTypeId;
         var indicator = await _indicatorRepository.FindAsync(indicatorId);
-        var specimenType = specimenTypeId.HasValue
-            ? await _specimenTypeRepository.FindAsync(specimenTypeId.Value)
+        var testMethod = await _testMethodRepository.FindAsync(actualTestMethodId);
+        var specimenType = actualSpecimenTypeId.HasValue
+            ? await _specimenTypeRepository.FindAsync(actualSpecimenTypeId.Value)
             : null;
 
         return new TestMethodIndicatorDto
@@ -495,13 +552,33 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             IndicatorName = indicator?.Name ?? "",
             IndicatorFormattedName = indicator?.FormattedName,
             UnitPrice = entity.UnitPrice,
-            IsActive = indicator?.IsActive ?? false,
+            IsActive = entity.IsActive,
             SortOrder = entity.SortOrder,
             ParentIndicatorId = indicator?.ParentIndicatorId,
             SpecimenTypeId = entity.SpecimenTypeId,
             SpecimenTypeCode = specimenType?.Code,
-            SpecimenTypeName = specimenType?.Name
+            SpecimenTypeName = specimenType?.Name,
+            Unit = entity.Unit ?? testMethod?.Unit,
+            FormattedUnit = entity.FormattedUnit ?? testMethod?.FormattedUnit
         };
+    }
+
+    public async Task ToggleIndicatorActiveAsync(Guid testMethodId, Guid indicatorId, Guid? specimenTypeId)
+    {
+        var query = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var entity = await AsyncExecuter.FirstOrDefaultAsync(
+            query.Where(tmi => tmi.TestMethodId == testMethodId
+                && tmi.IndicatorId == indicatorId
+                && tmi.SpecimenTypeId == specimenTypeId)
+        );
+
+        if (entity == null)
+        {
+            throw new Common.Exceptions.EntityNotFoundException("TestMethodIndicator");
+        }
+
+        entity.IsActive = !entity.IsActive;
+        await _testMethodIndicatorRepository.UpdateAsync(entity);
     }
 
     public async Task RemoveIndicatorAsync(Guid testMethodId, Guid indicatorId, Guid? specimenTypeId = null)
