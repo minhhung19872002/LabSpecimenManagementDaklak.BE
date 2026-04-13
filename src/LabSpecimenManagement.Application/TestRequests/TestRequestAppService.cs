@@ -524,8 +524,88 @@ public partial class TestRequestAppService :
         return entity;
     }
 
+    private static bool HasAnySampleTypeSelection(
+        bool sampleTypeService,
+        bool sampleTypeContract,
+        bool sampleTypeTask,
+        bool sampleTypeSubContract)
+    {
+        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract;
+    }
+
+    private static bool HasAnySampleTypeSelection(TestRequest entity)
+    {
+        return HasAnySampleTypeSelection(
+            entity.SampleTypeService,
+            entity.SampleTypeContract,
+            entity.SampleTypeTask,
+            entity.SampleTypeSubContract);
+    }
+
+    private static string? NormalizeOptionalText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static void NormalizeAndValidateSampleType(CreateTestRequestDto input)
+    {
+        if (!HasAnySampleTypeSelection(
+                input.SampleTypeService,
+                input.SampleTypeContract,
+                input.SampleTypeTask,
+                input.SampleTypeSubContract))
+        {
+            throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
+        }
+
+        input.SubContract = input.SampleTypeSubContract
+            ? NormalizeOptionalText(input.SubContract)
+            : null;
+
+        if (input.SampleTypeSubContract && string.IsNullOrWhiteSpace(input.SubContract))
+        {
+            throw new TestRequestValidationException("subContract", "Vui lòng nhập hợp đồng phụ");
+        }
+    }
+
+    private static void NormalizeAndValidateSampleType(UpdateTestRequestDto input, TestRequest existingEntity)
+    {
+        var hasAnySelectionInInput = HasAnySampleTypeSelection(
+            input.SampleTypeService,
+            input.SampleTypeContract,
+            input.SampleTypeTask,
+            input.SampleTypeSubContract);
+
+        // Backward compatibility for old clients/data payloads: keep existing selection
+        // when incoming payload sends all flags false but existing record already has a valid selection.
+        if (!hasAnySelectionInInput && HasAnySampleTypeSelection(existingEntity))
+        {
+            input.SampleTypeService = existingEntity.SampleTypeService;
+            input.SampleTypeContract = existingEntity.SampleTypeContract;
+            input.SampleTypeTask = existingEntity.SampleTypeTask;
+            input.SampleTypeSubContract = existingEntity.SampleTypeSubContract;
+            hasAnySelectionInInput = true;
+        }
+
+        if (!hasAnySelectionInInput)
+        {
+            throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
+        }
+
+        input.SubContract = input.SampleTypeSubContract
+            ? NormalizeOptionalText(input.SubContract)
+            : null;
+
+        if (input.SampleTypeSubContract && string.IsNullOrWhiteSpace(input.SubContract))
+        {
+            throw new TestRequestValidationException("subContract", "Vui lòng nhập hợp đồng phụ");
+        }
+    }
+
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
+        NormalizeAndValidateSampleType(input);
+
         // Handle contract number - auto-regenerate if conflict with auto-generated format
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
         {
@@ -703,6 +783,8 @@ public partial class TestRequestAppService :
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
+        NormalizeAndValidateSampleType(input, entity);
+
         // [TEMPORARY] Tạm tắt approval flow
         // var previousStatus = entity.Status;
         // var requiresApproval = CanEditLimitedInfo(entity.Status);
