@@ -472,16 +472,27 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string? methodName = null;
             string? unit = taskIndicator.Unit;
             string? methodFormattedName = null;
+            var isSubContractMethod = !string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName);
             if (taskIndicator.MethodId.HasValue)
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
-                methodName = method?.Name;
-                methodFormattedName = method?.FormattedName;
+                if (!isSubContractMethod)
+                {
+                    methodName = method?.Name;
+                    methodFormattedName = method?.FormattedName;
+                }
+                isSubContractMethod = isSubContractMethod || IsDashMethodName(method?.Name);
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
                     unit = method.FormattedUnit ?? method.Unit ?? "";
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                methodName = taskIndicator.SubContractMethodName;
+                methodFormattedName = null;
             }
 
             // Get standard info if StandardId is set
@@ -538,6 +549,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 MethodId = taskIndicator.MethodId,
                 MethodName = methodName,
                 MethodFormattedName = methodFormattedName,
+                IsSubContractMethod = isSubContractMethod,
+                SubContractMethodName = taskIndicator.SubContractMethodName,
+                SubContractNumber = taskIndicator.SubContractNumber,
+                SubContractCost = taskIndicator.SubContractCost,
                 TechnicianId = taskIndicator.TechnicianId,
                 TechnicianName = technicianName,
                 AssignedDate = taskIndicator.AssignedDate,
@@ -1017,6 +1032,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     {
         var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
         var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+        TestMethod? selectedMethod = null;
 
         // Validate: Only QLKT or supporter can update method
         if (!await CanManageTaskAsync(task))
@@ -1037,11 +1053,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Validate method existence when provided
         if (methodId.HasValue)
         {
-            var methodExists = await _testMethodRepository.AnyAsync(x => x.Id == methodId.Value);
-            if (!methodExists)
+            selectedMethod = await _testMethodRepository.FindAsync(methodId.Value);
+            if (selectedMethod == null)
             {
                 throw new ValidationException("methodId", "Phương pháp không tồn tại");
             }
+        }
+
+        var keepSubContractMethod = IsDashMethodName(selectedMethod?.Name);
+        if (!keepSubContractMethod)
+        {
+            taskIndicator.SubContractMethodName = null;
+            taskIndicator.SubContractNumber = null;
+            taskIndicator.SubContractCost = null;
         }
 
         taskIndicator.MethodId = methodId;
@@ -1049,6 +1073,60 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         // Recalculate task status after changing method
         await UpdateTaskStatusAsync(task);
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
+    /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
+    /// </summary>
+    [Authorize]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateSubContractMethodAsync(Guid indicatorId, UpdateSubContractMethodDto input)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật phương pháp phụ");
+        }
+
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật phương pháp phụ cho chỉ tiêu đã duyệt", "indicator");
+        }
+
+        var subContractMethodName = input.SubContractMethodName?.Trim();
+        var subContractNumber = input.SubContractNumber?.Trim();
+
+        if (string.IsNullOrWhiteSpace(subContractMethodName))
+        {
+            throw new ValidationException("subContractMethodName", "Tên phương pháp không được để trống");
+        }
+
+        if (string.IsNullOrWhiteSpace(subContractNumber))
+        {
+            throw new ValidationException("subContractNumber", "Số hợp đồng phụ không được để trống");
+        }
+
+        // Chỉ cho phép cập nhật cho chỉ tiêu có phương pháp gốc "-" hoặc đã có dữ liệu phương pháp phụ
+        var canUpdateSubContractMethod = !string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName);
+        if (!canUpdateSubContractMethod && taskIndicator.MethodId.HasValue)
+        {
+            var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
+            canUpdateSubContractMethod = IsDashMethodName(method?.Name);
+        }
+
+        if (!canUpdateSubContractMethod)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu này không thuộc luồng cập nhật phương pháp phụ", "indicator");
+        }
+
+        taskIndicator.SubContractMethodName = subContractMethodName;
+        taskIndicator.SubContractNumber = subContractNumber;
+        taskIndicator.SubContractCost = input.SubContractCost;
+
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
 
         return await MapToIndicatorDtoAsync(taskIndicator);
     }
@@ -1813,6 +1891,11 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         };
     }
 
+    private static bool IsDashMethodName(string? methodName)
+    {
+        return string.Equals(methodName?.Trim(), "-", StringComparison.Ordinal);
+    }
+
     /// <summary>
     /// Cập nhật TestRequest sang PendingApproval khi có chỉ tiêu được gửi đến QLCL
     /// Chỉ cần gửi một số chỉ tiêu là chuyển sang PendingApproval ngay
@@ -1851,16 +1934,27 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         string? methodName = null;
         string? methodFormattedName = null;
         string? unit = taskIndicator.Unit;
+        var isSubContractMethod = !string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName);
         if (taskIndicator.MethodId.HasValue)
         {
             var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
-            methodName = method?.Name;
-            methodFormattedName = method?.FormattedName;
+            if (!isSubContractMethod)
+            {
+                methodName = method?.Name;
+                methodFormattedName = method?.FormattedName;
+            }
+            isSubContractMethod = isSubContractMethod || IsDashMethodName(method?.Name);
             // Fallback to TestMethod.FormattedUnit/Unit if LaboratoryTaskIndicator.Unit is not set
             if (string.IsNullOrEmpty(unit) && method != null)
             {
                 unit = method.FormattedUnit ?? method.Unit;
             }
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+        {
+            methodName = taskIndicator.SubContractMethodName;
+            methodFormattedName = null;
         }
 
         // Get indicator images
@@ -1885,6 +1979,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             MethodId = taskIndicator.MethodId,
             MethodName = methodName,
             MethodFormattedName = methodFormattedName,
+            IsSubContractMethod = isSubContractMethod,
+            SubContractMethodName = taskIndicator.SubContractMethodName,
+            SubContractNumber = taskIndicator.SubContractNumber,
+            SubContractCost = taskIndicator.SubContractCost,
             TechnicianId = taskIndicator.TechnicianId,
             TechnicianName = technicianName,
             AssignedDate = taskIndicator.AssignedDate,

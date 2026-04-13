@@ -329,6 +329,18 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("StandardId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("SubContractCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SubContractMethodName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("SubContractNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");
 

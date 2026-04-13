@@ -165,6 +165,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/subcontract-method")]
+    [Authorize]
+    public virtual Task<LaboratoryTaskIndicatorDto> UpdateSubContractMethodAsync(
+        Guid indicatorId,
+        [FromBody] UpdateSubContractMethodDto input)
+    {
+        return _laboratoryTaskAppService.UpdateSubContractMethodAsync(indicatorId, input);
+    }
+
+    /// <summary>
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
     [HttpPut("indicators/{indicatorId}/unit")]

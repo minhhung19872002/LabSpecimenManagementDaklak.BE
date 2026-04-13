@@ -824,6 +824,9 @@ public class LabSpecimenManagementDbContext :
 
             // String properties
             b.Property(x => x.Result).HasMaxLength(500);
+            b.Property(x => x.SubContractMethodName).HasMaxLength(500);
+            b.Property(x => x.SubContractNumber).HasMaxLength(200);
+            b.Property(x => x.SubContractCost).HasPrecision(18, 2);
             // Unit: no length limit (text type) - copied from TestMethod which may have long values
             b.Property(x => x.RejectionReason).HasMaxLength(1000);
 

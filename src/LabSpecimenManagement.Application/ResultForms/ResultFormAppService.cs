@@ -325,6 +325,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ? (string.IsNullOrWhiteSpace(ti?.Unit) ? "-" : ti.Unit)
                 : (ti?.Unit ?? "");
 
+        // For subcontract flow, ưu tiên tên phương pháp phụ nhập tại popup.
+        (string Name, string? FormattedName) GetDisplayMethod(LaboratoryTaskIndicator? ti, TestMethod? method)
+        {
+            if (!string.IsNullOrWhiteSpace(ti?.SubContractMethodName))
+            {
+                return (ti.SubContractMethodName!, null);
+            }
+
+            return (method?.Name ?? string.Empty, method?.FormattedName);
+        }
+
         // Get parent indicator IDs that are referenced but might not be in our list
         var parentIdsToFetch = indicators
             .Where(i => i.ParentIndicatorId.HasValue && !indicatorDict.ContainsKey(i.ParentIndicatorId.Value))
@@ -419,6 +430,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
                 }
+                var displayMethod = GetDisplayMethod(firstChildTi, method);
 
                 tableData.Add(new ResultFormTableRow
                 {
@@ -426,8 +438,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameters = parametersPlainBuilder.ToString(),
                     ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
                     Unit = GetUnit(firstChildTi),
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = displayMethod.Name,
+                    TestMethodFormattedName = displayMethod.FormattedName,
                     Result = resultBuilder.ToString(),
                     Standards = "",
                     Uncertainty = "",
@@ -442,6 +454,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
                 }
+                var displayMethod = GetDisplayMethod(taskIndicator, method);
 
                 tableData.Add(new ResultFormTableRow
                 {
@@ -449,8 +462,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameters = indicator.Name ?? "",
                     ParametersFormattedName = indicator.FormattedName,
                     Unit = GetUnit(taskIndicator),
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = displayMethod.Name,
+                    TestMethodFormattedName = displayMethod.FormattedName,
                     Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                     Standards = "",
                     Uncertainty = "",
@@ -510,6 +523,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
             }
+            var displayMethod = GetDisplayMethod(firstChildTi, method);
 
             tableData.Add(new ResultFormTableRow
             {
@@ -517,8 +531,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = parametersPlainBuilder.ToString(),
                 ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
                 Unit = GetUnit(firstChildTi),
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = displayMethod.Name,
+                TestMethodFormattedName = displayMethod.FormattedName,
                 Result = resultBuilder.ToString(),
                 Standards = "",
                 Uncertainty = "",
@@ -4680,8 +4694,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator.Name ?? "",
                 ParametersFormattedName = indicator.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
+                    ? labTaskIndicator.SubContractMethodName
+                    : method?.Name ?? "",
+                TestMethodFormattedName = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
+                    ? null
+                    : method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = compareWithStandard, // {{Standards}} = properly formatted limit
                 CompareWithStandard = compareWithStandard, // Single indicator = no footnote needed
@@ -5093,8 +5111,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Parameter = paramPlainBuilder.ToString(),
                         ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                         Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
-                        TestMethod = method?.Name ?? "",
-                        TestMethodFormattedName = method?.FormattedName,
+                        TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                            ? firstChild.Item.LabTaskIndicator.SubContractMethodName
+                            : method?.Name ?? "",
+                        TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                            ? null
+                            : method?.FormattedName,
                         Result = resultBuilder.ToString(),
                         ReferenceLimit = "",
                         StandardId = null,
@@ -5149,8 +5171,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Parameter = indicator.Name ?? "",
                         ParameterFormattedName = indicator.FormattedName,
                         Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
-                        TestMethod = method?.Name ?? "",
-                        TestMethodFormattedName = method?.FormattedName,
+                        TestMethod = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
+                            ? item.LabTaskIndicator.SubContractMethodName
+                            : method?.Name ?? "",
+                        TestMethodFormattedName = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
+                            ? null
+                            : method?.FormattedName,
                         Result = resultText,
                         ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "",
                         StandardId = effectiveStandardId,
@@ -5243,8 +5269,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameter = paramPlainBuilder.ToString(),
                     ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                     Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                        ? firstChild.Item.LabTaskIndicator.SubContractMethodName
+                        : method?.Name ?? "",
+                    TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                        ? null
+                        : method?.FormattedName,
                     Result = resultBuilder.ToString(),
                     ReferenceLimit = "",
                     StandardId = null,
@@ -5519,8 +5549,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
+                    ? taskIndicator?.SubContractMethodName ?? ""
+                    : method?.Name ?? "",
+                TestMethodFormattedName = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
+                    ? null
+                    : method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",

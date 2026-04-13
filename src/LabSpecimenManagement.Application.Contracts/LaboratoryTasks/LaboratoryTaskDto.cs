@@ -261,6 +261,26 @@ public class LaboratoryTaskIndicatorDto
     public string? MethodFormattedName { get; set; }
 
     /// <summary>
+    /// Cờ đánh dấu chỉ tiêu thuộc luồng phương pháp phụ (phương pháp gốc là "-")
+    /// </summary>
+    public bool IsSubContractMethod { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp phụ (nhập tại popup "Cập nhật PP")
+    /// </summary>
+    public string? SubContractMethodName { get; set; }
+
+    /// <summary>
+    /// Số hợp đồng phụ
+    /// </summary>
+    public string? SubContractNumber { get; set; }
+
+    /// <summary>
+    /// Chi phí phương pháp phụ
+    /// </summary>
+    public decimal? SubContractCost { get; set; }
+
+    /// <summary>
     /// ID Thử nghiệm viên - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }

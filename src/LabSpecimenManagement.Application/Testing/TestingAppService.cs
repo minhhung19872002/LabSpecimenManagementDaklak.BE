@@ -1083,6 +1083,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                methodName = taskIndicator.SubContractMethodName;
+                methodFormattedName = null;
+            }
+
             if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
             {
                 technicianName = techName;
@@ -1524,6 +1530,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                methodName = taskIndicator.SubContractMethodName;
             }
         }
 
@@ -2227,6 +2238,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var methodName = method?.Name;
         var methodFormattedName = method?.FormattedName;
 
+        if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+        {
+            methodName = taskIndicator.SubContractMethodName;
+            methodFormattedName = null;
+        }
+
         var technicianName = taskIndicator.TechnicianId.HasValue
             ? await _userNameProvider.GetUserNameAsync(taskIndicator.TechnicianId.Value)
             : null;
@@ -2392,8 +2409,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodId = li.MethodId,
-                        MethodName = tm != null ? tm.Name : null,
-                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        MethodName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? li.SubContractMethodName
+                            : (tm != null ? tm.Name : null),
+                        MethodFormattedName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? null
+                            : (tm != null ? tm.FormattedName : null),
                         Unit = li.Unit,
                         TransferDate = si.TransferDate,
                         TestDate = li.TestDate,
