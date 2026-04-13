@@ -160,14 +160,15 @@ public interface IImportAppService : IApplicationService
 
     /// <summary>
     /// Get IndicatorGroup + Indicator import template
-    /// Template columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Tên chỉ tiêu
+    /// Template columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Nền mẫu, Chỉ tiêu,
+    /// Chỉ tiêu phụ, Tên phương pháp, Đơn vị tính, Đơn giá
     /// </summary>
     Task<byte[]> GetIndicatorGroupTemplateAsync();
 
     /// <summary>
     /// Preview IndicatorGroup + Indicator import - validates data without saving
     /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
-    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by (IndicatorGroup + IndicatorName) (trim, case-insensitive)
     /// </summary>
     [DisableValidation]
     Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(byte[] fileBytes);
@@ -175,7 +176,7 @@ public interface IImportAppService : IApplicationService
     /// <summary>
     /// Import IndicatorGroup + Indicator from Excel file
     /// IndicatorGroup upsert: match by Name (trim, case-insensitive)
-    /// Indicator upsert: match by Name (trim, case-insensitive)
+    /// Indicator upsert: match by (IndicatorGroup + IndicatorName) (trim, case-insensitive)
     /// </summary>
     [DisableValidation]
     Task<ImportResultDto> ImportIndicatorGroupsAsync(byte[] fileBytes);
