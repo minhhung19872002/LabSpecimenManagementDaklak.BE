@@ -190,6 +190,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             queryable = queryable.Where(x => x.Status == input.Status.Value);
         }
 
+        if (input.TestRequestStatus.HasValue)
+        {
+            var testRequestQueryable = await _testRequestRepository.GetQueryableAsync();
+            var testRequestIds = testRequestQueryable
+                .Where(tr => tr.Status == input.TestRequestStatus.Value)
+                .Select(tr => tr.Id);
+
+            queryable = queryable.Where(x => testRequestIds.Contains(x.TestRequestId));
+        }
+
         if (input.TransferDateFrom.HasValue)
         {
             queryable = queryable.Where(x => x.TransferDate >= input.TransferDateFrom.Value);

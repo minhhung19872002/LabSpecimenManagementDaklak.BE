@@ -1,4 +1,5 @@
 using System;
+using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.LaboratoryTasks;
@@ -27,6 +28,11 @@ public class GetLaboratoryTaskListDto : PagedAndSortedResultRequestDto
     /// Lọc theo trạng thái - Status
     /// </summary>
     public LaboratoryTaskStatus? Status { get; set; }
+
+    /// <summary>
+    /// Lọc theo trạng thái phiếu yêu cầu - Test Request Status
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 
     /// <summary>
     /// Ngày chuyển từ - Transfer Date From
