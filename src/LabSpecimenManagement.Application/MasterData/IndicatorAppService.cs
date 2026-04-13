@@ -87,6 +87,24 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             query = query.Where(x => x.IsActive == input.IsActive.Value);
         }
 
+        // Filter by SpecimenType(s) or TestMethod(s) via TestMethodIndicator join
+        if (input.SpecimenTypeIds?.Any() == true || input.TestMethodIds?.Any() == true)
+        {
+            var tmiQuery = _testMethodIndicatorRepository.GetQueryableAsync().Result;
+
+            if (input.SpecimenTypeIds?.Any() == true)
+            {
+                tmiQuery = tmiQuery.Where(tmi => tmi.SpecimenTypeId.HasValue && input.SpecimenTypeIds.Contains(tmi.SpecimenTypeId.Value));
+            }
+            if (input.TestMethodIds?.Any() == true)
+            {
+                tmiQuery = tmiQuery.Where(tmi => input.TestMethodIds.Contains(tmi.TestMethodId));
+            }
+
+            var matchingIndicatorIds = tmiQuery.Select(tmi => tmi.IndicatorId).Distinct().ToList();
+            query = query.Where(x => matchingIndicatorIds.Contains(x.Id));
+        }
+
         var totalCount = query.Count();
 
         var items = query

@@ -153,6 +153,8 @@ public class IndicatorFilterDto : PagedAndSortedResultRequestDto
     public string? Search { get; set; }
     public Guid? IndicatorGroupId { get; set; }
     public bool? IsActive { get; set; }
+    public List<Guid>? SpecimenTypeIds { get; set; }
+    public List<Guid>? TestMethodIds { get; set; }
 }
 
 /// <summary>
