@@ -1010,6 +1010,50 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     /// <summary>
+    /// Cập nhật phương pháp cho chỉ tiêu
+    /// </summary>
+    [Authorize]
+    public async Task<LaboratoryTaskIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, Guid? methodId)
+    {
+        var taskIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(taskIndicator.LaboratoryTaskId);
+
+        // Validate: Only QLKT or supporter can update method
+        if (!await CanManageTaskAsync(task))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật phương pháp");
+        }
+
+        // Validate: Cannot update when indicator is Approved or CustomerCancelled
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật phương pháp cho chỉ tiêu đã duyệt", "indicator");
+        }
+        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật phương pháp cho chỉ tiêu đã bị hủy", "indicator");
+        }
+
+        // Validate method existence when provided
+        if (methodId.HasValue)
+        {
+            var methodExists = await _testMethodRepository.AnyAsync(x => x.Id == methodId.Value);
+            if (!methodExists)
+            {
+                throw new ValidationException("methodId", "Phương pháp không tồn tại");
+            }
+        }
+
+        taskIndicator.MethodId = methodId;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+
+        // Recalculate task status after changing method
+        await UpdateTaskStatusAsync(task);
+
+        return await MapToIndicatorDtoAsync(taskIndicator);
+    }
+
+    /// <summary>
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
     [Authorize]
