@@ -819,6 +819,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Get customer name from test request
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
+        dto.TestRequestStatus = testRequest?.Status;
 
         // Filter out parent indicators with children for counting
         var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(indicators);
