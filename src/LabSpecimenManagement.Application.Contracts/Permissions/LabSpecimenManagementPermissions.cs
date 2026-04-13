@@ -270,6 +270,39 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // Master Data - Sample Type Category Permissions (Danh mục loại mẫu)
+    public static class SampleTypeCategories
+    {
+        public const string Default = GroupName + ".SampleTypeCategories";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Notes Permissions (Quản lý ghi chú)
+    public static class Notes
+    {
+        public const string Default = GroupName + ".Notes";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Test Result Values Permissions (Quản lý kết quả)
+    public static class TestResultValues
+    {
+        public const string Default = GroupName + ".TestResultValues";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
+    // Master Data - Form Templates Permissions (Form mẫu)
+    public static class FormTemplates
+    {
+        public const string Default = GroupName + ".FormTemplates";
+    }
+
     // Role Management Permissions (Quản lý phân quyền)
     public static class RoleManagement
     {

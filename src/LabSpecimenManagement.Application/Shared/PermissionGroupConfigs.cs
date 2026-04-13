@@ -124,6 +124,21 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.MasterData.Delete, "Xóa"),
             (LabSpecimenManagementPermissions.MasterData.Import, "Import dữ liệu"),
         }),
+        new PermissionGroupConfig("MasterDataDetail", "Dữ liệu chi tiết", new[]
+        {
+            (LabSpecimenManagementPermissions.Departments.Default, "Phòng ban"),
+            (LabSpecimenManagementPermissions.Laboratories.Default, "Khoa phòng"),
+            (LabSpecimenManagementPermissions.SampleTypeCategories.Default, "Danh mục loại mẫu"),
+            (LabSpecimenManagementPermissions.SampleConditions.Default, "Tình trạng mẫu"),
+            (LabSpecimenManagementPermissions.SpecimenTypes.Default, "Loại mẫu"),
+            (LabSpecimenManagementPermissions.TestMethods.Default, "Phương pháp thử"),
+            (LabSpecimenManagementPermissions.Standards.Default, "Tiêu chuẩn"),
+            (LabSpecimenManagementPermissions.StorageLocations.Default, "Vị trí lưu kho"),
+            (LabSpecimenManagementPermissions.Indicators.Default, "Nhóm chỉ tiêu"),
+            (LabSpecimenManagementPermissions.FormTemplates.Default, "Form mẫu"),
+            (LabSpecimenManagementPermissions.TestResultValues.Default, "Quản lý kết quả"),
+            (LabSpecimenManagementPermissions.Notes.Default, "Quản lý ghi chú"),
+        }),
 
         // ==================== QUẢN TRỊ HỆ THỐNG ====================
         new PermissionGroupConfig("QuanTriHeThong", "Quản trị hệ thống", new[]
