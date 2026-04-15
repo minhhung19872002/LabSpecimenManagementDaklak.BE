@@ -419,7 +419,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                    resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
                 }
 
@@ -512,7 +511,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                 if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                resultBuilder.Append("- ");
                 resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
             }
 
@@ -5088,7 +5086,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                         if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                        resultBuilder.Append("- ");
                         resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
 
                         // Build limit for this child (use plain text version for combined display)
@@ -5246,7 +5243,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                    resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
 
                     // Build limit for this child (use plain text version for combined display)
