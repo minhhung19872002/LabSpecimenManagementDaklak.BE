@@ -5105,7 +5105,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                                 if (!string.IsNullOrWhiteSpace(childLimit))
                                 {
                                     if (limitBuilder.Length > 0) limitBuilder.Append('\n');
-                                    limitBuilder.Append("- ");
                                     limitBuilder.Append(childLimit);
                                 }
                             }
@@ -5262,7 +5261,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             if (!string.IsNullOrWhiteSpace(childLimit))
                             {
                                 if (limitBuilder.Length > 0) limitBuilder.Append('\n');
-                                limitBuilder.Append("- ");
                                 limitBuilder.Append(childLimit);
                             }
                         }
