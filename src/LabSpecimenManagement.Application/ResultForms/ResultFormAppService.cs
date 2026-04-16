@@ -144,6 +144,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sample.SampleCode ?? "" },
@@ -153,7 +154,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", printDateText },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2275,6 +2276,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sample.SampleCode ?? "" },
@@ -2284,7 +2286,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", printDateText },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2558,7 +2560,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{OtherRequirements}}", otherRequirements },
             { "{{SubContractInfo}}", subContractInfo },
             { "{{DateReceiving}}", contractDate },
-            { "{{DateOfReceiving}}", currentDateText },
+            { "{{DateOfReceiving}}", contractDate },
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
@@ -4387,6 +4389,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var currentDate = DateTime.Now;
         // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
         var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        var contractDate = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
 
         // Total amount formatting - Mẫu nhiệm vụ hiển thị 0
         var actualTotalCost = testRequest.SampleTypeTask ? 0 : testRequest.TotalCost;
@@ -4422,7 +4425,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{OtherRequirements}}", otherRequirements },
             { "{{SubContractInfo}}", subContractInfo },
             { "{{DateReceiving}}", dateReceiving },
-            { "{{DateOfReceiving}}", currentDateText },
+            { "{{DateOfReceiving}}", contractDate },
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
@@ -4629,6 +4632,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             // Common placeholders (BM01, BM03)
@@ -4639,7 +4643,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", printDateText },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -4895,6 +4899,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var now = DateTime.Now;
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
@@ -4904,7 +4909,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
-            { "{{DateOfReceiving}}", now.ToString("dd/MM/yyyy") },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
@@ -5509,6 +5514,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sampleCodes },
@@ -5518,7 +5524,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sampleNames },
-            { "{{DateOfReceiving}}", printDateText },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
