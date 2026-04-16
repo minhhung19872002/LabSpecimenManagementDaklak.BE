@@ -37,6 +37,8 @@ public partial class TestRequestAppService :
         UpdateTestRequestDto>,
     ITestRequestAppService
 {
+    private const int ContractNumberSeed = 26170;
+
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
@@ -606,24 +608,13 @@ public partial class TestRequestAppService :
     {
         NormalizeAndValidateSampleType(input);
 
-        // Handle contract number - auto-regenerate if conflict with auto-generated format
+        // Contract number must be unique; return validation error when duplicate.
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
         {
             var contractExists = await CheckContractNumberExistsAsync(input.ContractNumber);
             if (contractExists)
             {
-                // Check if it's an auto-generated contract number (format: HDYYYYMMDD###)
-                var todayPrefix = $"HD{DateTime.Now:yyyyMMdd}";
-                if (input.ContractNumber.StartsWith(todayPrefix))
-                {
-                    // Auto-regenerate a new contract number
-                    input.ContractNumber = await GenerateContractNumberAsync();
-                }
-                else
-                {
-                    // User manually entered a duplicate number - throw error
-                    throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
-                }
+                throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
             }
         }
 
@@ -681,7 +672,14 @@ public partial class TestRequestAppService :
         }
 
         var entity = await MapToEntityAsync(input);
-        await Repository.InsertAsync(entity, autoSave: true);
+        try
+        {
+            await Repository.InsertAsync(entity, autoSave: true);
+        }
+        catch (Exception ex) when (IsContractNumberDuplicateException(ex))
+        {
+            throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+        }
 
         // Create samples
         if (input.Samples != null && input.Samples.Any())
@@ -895,7 +893,14 @@ public partial class TestRequestAppService :
         // Note: When not requiring approval (New/Pending status), keep current status
         // Status transitions are handled by dedicated methods like PrintTestRequestAsync, SendSampleAsync, etc.
 
-        await Repository.UpdateAsync(entity, autoSave: true);
+        try
+        {
+            await Repository.UpdateAsync(entity, autoSave: true);
+        }
+        catch (Exception ex) when (IsContractNumberDuplicateException(ex))
+        {
+            throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+        }
 
         // Sync ContractNumber to related LaboratoryTasks and QualityManagementTasks
         await SyncContractNumberToRelatedTasksAsync(id, entity.ContractNumber);
@@ -1144,46 +1149,78 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
-    /// Generate next contract number with format HDYYYYMMDD###
-    /// Finds the smallest available number (fills gaps if any)
+    /// Generate next contract number in a global sequential series.
+    /// Starts from 26170 and increments by 1 based on persisted database data.
     /// </summary>
     public async Task<string> GenerateContractNumberAsync()
     {
-        var today = DateTime.Now;
-        var dateStr = today.ToString("yyyyMMdd");
-        var prefix = $"HD{dateStr}";
-
-        // Get all existing contract numbers with today's prefix
         var query = await Repository.GetQueryableAsync();
         var existingNumbers = await AsyncExecuter.ToListAsync(
-            query.Where(x => x.ContractNumber != null && x.ContractNumber.StartsWith(prefix))
+            query.Where(x => x.ContractNumber != null)
                  .Select(x => x.ContractNumber));
 
-        // Parse all sequence numbers into a HashSet for O(1) lookup
-        var usedNumbers = new HashSet<int>();
+        var maxNumber = ContractNumberSeed - 1;
         foreach (var contractNumber in existingNumbers)
         {
-            if (contractNumber != null && contractNumber.Length > prefix.Length)
+            if (TryParseSequentialContractNumber(contractNumber, out var parsedNumber) && parsedNumber > maxNumber)
             {
-                var sequenceStr = contractNumber.Substring(prefix.Length);
-                if (int.TryParse(sequenceStr, out int num) && num >= 1 && num <= 999)
-                {
-                    usedNumbers.Add(num);
-                }
+                maxNumber = parsedNumber;
             }
         }
 
-        // Find the smallest available number from 1 to 999
-        for (int i = 1; i <= 999; i++)
+        var nextNumber = maxNumber + 1;
+        return nextNumber.ToString();
+    }
+
+    private static bool TryParseSequentialContractNumber(string? contractNumber, out int parsedNumber)
+    {
+        parsedNumber = 0;
+
+        if (string.IsNullOrWhiteSpace(contractNumber))
         {
-            if (!usedNumbers.Contains(i))
+            return false;
+        }
+
+        if (!int.TryParse(contractNumber.Trim(), out var value))
+        {
+            return false;
+        }
+
+        if (value < ContractNumberSeed)
+        {
+            return false;
+        }
+
+        parsedNumber = value;
+        return true;
+    }
+
+    private static bool IsDuplicateKeyException(Exception ex)
+    {
+        if (ex.GetType().Name == "DbUpdateException")
+        {
+            var innerMessage = ex.InnerException?.Message ?? string.Empty;
+            if (innerMessage.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
+                innerMessage.Contains("23505", StringComparison.OrdinalIgnoreCase) ||
+                innerMessage.Contains("unique constraint", StringComparison.OrdinalIgnoreCase))
             {
-                return $"{prefix}{i:D3}";
+                return true;
             }
         }
 
-        // All 999 numbers are used - throw error
-        throw new UserFriendlyException("Đã đạt giới hạn 999 hợp đồng trong ngày. Không thể tạo thêm số hợp đồng mới.");
+        return ex.InnerException != null && IsDuplicateKeyException(ex.InnerException);
+    }
+
+    private static bool IsContractNumberDuplicateException(Exception ex)
+    {
+        if (!IsDuplicateKeyException(ex))
+        {
+            return false;
+        }
+
+        var fullMessage = ex.ToString();
+        return fullMessage.Contains("ContractNumber", StringComparison.OrdinalIgnoreCase) ||
+               fullMessage.Contains("AppTestRequests", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
