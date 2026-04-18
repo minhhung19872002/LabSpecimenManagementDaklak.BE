@@ -137,4 +137,5 @@ public class ProductFilterDto : PagedRequestDto
 {
     public string? Search { get; set; }
     public ProductType? ProductType { get; set; }
+    public bool? IsDraft { get; set; }
 }

@@ -55,7 +55,6 @@ public class ProductController : LabSpecimenManagementController
     }
 
     [HttpGet("active")]
-    [AllowAnonymous]
     public virtual Task<ListResultDto<ProductDto>> GetActiveProductsAsync()
     {
         return _productAppService.GetActiveProductsAsync();

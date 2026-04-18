@@ -61,10 +61,39 @@ public class ProductAppService : ApplicationService, IProductAppService
                 x.Name.ToLower().Contains(search));
         }
 
+        // Filter by IsDraft
+        if (input.IsDraft.HasValue)
+        {
+            query = query.Where(x => x.IsDraft == input.IsDraft.Value);
+        }
+
         var totalCount = query.Count();
 
-        var items = query
-            .OrderByDescending(x => x.CreationTime)
+        // Apply sorting
+        IQueryable<Product> sortedQuery;
+        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        {
+            var sorting = input.Sorting.Trim().ToLower();
+            sortedQuery = sorting switch
+            {
+                "name asc" => query.OrderBy(x => x.Name),
+                "name desc" => query.OrderByDescending(x => x.Name),
+                "code asc" => query.OrderBy(x => x.Code),
+                "code desc" => query.OrderByDescending(x => x.Code),
+                "producttype asc" => query.OrderBy(x => x.ProductType),
+                "producttype desc" => query.OrderByDescending(x => x.ProductType),
+                "availablequantity asc" => query.OrderBy(x => x.AvailableQuantity),
+                "availablequantity desc" => query.OrderByDescending(x => x.AvailableQuantity),
+                "creationtime asc" => query.OrderBy(x => x.CreationTime),
+                _ => query.OrderByDescending(x => x.CreationTime),
+            };
+        }
+        else
+        {
+            sortedQuery = query.OrderByDescending(x => x.CreationTime);
+        }
+
+        var items = sortedQuery
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount)
             .ToList();
@@ -84,6 +113,8 @@ public class ProductAppService : ApplicationService, IProductAppService
     [Authorize(LabSpecimenManagementPermissions.Products.Create)]
     public async Task<ProductDto> CreateAsync(CreateUpdateProductDto input)
     {
+        await ValidateDuplicateNameAsync(input.Name, input.ProductType);
+
         var code = await GenerateProductCodeAsync(input.ProductType);
 
         var product = new Product(
@@ -147,6 +178,8 @@ public class ProductAppService : ApplicationService, IProductAppService
     [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
     public async Task<ProductDto> UpdateAsync(Guid id, CreateUpdateProductDto input)
     {
+        await ValidateDuplicateNameAsync(input.Name, input.ProductType, id);
+
         var product = await _productRepository.GetAsync(id);
 
         product.Name = input.Name;
@@ -247,6 +280,21 @@ public class ProductAppService : ApplicationService, IProductAppService
     [Authorize(LabSpecimenManagementPermissions.Products.Delete)]
     public async Task DeleteAsync(Guid id)
     {
+        // Delete child records before soft-deleting product
+        var attachments = (await _attachmentRepository.GetQueryableAsync())
+            .Where(x => x.ProductId == id).ToList();
+        foreach (var att in attachments)
+        {
+            await _attachmentRepository.DeleteAsync(att, autoSave: true);
+        }
+
+        var conversions = (await _conversionRepository.GetQueryableAsync())
+            .Where(x => x.ProductId == id).ToList();
+        foreach (var conv in conversions)
+        {
+            await _conversionRepository.DeleteAsync(conv, autoSave: true);
+        }
+
         await _productRepository.DeleteAsync(id);
     }
 
@@ -282,6 +330,22 @@ public class ProductAppService : ApplicationService, IProductAppService
     }
 
     #region Private Methods
+
+    private async Task ValidateDuplicateNameAsync(string name, ProductType productType, Guid? excludeId = null)
+    {
+        var query = await _productRepository.GetQueryableAsync();
+        var normalizedName = name.Trim().ToLower();
+
+        var exists = await AsyncExecuter.AnyAsync(query.Where(x =>
+            x.Name.ToLower() == normalizedName &&
+            x.ProductType == productType &&
+            (excludeId == null || x.Id != excludeId)));
+
+        if (exists)
+        {
+            throw new UserFriendlyException("Tên sản phẩm đã tồn tại trong cùng loại sản phẩm. Vui lòng chọn tên khác.");
+        }
+    }
 
     private async Task<string> GenerateProductCodeAsync(ProductType productType)
     {
