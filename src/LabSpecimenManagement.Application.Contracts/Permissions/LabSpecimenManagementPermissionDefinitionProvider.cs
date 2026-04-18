@@ -208,6 +208,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         sampleTypeCategoryPermission.AddChild(LabSpecimenManagementPermissions.SampleTypeCategories.Edit, L("Permission:SampleTypeCategories.Edit"));
         sampleTypeCategoryPermission.AddChild(LabSpecimenManagementPermissions.SampleTypeCategories.Delete, L("Permission:SampleTypeCategories.Delete"));
 
+        // Master Data - Units Permissions (Quản lý đơn vị hàng hóa)
+        var unitPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Units.Default, L("Permission:Units"));
+        unitPermission.AddChild(LabSpecimenManagementPermissions.Units.Create, L("Permission:Units.Create"));
+        unitPermission.AddChild(LabSpecimenManagementPermissions.Units.Edit, L("Permission:Units.Edit"));
+        unitPermission.AddChild(LabSpecimenManagementPermissions.Units.Delete, L("Permission:Units.Delete"));
+
         // Master Data - Notes Permissions (Quản lý ghi chú)
         var notePermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Notes.Default, L("Permission:Notes"));
         notePermission.AddChild(LabSpecimenManagementPermissions.Notes.Create, L("Permission:Notes.Create"));

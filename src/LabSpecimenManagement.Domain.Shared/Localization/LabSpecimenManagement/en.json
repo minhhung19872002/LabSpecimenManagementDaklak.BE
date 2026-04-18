@@ -49,6 +49,11 @@
     "Permission:NCRs.Create": "Create",
     "Permission:NCRs.Edit": "Edit",
     "Permission:NCRs.Delete": "Delete",
-    "Permission:NCRs.Close": "Close"
+    "Permission:NCRs.Close": "Close",
+
+    "Permission:Units": "Units",
+    "Permission:Units.Create": "Create",
+    "Permission:Units.Edit": "Edit",
+    "Permission:Units.Delete": "Delete"
   }
 }

@@ -40,6 +40,7 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
         LabSpecimenManagementPermissions.FormTemplates.Default,
         LabSpecimenManagementPermissions.TestResultValues.Default,
         LabSpecimenManagementPermissions.Notes.Default,
+        LabSpecimenManagementPermissions.Units.Default,
     };
 
     public RolePermissionsDataSeedContributor(
@@ -70,6 +71,9 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
         // Backfill quyền tab dữ liệu chi tiết cho role cũ đang có MasterData.Default
         // để không làm gián đoạn truy cập sau khi tách quyền theo tab.
         await BackfillMasterDataDetailTabPermissionsAsync();
+
+        // Backfill quyền Units cho role đang có MasterData.Default nhưng chưa có Units
+        await BackfillNewMasterDataPermissionsAsync();
     }
 
     /// <summary>
@@ -114,6 +118,45 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             foreach (var permission in MasterDataDetailTabPermissions)
             {
                 await _permissionManager.SetForRoleAsync(role.Name, permission, true);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Backfill quyền mới (Units) cho tất cả role đã có MasterData.Default
+    /// Chạy an toàn trên production — chỉ grant nếu chưa có
+    /// </summary>
+    private async Task BackfillNewMasterDataPermissionsAsync()
+    {
+        var newPermissions = new[]
+        {
+            LabSpecimenManagementPermissions.Units.Default,
+            LabSpecimenManagementPermissions.Units.Create,
+            LabSpecimenManagementPermissions.Units.Edit,
+            LabSpecimenManagementPermissions.Units.Delete,
+        };
+
+        var roles = await _roleRepository.GetListAsync();
+        foreach (var role in roles)
+        {
+            var currentPermissions = await _permissionManager.GetAllForRoleAsync(role.Name);
+
+            var hasMasterDataDefault = currentPermissions.Any(
+                p => p.IsGranted && p.Name == LabSpecimenManagementPermissions.MasterData.Default
+            );
+
+            if (!hasMasterDataDefault)
+            {
+                continue;
+            }
+
+            foreach (var permission in newPermissions)
+            {
+                var existing = currentPermissions.FirstOrDefault(p => p.Name == permission);
+                if (existing == null || !existing.IsGranted)
+                {
+                    await _permissionManager.SetForRoleAsync(role.Name, permission, true);
+                }
             }
         }
     }
@@ -332,6 +375,12 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.TestResultValues.Create,
             LabSpecimenManagementPermissions.TestResultValues.Edit,
             LabSpecimenManagementPermissions.TestResultValues.Delete,
+
+            // Master Data - Units
+            LabSpecimenManagementPermissions.Units.Default,
+            LabSpecimenManagementPermissions.Units.Create,
+            LabSpecimenManagementPermissions.Units.Edit,
+            LabSpecimenManagementPermissions.Units.Delete,
 
             // Master Data - Form Templates
             LabSpecimenManagementPermissions.FormTemplates.Default,

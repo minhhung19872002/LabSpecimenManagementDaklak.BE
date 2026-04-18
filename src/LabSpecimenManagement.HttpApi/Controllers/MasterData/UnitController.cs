@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/units")]
-[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+[Authorize(LabSpecimenManagementPermissions.Units.Default)]
 public class UnitController : LabSpecimenManagementController
 {
     private readonly IUnitAppService _unitAppService;

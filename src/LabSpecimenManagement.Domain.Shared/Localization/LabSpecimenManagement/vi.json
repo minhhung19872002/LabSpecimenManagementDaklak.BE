@@ -4,6 +4,11 @@
     "AppName": "LabSpecimenManagement",
     "Menu:Home": "Trang chủ",
     "Welcome": "Chào mừng bạn",
-    "LongWelcomeMessage": "Chào mừng bạn đến ứng dụng. Đây là một dự án khởi nghiệp dựa trên khung ABP. Để biết thêm thông tin, hãy truy cập abp.io."
+    "LongWelcomeMessage": "Chào mừng bạn đến ứng dụng. Đây là một dự án khởi nghiệp dựa trên khung ABP. Để biết thêm thông tin, hãy truy cập abp.io.",
+
+    "Permission:Units": "Đơn vị hàng hóa",
+    "Permission:Units.Create": "Thêm mới",
+    "Permission:Units.Edit": "Chỉnh sửa",
+    "Permission:Units.Delete": "Xóa"
   }
 }

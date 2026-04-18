@@ -14,7 +14,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
-[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+[Authorize(LabSpecimenManagementPermissions.Units.Default)]
 public class UnitAppService :
     CrudAppService<
         Unit,
@@ -27,8 +27,8 @@ public class UnitAppService :
     public UnitAppService(IRepository<Unit, Guid> repository)
         : base(repository)
     {
-        GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
-        GetListPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
+        GetPolicyName = LabSpecimenManagementPermissions.Units.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.Units.Default;
         CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
         UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
         DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
@@ -84,7 +84,6 @@ public class UnitAppService :
         await Repository.UpdateAsync(entity);
     }
 
-    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public async Task<int> BatchDeleteAsync(List<Guid> ids)
     {
         var count = 0;
@@ -103,7 +102,6 @@ public class UnitAppService :
         return count;
     }
 
-    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public async Task<int> BatchToggleActiveAsync(List<Guid> ids, bool isActive)
     {
         var count = 0;

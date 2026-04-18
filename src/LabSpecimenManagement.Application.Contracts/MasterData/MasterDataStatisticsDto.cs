@@ -15,4 +15,5 @@ public class MasterDataStatisticsDto
     public int FormTemplateCount { get; set; }
     public int TestResultValueCount { get; set; }
     public int NoteCount { get; set; }
+    public int UnitCount { get; set; }
 }
