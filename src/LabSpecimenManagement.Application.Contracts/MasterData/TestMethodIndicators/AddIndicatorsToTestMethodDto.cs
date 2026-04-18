@@ -24,4 +24,16 @@ public class IndicatorWithPriceDto
     [Required]
     [Range(0, double.MaxValue)]
     public decimal UnitPrice { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính (nếu không truyền thì dùng TestMethod.Unit)
+    /// </summary>
+    [StringLength(100)]
+    public string? Unit { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính có định dạng HTML
+    /// </summary>
+    [StringLength(500)]
+    public string? FormattedUnit { get; set; }
 }

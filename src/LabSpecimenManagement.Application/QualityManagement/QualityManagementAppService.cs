@@ -1378,6 +1378,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             methodFormattedName = method?.FormattedName;
         }
 
+        if (!string.IsNullOrWhiteSpace(labIndicator.SubContractMethodName))
+        {
+            methodName = labIndicator.SubContractMethodName;
+            methodFormattedName = null;
+        }
+
         string? standardName = null;
         string? comparisonOperator = null;
         string? allowedLimit = null;
@@ -1870,8 +1876,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         LaboratoryTaskIndicatorId = li != null ? (Guid?)li.Id : null,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
-                        MethodName = tm != null ? tm.Name : null,
-                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        MethodName = li != null && !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? li.SubContractMethodName
+                            : (tm != null ? tm.Name : null),
+                        MethodFormattedName = li != null && !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? null
+                            : (tm != null ? tm.FormattedName : null),
                         Unit = li != null ? li.Unit : null,
                         TransferDate = si.TransferDate,
                         TestDate = li != null ? li.TestDate : null,

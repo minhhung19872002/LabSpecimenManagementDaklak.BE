@@ -153,6 +153,8 @@ public class IndicatorFilterDto : PagedAndSortedResultRequestDto
     public string? Search { get; set; }
     public Guid? IndicatorGroupId { get; set; }
     public bool? IsActive { get; set; }
+    public List<Guid>? SpecimenTypeIds { get; set; }
+    public List<Guid>? TestMethodIds { get; set; }
 }
 
 /// <summary>
@@ -208,6 +210,51 @@ public class BatchOperationErrorDto
 }
 
 /// <summary>
+/// DTO cập nhật chỉ tiêu cha kèm quản lý chỉ tiêu phụ (thêm/sửa/xóa)
+/// </summary>
+public class UpdateIndicatorWithSubsDto
+{
+    [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu")]
+    [StringLength(256)]
+    public string Name { get; set; }
+
+    [StringLength(1000)]
+    public string? FormattedName { get; set; }
+
+    public bool IsActive { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
+    public Guid IndicatorGroupId { get; set; }
+
+    public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Danh sách chỉ tiêu phụ sau khi chỉnh sửa.
+    /// Id == null → tạo mới; Id có giá trị → cập nhật existing.
+    /// Sub-indicators bị bỏ khỏi danh sách → sẽ bị xóa (nếu chưa sử dụng).
+    /// </summary>
+    public List<UpsertSubIndicatorDto> SubIndicators { get; set; } = new();
+}
+
+/// <summary>
+/// DTO cho một chỉ tiêu phụ trong UpdateWithSubs
+/// </summary>
+public class UpsertSubIndicatorDto
+{
+    /// <summary>
+    /// null = tạo mới; có giá trị = cập nhật existing
+    /// </summary>
+    public Guid? Id { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng nhập tên chỉ tiêu phụ")]
+    [StringLength(256)]
+    public string Name { get; set; }
+
+    [StringLength(1000)]
+    public string? FormattedName { get; set; }
+}
+
+/// <summary>
 /// DTO Chỉ tiêu với danh sách phương pháp thử
 /// </summary>
 public class IndicatorWithMethodsDto
@@ -231,7 +278,21 @@ public class IndicatorMethodDto
     public Guid TestMethodId { get; set; }
     public string TestMethodCode { get; set; }
     public string TestMethodName { get; set; }
+    public string? TestMethodFormattedName { get; set; }
     public decimal UnitPrice { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Nền mẫu (Loại mẫu)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+    public string? SpecimenTypeCode { get; set; }
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính (từ TestMethodIndicator, fallback TestMethod.Unit)
+    /// </summary>
+    public string? Unit { get; set; }
+    public string? FormattedUnit { get; set; }
 }

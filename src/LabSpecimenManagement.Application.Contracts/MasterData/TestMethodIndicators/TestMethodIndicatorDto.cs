@@ -33,4 +33,14 @@ public class TestMethodIndicatorDto
     /// Tên nền mẫu
     /// </summary>
     public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính (riêng cho chỉ tiêu này trong phương pháp, fallback từ TestMethod.Unit)
+    /// </summary>
+    public string? Unit { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính có định dạng HTML
+    /// </summary>
+    public string? FormattedUnit { get; set; }
 }

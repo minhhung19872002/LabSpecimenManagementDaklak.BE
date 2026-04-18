@@ -37,6 +37,8 @@ public partial class TestRequestAppService :
         UpdateTestRequestDto>,
     ITestRequestAppService
 {
+    private const int ContractNumberSeed = 26170;
+
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
@@ -524,26 +526,95 @@ public partial class TestRequestAppService :
         return entity;
     }
 
+    private static bool HasAnySampleTypeSelection(
+        bool sampleTypeService,
+        bool sampleTypeContract,
+        bool sampleTypeTask,
+        bool sampleTypeSubContract)
+    {
+        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract;
+    }
+
+    private static bool HasAnySampleTypeSelection(TestRequest entity)
+    {
+        return HasAnySampleTypeSelection(
+            entity.SampleTypeService,
+            entity.SampleTypeContract,
+            entity.SampleTypeTask,
+            entity.SampleTypeSubContract);
+    }
+
+    private static string? NormalizeOptionalText(string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+    }
+
+    private static void NormalizeAndValidateSampleType(CreateTestRequestDto input)
+    {
+        if (!HasAnySampleTypeSelection(
+                input.SampleTypeService,
+                input.SampleTypeContract,
+                input.SampleTypeTask,
+                input.SampleTypeSubContract))
+        {
+            throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
+        }
+
+        input.SubContract = input.SampleTypeSubContract
+            ? NormalizeOptionalText(input.SubContract)
+            : null;
+
+        if (input.SampleTypeSubContract && string.IsNullOrWhiteSpace(input.SubContract))
+        {
+            throw new TestRequestValidationException("subContract", "Vui lòng nhập hợp đồng phụ");
+        }
+    }
+
+    private static void NormalizeAndValidateSampleType(UpdateTestRequestDto input, TestRequest existingEntity)
+    {
+        var hasAnySelectionInInput = HasAnySampleTypeSelection(
+            input.SampleTypeService,
+            input.SampleTypeContract,
+            input.SampleTypeTask,
+            input.SampleTypeSubContract);
+
+        // Backward compatibility for old clients/data payloads: keep existing selection
+        // when incoming payload sends all flags false but existing record already has a valid selection.
+        if (!hasAnySelectionInInput && HasAnySampleTypeSelection(existingEntity))
+        {
+            input.SampleTypeService = existingEntity.SampleTypeService;
+            input.SampleTypeContract = existingEntity.SampleTypeContract;
+            input.SampleTypeTask = existingEntity.SampleTypeTask;
+            input.SampleTypeSubContract = existingEntity.SampleTypeSubContract;
+            hasAnySelectionInInput = true;
+        }
+
+        if (!hasAnySelectionInInput)
+        {
+            throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
+        }
+
+        input.SubContract = input.SampleTypeSubContract
+            ? NormalizeOptionalText(input.SubContract)
+            : null;
+
+        if (input.SampleTypeSubContract && string.IsNullOrWhiteSpace(input.SubContract))
+        {
+            throw new TestRequestValidationException("subContract", "Vui lòng nhập hợp đồng phụ");
+        }
+    }
+
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
-        // Handle contract number - auto-regenerate if conflict with auto-generated format
+        NormalizeAndValidateSampleType(input);
+
+        // Contract number must be unique; return validation error when duplicate.
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
         {
             var contractExists = await CheckContractNumberExistsAsync(input.ContractNumber);
             if (contractExists)
             {
-                // Check if it's an auto-generated contract number (format: HDYYYYMMDD###)
-                var todayPrefix = $"HD{DateTime.Now:yyyyMMdd}";
-                if (input.ContractNumber.StartsWith(todayPrefix))
-                {
-                    // Auto-regenerate a new contract number
-                    input.ContractNumber = await GenerateContractNumberAsync();
-                }
-                else
-                {
-                    // User manually entered a duplicate number - throw error
-                    throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
-                }
+                throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
             }
         }
 
@@ -601,7 +672,14 @@ public partial class TestRequestAppService :
         }
 
         var entity = await MapToEntityAsync(input);
-        await Repository.InsertAsync(entity, autoSave: true);
+        try
+        {
+            await Repository.InsertAsync(entity, autoSave: true);
+        }
+        catch (Exception ex) when (IsContractNumberDuplicateException(ex))
+        {
+            throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+        }
 
         // Create samples
         if (input.Samples != null && input.Samples.Any())
@@ -703,6 +781,8 @@ public partial class TestRequestAppService :
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
+        NormalizeAndValidateSampleType(input, entity);
+
         // [TEMPORARY] Tạm tắt approval flow
         // var previousStatus = entity.Status;
         // var requiresApproval = CanEditLimitedInfo(entity.Status);
@@ -813,7 +893,14 @@ public partial class TestRequestAppService :
         // Note: When not requiring approval (New/Pending status), keep current status
         // Status transitions are handled by dedicated methods like PrintTestRequestAsync, SendSampleAsync, etc.
 
-        await Repository.UpdateAsync(entity, autoSave: true);
+        try
+        {
+            await Repository.UpdateAsync(entity, autoSave: true);
+        }
+        catch (Exception ex) when (IsContractNumberDuplicateException(ex))
+        {
+            throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
+        }
 
         // Sync ContractNumber to related LaboratoryTasks and QualityManagementTasks
         await SyncContractNumberToRelatedTasksAsync(id, entity.ContractNumber);
@@ -1062,46 +1149,78 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
-    /// Generate next contract number with format HDYYYYMMDD###
-    /// Finds the smallest available number (fills gaps if any)
+    /// Generate next contract number in a global sequential series.
+    /// Starts from 26170 and increments by 1 based on persisted database data.
     /// </summary>
     public async Task<string> GenerateContractNumberAsync()
     {
-        var today = DateTime.Now;
-        var dateStr = today.ToString("yyyyMMdd");
-        var prefix = $"HD{dateStr}";
-
-        // Get all existing contract numbers with today's prefix
         var query = await Repository.GetQueryableAsync();
         var existingNumbers = await AsyncExecuter.ToListAsync(
-            query.Where(x => x.ContractNumber != null && x.ContractNumber.StartsWith(prefix))
+            query.Where(x => x.ContractNumber != null)
                  .Select(x => x.ContractNumber));
 
-        // Parse all sequence numbers into a HashSet for O(1) lookup
-        var usedNumbers = new HashSet<int>();
+        var maxNumber = ContractNumberSeed - 1;
         foreach (var contractNumber in existingNumbers)
         {
-            if (contractNumber != null && contractNumber.Length > prefix.Length)
+            if (TryParseSequentialContractNumber(contractNumber, out var parsedNumber) && parsedNumber > maxNumber)
             {
-                var sequenceStr = contractNumber.Substring(prefix.Length);
-                if (int.TryParse(sequenceStr, out int num) && num >= 1 && num <= 999)
-                {
-                    usedNumbers.Add(num);
-                }
+                maxNumber = parsedNumber;
             }
         }
 
-        // Find the smallest available number from 1 to 999
-        for (int i = 1; i <= 999; i++)
+        var nextNumber = maxNumber + 1;
+        return nextNumber.ToString();
+    }
+
+    private static bool TryParseSequentialContractNumber(string? contractNumber, out int parsedNumber)
+    {
+        parsedNumber = 0;
+
+        if (string.IsNullOrWhiteSpace(contractNumber))
         {
-            if (!usedNumbers.Contains(i))
+            return false;
+        }
+
+        if (!int.TryParse(contractNumber.Trim(), out var value))
+        {
+            return false;
+        }
+
+        if (value < ContractNumberSeed)
+        {
+            return false;
+        }
+
+        parsedNumber = value;
+        return true;
+    }
+
+    private static bool IsDuplicateKeyException(Exception ex)
+    {
+        if (ex.GetType().Name == "DbUpdateException")
+        {
+            var innerMessage = ex.InnerException?.Message ?? string.Empty;
+            if (innerMessage.Contains("duplicate key", StringComparison.OrdinalIgnoreCase) ||
+                innerMessage.Contains("23505", StringComparison.OrdinalIgnoreCase) ||
+                innerMessage.Contains("unique constraint", StringComparison.OrdinalIgnoreCase))
             {
-                return $"{prefix}{i:D3}";
+                return true;
             }
         }
 
-        // All 999 numbers are used - throw error
-        throw new UserFriendlyException("Đã đạt giới hạn 999 hợp đồng trong ngày. Không thể tạo thêm số hợp đồng mới.");
+        return ex.InnerException != null && IsDuplicateKeyException(ex.InnerException);
+    }
+
+    private static bool IsContractNumberDuplicateException(Exception ex)
+    {
+        if (!IsDuplicateKeyException(ex))
+        {
+            return false;
+        }
+
+        var fullMessage = ex.ToString();
+        return fullMessage.Contains("ContractNumber", StringComparison.OrdinalIgnoreCase) ||
+               fullMessage.Contains("AppTestRequests", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -1393,6 +1512,9 @@ public partial class TestRequestAppService :
                 // IsWaitingForPriorLab = false - Lab Hóa làm song song với Vi Sinh
                 // Status không cần set WaitingSharedSample - mặc định là UnderEvaluation
 
+                // Set SampleSentDate from TestRequest so task page can display the send date
+                task.SampleSentDate = testRequest.SampleSentDate;
+
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 
@@ -1416,7 +1538,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 
@@ -1745,6 +1867,14 @@ public partial class TestRequestAppService :
         entity.SampleSentByUserId = _currentUser.Id;
         entity.SampleSentByUserName = _currentUser.Name ?? _currentUser.UserName;
         await Repository.UpdateAsync(entity);
+
+        // Update SampleSentDate for all existing LaboratoryTasks of this TestRequest
+        var existingTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == entity.Id);
+        foreach (var t in existingTasks)
+        {
+            t.SampleSentDate = entity.SampleSentDate;
+            await _laboratoryTaskRepository.UpdateAsync(t, autoSave: true);
+        }
 
         // Create LaboratoryTasks grouped by Laboratory when sample is sent
         await CreateLaboratoryTasksAsync(entity);
@@ -2637,6 +2767,9 @@ public partial class TestRequestAppService :
                 );
 
                 // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
+                // Set SampleSentDate from TestRequest so task page can display the send date
+                task.SampleSentDate = testRequest.SampleSentDate;
+
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
 
@@ -2656,7 +2789,7 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit;
+                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 
@@ -3013,15 +3146,15 @@ public partial class TestRequestAppService :
             return false;
         }
 
-        var query = await Repository.GetQueryableAsync();
+            var query = await Repository.GetQueryableAsync();
 
-        if (excludeId.HasValue)
-        {
-            // Exclude current record when updating
-            return query.Any(x => x.ContractNumber == contractNumber && x.Id != excludeId.Value);
-        }
+            if (excludeId.HasValue)
+            {
+            // Exclude current record when updating    
+                return query.Any(x => x.ContractNumber == contractNumber && x.Id != excludeId.Value);
+            }
 
-        return query.Any(x => x.ContractNumber == contractNumber);
+            return query.Any(x => x.ContractNumber == contractNumber);
     }
 
     /// <summary>

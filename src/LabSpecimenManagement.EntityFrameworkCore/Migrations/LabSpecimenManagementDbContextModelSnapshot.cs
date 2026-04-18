@@ -329,6 +329,18 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("StandardId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("SubContractCost")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<string>("SubContractMethodName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("SubContractNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");
 
@@ -1759,7 +1771,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("Unit")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
@@ -1779,8 +1790,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("FormattedUnit")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
 
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
@@ -1790,6 +1810,10 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Unit")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<decimal>("UnitPrice")
                         .HasPrecision(18, 2)

@@ -76,6 +76,16 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorStandardAsync(Guid indicatorId, Guid? standardId);
 
     /// <summary>
+    /// Cập nhật phương pháp cho chỉ tiêu
+    /// </summary>
+    Task<LaboratoryTaskIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, Guid? methodId);
+
+    /// <summary>
+    /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
+    /// </summary>
+    Task<LaboratoryTaskIndicatorDto> UpdateSubContractMethodAsync(Guid indicatorId, UpdateSubContractMethodDto input);
+
+    /// <summary>
     /// Cập nhật đơn vị tính cho chỉ tiêu (không cập nhật ngược master data)
     /// </summary>
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit);

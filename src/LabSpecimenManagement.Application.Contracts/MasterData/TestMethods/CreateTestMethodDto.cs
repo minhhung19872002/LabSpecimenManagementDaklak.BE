@@ -11,9 +11,8 @@ public class CreateTestMethodDto
     [StringLength(512)]
     public string? FormattedName { get; set; }
 
-    [Required]
     [StringLength(100)]
-    public string Unit { get; set; }
+    public string? Unit { get; set; }
 
     [StringLength(512)]
     public string? FormattedUnit { get; set; }

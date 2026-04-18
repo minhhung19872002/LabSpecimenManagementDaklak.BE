@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.Testing;
 using Volo.Abp.Application.Dtos;
 
@@ -70,4 +71,9 @@ public class TestingListDto : EntityDto<Guid>
     /// Tên khách hàng
     /// </summary>
     public string? CustomerName { get; set; }
+
+    /// <summary>
+    /// Trạng thái phiếu yêu cầu
+    /// </summary>
+    public TestRequestStatus? TestRequestStatus { get; set; }
 }

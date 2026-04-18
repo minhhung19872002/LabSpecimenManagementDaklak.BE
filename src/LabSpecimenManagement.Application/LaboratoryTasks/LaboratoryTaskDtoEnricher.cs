@@ -182,11 +182,28 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
             }
 
             // Set test method info
+            var isSubContractMethod = !string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName);
             if (taskIndicator.MethodId.HasValue && testMethods.TryGetValue(taskIndicator.MethodId.Value, out var testMethod))
             {
-                dto.MethodName = testMethod.Name;
-                dto.MethodFormattedName = testMethod.FormattedName;
+                if (!isSubContractMethod)
+                {
+                    dto.MethodName = testMethod.Name;
+                    dto.MethodFormattedName = testMethod.FormattedName;
+                }
+
+                isSubContractMethod = isSubContractMethod || string.Equals(testMethod.Name?.Trim(), "-", StringComparison.Ordinal);
             }
+
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                dto.MethodName = taskIndicator.SubContractMethodName;
+                dto.MethodFormattedName = null;
+            }
+
+            dto.IsSubContractMethod = isSubContractMethod;
+            dto.SubContractMethodName = taskIndicator.SubContractMethodName;
+            dto.SubContractNumber = taskIndicator.SubContractNumber;
+            dto.SubContractCost = taskIndicator.SubContractCost;
 
             // Set technician name
             if (taskIndicator.TechnicianId.HasValue && technicianNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))

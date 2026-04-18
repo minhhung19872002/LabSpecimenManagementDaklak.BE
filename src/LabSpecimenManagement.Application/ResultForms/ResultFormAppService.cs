@@ -136,23 +136,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
-        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        // - Ngày gửi kết quả cuối cùng: Ngày gửi kết quả (SubmitDate) muộn nhất của mẫu được chọn
         var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
+        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sample.SampleCode ?? "" },
-            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDateText },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -325,6 +327,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 ? (string.IsNullOrWhiteSpace(ti?.Unit) ? "-" : ti.Unit)
                 : (ti?.Unit ?? "");
 
+        // For subcontract flow, ưu tiên tên phương pháp phụ nhập tại popup.
+        (string Name, string? FormattedName) GetDisplayMethod(LaboratoryTaskIndicator? ti, TestMethod? method)
+        {
+            if (!string.IsNullOrWhiteSpace(ti?.SubContractMethodName))
+            {
+                return (ti.SubContractMethodName!, null);
+            }
+
+            return (method?.Name ?? string.Empty, method?.FormattedName);
+        }
+
         // Get parent indicator IDs that are referenced but might not be in our list
         var parentIdsToFetch = indicators
             .Where(i => i.ParentIndicatorId.HasValue && !indicatorDict.ContainsKey(i.ParentIndicatorId.Value))
@@ -407,7 +420,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                    resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
                 }
 
@@ -419,6 +431,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
                 }
+                var displayMethod = GetDisplayMethod(firstChildTi, method);
 
                 tableData.Add(new ResultFormTableRow
                 {
@@ -426,8 +439,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameters = parametersPlainBuilder.ToString(),
                     ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
                     Unit = GetUnit(firstChildTi),
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = displayMethod.Name,
+                    TestMethodFormattedName = displayMethod.FormattedName,
                     Result = resultBuilder.ToString(),
                     Standards = "",
                     Uncertainty = "",
@@ -442,6 +455,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
                 }
+                var displayMethod = GetDisplayMethod(taskIndicator, method);
 
                 tableData.Add(new ResultFormTableRow
                 {
@@ -449,8 +463,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameters = indicator.Name ?? "",
                     ParametersFormattedName = indicator.FormattedName,
                     Unit = GetUnit(taskIndicator),
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = displayMethod.Name,
+                    TestMethodFormattedName = displayMethod.FormattedName,
                     Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                     Standards = "",
                     Uncertainty = "",
@@ -498,7 +512,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                 if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                resultBuilder.Append("- ");
                 resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
             }
 
@@ -510,6 +523,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 method = methodDict.GetValueOrDefault(firstChildTi.MethodId.Value);
             }
+            var displayMethod = GetDisplayMethod(firstChildTi, method);
 
             tableData.Add(new ResultFormTableRow
             {
@@ -517,8 +531,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = parametersPlainBuilder.ToString(),
                 ParametersFormattedName = hasAnyFormattedName ? parametersFormattedBuilder.ToString() : null,
                 Unit = GetUnit(firstChildTi),
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = displayMethod.Name,
+                TestMethodFormattedName = displayMethod.FormattedName,
                 Result = resultBuilder.ToString(),
                 Standards = "",
                 Uncertainty = "",
@@ -543,8 +557,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Calculate TimeOfTesting from a list of LaboratoryTaskIndicators
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
-    /// - Start date = Min(TestDate) of all indicators (thời gian thử nghiệm gần nhất)
-    /// - End date = Max(TestDate) of all indicators (thời gian thử nghiệm xa nhất)
+    /// - Start date = Min(TestDate) of all indicators (ngày thử nghiệm sớm nhất)
+    /// - End date = Max(SubmitDate) of all indicators (ngày gửi kết quả muộn nhất)
     /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
     /// </summary>
     private string CalculateTimeOfTesting(List<LaboratoryTaskIndicator> taskIndicators)
@@ -561,32 +575,34 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             .DefaultIfEmpty()
             .Min();
 
-        // Get Max TestDate (ngày thử nghiệm muộn nhất - chỉ tiêu xa nhất)
-        var maxTestDate = taskIndicators
-            .Where(ti => ti.TestDate.HasValue)
-            .Select(ti => ti.TestDate!.Value)
+        // Get Max SubmitDate (ngày gửi kết quả muộn nhất)
+        var maxSubmitDate = taskIndicators
+            .Where(ti => ti.SubmitDate.HasValue)
+            .Select(ti => ti.SubmitDate!.Value)
             .DefaultIfEmpty()
             .Max();
 
         // Format result - always show both dates
-        if (minTestDate == default && maxTestDate == default)
+        if (minTestDate == default && maxSubmitDate == default)
         {
             return "";
         }
         else if (minTestDate == default)
         {
-            // Only have max date, show it twice
-            return $"{maxTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
+            // Only have submit date, show it twice
+            return $"{maxSubmitDate:dd/MM/yyyy} - {maxSubmitDate:dd/MM/yyyy}";
         }
-        else if (maxTestDate == default)
+        else if (maxSubmitDate == default)
         {
-            // Only have min date, show it twice
+            // Only have test date, show it twice
             return $"{minTestDate:dd/MM/yyyy} - {minTestDate:dd/MM/yyyy}";
         }
         else
         {
-            // Always show both dates (even if same day: "07/01/2025 - 07/01/2025")
-            return $"{minTestDate:dd/MM/yyyy} - {maxTestDate:dd/MM/yyyy}";
+            var startDate = minTestDate.Date;
+            var endDate = maxSubmitDate.Date;
+
+            return $"{startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}";
         }
     }
 
@@ -594,8 +610,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Calculate TimeOfTesting for a single LaboratoryTaskIndicator
     /// Returns: "dd/MM/yyyy - dd/MM/yyyy" where:
     /// - Start date = TestDate
-    /// - End date = TestDate (same as start for single indicator)
-    /// Always displays both dates even if they are the same (e.g., "07/01/2025 - 07/01/2025")
+    /// - End date = SubmitDate
+    /// If one side is missing, repeats the available date
     /// </summary>
     private string CalculateTimeOfTestingForSingleIndicator(LaboratoryTaskIndicator taskIndicator)
     {
@@ -605,16 +621,26 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         var testDate = taskIndicator.TestDate;
+        var submitDate = taskIndicator.SubmitDate;
 
-        // Format result - always show both dates (same for single indicator)
-        if (!testDate.HasValue)
+        if (!testDate.HasValue && !submitDate.HasValue)
         {
             return "";
         }
+        else if (!testDate.HasValue)
+        {
+            return $"{submitDate!.Value:dd/MM/yyyy} - {submitDate.Value:dd/MM/yyyy}";
+        }
+        else if (!submitDate.HasValue)
+        {
+            return $"{testDate.Value:dd/MM/yyyy} - {testDate.Value:dd/MM/yyyy}";
+        }
         else
         {
-            // Always show both dates (same date for single indicator: "07/01/2025 - 07/01/2025")
-            return $"{testDate.Value:dd/MM/yyyy} - {testDate.Value:dd/MM/yyyy}";
+            var startDate = testDate.Value.Date;
+            var endDate = submitDate.Value.Date;
+
+            return $"{startDate:dd/MM/yyyy} - {endDate:dd/MM/yyyy}";
         }
     }
 
@@ -2242,23 +2268,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
-        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        // - Ngày gửi kết quả cuối cùng: Ngày gửi kết quả (SubmitDate) muộn nhất của mẫu được chọn
         var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
+        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sample.SampleCode ?? "" },
-            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDateText },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -2502,7 +2530,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var otherRequirements = input.OtherRequirements ?? "";
         var subContractInfo = input.SubContract ?? "";
         var currentDate = DateTime.Now;
-        var dateReceiving = input.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        var contractDate = input.ContractDate?.Date.ToString("dd/MM/yyyy", System.Globalization.CultureInfo.InvariantCulture) ?? "";
         // Mẫu nhiệm vụ hiển thị 0
         var actualTotalCost = input.SampleTypeTask ? 0 : input.TotalCost;
         var totalAmount = actualTotalCost.ToString("N0");
@@ -2531,7 +2559,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{CompareStandard}}", compareStandard },
             { "{{OtherRequirements}}", otherRequirements },
             { "{{SubContractInfo}}", subContractInfo },
-            { "{{DateReceiving}}", dateReceiving },
+            { "{{DateReceiving}}", contractDate },
+            { "{{DateOfReceiving}}", contractDate },
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
@@ -4360,6 +4389,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var currentDate = DateTime.Now;
         // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
         var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
+        var contractDate = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
 
         // Total amount formatting - Mẫu nhiệm vụ hiển thị 0
         var actualTotalCost = testRequest.SampleTypeTask ? 0 : testRequest.TotalCost;
@@ -4395,6 +4425,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{OtherRequirements}}", otherRequirements },
             { "{{SubContractInfo}}", subContractInfo },
             { "{{DateReceiving}}", dateReceiving },
+            { "{{DateOfReceiving}}", contractDate },
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
@@ -4592,7 +4623,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
         }
 
-        // Calculate TimeOfTesting: Use only the selected indicator's TestDate
+        // Calculate TimeOfTesting: Use selected indicator's TestDate and SubmitDate
         var timeOfTesting = CalculateTimeOfTestingForSingleIndicator(labTaskIndicator);
 
         // Merge notes from QLKT (lab) and QLCL (quality)
@@ -4600,17 +4631,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
+        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             // Common placeholders (BM01, BM03)
             { "{{SampleCode}}", sample.SampleCode ?? "" },
-            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDateText },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", sample.StatusText ?? "" },
             { "{{Quantity}}", sample.SampleQuantity ?? "" },
@@ -4680,8 +4713,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator.Name ?? "",
                 ParametersFormattedName = indicator.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
+                    ? labTaskIndicator.SubContractMethodName
+                    : method?.Name ?? "",
+                TestMethodFormattedName = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
+                    ? null
+                    : method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = compareWithStandard, // {{Standards}} = properly formatted limit
                 CompareWithStandard = compareWithStandard, // Single indicator = no footnote needed
@@ -4853,7 +4890,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 si.StandardId, si.IndicatorId, si.ComparisonOperator, si.AllowedLimit, si.LowerOperator, si.LowerLimit, si.UpperOperator, si.UpperLimit);
         }
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected indicators only
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected indicators only
         var timeOfTesting = CalculateTimeOfTesting(labTaskIndicators);
 
         // Note: FE đã auto-append notes từ FreeTextNote và MasterDataNotes vào input.Note
@@ -4862,6 +4899,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
         var now = DateTime.Now;
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
@@ -4871,7 +4909,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", firstSample?.SampleQuantity ?? "" },
@@ -5053,7 +5091,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                         if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                        resultBuilder.Append("- ");
                         resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
 
                         // Build limit for this child (use plain text version for combined display)
@@ -5073,7 +5110,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                                 if (!string.IsNullOrWhiteSpace(childLimit))
                                 {
                                     if (limitBuilder.Length > 0) limitBuilder.Append('\n');
-                                    limitBuilder.Append("- ");
                                     limitBuilder.Append(childLimit);
                                 }
                             }
@@ -5093,8 +5129,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Parameter = paramPlainBuilder.ToString(),
                         ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                         Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
-                        TestMethod = method?.Name ?? "",
-                        TestMethodFormattedName = method?.FormattedName,
+                        TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                            ? firstChild.Item.LabTaskIndicator.SubContractMethodName
+                            : method?.Name ?? "",
+                        TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                            ? null
+                            : method?.FormattedName,
                         Result = resultBuilder.ToString(),
                         ReferenceLimit = "",
                         StandardId = null,
@@ -5149,8 +5189,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Parameter = indicator.Name ?? "",
                         ParameterFormattedName = indicator.FormattedName,
                         Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
-                        TestMethod = method?.Name ?? "",
-                        TestMethodFormattedName = method?.FormattedName,
+                        TestMethod = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
+                            ? item.LabTaskIndicator.SubContractMethodName
+                            : method?.Name ?? "",
+                        TestMethodFormattedName = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
+                            ? null
+                            : method?.FormattedName,
                         Result = resultText,
                         ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "",
                         StandardId = effectiveStandardId,
@@ -5203,7 +5247,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
-                    resultBuilder.Append("- ");
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
 
                     // Build limit for this child (use plain text version for combined display)
@@ -5223,7 +5266,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             if (!string.IsNullOrWhiteSpace(childLimit))
                             {
                                 if (limitBuilder.Length > 0) limitBuilder.Append('\n');
-                                limitBuilder.Append("- ");
                                 limitBuilder.Append(childLimit);
                             }
                         }
@@ -5243,8 +5285,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Parameter = paramPlainBuilder.ToString(),
                     ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                     Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
-                    TestMethod = method?.Name ?? "",
-                    TestMethodFormattedName = method?.FormattedName,
+                    TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                        ? firstChild.Item.LabTaskIndicator.SubContractMethodName
+                        : method?.Name ?? "",
+                    TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
+                        ? null
+                        : method?.FormattedName,
                     Result = resultBuilder.ToString(),
                     ReferenceLimit = "",
                     StandardId = null,
@@ -5455,9 +5501,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
-        // Calculate TimeOfTesting: Min(TestDate) - Max(TestDate) of selected sample's indicators only
+        // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
-        // - Ngày chỉ tiêu cuối cùng thử nghiệm: Ngày KTV check-in chỉ tiêu cuối cùng của mẫu được chọn
+        // - Ngày gửi kết quả cuối cùng: Ngày gửi kết quả (SubmitDate) muộn nhất của mẫu được chọn
         var timeOfTesting = CalculateTimeOfTesting(taskIndicators);
 
         // Use first sample for header info (or combine if needed)
@@ -5467,16 +5513,18 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
+        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", sampleCodes },
-            { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDateText },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
             { "{{NameOfSample}}", sampleNames },
-            { "{{DateOfReceiving}}", testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "" },
+            { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
             { "{{SampleDescription}}", firstSample?.StatusText ?? "" },
             { "{{Quantity}}", string.Join(", ", samples.Select(s => s.SampleQuantity).Where(q => !string.IsNullOrEmpty(q))) },
@@ -5519,8 +5567,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 Parameters = indicator?.Name ?? "",
                 ParametersFormattedName = indicator?.FormattedName,
                 Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
-                TestMethod = method?.Name ?? "",
-                TestMethodFormattedName = method?.FormattedName,
+                TestMethod = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
+                    ? taskIndicator?.SubContractMethodName ?? ""
+                    : method?.Name ?? "",
+                TestMethodFormattedName = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
+                    ? null
+                    : method?.FormattedName,
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",

@@ -819,6 +819,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Get customer name from test request
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
+        dto.TestRequestStatus = testRequest?.Status;
 
         // Filter out parent indicators with children for counting
         var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(indicators);
@@ -939,10 +940,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             dto.LaboratoryName = labDept?.Name;
         }
 
-        // Get customer name and test request status
+        // Get test request info (includes SampleSentDate - ngày BPGN gửi mẫu)
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
+        dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate; // Ưu tiên TestRequest.SampleSentDate (ngày BPGN xác nhận gửi mẫu)
 
         // Collect all user IDs needed for this DTO (batch fetch)
         var allUserIds = new List<Guid?> { task.TechnicalManagerId };
@@ -1077,8 +1079,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
                 if (string.IsNullOrEmpty(unit) && method != null)
                 {
-                    unit = method.Unit;
+                    unit = method.FormattedUnit ?? method.Unit ?? "";
                 }
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                methodName = taskIndicator.SubContractMethodName;
+                methodFormattedName = null;
             }
 
             if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
@@ -1522,6 +1530,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
                 methodName = method?.Name;
+            }
+
+            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+            {
+                methodName = taskIndicator.SubContractMethodName;
             }
         }
 
@@ -2225,6 +2238,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var methodName = method?.Name;
         var methodFormattedName = method?.FormattedName;
 
+        if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+        {
+            methodName = taskIndicator.SubContractMethodName;
+            methodFormattedName = null;
+        }
+
         var technicianName = taskIndicator.TechnicianId.HasValue
             ? await _userNameProvider.GetUserNameAsync(taskIndicator.TechnicianId.Value)
             : null;
@@ -2390,8 +2409,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodId = li.MethodId,
-                        MethodName = tm != null ? tm.Name : null,
-                        MethodFormattedName = tm != null ? tm.FormattedName : null,
+                        MethodName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? li.SubContractMethodName
+                            : (tm != null ? tm.Name : null),
+                        MethodFormattedName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
+                            ? null
+                            : (tm != null ? tm.FormattedName : null),
                         Unit = li.Unit,
                         TransferDate = si.TransferDate,
                         TestDate = li.TestDate,

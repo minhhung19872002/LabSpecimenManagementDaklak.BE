@@ -28,6 +28,23 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     public Guid? MethodId { get; set; }
 
     /// <summary>
+    /// Tên phương pháp phụ (áp dụng cho chỉ tiêu có phương pháp gốc là "-")
+    /// </summary>
+    [MaxLength(500)]
+    public string? SubContractMethodName { get; set; }
+
+    /// <summary>
+    /// Số hợp đồng phụ
+    /// </summary>
+    [MaxLength(200)]
+    public string? SubContractNumber { get; set; }
+
+    /// <summary>
+    /// Chi phí phương pháp phụ
+    /// </summary>
+    public decimal? SubContractCost { get; set; }
+
+    /// <summary>
     /// Thử nghiệm viên thực hiện - Technician ID
     /// </summary>
     public Guid? TechnicianId { get; set; }

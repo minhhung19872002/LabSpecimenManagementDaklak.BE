@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
@@ -704,42 +705,75 @@ public class ImportAppService : ApplicationService, IImportAppService
         return stream.ToArray();
     }
 
-    public byte[] GetTestMethodWithIndicatorsTemplate()
+    public async Task<byte[]> GetTestMethodWithIndicatorsTemplateAsync()
     {
-        // Try to read from static template file first
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Phương pháp.xlsx");
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (File.Exists(templatePath))
+        var query = from tmi in tmiQuery
+                    join tm in methodQuery on tmi.TestMethodId equals tm.Id
+                    join ind in indicatorQuery on tmi.IndicatorId equals ind.Id
+                    join st in specimenTypeQuery on tmi.SpecimenTypeId equals st.Id into stj
+                    from st in stj.DefaultIfEmpty()
+                    where tm.IsActive
+                    orderby tm.Name, ind.Name
+                    select new
+                    {
+                        TestMethodName = tm.Name,
+                        tm.FormattedName,
+                        Unit = tm.Unit ?? "",
+                        tm.FormattedUnit,
+                        SpecimenTypeName = st != null ? st.Name : "",
+                        IndicatorName = ind.Name,
+                        tmi.UnitPrice
+                    };
+
+        var rows = await AsyncExecuter.ToListAsync(query);
+
+        // Fallback to static template if no data
+        if (rows.Count == 0)
+            return ReadStaticTemplate("Phương pháp.xlsx");
+
+        // Use ClosedXML to preserve rich text formatting (FormattedName, FormattedUnit)
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        // Headers
+        var headers = new[] { "Tên phương pháp", "Mô tả", "Đơn vị tính", "Nền mẫu", "Chỉ tiêu", "Đơn giá" };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        // Data rows with rich text
+        for (int r = 0; r < rows.Count; r++)
         {
-            return File.ReadAllBytes(templatePath);
+            var row = rows[r];
+            var rowNum = r + 2;
+
+            // Tên phương pháp: rich text from FormattedName
+            if (!string.IsNullOrEmpty(row.FormattedName) && row.FormattedName.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 1), row.FormattedName);
+            else
+                worksheet.Cell(rowNum, 1).Value = row.TestMethodName ?? "";
+
+            worksheet.Cell(rowNum, 2).Value = ""; // Mô tả
+
+            // Đơn vị tính: rich text from FormattedUnit
+            if (!string.IsNullOrEmpty(row.FormattedUnit) && row.FormattedUnit.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 3), row.FormattedUnit);
+            else
+                worksheet.Cell(rowNum, 3).Value = row.Unit ?? "";
+
+            worksheet.Cell(rowNum, 4).Value = row.SpecimenTypeName ?? "";
+            worksheet.Cell(rowNum, 5).Value = row.IndicatorName ?? "";
+            worksheet.Cell(rowNum, 6).Value = row.UnitPrice;
         }
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
-            {
-                { "Tên phương pháp", "Phương pháp đo pH" },
-                { "Mô tả", "" },
-                { "Đơn vị tính", "mg/L" },
-                { "Nền mẫu", "Nước mặt" },
-                { "Chỉ tiêu", "pH" },
-                { "Đơn giá", 50000 }
-            },
-            new()
-            {
-                { "Tên phương pháp", "Phương pháp đo pH" },
-                { "Mô tả", "" },
-                { "Đơn vị tính", "mg/L" },
-                { "Nền mẫu", "Nước mặt" },
-                { "Chỉ tiêu", "Độ đục" },
-                { "Đơn giá", 60000 }
-            }
-        };
+        worksheet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
@@ -760,216 +794,45 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
 
-        // Load existing data for validation (use GroupBy to handle duplicate names after normalization)
-        var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.First().Id);
-
+        // Load existing TestMethods for upsert check
         var testMethods = await _testMethodRepository.GetListAsync();
         var testMethodDict = testMethods
             .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First().Id);
 
-        // Load specimenTypes for validation
-        var specimenTypes = await _specimenTypeRepository.GetListAsync();
-        var specimenTypeDict = specimenTypes
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
-            .ToDictionary(g => g.Key, g => g.First());
-
         var result = new TestMethodImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
-        // Group by TestMethodName
-        var groups = rows
-            .Select((row, idx) => (Row: row, RowNumber: idx + 2))
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Row.TestMethodName).ToLowerInvariant())
-            .ToList();
-
-        foreach (var group in groups)
+        // Each row = one TestMethod (no grouping needed)
+        foreach (var (row, rowNumber) in rows.Select((r, i) => (Row: r, RowNumber: i + 2)))
         {
-            var firstRow = group.First().Row;
-            var testMethodKey = group.Key;
+            var testMethodKey = StringHelper.NormalizeAndTrim(row.TestMethodName).ToLowerInvariant();
 
             // Validate TestMethodName not empty
             if (string.IsNullOrWhiteSpace(testMethodKey))
             {
-                foreach (var (row, rowNumber) in group)
+                var error = "Tên phương pháp không được để trống";
+                validationResult.Errors.Add(new ImportRowError
                 {
-                    var error = "Tên phương pháp không được để trống";
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Tên phương pháp",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên phương pháp",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
                 continue;
             }
 
             var previewGroup = new TestMethodImportPreviewGroup
             {
-                TestMethodName = firstRow.TestMethodName?.Trim() ?? "",
-                FormattedName = firstRow.FormattedName,
-                Description = firstRow.Description?.Trim(),
-                Unit = firstRow.Unit?.Trim() ?? "",
-                FormattedUnit = firstRow.FormattedUnit,
+                TestMethodName = row.TestMethodName?.Trim() ?? "",
+                FormattedName = row.FormattedName,
+                Description = row.Description?.Trim(),
                 IsNew = !testMethodDict.ContainsKey(testMethodKey)
             };
 
             if (!previewGroup.IsNew)
             {
                 previewGroup.ExistingId = testMethodDict[testMethodKey];
-            }
-
-            // Check for duplicate indicators within the group (key = indicatorName|specimenTypeName)
-            var indicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            foreach (var (row, rowNumber) in group)
-            {
-                var indicatorKey = StringHelper.NormalizeAndTrim(row.IndicatorName).ToLowerInvariant();
-                var item = new TestMethodIndicatorImportItem
-                {
-                    RowNumber = rowNumber,
-                    IndicatorName = row.IndicatorName?.Trim() ?? "",
-                    SpecimenTypeName = row.SpecimenTypeName?.Trim(),
-                    UnitPrice = row.UnitPrice,
-                    IsValid = true
-                };
-
-                var rowErrorMessages = new List<string>();
-
-                // Validate SpecimenType - bắt buộc và phải tồn tại trong hệ thống
-                if (string.IsNullOrWhiteSpace(row.SpecimenTypeName))
-                {
-                    item.IsValid = false;
-                    var error = "Nền mẫu là bắt buộc";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Nền mẫu",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else
-                {
-                    var specimenTypeKey = StringHelper.NormalizeAndTrim(row.SpecimenTypeName).ToLowerInvariant();
-                    if (!specimenTypeDict.TryGetValue(specimenTypeKey, out var specimenType))
-                    {
-                        item.IsValid = false;
-                        var error = $"Nền mẫu '{row.SpecimenTypeName}' không tồn tại trong hệ thống";
-                        rowErrorMessages.Add(error);
-                        validationResult.Errors.Add(new ImportRowError
-                        {
-                            RowNumber = rowNumber,
-                            ColumnName = "Nền mẫu",
-                            ErrorMessage = error,
-                            Value = row.SpecimenTypeName
-                        });
-                        AddRowError(rowErrors, rowNumber, error);
-                    }
-                    else
-                    {
-                        item.SpecimenTypeId = specimenType.Id;
-                    }
-                }
-
-                // Validate indicator name not empty
-                if (string.IsNullOrWhiteSpace(indicatorKey))
-                {
-                    item.IsValid = false;
-                    var error = "Tên chỉ tiêu không được để trống";
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Chỉ tiêu",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-                else
-                {
-                    // Validate indicator exists (only if name is not empty)
-                    if (!indicatorDict.TryGetValue(indicatorKey, out var indicatorId))
-                    {
-                        item.IsValid = false;
-                        var error = $"Chỉ tiêu '{row.IndicatorName}' không tồn tại trong hệ thống";
-                        rowErrorMessages.Add(error);
-                        validationResult.Errors.Add(new ImportRowError
-                        {
-                            RowNumber = rowNumber,
-                            ColumnName = "Chỉ tiêu",
-                            ErrorMessage = error,
-                            Value = row.IndicatorName
-                        });
-                        AddRowError(rowErrors, rowNumber, error);
-                    }
-                    else
-                    {
-                        item.IndicatorId = indicatorId;
-
-                        // Check duplicate indicator+specimenType in same test method
-                        var specimenTypeKeyPart = StringHelper.NormalizeAndTrim(row.SpecimenTypeName).ToLowerInvariant();
-                        var uniqueKey = $"{indicatorKey}|{specimenTypeKeyPart}";
-                        if (!indicatorKeys.Add(uniqueKey))
-                        {
-                            item.IsValid = false;
-                            var error = $"Chỉ tiêu '{row.IndicatorName}' với nền mẫu '{row.SpecimenTypeName}' bị trùng trong phương pháp này";
-                            rowErrorMessages.Add(error);
-                            validationResult.Errors.Add(new ImportRowError
-                            {
-                                RowNumber = rowNumber,
-                                ColumnName = "Chỉ tiêu",
-                                ErrorMessage = error,
-                                Value = row.IndicatorName
-                            });
-                            AddRowError(rowErrors, rowNumber, error);
-                        }
-                    }
-                }
-
-                // Validate UnitPrice (always check regardless of other errors)
-                if (row.UnitPrice < 0)
-                {
-                    var error = "Đơn giá phải >= 0";
-                    item.IsValid = false;
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Đơn giá",
-                        ErrorMessage = error,
-                        Value = row.UnitPrice.ToString()
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-
-                // Validate Unit not empty (always check regardless of other errors)
-                if (string.IsNullOrWhiteSpace(row.Unit))
-                {
-                    var error = "Đơn vị tính không được để trống";
-                    item.IsValid = false;
-                    rowErrorMessages.Add(error);
-                    validationResult.Errors.Add(new ImportRowError
-                    {
-                        RowNumber = rowNumber,
-                        ColumnName = "Đơn vị tính",
-                        ErrorMessage = error
-                    });
-                    AddRowError(rowErrors, rowNumber, error);
-                }
-
-                // Set combined error message for display
-                if (rowErrorMessages.Count > 0)
-                {
-                    item.ErrorMessage = string.Join("; ", rowErrorMessages);
-                }
-
-                previewGroup.Indicators.Add(item);
             }
 
             result.Groups.Add(previewGroup);
@@ -980,7 +843,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.TotalTestMethods = result.Groups.Count;
         result.NewTestMethods = result.Groups.Count(g => g.IsNew);
         result.UpdateTestMethods = result.Groups.Count(g => !g.IsNew);
-        result.TotalIndicators = result.Groups.Sum(g => g.Indicators.Count);
 
         // Generate error file if there are errors
         if (!validationResult.IsValid && rowErrors.Count > 0)
@@ -1011,71 +873,37 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         var importedCount = 0;
         var updatedCount = 0;
-        var codeOffset = 0; // Track number of codes generated in this session
+        var codeOffset = 0;
 
         try
         {
             foreach (var group in preview.Groups)
             {
-                TestMethod testMethod;
-
                 if (group.IsNew)
                 {
-                    // Create new TestMethod
                     var code = await GenerateTestMethodCodeAsync(codeOffset);
-                    codeOffset++; // Increment offset for next code
-                    testMethod = new TestMethod(
+                    codeOffset++;
+                    var testMethod = new TestMethod(
                         _guidGenerator.Create(),
                         code,
                         group.TestMethodName,
-                        group.Unit
+                        null // Unit is now nullable
                     )
                     {
-                        // Use FormattedName (with HTML formatting) from Excel
                         FormattedName = group.FormattedName,
-                        FormattedUnit = group.FormattedUnit
+                        ExtraProperties = { ["Description"] = group.Description ?? "" }
                     };
                     await _testMethodRepository.InsertAsync(testMethod);
                     importedCount++;
                 }
                 else
                 {
-                    // Update existing TestMethod
-                    testMethod = await _testMethodRepository.GetAsync(group.ExistingId!.Value);
-                    testMethod.Unit = group.Unit;
-                    testMethod.FormattedUnit = group.FormattedUnit;
-                    // Update FormattedName if provided
-                    if (!string.IsNullOrWhiteSpace(group.FormattedName))
-                    {
-                        testMethod.FormattedName = group.FormattedName;
-                    }
+                    var testMethod = await _testMethodRepository.GetAsync(group.ExistingId!.Value);
+                    testMethod.FormattedName = group.FormattedName;
+                    testMethod.ExtraProperties["Description"] = group.Description ?? "";
+                    // Unit intentionally left unchanged for existing records
                     await _testMethodRepository.UpdateAsync(testMethod);
                     updatedCount++;
-                }
-
-                // Remove existing indicators
-                var existingIndicators = await _testMethodIndicatorRepository
-                    .GetListAsync(x => x.TestMethodId == testMethod.Id);
-                if (existingIndicators.Any())
-                {
-                    await _testMethodIndicatorRepository.DeleteManyAsync(existingIndicators);
-                }
-
-                // Add indicators
-                var sortOrder = 0;
-                foreach (var item in group.Indicators.Where(i => i.IsValid && i.IndicatorId.HasValue))
-                {
-                    var indicator = new TestMethodIndicator(
-                        _guidGenerator.Create(),
-                        testMethod.Id,
-                        item.IndicatorId!.Value,
-                        item.UnitPrice,
-                        item.SpecimenTypeId
-                    )
-                    {
-                        SortOrder = sortOrder++
-                    };
-                    await _testMethodIndicatorRepository.InsertAsync(indicator);
                 }
             }
 
@@ -1122,10 +950,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         // Find column indices for each field
         int testMethodCol = FindColumnIndex(columnMap, "tên phương pháp", "tenpp", "ten phuong phap", "tên pp", "ten pp");
         int descriptionCol = FindColumnIndex(columnMap, "mô tả", "mo ta", "mota", "description");
-        int unitCol = FindColumnIndex(columnMap, "đơn vị tính", "don vi tinh", "dvt", "đơn vị", "don vi", "unit", "đvt");
-        int specimenTypeCol = FindColumnIndex(columnMap, "nền mẫu", "nen mau", "specimen type", "loại mẫu", "loai mau");
-        int indicatorCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "chitieu", "indicator", "tên chỉ tiêu", "ten chi tieu");
-        int priceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "dongia", "gia", "giá", "unit price", "price");
 
         // Read data rows (starting from row 2)
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
@@ -1142,11 +966,6 @@ public class ImportAppService : ApplicationService, IImportAppService
                 TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
                 FormattedName = testMethodCol > 0 ? GetCellRichTextAsHtml(row.Cell(testMethodCol)) : null,
                 Description = descriptionCol > 0 ? row.Cell(descriptionCol).GetString()?.Trim() : null,
-                Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() ?? "" : "",
-                FormattedUnit = unitCol > 0 ? GetCellRichTextAsHtml(row.Cell(unitCol)) : null,
-                SpecimenTypeName = specimenTypeCol > 0 ? row.Cell(specimenTypeCol).GetString()?.Trim() : null,
-                IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
-                UnitPrice = priceCol > 0 ? GetCellDecimalValue(row.Cell(priceCol)) : 0
             };
 
             result.Add(importRow);
@@ -1246,6 +1065,126 @@ public class ImportAppService : ApplicationService, IImportAppService
         if (bold) text = $"<b>{text}</b>";
 
         return text;
+    }
+
+    /// <summary>
+    /// Write HTML-formatted text to Excel cell as rich text.
+    /// Reverse of GetCellRichTextAsHtml: converts HTML tags (b, i, u, sub, sup) to Excel formatting.
+    /// If html is null/empty or has no tags, writes plain text.
+    /// </summary>
+    private void WriteHtmlToCell(IXLCell cell, string? html)
+    {
+        if (string.IsNullOrWhiteSpace(html))
+        {
+            cell.Value = "";
+            return;
+        }
+
+        // Check if there are any HTML tags
+        if (!html.Contains('<'))
+        {
+            cell.Value = System.Web.HttpUtility.HtmlDecode(html);
+            return;
+        }
+
+        // Parse HTML into segments with formatting
+        var richText = cell.CreateRichText();
+        ParseHtmlToRichText(richText, html, false, false, false, false, false);
+    }
+
+    private void ParseHtmlToRichText(IXLRichText richText, string html,
+        bool bold, bool italic, bool underline, bool subscript, bool superscript)
+    {
+        var pos = 0;
+        while (pos < html.Length)
+        {
+            var tagStart = html.IndexOf('<', pos);
+            if (tagStart < 0)
+            {
+                // Remaining plain text
+                var remaining = System.Web.HttpUtility.HtmlDecode(html.Substring(pos));
+                if (!string.IsNullOrEmpty(remaining))
+                {
+                    var run = richText.AddText(remaining);
+                    ApplyRunFormatting(run, bold, italic, underline, subscript, superscript);
+                }
+                break;
+            }
+
+            // Text before tag
+            if (tagStart > pos)
+            {
+                var text = System.Web.HttpUtility.HtmlDecode(html.Substring(pos, tagStart - pos));
+                if (!string.IsNullOrEmpty(text))
+                {
+                    var run = richText.AddText(text);
+                    ApplyRunFormatting(run, bold, italic, underline, subscript, superscript);
+                }
+            }
+
+            var tagEnd = html.IndexOf('>', tagStart);
+            if (tagEnd < 0) break;
+
+            var tag = html.Substring(tagStart + 1, tagEnd - tagStart - 1).Trim().ToLower();
+            pos = tagEnd + 1;
+
+            // Find closing tag and recurse
+            string? closingTag = null;
+            bool newBold = bold, newItalic = italic, newUnderline = underline, newSub = subscript, newSup = superscript;
+
+            switch (tag)
+            {
+                case "b": case "strong": closingTag = tag == "b" ? "</b>" : "</strong>"; newBold = true; break;
+                case "i": case "em": closingTag = tag == "i" ? "</i>" : "</em>"; newItalic = true; break;
+                case "u": closingTag = "</u>"; newUnderline = true; break;
+                case "sub": closingTag = "</sub>"; newSub = true; break;
+                case "sup": closingTag = "</sup>"; newSup = true; break;
+                case "br": case "br/": case "br /":
+                    richText.AddText("\n");
+                    continue;
+                default:
+                    if (tag.StartsWith("/")) continue; // skip closing tags handled below
+                    continue;
+            }
+
+            if (closingTag != null)
+            {
+                var closeIdx = html.IndexOf(closingTag, pos, StringComparison.OrdinalIgnoreCase);
+                if (closeIdx >= 0)
+                {
+                    var innerHtml = html.Substring(pos, closeIdx - pos);
+                    ParseHtmlToRichText(richText, innerHtml, newBold, newItalic, newUnderline, newSub, newSup);
+                    pos = closeIdx + closingTag.Length;
+                }
+            }
+        }
+    }
+
+    private void ApplyRunFormatting(IXLRichString run, bool bold, bool italic, bool underline, bool subscript, bool superscript)
+    {
+        if (bold) run.Bold = true;
+        if (italic) run.Italic = true;
+        if (underline) run.Underline = XLFontUnderlineValues.Single;
+        if (subscript) run.VerticalAlignment = XLFontVerticalTextAlignmentValues.Subscript;
+        if (superscript) run.VerticalAlignment = XLFontVerticalTextAlignmentValues.Superscript;
+    }
+
+    /// <summary>
+    /// Read static template file from wwwroot/templates/Meta Data Template/.
+    /// Used as fallback when no data exists to export.
+    /// </summary>
+    private byte[] ReadStaticTemplate(string filename)
+    {
+        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
+            "templates", "Meta Data Template", filename);
+
+        if (File.Exists(templatePath))
+            return File.ReadAllBytes(templatePath);
+
+        // If static file also missing, return empty Excel with headers
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, new List<Dictionary<string, object>>());
+        return stream.ToArray();
     }
 
     private Dictionary<string, object> NormalizeKeys(IDictionary<string, object> dict)
@@ -1360,16 +1299,12 @@ public class ImportAppService : ApplicationService, IImportAppService
         var worksheet = workbook.Worksheets.Add("Import Errors");
 
         // Column mapping
-        var columns = new[] { "Tên phương pháp", "Mô tả", "Đơn vị tính", "Nền mẫu", "Chỉ tiêu", "Đơn giá", "Lỗi" };
+        var columns = new[] { "Tên phương pháp", "Mô tả", "Lỗi" };
         var columnNameMapping = new Dictionary<string, int>
         {
             { "Tên phương pháp", 1 },
             { "Mô tả", 2 },
-            { "Đơn vị tính", 3 },
-            { "Nền mẫu", 4 },
-            { "Chỉ tiêu", 5 },
-            { "Đơn giá", 6 },
-            { "Lỗi", 7 }
+            { "Lỗi", 3 }
         };
 
         // Write header row with styling
@@ -1419,51 +1354,19 @@ public class ImportAppService : ApplicationService, IImportAppService
                 ApplyErrorStyle(cell2);
             }
 
-            // Column 3: Đơn vị tính
+            // Column 3: Lỗi
             var cell3 = worksheet.Cell(excelRowNumber, 3);
-            cell3.Value = row.Unit ?? "";
-            if (errorColumnsForRow.Contains("Đơn vị tính"))
-            {
-                ApplyErrorStyle(cell3);
-            }
-
-            // Column 4: Nền mẫu
-            var cell4 = worksheet.Cell(excelRowNumber, 4);
-            cell4.Value = row.SpecimenTypeName ?? "";
-            if (errorColumnsForRow.Contains("Nền mẫu"))
-            {
-                ApplyErrorStyle(cell4);
-            }
-
-            // Column 5: Chỉ tiêu
-            var cell5 = worksheet.Cell(excelRowNumber, 5);
-            cell5.Value = row.IndicatorName ?? "";
-            if (errorColumnsForRow.Contains("Chỉ tiêu"))
-            {
-                ApplyErrorStyle(cell5);
-            }
-
-            // Column 6: Đơn giá
-            var cell6 = worksheet.Cell(excelRowNumber, 6);
-            cell6.Value = row.UnitPrice;
-            if (errorColumnsForRow.Contains("Đơn giá"))
-            {
-                ApplyErrorStyle(cell6);
-            }
-
-            // Column 7: Lỗi
-            var cell7 = worksheet.Cell(excelRowNumber, 7);
             if (rowErrors.TryGetValue(dataRowNumber, out var errors) && errors.Count > 0)
             {
-                cell7.Value = string.Join("; ", errors);
-                cell7.Style.Font.FontColor = XLColor.Red;
-                cell7.Style.Font.Bold = true;
+                cell3.Value = string.Join("; ", errors);
+                cell3.Style.Font.FontColor = XLColor.Red;
+                cell3.Style.Font.Bold = true;
             }
 
             // Highlight entire row background if has errors
             if (hasError)
             {
-                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 7);
+                var rowRange = worksheet.Range(excelRowNumber, 1, excelRowNumber, 3);
                 rowRange.Style.Border.OutsideBorder = XLBorderStyleValues.Thin;
                 rowRange.Style.Border.OutsideBorderColor = XLColor.Red;
             }
@@ -1473,9 +1376,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         worksheet.Columns().AdjustToContents();
 
         // Make error column wider if needed
-        if (worksheet.Column(7).Width < 50)
+        if (worksheet.Column(3).Width < 50)
         {
-            worksheet.Column(7).Width = 50;
+            worksheet.Column(3).Width = 50;
         }
 
         using var stream = new MemoryStream();
@@ -1511,49 +1414,76 @@ public class ImportAppService : ApplicationService, IImportAppService
         "<", "<="
     };
 
-    public byte[] GetStandardWithIndicatorsTemplate()
+    public async Task<byte[]> GetStandardWithIndicatorsTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Tiêu chuẩn.xlsx");
+        var standardQuery = await _standardRepository.GetQueryableAsync();
+        var siQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (File.Exists(templatePath))
+        var query = from si in siQuery
+                    join std in standardQuery on si.StandardId equals std.Id
+                    join ind in indicatorQuery on si.IndicatorId equals ind.Id
+                    join tm in methodQuery on si.TestMethodId equals tm.Id into tmj
+                    from tm in tmj.DefaultIfEmpty()
+                    join st in specimenTypeQuery on si.SpecimenTypeId equals st.Id into stj
+                    from st in stj.DefaultIfEmpty()
+                    where std.IsActive
+                    orderby std.Name, ind.Name
+                    select new
+                    {
+                        StandardName = std.Name,
+                        SpecimenTypeName = st != null ? st.Name : "",
+                        IndicatorName = ind.Name,
+                        SubIndicatorName = "",
+                        TestMethodName = tm != null ? tm.Name : "",
+                        si.Unit,
+                        si.ComparisonOperator,
+                        si.AllowedLimit,
+                        si.LowerOperator,
+                        si.LowerLimit,
+                        si.UpperOperator,
+                        si.UpperLimit
+                    };
+
+        var rows = await AsyncExecuter.ToListAsync(query);
+
+        if (rows.Count == 0)
+            return ReadStaticTemplate("Tiêu chuẩn.xlsx");
+
+        // Use ClosedXML to preserve rich text in limit fields (AllowedLimit, LowerLimit, UpperLimit)
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        var headers = new[] { "Tên tiêu chuẩn", "Nền mẫu", "Chỉ tiêu", "Chỉ tiêu phụ", "Phương pháp", "Đơn vị",
+            "So sánh", "Giới hạn", "So sánh giới hạn dưới", "Giới hạn dưới", "So sánh giới hạn trên", "Giới hạn trên" };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        for (int r = 0; r < rows.Count; r++)
         {
-            return File.ReadAllBytes(templatePath);
+            var row = rows[r];
+            var rowNum = r + 2;
+
+            worksheet.Cell(rowNum, 1).Value = row.StandardName ?? "";
+            worksheet.Cell(rowNum, 2).Value = row.SpecimenTypeName ?? "";
+            worksheet.Cell(rowNum, 3).Value = row.IndicatorName ?? "";
+            worksheet.Cell(rowNum, 4).Value = row.SubIndicatorName ?? "";
+            worksheet.Cell(rowNum, 5).Value = row.TestMethodName ?? "";
+            worksheet.Cell(rowNum, 6).Value = row.Unit ?? "";
+            worksheet.Cell(rowNum, 7).Value = row.ComparisonOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 8), row.AllowedLimit);
+            worksheet.Cell(rowNum, 9).Value = row.LowerOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 10), row.LowerLimit);
+            worksheet.Cell(rowNum, 11).Value = row.UpperOperator ?? "";
+            WriteHtmlToCell(worksheet.Cell(rowNum, 12), row.UpperLimit);
         }
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
-            {
-                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
-                { "Chỉ tiêu", "pH" },
-                { "Phương pháp", "TCVN 6492:2011" },
-                { "Đơn vị", "mg/L" },
-                { "So sánh", "<=" },
-                { "Giới hạn", "6.5" },
-                { "So sánh giới hạn dưới", "" },
-                { "Giới hạn dưới", "" },
-                { "So sánh giới hạn trên", "" },
-                { "Giới hạn trên", "" }
-            },
-            new()
-            {
-                { "Tên tiêu chuẩn", "QCVN 01:2018/BYT" },
-                { "Chỉ tiêu", "Độ đục" },
-                { "Phương pháp", "TCVN 6492:2011" },
-                { "Đơn vị", "NTU" },
-                { "So sánh", "Khoảng" },
-                { "Giới hạn", "" },
-                { "So sánh giới hạn dưới", ">=" },
-                { "Giới hạn dưới", "0" },
-                { "So sánh giới hạn trên", "<=" },
-                { "Giới hạn trên", "5" }
-            }
-        };
+        worksheet.Columns().AdjustToContents();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        workbook.SaveAs(stream);
         return stream.ToArray();
     }
 
@@ -2395,34 +2325,30 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region Organization Import (CS/DN)
 
-    public byte[] GetOrganizationTestRequestTemplate()
+    public async Task<byte[]> GetOrganizationTestRequestTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "CNDN.xlsx");
+        var orgs = await _organizationRepository.GetListAsync();
+        var activeOrgs = orgs.Where(o => o.IsActive).ToList();
 
-        if (File.Exists(templatePath))
-        {
-            return File.ReadAllBytes(templatePath);
-        }
+        if (activeOrgs.Count == 0)
+            return ReadStaticTemplate("CNDN.xlsx");
 
-        // Fallback: Generate template dynamically
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new()
+        var templateData = activeOrgs
+            .OrderBy(o => o.Name)
+            .Select(o => new Dictionary<string, object>
             {
-                { "Tên cơ sở/doanh nghiệp", "Công ty TNHH ABC" },
-                { "Địa chỉ", "123 Đường XYZ" },
-                { "Tỉnh thành", "Đắk Lắk" },
-                { "Phường xã", "Tân An" },
-                { "Người liên hệ", "Nguyễn Văn A" },
-                { "Số điện thoại", "0901234567" },
-                { "Số điện thoại phụ", "0987654321" },
-                { "Mã số thuế", "0123456789" }
-            }
-        };
+                { "Tên cơ sở/doanh nghiệp", o.Name ?? "" },
+                { "Địa chỉ", o.Address ?? "" },
+                { "Tỉnh/thành", o.ProvinceCode ?? "" },
+                { "Phường/xã", o.WardCode ?? "" },
+                { "Người liên hệ", o.ContactPerson ?? "" },
+                { "Số điện thoại", o.Phone ?? "" },
+                { "Số điện thoại phụ", o.SecondaryPhone ?? "" },
+                { "Mã số thuế", o.TaxCode ?? "" }
+            }).ToList();
 
         using var stream = new MemoryStream();
-        stream.SaveAs(templateData);
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
         return stream.ToArray();
     }
 
@@ -2906,11 +2832,197 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region IndicatorGroup + Indicator Import
 
-    public byte[] GetIndicatorGroupTemplate()
+    public async Task<byte[]> GetIndicatorGroupTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "nhóm chỉ tiêu.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labQuery = await _laboratoryRepository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var testMethodIndicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+
+        var groups = await AsyncExecuter.ToListAsync(
+            from g in groupQuery
+            where g.IsActive
+            orderby g.Name
+            select new { g.Id, g.Name, g.LaboratoryId }
+        );
+
+        var labs = await AsyncExecuter.ToListAsync(
+            from lab in labQuery
+            join dept in deptQuery on lab.DepartmentId equals dept.Id into dj
+            from dept in dj.DefaultIfEmpty()
+            select new { lab.Id, DeptName = dept != null ? dept.Name : "" }
+        );
+        var labDict = labs.ToDictionary(l => l.Id, l => l.DeptName);
+
+        var indicators = await AsyncExecuter.ToListAsync(
+            from ind in indicatorQuery
+            where ind.IsActive
+            orderby ind.IndicatorGroupId, ind.SortOrder, ind.Name
+            select new { ind.Id, ind.Name, ind.FormattedName, ind.IndicatorGroupId, ind.ParentIndicatorId }
+        );
+
+        // Export should reflect current linked master data shown in FE,
+        // including entries that are temporarily inactive.
+        var specimenTypes = await AsyncExecuter.ToListAsync(
+            from st in specimenTypeQuery
+            select new { st.Id, st.Name }
+        );
+        var specimenTypeDict = specimenTypes.ToDictionary(x => x.Id, x => x.Name);
+
+        var testMethods = await AsyncExecuter.ToListAsync(
+            from tm in testMethodQuery
+            select new { tm.Id, tm.Name }
+        );
+        var testMethodDict = testMethods.ToDictionary(x => x.Id, x => x.Name);
+
+        var testMethodIndicators = await AsyncExecuter.ToListAsync(
+            from tmi in testMethodIndicatorQuery
+            select new
+            {
+                tmi.IndicatorId,
+                tmi.TestMethodId,
+                tmi.SpecimenTypeId,
+                tmi.Unit,
+                tmi.FormattedUnit,
+                tmi.UnitPrice
+            }
+        );
+        var tmiByIndicatorId = testMethodIndicators
+            .GroupBy(x => x.IndicatorId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        var headers = new[]
+        {
+            "Tên nhóm chỉ tiêu",
+            "Khoa phòng thực hiện",
+            "Nền mẫu",
+            "Chỉ tiêu",
+            "Chỉ tiêu phụ",
+            "Tên phương pháp",
+            "Đơn vị tính",
+            "Đơn giá"
+        };
+        for (int i = 0; i < headers.Length; i++)
+            worksheet.Cell(1, i + 1).Value = headers[i];
+
+        var rowNum = 2;
+
+        void WriteTemplateRow(
+            string groupName,
+            string deptName,
+            dynamic parentIndicator,
+            dynamic? subIndicator,
+            dynamic? methodLink)
+        {
+            worksheet.Cell(rowNum, 1).Value = groupName;
+            worksheet.Cell(rowNum, 2).Value = deptName;
+
+            if (methodLink?.SpecimenTypeId is Guid specimenTypeId && specimenTypeDict.TryGetValue(specimenTypeId, out var specimenName))
+            {
+                worksheet.Cell(rowNum, 3).Value = specimenName;
+            }
+
+            if (!string.IsNullOrEmpty(parentIndicator.FormattedName) && parentIndicator.FormattedName.Contains('<'))
+            {
+                WriteHtmlToCell(worksheet.Cell(rowNum, 4), parentIndicator.FormattedName);
+            }
+            else
+            {
+                worksheet.Cell(rowNum, 4).Value = parentIndicator.Name ?? "";
+            }
+
+            if (subIndicator != null)
+            {
+                if (!string.IsNullOrEmpty(subIndicator.FormattedName) && subIndicator.FormattedName.Contains('<'))
+                {
+                    WriteHtmlToCell(worksheet.Cell(rowNum, 5), subIndicator.FormattedName);
+                }
+                else
+                {
+                    worksheet.Cell(rowNum, 5).Value = subIndicator.Name ?? "";
+                }
+            }
+
+            if (methodLink != null)
+            {
+                if (methodLink.TestMethodId is Guid testMethodId && testMethodDict.TryGetValue(testMethodId, out var methodName))
+                {
+                    worksheet.Cell(rowNum, 6).Value = methodName;
+                }
+
+                if (!string.IsNullOrWhiteSpace(methodLink.FormattedUnit) && methodLink.FormattedUnit.Contains('<'))
+                {
+                    WriteHtmlToCell(worksheet.Cell(rowNum, 7), methodLink.FormattedUnit);
+                }
+                else
+                {
+                    worksheet.Cell(rowNum, 7).Value = methodLink.Unit ?? "";
+                }
+
+                worksheet.Cell(rowNum, 8).Value = methodLink.UnitPrice;
+            }
+
+            rowNum++;
+        }
+
+        foreach (var group in groups)
+        {
+            var deptName = group.LaboratoryId.HasValue && labDict.ContainsKey(group.LaboratoryId.Value)
+                ? labDict[group.LaboratoryId.Value] : "";
+
+            var groupIndicators = indicators.Where(i => i.IndicatorGroupId == group.Id && i.ParentIndicatorId == null).ToList();
+
+            if (groupIndicators.Count == 0)
+            {
+                worksheet.Cell(rowNum, 1).Value = group.Name ?? "";
+                worksheet.Cell(rowNum, 2).Value = deptName;
+                rowNum++;
+                continue;
+            }
+
+            foreach (var ind in groupIndicators)
+            {
+                var subIndicators = indicators.Where(i => i.ParentIndicatorId == ind.Id).ToList();
+                var methodLinks = tmiByIndicatorId.TryGetValue(ind.Id, out var links)
+                    ? links.Cast<object>().ToList()
+                    : new List<object>();
+
+                if (methodLinks.Count == 0)
+                {
+                    methodLinks.Add(null!);
+                }
+
+                if (subIndicators.Count == 0)
+                {
+                    foreach (var methodLink in methodLinks)
+                    {
+                        WriteTemplateRow(group.Name ?? "", deptName, ind, null, methodLink);
+                    }
+                }
+                else
+                {
+                    foreach (var sub in subIndicators)
+                    {
+                        foreach (var methodLink in methodLinks)
+                        {
+                            WriteTemplateRow(group.Name ?? "", deptName, ind, sub, methodLink);
+                        }
+                    }
+                }
+            }
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
     }
 
     public async Task<IndicatorGroupImportPreviewDto> PreviewIndicatorGroupsAsync(byte[] fileBytes)
@@ -2923,34 +3035,66 @@ public class ImportAppService : ApplicationService, IImportAppService
     {
         var rows = ReadIndicatorGroupExcelRows(memoryStream);
 
-        // Store row errors for error file generation
         var rowErrors = new Dictionary<int, List<string>>();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
-        // Load existing data for validation
+        static string NormalizeKey(string? value)
+            => StringHelper.NormalizeAndTrim(value).ToLowerInvariant();
+
+        static string BuildParentIndicatorKey(Guid groupId, string indicatorName)
+            => $"{groupId:N}|{NormalizeKey(indicatorName)}";
+
+        static string BuildSubIndicatorKey(Guid groupId, Guid parentIndicatorId, string subIndicatorName)
+            => $"{groupId:N}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
+
+        static string BuildMethodLinkKey(Guid testMethodId, Guid indicatorId, Guid specimenTypeId)
+            => $"{testMethodId:N}|{indicatorId:N}|{specimenTypeId:N}";
+
+        static string BuildPreviewMethodLinkKey(string groupName, string indicatorName, string testMethodName, string specimenTypeName)
+            => $"{NormalizeKey(groupName)}|{NormalizeKey(indicatorName)}|{NormalizeKey(testMethodName)}|{NormalizeKey(specimenTypeName)}";
+
         var indicatorGroups = await _indicatorGroupRepository.GetListAsync();
         var indicatorGroupDict = indicatorGroups
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .GroupBy(x => NormalizeKey(x.Name))
             .ToDictionary(g => g.Key, g => g.First());
 
         var indicators = await _indicatorRepository.GetListAsync();
-        var indicatorDict = indicators
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+        var parentIndicatorDict = indicators
+            .Where(x => !x.ParentIndicatorId.HasValue)
+            .GroupBy(x => BuildParentIndicatorKey(x.IndicatorGroupId, x.Name))
+            .ToDictionary(g => g.Key, g => g.First());
+        var subIndicatorDict = indicators
+            .Where(x => x.ParentIndicatorId.HasValue)
+            .GroupBy(x => BuildSubIndicatorKey(x.IndicatorGroupId, x.ParentIndicatorId!.Value, x.Name))
             .ToDictionary(g => g.Key, g => g.First());
 
-        // Load laboratories with department names for lookup
-        // IndicatorGroup.LaboratoryId needs Laboratory.Id, not Department.Id
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes
+            .Where(x => x.IsActive)
+            .GroupBy(x => NormalizeKey(x.Name))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var testMethods = await _testMethodRepository.GetListAsync();
+        var testMethodDict = testMethods
+            .GroupBy(x => NormalizeKey(x.Name))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var testMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
+        var testMethodIndicatorDict = testMethodIndicators
+            .Where(x => x.SpecimenTypeId.HasValue)
+            .GroupBy(x => BuildMethodLinkKey(x.TestMethodId, x.IndicatorId, x.SpecimenTypeId!.Value))
+            .ToDictionary(g => g.Key, g => g.First());
+
         var laboratories = await _laboratoryRepository.GetListAsync();
         var departments = await _departmentRepository.GetListAsync();
         var departmentNameById = departments.ToDictionary(d => d.Id, d => d.Name);
 
-        // Create lookup: Department Name (normalized) -> Laboratory
         var laboratoryByDeptName = laboratories
             .Where(lab => departmentNameById.ContainsKey(lab.DepartmentId))
-            .GroupBy(lab => StringHelper.NormalizeAndTrim(departmentNameById[lab.DepartmentId]).ToLowerInvariant())
+            .GroupBy(lab => NormalizeKey(departmentNameById[lab.DepartmentId]))
             .ToDictionary(g => g.Key, g => g.First());
 
         var result = new IndicatorGroupImportPreviewDto();
-        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
         var newGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var updateGroupNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -2958,11 +3102,19 @@ public class ImportAppService : ApplicationService, IImportAppService
         var updateIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var newSubIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
         var updateSubIndicatorNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newMethodLinkKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateMethodLinkKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            var rowNumber = i + 2; // Excel row (1-based, header = 1)
+            var rowNumber = i + 2;
+
+            decimal parsedUnitPrice = 0;
+            if (!TryParseFlexibleDecimal(row.UnitPriceText, out parsedUnitPrice))
+            {
+                parsedUnitPrice = 0;
+            }
 
             var item = new IndicatorGroupImportPreviewItem
             {
@@ -2974,6 +3126,10 @@ public class ImportAppService : ApplicationService, IImportAppService
                 SubIndicatorName = row.SubIndicatorName?.Trim(),
                 FormattedSubIndicatorName = row.FormattedSubIndicatorName,
                 HasSubIndicator = !string.IsNullOrWhiteSpace(row.SubIndicatorName),
+                SpecimenTypeName = row.SpecimenTypeName?.Trim() ?? "",
+                TestMethodName = row.TestMethodName?.Trim() ?? "",
+                Unit = row.Unit?.Trim(),
+                UnitPrice = parsedUnitPrice,
                 IsValid = true
             };
 
@@ -2997,22 +3153,65 @@ public class ImportAppService : ApplicationService, IImportAppService
             if (string.IsNullOrWhiteSpace(row.IndicatorName))
             {
                 item.IsValid = false;
-                var error = "Tên chỉ tiêu không được để trống";
+                var error = "Chỉ tiêu không được để trống";
                 rowErrorMessages.Add(error);
                 validationResult.Errors.Add(new ImportRowError
                 {
                     RowNumber = rowNumber,
-                    ColumnName = "Tên chỉ tiêu",
+                    ColumnName = "Chỉ tiêu",
                     ErrorMessage = error
                 });
                 AddRowError(rowErrors, rowNumber, error);
             }
 
-            // Check if IndicatorGroup exists
-            var groupKey = StringHelper.NormalizeAndTrim(row.IndicatorGroupName).ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(row.SpecimenTypeName))
+            {
+                item.IsValid = false;
+                var error = "Nền mẫu không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Nền mẫu",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (string.IsNullOrWhiteSpace(row.TestMethodName))
+            {
+                item.IsValid = false;
+                var error = "Tên phương pháp không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên phương pháp",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (!string.IsNullOrWhiteSpace(row.UnitPriceText) && !TryParseFlexibleDecimal(row.UnitPriceText, out _))
+            {
+                item.IsValid = false;
+                var error = "Đơn giá không đúng định dạng số";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Đơn giá",
+                    ErrorMessage = error,
+                    Value = row.UnitPriceText
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            var groupKey = NormalizeKey(row.IndicatorGroupName);
+            IndicatorGroup? existingGroup = null;
             if (!string.IsNullOrWhiteSpace(groupKey))
             {
-                if (indicatorGroupDict.TryGetValue(groupKey, out var existingGroup))
+                if (indicatorGroupDict.TryGetValue(groupKey, out existingGroup))
                 {
                     item.IsNewIndicatorGroup = false;
                     item.ExistingIndicatorGroupId = existingGroup.Id;
@@ -3025,14 +3224,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Check if Laboratory exists by Department name (if provided)
-            // IndicatorGroup.LaboratoryId needs Laboratory.Id (not Department.Id)
             if (!string.IsNullOrWhiteSpace(row.DepartmentName))
             {
-                var deptKey = StringHelper.NormalizeAndTrim(row.DepartmentName).ToLowerInvariant();
+                var deptKey = NormalizeKey(row.DepartmentName);
                 if (laboratoryByDeptName.TryGetValue(deptKey, out var existingLab))
                 {
-                    item.DepartmentId = existingLab.Id; // This is actually Laboratory.Id
+                    item.DepartmentId = existingLab.Id;
                     item.IsDepartmentInvalid = false;
                 }
                 else
@@ -3052,41 +3249,130 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Check if Indicator exists
-            var indicatorKey = StringHelper.NormalizeAndTrim(row.IndicatorName).ToLowerInvariant();
+            var specimenTypeKey = NormalizeKey(row.SpecimenTypeName);
+            if (!string.IsNullOrWhiteSpace(specimenTypeKey))
+            {
+                if (specimenTypeDict.TryGetValue(specimenTypeKey, out var specimenType))
+                {
+                    item.SpecimenTypeId = specimenType.Id;
+                    item.IsSpecimenTypeInvalid = false;
+                }
+                else
+                {
+                    item.IsSpecimenTypeInvalid = true;
+                    item.IsValid = false;
+                    var error = $"Nền mẫu '{row.SpecimenTypeName}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Nền mẫu",
+                        ErrorMessage = error,
+                        Value = row.SpecimenTypeName
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+            }
+
+            var testMethodKey = NormalizeKey(row.TestMethodName);
+            if (!string.IsNullOrWhiteSpace(testMethodKey))
+            {
+                if (testMethodDict.TryGetValue(testMethodKey, out var testMethod))
+                {
+                    item.TestMethodId = testMethod.Id;
+                    item.IsTestMethodInvalid = false;
+                }
+                else
+                {
+                    item.IsTestMethodInvalid = true;
+                    item.IsValid = false;
+                    var error = $"Phương pháp '{row.TestMethodName}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Tên phương pháp",
+                        ErrorMessage = error,
+                        Value = row.TestMethodName
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+            }
+
+            var indicatorKey = NormalizeKey(row.IndicatorName);
+            Indicator? existingParentIndicator = null;
             if (!string.IsNullOrWhiteSpace(indicatorKey))
             {
-                if (indicatorDict.TryGetValue(indicatorKey, out var existingIndicator))
+                if (existingGroup != null)
                 {
-                    item.IsNewIndicator = false;
-                    item.ExistingIndicatorId = existingIndicator.Id;
-                    updateIndicatorNames.Add(indicatorKey);
+                    var parentKey = BuildParentIndicatorKey(existingGroup.Id, row.IndicatorName ?? "");
+                    if (parentIndicatorDict.TryGetValue(parentKey, out existingParentIndicator))
+                    {
+                        item.IsNewIndicator = false;
+                        item.ExistingIndicatorId = existingParentIndicator.Id;
+                        updateIndicatorNames.Add($"{groupKey}|{indicatorKey}");
+                    }
+                    else
+                    {
+                        item.IsNewIndicator = true;
+                        newIndicatorNames.Add($"{groupKey}|{indicatorKey}");
+                    }
                 }
                 else
                 {
                     item.IsNewIndicator = true;
-                    newIndicatorNames.Add(indicatorKey);
+                    newIndicatorNames.Add($"{groupKey}|{indicatorKey}");
                 }
             }
 
-            // Check if Sub-Indicator exists (if provided)
             if (!string.IsNullOrWhiteSpace(row.SubIndicatorName))
             {
-                var subIndicatorKey = StringHelper.NormalizeAndTrim(row.SubIndicatorName).ToLowerInvariant();
-                if (indicatorDict.TryGetValue(subIndicatorKey, out var existingSubIndicator))
+                var subIndicatorKey = NormalizeKey(row.SubIndicatorName);
+                if (existingGroup != null && existingParentIndicator != null)
                 {
-                    item.IsNewSubIndicator = false;
-                    item.ExistingSubIndicatorId = existingSubIndicator.Id;
-                    updateSubIndicatorNames.Add(subIndicatorKey);
+                    var subKey = BuildSubIndicatorKey(existingGroup.Id, existingParentIndicator.Id, row.SubIndicatorName ?? "");
+                    if (subIndicatorDict.TryGetValue(subKey, out var existingSubIndicator))
+                    {
+                        item.IsNewSubIndicator = false;
+                        item.ExistingSubIndicatorId = existingSubIndicator.Id;
+                        updateSubIndicatorNames.Add($"{groupKey}|{indicatorKey}|{subIndicatorKey}");
+                    }
+                    else
+                    {
+                        item.IsNewSubIndicator = true;
+                        newSubIndicatorNames.Add($"{groupKey}|{indicatorKey}|{subIndicatorKey}");
+                    }
                 }
                 else
                 {
                     item.IsNewSubIndicator = true;
-                    newSubIndicatorNames.Add(subIndicatorKey);
+                    newSubIndicatorNames.Add($"{groupKey}|{indicatorKey}|{subIndicatorKey}");
                 }
             }
 
-            // Set combined error message
+            if (item.TestMethodId.HasValue && item.SpecimenTypeId.HasValue)
+            {
+                if (existingParentIndicator != null)
+                {
+                    var linkKey = BuildMethodLinkKey(item.TestMethodId.Value, existingParentIndicator.Id, item.SpecimenTypeId.Value);
+                    if (testMethodIndicatorDict.ContainsKey(linkKey))
+                    {
+                        item.IsNewMethodLink = false;
+                        updateMethodLinkKeys.Add(BuildPreviewMethodLinkKey(item.IndicatorGroupName, item.IndicatorName, item.TestMethodName, item.SpecimenTypeName));
+                    }
+                    else
+                    {
+                        item.IsNewMethodLink = true;
+                        newMethodLinkKeys.Add(BuildPreviewMethodLinkKey(item.IndicatorGroupName, item.IndicatorName, item.TestMethodName, item.SpecimenTypeName));
+                    }
+                }
+                else
+                {
+                    item.IsNewMethodLink = true;
+                    newMethodLinkKeys.Add(BuildPreviewMethodLinkKey(item.IndicatorGroupName, item.IndicatorName, item.TestMethodName, item.SpecimenTypeName));
+                }
+            }
+
             if (rowErrorMessages.Count > 0)
             {
                 item.Errors = rowErrorMessages;
@@ -3106,8 +3392,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.UpdateIndicators = updateIndicatorNames.Count;
         result.NewSubIndicators = newSubIndicatorNames.Count;
         result.UpdateSubIndicators = updateSubIndicatorNames.Count;
+        result.NewMethodLinks = newMethodLinkKeys.Count;
+        result.UpdateMethodLinks = updateMethodLinkKeys.Count;
 
-        // Generate error file if there are errors
         if (!validationResult.IsValid && rowErrors.Count > 0)
         {
             var errorFileBytes = GenerateIndicatorGroupErrorFile(rows, rowErrors, validationResult.Errors);
@@ -3136,41 +3423,60 @@ public class ImportAppService : ApplicationService, IImportAppService
             };
         }
 
-        var newGroupCount = 0;
-        var updatedGroupCount = 0;
-        var newIndicatorCount = 0;
-        var updatedIndicatorCount = 0;
-        var newSubIndicatorCount = 0;
-        var updatedSubIndicatorCount = 0;
+        static string NormalizeKey(string? value)
+            => StringHelper.NormalizeAndTrim(value).ToLowerInvariant();
 
-        // Track processed entities to avoid duplicate operations in same batch
-        var processedGroups = new Dictionary<string, IndicatorGroup>(StringComparer.OrdinalIgnoreCase);
-        var processedIndicators = new Dictionary<string, Indicator>(StringComparer.OrdinalIgnoreCase);
+        static string BuildParentIndicatorKey(Guid groupId, string indicatorName)
+            => $"{groupId:N}|{NormalizeKey(indicatorName)}";
+
+        static string BuildSubIndicatorKey(Guid groupId, Guid parentIndicatorId, string subIndicatorName)
+            => $"{groupId:N}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
+
+        static string BuildMethodLinkKey(Guid testMethodId, Guid indicatorId, Guid specimenTypeId)
+            => $"{testMethodId:N}|{indicatorId:N}|{specimenTypeId:N}";
+
+        static string BuildSpecimenIndicatorKey(Guid specimenTypeId, Guid indicatorId)
+            => $"{specimenTypeId:N}|{indicatorId:N}";
+
+        var createdGroupKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updatedGroupKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var createdIndicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updatedIndicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var createdSubIndicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updatedSubIndicatorKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var createdMethodLinkKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updatedMethodLinkKeys = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
-            // Load existing data
             var existingGroups = await _indicatorGroupRepository.GetListAsync();
-            foreach (var group in existingGroups)
-            {
-                var key = StringHelper.NormalizeAndTrim(group.Name).ToLowerInvariant();
-                if (!processedGroups.ContainsKey(key))
-                {
-                    processedGroups[key] = group;
-                }
-            }
+            var groupDict = existingGroups
+                .GroupBy(x => NormalizeKey(x.Name))
+                .ToDictionary(g => g.Key, g => g.First());
 
             var existingIndicators = await _indicatorRepository.GetListAsync();
-            foreach (var indicator in existingIndicators)
-            {
-                var key = StringHelper.NormalizeAndTrim(indicator.Name).ToLowerInvariant();
-                if (!processedIndicators.ContainsKey(key))
-                {
-                    processedIndicators[key] = indicator;
-                }
-            }
+            var parentIndicatorDict = existingIndicators
+                .Where(x => !x.ParentIndicatorId.HasValue)
+                .GroupBy(x => BuildParentIndicatorKey(x.IndicatorGroupId, x.Name))
+                .ToDictionary(g => g.Key, g => g.First());
+            var subIndicatorDict = existingIndicators
+                .Where(x => x.ParentIndicatorId.HasValue)
+                .GroupBy(x => BuildSubIndicatorKey(x.IndicatorGroupId, x.ParentIndicatorId!.Value, x.Name))
+                .ToDictionary(g => g.Key, g => g.First());
 
-            // Calculate next indicator sequence for code generation
+            var existingTestMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
+            var testMethodIndicatorDict = existingTestMethodIndicators
+                .Where(x => x.SpecimenTypeId.HasValue)
+                .GroupBy(x => BuildMethodLinkKey(x.TestMethodId, x.IndicatorId, x.SpecimenTypeId!.Value))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var existingSpecimenTypeIndicators = await _specimenTypeIndicatorRepository.GetListAsync();
+            var specimenTypeIndicatorDict = existingSpecimenTypeIndicators
+                .GroupBy(x => BuildSpecimenIndicatorKey(x.SpecimenTypeId, x.IndicatorId))
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
             var indicatorNextSequence = 1;
             var existingIndicatorCodes = existingIndicators
                 .Where(x => x.Code != null && x.Code.StartsWith("CT-"))
@@ -3187,69 +3493,53 @@ public class ImportAppService : ApplicationService, IImportAppService
                     .Max() + 1;
             }
 
-            var validItems = preview.Items.Where(i => i.IsValid).ToList();
-
-            // Process each row
             foreach (var item in validItems)
             {
-                var groupKey = StringHelper.NormalizeAndTrim(item.IndicatorGroupName).ToLowerInvariant();
-                var indicatorKey = StringHelper.NormalizeAndTrim(item.IndicatorName).ToLowerInvariant();
+                var groupKey = NormalizeKey(item.IndicatorGroupName);
+                var parentNameKey = NormalizeKey(item.IndicatorName);
 
                 IndicatorGroup indicatorGroup;
 
-                // IndicatorGroup upsert
-                if (processedGroups.TryGetValue(groupKey, out var existingGroup))
+                if (groupDict.TryGetValue(groupKey, out var existingGroup))
                 {
-                    // Update existing group
                     if (item.DepartmentId.HasValue)
                     {
                         existingGroup.LaboratoryId = item.DepartmentId;
                     }
                     await _indicatorGroupRepository.UpdateAsync(existingGroup);
                     indicatorGroup = existingGroup;
-
-                    if (item.IsNewIndicatorGroup)
-                    {
-                        newGroupCount++;
-                    }
-                    else
-                    {
-                        updatedGroupCount++;
-                    }
+                    updatedGroupKeys.Add(groupKey);
                 }
                 else
                 {
-                    // Create new group
                     indicatorGroup = new IndicatorGroup(
                         _guidGenerator.Create(),
                         item.IndicatorGroupName,
                         item.DepartmentId
                     );
                     await _indicatorGroupRepository.InsertAsync(indicatorGroup);
-                    processedGroups[groupKey] = indicatorGroup;
-                    newGroupCount++;
+                    groupDict[groupKey] = indicatorGroup;
+                    createdGroupKeys.Add(groupKey);
                 }
 
-                // Indicator upsert
+                var parentKey = BuildParentIndicatorKey(indicatorGroup.Id, item.IndicatorName);
                 Indicator parentIndicator;
-                if (processedIndicators.TryGetValue(indicatorKey, out var existingIndicator))
+                if (parentIndicatorDict.TryGetValue(parentKey, out var existingParentIndicator))
                 {
-                    // Update existing indicator - assign to group and update FormattedName if provided
-                    existingIndicator.IndicatorGroupId = indicatorGroup.Id;
+                    existingParentIndicator.IndicatorGroupId = indicatorGroup.Id;
                     if (!string.IsNullOrWhiteSpace(item.FormattedIndicatorName))
                     {
-                        existingIndicator.FormattedName = item.FormattedIndicatorName;
+                        existingParentIndicator.FormattedName = item.FormattedIndicatorName;
                     }
-                    await _indicatorRepository.UpdateAsync(existingIndicator);
-                    parentIndicator = existingIndicator;
-                    updatedIndicatorCount++;
+                    await _indicatorRepository.UpdateAsync(existingParentIndicator);
+                    parentIndicator = existingParentIndicator;
+                    updatedIndicatorKeys.Add($"{groupKey}|{parentNameKey}");
                 }
                 else
                 {
-                    // Create new indicator
                     var code = _codeGenerator.GenerateCode("CT", indicatorNextSequence - 1);
                     indicatorNextSequence++;
-                    var indicator = new Indicator(
+                    parentIndicator = new Indicator(
                         _guidGenerator.Create(),
                         code,
                         item.IndicatorName,
@@ -3261,20 +3551,18 @@ public class ImportAppService : ApplicationService, IImportAppService
                             ? item.FormattedIndicatorName
                             : item.IndicatorName
                     };
-                    await _indicatorRepository.InsertAsync(indicator);
-                    processedIndicators[indicatorKey] = indicator;
-                    parentIndicator = indicator;
-                    newIndicatorCount++;
+                    await _indicatorRepository.InsertAsync(parentIndicator);
+                    parentIndicatorDict[parentKey] = parentIndicator;
+                    createdIndicatorKeys.Add($"{groupKey}|{parentNameKey}");
                 }
 
-                // Sub-Indicator upsert (if provided)
                 if (item.HasSubIndicator && !string.IsNullOrWhiteSpace(item.SubIndicatorName))
                 {
-                    var subIndicatorKey = StringHelper.NormalizeAndTrim(item.SubIndicatorName).ToLowerInvariant();
+                    var subNameKey = NormalizeKey(item.SubIndicatorName);
+                    var subKey = BuildSubIndicatorKey(indicatorGroup.Id, parentIndicator.Id, item.SubIndicatorName);
 
-                    if (processedIndicators.TryGetValue(subIndicatorKey, out var existingSubIndicator))
+                    if (subIndicatorDict.TryGetValue(subKey, out var existingSubIndicator))
                     {
-                        // Update existing sub-indicator - assign to parent and update FormattedName if provided
                         existingSubIndicator.IndicatorGroupId = indicatorGroup.Id;
                         existingSubIndicator.ParentIndicatorId = parentIndicator.Id;
                         if (!string.IsNullOrWhiteSpace(item.FormattedSubIndicatorName))
@@ -3282,11 +3570,10 @@ public class ImportAppService : ApplicationService, IImportAppService
                             existingSubIndicator.FormattedName = item.FormattedSubIndicatorName;
                         }
                         await _indicatorRepository.UpdateAsync(existingSubIndicator);
-                        updatedSubIndicatorCount++;
+                        updatedSubIndicatorKeys.Add($"{groupKey}|{parentNameKey}|{subNameKey}");
                     }
                     else
                     {
-                        // Create new sub-indicator
                         var subCode = _codeGenerator.GenerateCode("CT", indicatorNextSequence - 1);
                         indicatorNextSequence++;
                         var subIndicator = new Indicator(
@@ -3302,26 +3589,74 @@ public class ImportAppService : ApplicationService, IImportAppService
                                 : item.SubIndicatorName
                         };
                         await _indicatorRepository.InsertAsync(subIndicator);
-                        processedIndicators[subIndicatorKey] = subIndicator;
-                        newSubIndicatorCount++;
+                        subIndicatorDict[subKey] = subIndicator;
+                        createdSubIndicatorKeys.Add($"{groupKey}|{parentNameKey}|{subNameKey}");
+                    }
+                }
+
+                if (item.SpecimenTypeId.HasValue)
+                {
+                    var specimenIndicatorKey = BuildSpecimenIndicatorKey(item.SpecimenTypeId.Value, parentIndicator.Id);
+                    if (!specimenTypeIndicatorDict.ContainsKey(specimenIndicatorKey))
+                    {
+                        var specimenTypeIndicator = new SpecimenTypeIndicator(
+                            _guidGenerator.Create(),
+                            item.SpecimenTypeId.Value,
+                            parentIndicator.Id
+                        );
+                        await _specimenTypeIndicatorRepository.InsertAsync(specimenTypeIndicator);
+                        specimenTypeIndicatorDict[specimenIndicatorKey] = specimenTypeIndicator;
+                    }
+                }
+
+                if (item.TestMethodId.HasValue && item.SpecimenTypeId.HasValue)
+                {
+                    var methodLinkKey = BuildMethodLinkKey(item.TestMethodId.Value, parentIndicator.Id, item.SpecimenTypeId.Value);
+                    if (testMethodIndicatorDict.TryGetValue(methodLinkKey, out var existingMethodIndicator))
+                    {
+                        existingMethodIndicator.Unit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
+                        existingMethodIndicator.FormattedUnit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
+                        existingMethodIndicator.UnitPrice = item.UnitPrice;
+                        existingMethodIndicator.IsActive = true;
+                        await _testMethodIndicatorRepository.UpdateAsync(existingMethodIndicator);
+                        updatedMethodLinkKeys.Add(methodLinkKey);
+                    }
+                    else
+                    {
+                        var methodIndicator = new TestMethodIndicator(
+                            _guidGenerator.Create(),
+                            item.TestMethodId.Value,
+                            parentIndicator.Id,
+                            item.UnitPrice,
+                            item.SpecimenTypeId,
+                            string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit,
+                            string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit,
+                            true
+                        );
+                        await _testMethodIndicatorRepository.InsertAsync(methodIndicator);
+                        testMethodIndicatorDict[methodLinkKey] = methodIndicator;
+                        createdMethodLinkKeys.Add(methodLinkKey);
                     }
                 }
             }
 
-            // Build result message
             var messageParts = new List<string>();
-            if (newGroupCount > 0) messageParts.Add($"{newGroupCount} nhóm chỉ tiêu mới");
-            if (updatedGroupCount > 0) messageParts.Add($"{updatedGroupCount} nhóm cập nhật");
-            if (newIndicatorCount > 0) messageParts.Add($"{newIndicatorCount} chỉ tiêu mới");
-            if (updatedIndicatorCount > 0) messageParts.Add($"{updatedIndicatorCount} chỉ tiêu cập nhật");
-            if (newSubIndicatorCount > 0) messageParts.Add($"{newSubIndicatorCount} chỉ tiêu phụ mới");
-            if (updatedSubIndicatorCount > 0) messageParts.Add($"{updatedSubIndicatorCount} chỉ tiêu phụ cập nhật");
+            if (createdGroupKeys.Count > 0) messageParts.Add($"{createdGroupKeys.Count} nhóm chỉ tiêu mới");
+            if (updatedGroupKeys.Count > 0) messageParts.Add($"{updatedGroupKeys.Count} nhóm cập nhật");
+            if (createdIndicatorKeys.Count > 0) messageParts.Add($"{createdIndicatorKeys.Count} chỉ tiêu mới");
+            if (updatedIndicatorKeys.Count > 0) messageParts.Add($"{updatedIndicatorKeys.Count} chỉ tiêu cập nhật");
+            if (createdSubIndicatorKeys.Count > 0) messageParts.Add($"{createdSubIndicatorKeys.Count} chỉ tiêu phụ mới");
+            if (updatedSubIndicatorKeys.Count > 0) messageParts.Add($"{updatedSubIndicatorKeys.Count} chỉ tiêu phụ cập nhật");
+            if (createdMethodLinkKeys.Count > 0) messageParts.Add($"{createdMethodLinkKeys.Count} liên kết phương pháp mới");
+            if (updatedMethodLinkKeys.Count > 0) messageParts.Add($"{updatedMethodLinkKeys.Count} liên kết phương pháp cập nhật");
+
+            var importedRows = preview.Items.Count(i => i.IsValid);
 
             return new ImportResultDto
             {
                 Success = true,
                 TotalRows = preview.ValidationResult.TotalRows,
-                ImportedRows = validItems.Count,
+                ImportedRows = importedRows,
                 Message = messageParts.Count > 0
                     ? $"Import thành công: {string.Join(", ", messageParts)}."
                     : "Import thành công."
@@ -3344,7 +3679,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         var worksheet = workbook.Worksheet(1);
         var result = new List<IndicatorGroupImportRow>();
 
-        // Find header row and column indices
         var headerRow = worksheet.Row(1);
         var columnMap = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
 
@@ -3357,19 +3691,20 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
         }
 
-        // Find column indices for each field
         int groupNameCol = FindColumnIndex(columnMap, "tên nhóm chỉ tiêu", "ten nhom chi tieu", "nhóm chỉ tiêu", "nhom chi tieu", "indicator group", "group name");
         int departmentCol = FindColumnIndex(columnMap, "khoa phòng thực hiện", "khoa phong thuc hien", "khoa phòng", "khoa phong", "department", "phòng", "phong");
-        int indicatorCol = FindColumnIndex(columnMap, "tên chỉ tiêu", "ten chi tieu", "chỉ tiêu", "chi tieu", "indicator", "indicator name");
+        int specimenTypeCol = FindColumnIndex(columnMap, "nền mẫu", "nen mau", "loại mẫu", "loai mau", "specimen type");
+        int indicatorCol = FindColumnIndex(columnMap, "chỉ tiêu", "chi tieu", "tên chỉ tiêu", "ten chi tieu", "indicator", "indicator name");
         int subIndicatorCol = FindColumnIndex(columnMap, "chỉ tiêu phụ", "chi tieu phu", "sub indicator", "sub-indicator", "subindicator");
+        int testMethodCol = FindColumnIndex(columnMap, "tên phương pháp", "ten phuong phap", "phương pháp", "phuong phap", "test method", "method");
+        int unitCol = FindColumnIndex(columnMap, "đơn vị tính", "don vi tinh", "đơn vị", "don vi", "unit");
+        int unitPriceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "unit price", "price");
 
-        // Read data rows (starting from row 2)
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
         for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
         {
             var row = worksheet.Row(rowNum);
 
-            // Skip empty rows
             if (!row.CellsUsed().Any())
                 continue;
 
@@ -3377,17 +3712,24 @@ public class ImportAppService : ApplicationService, IImportAppService
             {
                 IndicatorGroupName = groupNameCol > 0 ? row.Cell(groupNameCol).GetString()?.Trim() ?? "" : "",
                 DepartmentName = departmentCol > 0 ? row.Cell(departmentCol).GetString()?.Trim() : null,
+                SpecimenTypeName = specimenTypeCol > 0 ? row.Cell(specimenTypeCol).GetString()?.Trim() ?? "" : "",
                 IndicatorName = indicatorCol > 0 ? row.Cell(indicatorCol).GetString()?.Trim() ?? "" : "",
                 FormattedIndicatorName = indicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(indicatorCol)) : null,
                 SubIndicatorName = subIndicatorCol > 0 ? row.Cell(subIndicatorCol).GetString()?.Trim() : null,
-                FormattedSubIndicatorName = subIndicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(subIndicatorCol)) : null
+                FormattedSubIndicatorName = subIndicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(subIndicatorCol)) : null,
+                TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
+                Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() : null,
+                UnitPriceText = unitPriceCol > 0 ? row.Cell(unitPriceCol).GetFormattedString()?.Trim() : null
             };
 
-            // Skip if all values are empty
             if (string.IsNullOrWhiteSpace(importRow.IndicatorGroupName) &&
                 string.IsNullOrWhiteSpace(importRow.DepartmentName) &&
+                string.IsNullOrWhiteSpace(importRow.SpecimenTypeName) &&
                 string.IsNullOrWhiteSpace(importRow.IndicatorName) &&
-                string.IsNullOrWhiteSpace(importRow.SubIndicatorName))
+                string.IsNullOrWhiteSpace(importRow.SubIndicatorName) &&
+                string.IsNullOrWhiteSpace(importRow.TestMethodName) &&
+                string.IsNullOrWhiteSpace(importRow.Unit) &&
+                string.IsNullOrWhiteSpace(importRow.UnitPriceText))
             {
                 continue;
             }
@@ -3410,12 +3752,16 @@ public class ImportAppService : ApplicationService, IImportAppService
         worksheet.Cell(1, 1).Value = "Dòng";
         worksheet.Cell(1, 2).Value = "Tên nhóm chỉ tiêu";
         worksheet.Cell(1, 3).Value = "Khoa phòng thực hiện";
-        worksheet.Cell(1, 4).Value = "Tên chỉ tiêu";
-        worksheet.Cell(1, 5).Value = "Chỉ tiêu phụ";
-        worksheet.Cell(1, 6).Value = "Lỗi";
+        worksheet.Cell(1, 4).Value = "Nền mẫu";
+        worksheet.Cell(1, 5).Value = "Chỉ tiêu";
+        worksheet.Cell(1, 6).Value = "Chỉ tiêu phụ";
+        worksheet.Cell(1, 7).Value = "Tên phương pháp";
+        worksheet.Cell(1, 8).Value = "Đơn vị tính";
+        worksheet.Cell(1, 9).Value = "Đơn giá";
+        worksheet.Cell(1, 10).Value = "Lỗi";
 
         // Style headers
-        var headerRange = worksheet.Range(1, 1, 1, 6);
+        var headerRange = worksheet.Range(1, 1, 1, 10);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
 
@@ -3429,14 +3775,18 @@ public class ImportAppService : ApplicationService, IImportAppService
             worksheet.Cell(dataRow, 1).Value = rowNumber;
             worksheet.Cell(dataRow, 2).Value = row.IndicatorGroupName;
             worksheet.Cell(dataRow, 3).Value = row.DepartmentName ?? "";
-            worksheet.Cell(dataRow, 4).Value = row.IndicatorName;
-            worksheet.Cell(dataRow, 5).Value = row.SubIndicatorName ?? "";
+            worksheet.Cell(dataRow, 4).Value = row.SpecimenTypeName;
+            worksheet.Cell(dataRow, 5).Value = row.IndicatorName;
+            worksheet.Cell(dataRow, 6).Value = row.SubIndicatorName ?? "";
+            worksheet.Cell(dataRow, 7).Value = row.TestMethodName;
+            worksheet.Cell(dataRow, 8).Value = row.Unit ?? "";
+            worksheet.Cell(dataRow, 9).Value = row.UnitPriceText ?? "";
 
             if (rowErrors.TryGetValue(rowNumber, out var errorList))
             {
-                worksheet.Cell(dataRow, 6).Value = string.Join("; ", errorList);
+                worksheet.Cell(dataRow, 10).Value = string.Join("; ", errorList);
                 // Highlight error row
-                var errorRow = worksheet.Range(dataRow, 1, dataRow, 6);
+                var errorRow = worksheet.Range(dataRow, 1, dataRow, 10);
                 errorRow.Style.Fill.BackgroundColor = XLColor.LightPink;
             }
         }
@@ -3447,6 +3797,31 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var stream = new MemoryStream();
         workbook.SaveAs(stream);
         return stream.ToArray();
+    }
+
+    private bool TryParseFlexibleDecimal(string? input, out decimal value)
+    {
+        value = 0;
+
+        if (string.IsNullOrWhiteSpace(input))
+        {
+            return true;
+        }
+
+        var raw = input.Trim().Replace(" ", "");
+
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.GetCultureInfo("vi-VN"), out value))
+        {
+            return true;
+        }
+
+        if (decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+        {
+            return true;
+        }
+
+        var normalized = raw.Replace(".", "").Replace(",", ".");
+        return decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
     }
 
     #endregion
@@ -3901,11 +4276,25 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region SampleTypeCategory Import
 
-    public byte[] GetSampleTypeCategoryTemplate()
+    public async Task<byte[]> GetSampleTypeCategoryTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Danh muc loai mau.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var categories = await _sampleTypeCategoryRepository.GetListAsync();
+        var activeCategories = categories.Where(c => c.IsActive).ToList();
+
+        if (activeCategories.Count == 0)
+            return ReadStaticTemplate("Danh muc loai mau.xlsx");
+
+        var templateData = activeCategories
+            .OrderBy(c => c.Name)
+            .Select(c => new Dictionary<string, object>
+            {
+                { "Tên Danh mục loại", c.Name ?? "" },
+                { "Mô tả", c.Description ?? "" }
+            }).ToList();
+
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<SampleTypeCategoryImportPreviewDto> PreviewSampleTypeCategoriesAsync(byte[] fileBytes)
@@ -4189,16 +4578,64 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region SpecimenType Import
 
-    public byte[] GetSpecimenTypeTemplate()
+    public async Task<byte[]> GetSpecimenTypeTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Nen Mau.xlsx");
+        var stQuery = await _specimenTypeRepository.GetQueryableAsync();
+        var catQuery = await _sampleTypeCategoryRepository.GetQueryableAsync();
+        var stiQuery = await _specimenTypeIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
 
-        if (!File.Exists(templatePath))
+        // Get specimen types with category names and indicators
+        var specimenTypes = await AsyncExecuter.ToListAsync(
+            from st in stQuery
+            join cat in catQuery on st.SampleTypeCategoryId equals cat.Id into cj
+            from cat in cj.DefaultIfEmpty()
+            where st.IsActive
+            orderby cat.Name, st.Name
+            select new { st.Id, st.Name, CategoryName = cat != null ? cat.Name : "" }
+        );
+
+        if (specimenTypes.Count == 0)
+            return ReadStaticTemplate("Nen Mau.xlsx");
+
+        var stiRows = await AsyncExecuter.ToListAsync(
+            from sti in stiQuery
+            join ind in indicatorQuery on sti.IndicatorId equals ind.Id
+            where sti.IsActive
+            select new { sti.SpecimenTypeId, IndicatorName = ind.Name }
+        );
+        var stiByType = stiRows.GroupBy(x => x.SpecimenTypeId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var templateData = new List<Dictionary<string, object>>();
+
+        foreach (var st in specimenTypes)
         {
-            throw new UserFriendlyException("Template file not found: Nen Mau.xlsx");
+            if (stiByType.TryGetValue(st.Id, out var indicators) && indicators.Count > 0)
+            {
+                foreach (var ind in indicators)
+                {
+                    templateData.Add(new Dictionary<string, object>
+                    {
+                        { "Tên Danh mục loại", st.CategoryName ?? "" },
+                        { "Nền mẫu", st.Name ?? "" },
+                        { "Tên chỉ tiêu", ind.IndicatorName ?? "" }
+                    });
+                }
+            }
+            else
+            {
+                templateData.Add(new Dictionary<string, object>
+                {
+                    { "Tên Danh mục loại", st.CategoryName ?? "" },
+                    { "Nền mẫu", st.Name ?? "" },
+                    { "Tên chỉ tiêu", "" }
+                });
+            }
         }
 
-        return File.ReadAllBytes(templatePath);
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<SpecimenTypeImportPreviewDto> PreviewSpecimenTypesAsync(byte[] fileBytes)
@@ -4631,11 +5068,25 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region Note Import
 
-    public byte[] GetNoteTemplate()
+    public async Task<byte[]> GetNoteTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath,
-            "templates", "Meta Data Template", "Ghi chú.xlsx");
-        return File.ReadAllBytes(templatePath);
+        var notes = await _noteRepository.GetListAsync();
+        var activeNotes = notes.Where(n => n.IsActive).ToList();
+
+        if (activeNotes.Count == 0)
+            return ReadStaticTemplate("Ghi chú.xlsx");
+
+        var templateData = activeNotes
+            .OrderBy(n => n.SortOrder)
+            .ThenBy(n => n.Content)
+            .Select(n => new Dictionary<string, object>
+            {
+                { "Ghi chú", n.Content ?? "" }
+            }).ToList();
+
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<NoteImportPreviewDto> PreviewNotesAsync(byte[] fileBytes)
@@ -4935,16 +5386,65 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #region TestResultValue Import
 
-    public byte[] GetTestResultValueTemplate()
+    public async Task<byte[]> GetTestResultValueTemplateAsync()
     {
-        var templatePath = Path.Combine(_webHostEnvironment.WebRootPath, "templates", "Meta Data Template", "Kết quả.xlsx");
+        var trvQuery = await _testResultValueRepository.GetQueryableAsync();
+        var trviQuery = await _testResultValueIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
-        if (!File.Exists(templatePath))
+        var resultValues = await AsyncExecuter.ToListAsync(
+            from trv in trvQuery
+            where trv.IsActive
+            orderby trv.Name
+            select new { trv.Id, trv.Name, trv.Description }
+        );
+
+        if (resultValues.Count == 0)
+            return ReadStaticTemplate("Kết quả.xlsx");
+
+        var links = await AsyncExecuter.ToListAsync(
+            from trvi in trviQuery
+            join ind in indicatorQuery on trvi.IndicatorId equals ind.Id
+            join st in specimenTypeQuery on trvi.SpecimenTypeId equals st.Id into stj
+            from st in stj.DefaultIfEmpty()
+            where trvi.IsActive
+            select new { trvi.TestResultValueId, IndicatorName = ind.Name, SpecimenTypeName = st != null ? st.Name : "" }
+        );
+        var linksByValue = links.GroupBy(x => x.TestResultValueId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var templateData = new List<Dictionary<string, object>>();
+
+        foreach (var rv in resultValues)
         {
-            throw new UserFriendlyException("Template file not found: Kết quả.xlsx");
+            if (linksByValue.TryGetValue(rv.Id, out var rvLinks) && rvLinks.Count > 0)
+            {
+                foreach (var link in rvLinks)
+                {
+                    templateData.Add(new Dictionary<string, object>
+                    {
+                        { "Tên kết quả", rv.Name ?? "" },
+                        { "Mô tả", rv.Description ?? "" },
+                        { "Nền mẫu", link.SpecimenTypeName ?? "" },
+                        { "Chỉ tiêu", link.IndicatorName ?? "" }
+                    });
+                }
+            }
+            else
+            {
+                templateData.Add(new Dictionary<string, object>
+                {
+                    { "Tên kết quả", rv.Name ?? "" },
+                    { "Mô tả", rv.Description ?? "" },
+                    { "Nền mẫu", "" },
+                    { "Chỉ tiêu", "" }
+                });
+            }
         }
 
-        return File.ReadAllBytes(templatePath);
+        using var stream = new MemoryStream();
+        MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
+        return stream.ToArray();
     }
 
     public async Task<TestResultValueImportPreviewDto> PreviewTestResultValuesAsync(byte[] fileBytes)

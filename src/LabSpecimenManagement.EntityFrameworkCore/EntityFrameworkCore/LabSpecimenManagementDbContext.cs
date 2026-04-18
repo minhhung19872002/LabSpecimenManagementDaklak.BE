@@ -548,7 +548,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
-            b.Property(x => x.Unit).IsRequired().HasMaxLength(100);
+            b.Property(x => x.Unit).HasMaxLength(100);
 
             // Filtered unique index - only enforce uniqueness for non-deleted records
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
@@ -561,6 +561,9 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestMethodIndicators", LabSpecimenManagementConsts.DbSchema);
 
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.Unit).HasMaxLength(100).IsRequired(false);
+            b.Property(x => x.FormattedUnit).HasMaxLength(500).IsRequired(false);
+            b.Property(x => x.IsActive).HasDefaultValue(true);
 
             b.HasIndex(x => x.TestMethodId);
             b.HasIndex(x => x.IndicatorId);
@@ -910,6 +913,9 @@ public class LabSpecimenManagementDbContext :
 
             // String properties
             b.Property(x => x.Result).HasMaxLength(500);
+            b.Property(x => x.SubContractMethodName).HasMaxLength(500);
+            b.Property(x => x.SubContractNumber).HasMaxLength(200);
+            b.Property(x => x.SubContractCost).HasPrecision(18, 2);
             // Unit: no length limit (text type) - copied from TestMethod which may have long values
             b.Property(x => x.RejectionReason).HasMaxLength(1000);
 

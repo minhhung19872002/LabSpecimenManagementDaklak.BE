@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
@@ -27,6 +28,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _indicatorRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qualityManagementTaskRepository;
+    private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
 
     private static readonly string[] MonthNames = { "Th1", "Th2", "Th3", "Th4", "Th5", "Th6", "Th7", "Th8", "Th9", "Th10", "Th11", "Th12" };
 
@@ -40,7 +43,9 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         IRepository<TaskAssignment, Guid> taskRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> indicatorRepository,
-        IRepository<QualityManagementTask, Guid> qualityManagementTaskRepository)
+        IRepository<QualityManagementTask, Guid> qualityManagementTaskRepository,
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<PaymentHistory, Guid> paymentHistoryRepository)
     {
         _testRequestRepository = testRequestRepository;
         _specimenRepository = specimenRepository;
@@ -52,6 +57,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         _sampleRepository = sampleRepository;
         _indicatorRepository = indicatorRepository;
         _qualityManagementTaskRepository = qualityManagementTaskRepository;
+        _receiptRepository = receiptRepository;
+        _paymentHistoryRepository = paymentHistoryRepository;
     }
 
     public async Task<DashboardStatisticsDto> GetStatisticsAsync()
@@ -433,10 +440,21 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             .Where(n => n.CreationTime >= fromDate.Date && n.CreationTime < adjustedToDate)
             .Count();
 
-        // 5. Total Revenue - Sum TotalCost of Completed contracts
-        var totalRevenue = filteredRequests
-            .Where(x => x.Status == TestRequestStatus.Completed)
-            .Sum(x => x.TotalCost);
+        // 5. Total Revenue - Sum of all paid amounts from PaymentHistory
+        // Chỉ lọc theo TestRequest.CreationTime (trong date range), không lọc theo ngày thanh toán
+        var receiptQuery = await _receiptRepository.GetQueryableAsync();
+        var paymentHistoryQuery = await _paymentHistoryRepository.GetQueryableAsync();
+
+        // Find all Receipt IDs linked to TestRequests created within date range
+        var filteredReceiptIds = receiptQuery
+            .Where(r => filteredRequestIds.Contains(r.TestRequestId))
+            .Select(r => r.Id)
+            .ToList();
+
+        // Sum ALL payment amounts (regardless of PaymentDate)
+        var totalRevenue = paymentHistoryQuery
+            .Where(ph => filteredReceiptIds.Contains(ph.ReceiptId))
+            .Sum(ph => (decimal?)ph.Amount) ?? 0m;
 
         // 6 & 7. On-time vs Late Tests
         // Đếm HĐ có status = PendingApproval (Chờ phê duyệt KQ - QLKT đã gửi kết quả)

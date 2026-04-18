@@ -29,6 +29,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private readonly IRepository<TestRequestIndicator, Guid> _testRequestIndicatorRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IDataFilter _dataFilter;
     private readonly ICodeGeneratorService _codeGenerator;
 
@@ -38,6 +39,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
         IDataFilter dataFilter,
         ICodeGeneratorService codeGenerator)
     {
@@ -46,6 +48,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         _testRequestIndicatorRepository = testRequestIndicatorRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _testMethodRepository = testMethodRepository;
+        _specimenTypeRepository = specimenTypeRepository;
         _dataFilter = dataFilter;
         _codeGenerator = codeGenerator;
     }
@@ -82,6 +85,24 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         if (input.IsActive.HasValue)
         {
             query = query.Where(x => x.IsActive == input.IsActive.Value);
+        }
+
+        // Filter by SpecimenType(s) or TestMethod(s) via TestMethodIndicator join
+        if (input.SpecimenTypeIds?.Any() == true || input.TestMethodIds?.Any() == true)
+        {
+            var tmiQuery = _testMethodIndicatorRepository.GetQueryableAsync().Result;
+
+            if (input.SpecimenTypeIds?.Any() == true)
+            {
+                tmiQuery = tmiQuery.Where(tmi => tmi.SpecimenTypeId.HasValue && input.SpecimenTypeIds.Contains(tmi.SpecimenTypeId.Value));
+            }
+            if (input.TestMethodIds?.Any() == true)
+            {
+                tmiQuery = tmiQuery.Where(tmi => input.TestMethodIds.Contains(tmi.TestMethodId));
+            }
+
+            var matchingIndicatorIds = tmiQuery.Select(tmi => tmi.IndicatorId).Distinct().ToList();
+            query = query.Where(x => matchingIndicatorIds.Contains(x.Id));
         }
 
         var totalCount = query.Count();
@@ -227,6 +248,87 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         entity.SortOrder = input.SortOrder;
 
         await _indicatorRepository.UpdateAsync(entity);
+
+        return await MapToDtoAsync(entity);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public async Task<IndicatorDto> UpdateWithSubIndicatorsAsync(Guid id, UpdateIndicatorWithSubsDto input)
+    {
+        // 1. Update parent indicator
+        var entity = await _indicatorRepository.GetAsync(id);
+        await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId); // validate group exists
+
+        entity.Name = StringHelper.NormalizeAndTrim(input.Name);
+        entity.FormattedName = SanitizeHtml(input.FormattedName);
+        entity.IsActive = input.IsActive;
+        entity.IndicatorGroupId = input.IndicatorGroupId;
+        entity.SortOrder = input.SortOrder;
+        await _indicatorRepository.UpdateAsync(entity);
+
+        // 2. Load existing sub-indicators
+        var subQuery = await _indicatorRepository.GetQueryableAsync();
+        var existingSubs = subQuery
+            .Where(x => x.ParentIndicatorId == id)
+            .ToList();
+
+        // 3. Determine which subs to keep
+        var incomingIds = input.SubIndicators
+            .Where(s => s.Id.HasValue)
+            .Select(s => s.Id!.Value)
+            .ToHashSet();
+
+        // 4. Delete removed sub-indicators (check usage first)
+        var testRequestQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        foreach (var existingSub in existingSubs)
+        {
+            if (!incomingIds.Contains(existingSub.Id))
+            {
+                var isUsed = testRequestQuery.Any(x => x.IndicatorId == existingSub.Id);
+                if (isUsed)
+                {
+                    throw new UserFriendlyException(
+                        $"Không thể xóa chỉ tiêu phụ '{existingSub.Name}' vì đã được sử dụng trong phiếu yêu cầu.");
+                }
+                await _indicatorRepository.DeleteAsync(existingSub.Id);
+            }
+        }
+
+        // 5. Update existing and create new sub-indicators
+        var existingSubsDict = existingSubs.ToDictionary(s => s.Id);
+        var nextSubSequence = await GetNextSubIndicatorSequenceAsync(id);
+
+        foreach (var subDto in input.SubIndicators)
+        {
+            if (subDto.Id.HasValue && existingSubsDict.TryGetValue(subDto.Id.Value, out var existingSub))
+            {
+                // Update existing
+                existingSub.Name = StringHelper.NormalizeAndTrim(subDto.Name);
+                existingSub.FormattedName = SanitizeHtml(subDto.FormattedName);
+                await _indicatorRepository.UpdateAsync(existingSub);
+            }
+            else
+            {
+                // Create new
+                var subCode = GenerateSubIndicatorCode(entity.Code, nextSubSequence);
+                nextSubSequence++;
+
+                var normalizedName = StringHelper.NormalizeAndTrim(subDto.Name);
+                var newSub = new Indicator(
+                    GuidGenerator.Create(),
+                    subCode,
+                    normalizedName,
+                    entity.IndicatorGroupId,
+                    parentIndicatorId: id
+                )
+                {
+                    IsActive = true,
+                    FormattedName = SanitizeHtml(subDto.FormattedName) ?? normalizedName,
+                    SortOrder = nextSubSequence
+                };
+                await _indicatorRepository.InsertAsync(newSub, autoSave: true);
+            }
+        }
 
         return await MapToDtoAsync(entity);
     }
@@ -430,56 +532,39 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     public async Task<byte[]> GetExcelTemplateAsync()
     {
-        // Get all active groups for reference
+        // Query all indicators with group names
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
-        var activeGroups = groupQuery.Where(g => g.IsActive).OrderBy(g => g.Name).Select(g => g.Name).ToList();
 
-        // Create template data with sample row
-        var templateData = new List<Dictionary<string, object>>
-        {
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "Ví dụ: Coliform" },
-                { "Đơn giá", 50000 },
-                { "Tên nhóm chỉ tiêu", activeGroups.FirstOrDefault() ?? "Tên nhóm" }
-            }
-        };
+        var query = from ind in indicatorQuery
+                    join g in groupQuery on ind.IndicatorGroupId equals g.Id into gj
+                    from g in gj.DefaultIfEmpty()
+                    where ind.IsActive
+                    orderby g.Name, ind.SortOrder, ind.Name
+                    select new { ind.Name, ind.IndicatorGroupId, GroupName = g != null ? g.Name : "" };
 
-        // Add instruction rows
-        var instructions = new List<Dictionary<string, object>>
-        {
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "=== HƯỚNG DẪN ===" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            },
-            new Dictionary<string, object>
-            {
-                { "Tên chỉ tiêu", "Các nhóm chỉ tiêu có sẵn:" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            }
-        };
+        var indicators = await AsyncExecuter.ToListAsync(query);
 
-        // Add group names as reference
-        foreach (var groupName in activeGroups)
+        // Fallback: if no data, return template with sample row
+        if (indicators.Count == 0)
         {
-            instructions.Add(new Dictionary<string, object>
+            var activeGroups = await AsyncExecuter.ToListAsync(
+                from g in groupQuery where g.IsActive orderby g.Name select g.Name);
+            var sampleData = new List<Dictionary<string, object>>
             {
-                { "Tên chỉ tiêu", $"  - {groupName}" },
-                { "Đơn giá", "" },
-                { "Tên nhóm chỉ tiêu", "" }
-            });
+                new() { { "Tên chỉ tiêu", "Ví dụ: Coliform" }, { "Đơn giá", 50000 }, { "Tên nhóm chỉ tiêu", activeGroups.FirstOrDefault() ?? "Tên nhóm" } }
+            };
+            using var s = new MemoryStream();
+            MiniExcelLibs.MiniExcel.SaveAs(s, sampleData);
+            return s.ToArray();
         }
 
-        templateData.AddRange(instructions);
+        var templateData = indicators.Select(ind => new Dictionary<string, object>
+        {
+            { "Tên chỉ tiêu", ind.Name ?? "" },
+            { "Đơn giá", 0 },
+            { "Tên nhóm chỉ tiêu", ind.GroupName ?? "" }
+        }).ToList();
 
         using var stream = new MemoryStream();
         MiniExcelLibs.MiniExcel.SaveAs(stream, templateData);
@@ -797,10 +882,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     /// </summary>
     public async Task<List<IndicatorWithMethodsDto>> GetAllWithMethodsAsync()
     {
-        // Get all active indicators
+        // Get all indicators (including inactive) so FE can show methods for all
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var indicators = indicatorQuery
-            .WhereActive()
             .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
@@ -827,8 +911,13 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var testMethodIds = testMethodIndicators.Select(x => x.TestMethodId).Distinct().ToList();
         var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
         var testMethods = testMethodQuery
-            .Where(x => testMethodIds.Contains(x.Id) && x.IsActive)
+            .Where(x => testMethodIds.Contains(x.Id))
             .ToDictionary(x => x.Id);
+
+        // Get specimen types for enrichment
+        var specimenTypeIds = testMethodIndicators.Where(x => x.SpecimenTypeId.HasValue).Select(x => x.SpecimenTypeId!.Value).Distinct().ToList();
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id);
 
         // Map to DTOs
         var result = new List<IndicatorWithMethodsDto>();
@@ -857,14 +946,21 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             {
                 if (testMethods.TryGetValue(methodIndicator.TestMethodId, out var testMethod))
                 {
+                    var specimenType = methodIndicator.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(methodIndicator.SpecimenTypeId.Value, out var st) ? st : null;
                     dto.Methods.Add(new IndicatorMethodDto
                     {
                         TestMethodId = testMethod.Id,
                         TestMethodCode = testMethod.Code,
                         TestMethodName = testMethod.Name,
+                        TestMethodFormattedName = testMethod.FormattedName,
                         UnitPrice = methodIndicator.UnitPrice,
-                        IsActive = testMethod.IsActive,
-                        SortOrder = methodIndicator.SortOrder
+                        IsActive = methodIndicator.IsActive,
+                        SortOrder = methodIndicator.SortOrder,
+                        SpecimenTypeId = methodIndicator.SpecimenTypeId,
+                        SpecimenTypeCode = specimenType?.Code,
+                        SpecimenTypeName = specimenType?.Name,
+                        Unit = methodIndicator.Unit ?? testMethod.Unit,
+                        FormattedUnit = methodIndicator.FormattedUnit ?? testMethod.FormattedUnit
                     });
                 }
             }

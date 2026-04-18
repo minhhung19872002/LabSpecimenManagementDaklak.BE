@@ -7,7 +7,8 @@ namespace LabSpecimenManagement.Import;
 
 /// <summary>
 /// Row data từ Excel import cho IndicatorGroup + Indicator
-/// Mapping columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Tên chỉ tiêu
+/// Mapping columns: Tên nhóm chỉ tiêu, Khoa phòng thực hiện, Nền mẫu, Chỉ tiêu,
+/// Chỉ tiêu phụ, Tên phương pháp, Đơn vị tính, Đơn giá
 /// </summary>
 public class IndicatorGroupImportRow
 {
@@ -40,6 +41,26 @@ public class IndicatorGroupImportRow
     /// Tên chỉ tiêu phụ có định dạng HTML (bold, italic, underline từ Excel)
     /// </summary>
     public string? FormattedSubIndicatorName { get; set; }
+
+    /// <summary>
+    /// Nền mẫu (bắt buộc)
+    /// </summary>
+    public string SpecimenTypeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tên phương pháp (bắt buộc)
+    /// </summary>
+    public string TestMethodName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Đơn vị tính (không bắt buộc)
+    /// </summary>
+    public string? Unit { get; set; }
+
+    /// <summary>
+    /// Giá trị text thô của Đơn giá để validate
+    /// </summary>
+    public string? UnitPriceText { get; set; }
 }
 
 #endregion
@@ -147,6 +168,56 @@ public class IndicatorGroupImportPreviewItem
 
     #endregion
 
+    #region Specimen/TestMethod info
+
+    /// <summary>
+    /// Tên nền mẫu (từ Excel)
+    /// </summary>
+    public string SpecimenTypeName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// ID nền mẫu (nếu tìm thấy trong DB)
+    /// </summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// True nếu nền mẫu không tồn tại trong DB
+    /// </summary>
+    public bool IsSpecimenTypeInvalid { get; set; }
+
+    /// <summary>
+    /// Tên phương pháp (từ Excel)
+    /// </summary>
+    public string TestMethodName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// ID phương pháp (nếu tìm thấy trong DB)
+    /// </summary>
+    public Guid? TestMethodId { get; set; }
+
+    /// <summary>
+    /// True nếu phương pháp không tồn tại trong DB
+    /// </summary>
+    public bool IsTestMethodInvalid { get; set; }
+
+    /// <summary>
+    /// Đơn vị tính theo dòng import (optional)
+    /// </summary>
+    public string? Unit { get; set; }
+
+    /// <summary>
+    /// Đơn giá theo dòng import (default = 0)
+    /// </summary>
+    public decimal UnitPrice { get; set; }
+
+    /// <summary>
+    /// True = tạo mới liên kết phương pháp + chỉ tiêu + nền mẫu
+    /// False = cập nhật liên kết đã có
+    /// </summary>
+    public bool IsNewMethodLink { get; set; }
+
+    #endregion
+
     #region Validation
 
     /// <summary>
@@ -223,6 +294,16 @@ public class IndicatorGroupImportPreviewDto
     /// Số Sub-Indicator sẽ được cập nhật
     /// </summary>
     public int UpdateSubIndicators { get; set; }
+
+    /// <summary>
+    /// Số liên kết TestMethodIndicator mới sẽ được tạo
+    /// </summary>
+    public int NewMethodLinks { get; set; }
+
+    /// <summary>
+    /// Số liên kết TestMethodIndicator sẽ được cập nhật
+    /// </summary>
+    public int UpdateMethodLinks { get; set; }
 
     #endregion
 

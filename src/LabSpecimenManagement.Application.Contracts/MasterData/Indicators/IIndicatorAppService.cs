@@ -91,4 +91,9 @@ public interface IIndicatorAppService : IApplicationService
     /// Lấy danh sách chỉ tiêu với phương pháp thử
     /// </summary>
     Task<List<IndicatorWithMethodsDto>> GetAllWithMethodsAsync();
+
+    /// <summary>
+    /// Cập nhật chỉ tiêu cha + quản lý chỉ tiêu phụ (thêm/sửa/xóa)
+    /// </summary>
+    Task<IndicatorDto> UpdateWithSubIndicatorsAsync(Guid id, UpdateIndicatorWithSubsDto input);
 }

@@ -149,9 +149,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("test-methods-with-indicators/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.TestMethods)]
-    public virtual IActionResult GetTestMethodWithIndicatorsTemplate()
+    public virtual async Task<IActionResult> GetTestMethodWithIndicatorsTemplateAsync()
     {
-        var bytes = _importAppService.GetTestMethodWithIndicatorsTemplate();
+        var bytes = await _importAppService.GetTestMethodWithIndicatorsTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_PhuongPhapThu.xlsx");
     }
 
@@ -200,9 +200,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("standards-with-indicators/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.Standards)]
-    public virtual IActionResult GetStandardWithIndicatorsTemplate()
+    public virtual async Task<IActionResult> GetStandardWithIndicatorsTemplateAsync()
     {
-        var bytes = _importAppService.GetStandardWithIndicatorsTemplate();
+        var bytes = await _importAppService.GetStandardWithIndicatorsTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_TieuChuan.xlsx");
     }
 
@@ -245,9 +245,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("organization-test-requests/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.Customers)]
-    public virtual IActionResult GetOrganizationTestRequestTemplate()
+    public virtual async Task<IActionResult> GetOrganizationTestRequestTemplateAsync()
     {
-        var bytes = _importAppService.GetOrganizationTestRequestTemplate();
+        var bytes = await _importAppService.GetOrganizationTestRequestTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_CSDN.xlsx");
     }
 
@@ -300,9 +300,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("indicator-groups/template")]
     [Authorize(LabSpecimenManagementPermissions.Import.Default)]
-    public virtual IActionResult GetIndicatorGroupTemplate()
+    public virtual async Task<IActionResult> GetIndicatorGroupTemplateAsync()
     {
-        var bytes = _importAppService.GetIndicatorGroupTemplate();
+        var bytes = await _importAppService.GetIndicatorGroupTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Template_NhomChiTieu.xlsx");
     }
 
@@ -392,9 +392,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("sample-type-categories/template")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
-    public virtual IActionResult GetSampleTypeCategoryTemplate()
+    public virtual async Task<IActionResult> GetSampleTypeCategoryTemplateAsync()
     {
-        var bytes = _importAppService.GetSampleTypeCategoryTemplate();
+        var bytes = await _importAppService.GetSampleTypeCategoryTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_muc_loai_mau.xlsx");
     }
 
@@ -440,9 +440,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("specimen-types/template")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
-    public virtual IActionResult GetSpecimenTypeTemplate()
+    public virtual async Task<IActionResult> GetSpecimenTypeTemplateAsync()
     {
-        var bytes = _importAppService.GetSpecimenTypeTemplate();
+        var bytes = await _importAppService.GetSpecimenTypeTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Nen_Mau.xlsx");
     }
 
@@ -490,9 +490,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("notes/template")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
-    public virtual IActionResult GetNoteTemplate()
+    public virtual async Task<IActionResult> GetNoteTemplateAsync()
     {
-        var bytes = _importAppService.GetNoteTemplate();
+        var bytes = await _importAppService.GetNoteTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ghi_chu.xlsx");
     }
 
@@ -538,9 +538,9 @@ public class ImportController : LabSpecimenManagementController
     /// </summary>
     [HttpGet("test-result-values/template")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
-    public virtual IActionResult GetTestResultValueTemplate()
+    public virtual async Task<IActionResult> GetTestResultValueTemplateAsync()
     {
-        var bytes = _importAppService.GetTestResultValueTemplate();
+        var bytes = await _importAppService.GetTestResultValueTemplateAsync();
         return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Ket_Qua.xlsx");
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Permissions;
 using Microsoft.Extensions.Configuration;
@@ -25,6 +26,22 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
     // Role Admin - tên role phải khớp với LabUsersDataSeedContributor
     public const string RoleAdmin = "admin";
 
+    private static readonly List<string> MasterDataDetailTabPermissions = new()
+    {
+        LabSpecimenManagementPermissions.Departments.Default,
+        LabSpecimenManagementPermissions.Laboratories.Default,
+        LabSpecimenManagementPermissions.SampleTypeCategories.Default,
+        LabSpecimenManagementPermissions.SampleConditions.Default,
+        LabSpecimenManagementPermissions.SpecimenTypes.Default,
+        LabSpecimenManagementPermissions.TestMethods.Default,
+        LabSpecimenManagementPermissions.Standards.Default,
+        LabSpecimenManagementPermissions.StorageLocations.Default,
+        LabSpecimenManagementPermissions.Indicators.Default,
+        LabSpecimenManagementPermissions.FormTemplates.Default,
+        LabSpecimenManagementPermissions.TestResultValues.Default,
+        LabSpecimenManagementPermissions.Notes.Default,
+    };
+
     public RolePermissionsDataSeedContributor(
         IGuidGenerator guidGenerator,
         IIdentityRoleRepository roleRepository,
@@ -49,6 +66,10 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
 
         // Chỉ seed permissions cho role Admin với tất cả quyền
         await SeedAdminPermissionsAsync();
+
+        // Backfill quyền tab dữ liệu chi tiết cho role cũ đang có MasterData.Default
+        // để không làm gián đoạn truy cập sau khi tách quyền theo tab.
+        await BackfillMasterDataDetailTabPermissionsAsync();
     }
 
     /// <summary>
@@ -58,6 +79,43 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
     {
         var permissions = GetAllPermissions();
         await EnsureRoleAndPermissionsAsync(RoleAdmin, permissions, isStatic: true);
+    }
+
+    private async Task BackfillMasterDataDetailTabPermissionsAsync()
+    {
+        var roles = await _roleRepository.GetListAsync();
+        var nonAdminRoles = roles
+            .Where(r => !string.Equals(r.Name, RoleAdmin, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (!nonAdminRoles.Any())
+        {
+            return;
+        }
+
+        foreach (var role in nonAdminRoles)
+        {
+            var currentPermissions = await _permissionManager.GetAllForRoleAsync(role.Name);
+            var hasMasterDataDefault = currentPermissions.Any(
+                p => p.IsGranted && p.Name == LabSpecimenManagementPermissions.MasterData.Default
+            );
+
+            var hasAnyDetailTabPermission = currentPermissions.Any(
+                p => p.IsGranted && MasterDataDetailTabPermissions.Contains(p.Name)
+            );
+
+            // Chỉ backfill cho role đang có quyền vào Master Data
+            // nhưng chưa được cấp bất kỳ quyền tab chi tiết nào.
+            if (!hasMasterDataDefault || hasAnyDetailTabPermission)
+            {
+                continue;
+            }
+
+            foreach (var permission in MasterDataDetailTabPermissions)
+            {
+                await _permissionManager.SetForRoleAsync(role.Name, permission, true);
+            }
+        }
     }
 
     /// <summary>
@@ -256,6 +314,27 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.SampleConditions.Create,
             LabSpecimenManagementPermissions.SampleConditions.Edit,
             LabSpecimenManagementPermissions.SampleConditions.Delete,
+
+            // Master Data - Sample Type Categories
+            LabSpecimenManagementPermissions.SampleTypeCategories.Default,
+            LabSpecimenManagementPermissions.SampleTypeCategories.Create,
+            LabSpecimenManagementPermissions.SampleTypeCategories.Edit,
+            LabSpecimenManagementPermissions.SampleTypeCategories.Delete,
+
+            // Master Data - Notes
+            LabSpecimenManagementPermissions.Notes.Default,
+            LabSpecimenManagementPermissions.Notes.Create,
+            LabSpecimenManagementPermissions.Notes.Edit,
+            LabSpecimenManagementPermissions.Notes.Delete,
+
+            // Master Data - Test Result Values
+            LabSpecimenManagementPermissions.TestResultValues.Default,
+            LabSpecimenManagementPermissions.TestResultValues.Create,
+            LabSpecimenManagementPermissions.TestResultValues.Edit,
+            LabSpecimenManagementPermissions.TestResultValues.Delete,
+
+            // Master Data - Form Templates
+            LabSpecimenManagementPermissions.FormTemplates.Default,
 
             // Users
             LabSpecimenManagementPermissions.Users.Default,

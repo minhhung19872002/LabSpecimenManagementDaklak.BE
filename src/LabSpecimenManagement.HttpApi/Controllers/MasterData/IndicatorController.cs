@@ -56,6 +56,13 @@ public class IndicatorController : LabSpecimenManagementController
         return _indicatorAppService.UpdateAsync(id, input);
     }
 
+    [HttpPut("{id}/with-subs")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<IndicatorDto> UpdateWithSubIndicatorsAsync(Guid id, [FromBody] UpdateIndicatorWithSubsDto input)
+    {
+        return _indicatorAppService.UpdateWithSubIndicatorsAsync(id, input);
+    }
+
     [HttpDelete("{id}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
     public virtual Task DeleteAsync(Guid id)

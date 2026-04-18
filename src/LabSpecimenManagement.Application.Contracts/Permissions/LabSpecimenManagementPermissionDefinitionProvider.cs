@@ -202,6 +202,27 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Edit, L("Permission:SampleConditions.Edit"));
         sampleConditionPermission.AddChild(LabSpecimenManagementPermissions.SampleConditions.Delete, L("Permission:SampleConditions.Delete"));
 
+        // Master Data - Sample Type Category Permissions (Danh mục loại mẫu)
+        var sampleTypeCategoryPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.SampleTypeCategories.Default, L("Permission:SampleTypeCategories"));
+        sampleTypeCategoryPermission.AddChild(LabSpecimenManagementPermissions.SampleTypeCategories.Create, L("Permission:SampleTypeCategories.Create"));
+        sampleTypeCategoryPermission.AddChild(LabSpecimenManagementPermissions.SampleTypeCategories.Edit, L("Permission:SampleTypeCategories.Edit"));
+        sampleTypeCategoryPermission.AddChild(LabSpecimenManagementPermissions.SampleTypeCategories.Delete, L("Permission:SampleTypeCategories.Delete"));
+
+        // Master Data - Notes Permissions (Quản lý ghi chú)
+        var notePermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Notes.Default, L("Permission:Notes"));
+        notePermission.AddChild(LabSpecimenManagementPermissions.Notes.Create, L("Permission:Notes.Create"));
+        notePermission.AddChild(LabSpecimenManagementPermissions.Notes.Edit, L("Permission:Notes.Edit"));
+        notePermission.AddChild(LabSpecimenManagementPermissions.Notes.Delete, L("Permission:Notes.Delete"));
+
+        // Master Data - Test Result Value Permissions (Quản lý kết quả)
+        var testResultValuePermission = myGroup.AddPermission(LabSpecimenManagementPermissions.TestResultValues.Default, L("Permission:TestResultValues"));
+        testResultValuePermission.AddChild(LabSpecimenManagementPermissions.TestResultValues.Create, L("Permission:TestResultValues.Create"));
+        testResultValuePermission.AddChild(LabSpecimenManagementPermissions.TestResultValues.Edit, L("Permission:TestResultValues.Edit"));
+        testResultValuePermission.AddChild(LabSpecimenManagementPermissions.TestResultValues.Delete, L("Permission:TestResultValues.Delete"));
+
+        // Master Data - Form Templates Permissions (Form mẫu)
+        myGroup.AddPermission(LabSpecimenManagementPermissions.FormTemplates.Default, L("Permission:FormTemplates"));
+
         // Role Management Permissions (Quản lý phân quyền)
         var roleManagementPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.RoleManagement.Default, L("Permission:RoleManagement"));
         roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.Create, L("Permission:RoleManagement.Create"));

@@ -69,12 +69,21 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
-    /// Generate next contract number with format HDYYYYMMDD###
+    /// Generate next contract number in sequential series (start 26170, +1)
     /// </summary>
     [HttpGet("generate-contract-number")]
     public Task<string> GenerateContractNumberAsync()
     {
         return _testRequestAppService.GenerateContractNumberAsync();
+    }
+
+    /// <summary>
+    /// Check if contract number already exists.
+    /// </summary>
+    [HttpGet("check-contract-number-exists")]
+    public Task<bool> CheckContractNumberExistsAsync([FromQuery] string contractNumber, [FromQuery] Guid? excludeId)
+    {
+        return _testRequestAppService.CheckContractNumberExistsAsync(contractNumber, excludeId);
     }
 
     /// <summary>
