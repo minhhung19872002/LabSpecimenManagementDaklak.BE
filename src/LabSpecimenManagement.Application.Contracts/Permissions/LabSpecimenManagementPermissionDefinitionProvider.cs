@@ -219,6 +219,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManagePermissions, L("Permission:RoleManagement.ManagePermissions"));
         roleManagementPermission.AddChild(LabSpecimenManagementPermissions.RoleManagement.ManageUsers, L("Permission:RoleManagement.ManageUsers"));
 
+        // Organization Permissions (Cơ sở/Doanh nghiệp)
+        var organizationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Organizations.Default, L("Permission:Organizations"));
+        organizationPermission.AddChild(LabSpecimenManagementPermissions.Organizations.Create, L("Permission:Organizations.Create"));
+        organizationPermission.AddChild(LabSpecimenManagementPermissions.Organizations.Edit, L("Permission:Organizations.Edit"));
+        organizationPermission.AddChild(LabSpecimenManagementPermissions.Organizations.Delete, L("Permission:Organizations.Delete"));
+
         // Receipt Permissions (Phiếu thu)
         var receiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Receipts.Default, L("Permission:Receipts"));
         receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.View, L("Permission:Receipts.View"));

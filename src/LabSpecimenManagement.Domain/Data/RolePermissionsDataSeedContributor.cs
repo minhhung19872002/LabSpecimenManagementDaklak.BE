@@ -240,6 +240,12 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.Quotations.Edit,
             LabSpecimenManagementPermissions.Quotations.Delete,
 
+            // Organizations (Cơ sở/Doanh nghiệp)
+            LabSpecimenManagementPermissions.Organizations.Default,
+            LabSpecimenManagementPermissions.Organizations.Create,
+            LabSpecimenManagementPermissions.Organizations.Edit,
+            LabSpecimenManagementPermissions.Organizations.Delete,
+
             // Receipts
             LabSpecimenManagementPermissions.Receipts.Default,
             LabSpecimenManagementPermissions.Receipts.View,

@@ -114,6 +114,15 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.Subcontractors.Delete, "Xóa nhà thầu phụ"),
         }),
 
+        // ==================== CƠ SỞ/DOANH NGHIỆP ====================
+        new PermissionGroupConfig("CoSoDoanhNghiep", "Cơ sở/Doanh nghiệp", new[]
+        {
+            (LabSpecimenManagementPermissions.Organizations.Default, "Xem cơ sở/doanh nghiệp"),
+            (LabSpecimenManagementPermissions.Organizations.Create, "Tạo cơ sở/doanh nghiệp"),
+            (LabSpecimenManagementPermissions.Organizations.Edit, "Sửa cơ sở/doanh nghiệp"),
+            (LabSpecimenManagementPermissions.Organizations.Delete, "Xóa cơ sở/doanh nghiệp"),
+        }),
+
         // ==================== DỮ LIỆU CHỦ (MASTER DATA) ====================
         new PermissionGroupConfig("MasterData", "Dữ liệu chủ", new[]
         {

@@ -314,6 +314,15 @@ public static class LabSpecimenManagementPermissions
         public const string ManageUsers = Default + ".ManageUsers";
     }
 
+    // Organization Permissions (Cơ sở/Doanh nghiệp)
+    public static class Organizations
+    {
+        public const string Default = GroupName + ".Organizations";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Receipt Permissions (Phiếu thu)
     public static class Receipts
     {
