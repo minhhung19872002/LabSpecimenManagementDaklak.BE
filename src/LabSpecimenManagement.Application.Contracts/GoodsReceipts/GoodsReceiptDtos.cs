@@ -1,0 +1,165 @@
+using System;
+using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
+using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Receipts;
+using Volo.Abp.Application.Dtos;
+
+namespace LabSpecimenManagement.GoodsReceipts;
+
+public class GoodsReceiptListDto : EntityDto<Guid>
+{
+    public string Code { get; set; }
+    public Guid SupplierId { get; set; }
+    public string SupplierName { get; set; }
+    public DateTime? DocumentDate { get; set; }
+    public GoodsReceiptWarehouseStatus WarehouseStatus { get; set; }
+    public GoodsReceiptOrderStatus OrderStatus { get; set; }
+    public GoodsReceiptPaymentStatus PaymentStatus { get; set; }
+    public decimal TotalAmountAfterVat { get; set; }
+    public string? CreatorName { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+public class GoodsReceiptDto : EntityDto<Guid>
+{
+    public string Code { get; set; }
+    public Guid SupplierId { get; set; }
+    public string SupplierName { get; set; }
+    public string? SupplierAddress { get; set; }
+    public string? SupplierPhone { get; set; }
+    public string? PurchaserName { get; set; }
+    public string? DeliveryNoteNumber { get; set; }
+    public string? PreparedByName { get; set; }
+    public DateTime? DocumentDate { get; set; }
+    public DateTime? DocumentExpiryDate { get; set; }
+    public string? SupplierRepresentativePhone { get; set; }
+    public decimal VatPercent { get; set; }
+    public decimal TotalAmountBeforeVat { get; set; }
+    public decimal TotalVatAmount { get; set; }
+    public decimal TotalAmountAfterVat { get; set; }
+    public decimal TotalPaid { get; set; }
+    public GoodsReceiptWarehouseStatus WarehouseStatus { get; set; }
+    public GoodsReceiptOrderStatus OrderStatus { get; set; }
+    public GoodsReceiptPaymentStatus PaymentStatus { get; set; }
+    public string? Notes { get; set; }
+    public string? CreatorName { get; set; }
+    public DateTime CreationTime { get; set; }
+
+    public List<GoodsReceiptItemDto> Items { get; set; } = new();
+    public List<GoodsReceiptPaymentDto> Payments { get; set; } = new();
+}
+
+public class GoodsReceiptItemDto : EntityDto<Guid>
+{
+    public Guid GoodsReceiptId { get; set; }
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; }
+    public Guid UnitId { get; set; }
+    public string UnitName { get; set; }
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal AmountBeforeVat { get; set; }
+    public decimal VatPercent { get; set; }
+    public decimal VatAmount { get; set; }
+    public decimal AmountAfterVat { get; set; }
+    public string? LotNumber { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+}
+
+public class GoodsReceiptPaymentDto : EntityDto<Guid>
+{
+    public Guid GoodsReceiptId { get; set; }
+    public int PaymentNumber { get; set; }
+    public decimal Amount { get; set; }
+    public decimal RemainingBeforePayment { get; set; }
+    public PaymentMethod PaymentMethod { get; set; }
+    public DateTime PaymentDate { get; set; }
+    public string? Phone { get; set; }
+    public string? RepresentativeName { get; set; }
+    public string? Notes { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+public class CreateUpdateGoodsReceiptDto
+{
+    [Required]
+    public Guid SupplierId { get; set; }
+
+    [StringLength(200)]
+    public string? PurchaserName { get; set; }
+
+    [StringLength(100)]
+    public string? DeliveryNoteNumber { get; set; }
+
+    public DateTime? DocumentDate { get; set; }
+    public DateTime? DocumentExpiryDate { get; set; }
+
+    [StringLength(20)]
+    public string? SupplierRepresentativePhone { get; set; }
+
+    public decimal VatPercent { get; set; } = 8;
+
+    [StringLength(2000)]
+    public string? Notes { get; set; }
+
+    public List<CreateUpdateGoodsReceiptItemDto> Items { get; set; } = new();
+}
+
+public class CreateUpdateGoodsReceiptItemDto
+{
+    public Guid? Id { get; set; }
+
+    [Required]
+    public Guid ProductId { get; set; }
+
+    [Required]
+    public Guid UnitId { get; set; }
+
+    public decimal Quantity { get; set; }
+    public decimal UnitPrice { get; set; }
+    public decimal VatPercent { get; set; }
+
+    [StringLength(100)]
+    public string? LotNumber { get; set; }
+
+    public DateTime? LotExpiryDate { get; set; }
+}
+
+public class GetGoodsReceiptListInput : PagedRequestDto
+{
+    public string? Search { get; set; }
+    public GoodsReceiptWarehouseStatus? WarehouseStatus { get; set; }
+    public GoodsReceiptOrderStatus? OrderStatus { get; set; }
+    public GoodsReceiptPaymentStatus? PaymentStatus { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+}
+
+public class RecentLotDto
+{
+    public string LotNumber { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+}
+
+public class CreateGoodsReceiptPaymentDto
+{
+    [Required]
+    public decimal Amount { get; set; }
+
+    [Required]
+    public PaymentMethod PaymentMethod { get; set; }
+
+    [Required]
+    public DateTime PaymentDate { get; set; }
+
+    [StringLength(20)]
+    public string? Phone { get; set; }
+
+    [StringLength(200)]
+    public string? RepresentativeName { get; set; }
+
+    [StringLength(1000)]
+    public string? Notes { get; set; }
+}

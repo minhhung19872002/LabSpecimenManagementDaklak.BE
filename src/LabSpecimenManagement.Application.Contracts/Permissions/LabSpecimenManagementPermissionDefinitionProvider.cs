@@ -100,6 +100,15 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Edit, L("Permission:Products.Edit"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Delete, L("Permission:Products.Delete"));
 
+        // Goods Receipts (Phiếu nhập hàng)
+        var goodsReceiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.GoodsReceipts.Default, L("Permission:GoodsReceipts"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.Create, L("Permission:GoodsReceipts.Create"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.Edit, L("Permission:GoodsReceipts.Edit"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.Delete, L("Permission:GoodsReceipts.Delete"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.Approve, L("Permission:GoodsReceipts.Approve"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.ImportToWarehouse, L("Permission:GoodsReceipts.ImportToWarehouse"));
+        goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.AddPayment, L("Permission:GoodsReceipts.AddPayment"));
+
         // Master Data - Unified Permissions (for all master data features)
         var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));
         masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.View, L("Permission:MasterData.View"));

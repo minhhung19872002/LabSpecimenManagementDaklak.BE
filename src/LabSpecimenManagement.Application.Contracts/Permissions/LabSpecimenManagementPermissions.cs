@@ -147,6 +147,18 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // GoodsReceipts (Phiếu nhập hàng)
+    public static class GoodsReceipts
+    {
+        public const string Default = GroupName + ".GoodsReceipts";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Approve = Default + ".Approve";
+        public const string ImportToWarehouse = Default + ".ImportToWarehouse";
+        public const string AddPayment = Default + ".AddPayment";
+    }
+
     // Master Data - Department Permissions (DEPRECATED - use MasterData instead)
     public static class Departments
     {

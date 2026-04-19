@@ -382,6 +382,27 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.Units.Edit,
             LabSpecimenManagementPermissions.Units.Delete,
 
+            // Suppliers (Quản lý nhà cung cấp)
+            LabSpecimenManagementPermissions.Suppliers.Default,
+            LabSpecimenManagementPermissions.Suppliers.Create,
+            LabSpecimenManagementPermissions.Suppliers.Edit,
+            LabSpecimenManagementPermissions.Suppliers.Delete,
+
+            // Products (Quản lý vật phẩm)
+            LabSpecimenManagementPermissions.Products.Default,
+            LabSpecimenManagementPermissions.Products.Create,
+            LabSpecimenManagementPermissions.Products.Edit,
+            LabSpecimenManagementPermissions.Products.Delete,
+
+            // GoodsReceipts (Phiếu nhập hàng)
+            LabSpecimenManagementPermissions.GoodsReceipts.Default,
+            LabSpecimenManagementPermissions.GoodsReceipts.Create,
+            LabSpecimenManagementPermissions.GoodsReceipts.Edit,
+            LabSpecimenManagementPermissions.GoodsReceipts.Delete,
+            LabSpecimenManagementPermissions.GoodsReceipts.Approve,
+            LabSpecimenManagementPermissions.GoodsReceipts.ImportToWarehouse,
+            LabSpecimenManagementPermissions.GoodsReceipts.AddPayment,
+
             // Master Data - Form Templates
             LabSpecimenManagementPermissions.FormTemplates.Default,
 

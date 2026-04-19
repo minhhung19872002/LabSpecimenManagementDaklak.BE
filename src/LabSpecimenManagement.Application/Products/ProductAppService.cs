@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -23,6 +24,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<ProductAttachment, Guid> _attachmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<GoodsReceiptItem, Guid> _goodsReceiptItemRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
@@ -31,6 +33,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<ProductAttachment, Guid> attachmentRepository,
         IRepository<ProductUnitConversion, Guid> conversionRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<GoodsReceiptItem, Guid> goodsReceiptItemRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
@@ -38,6 +41,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _attachmentRepository = attachmentRepository;
         _conversionRepository = conversionRepository;
         _unitRepository = unitRepository;
+        _goodsReceiptItemRepository = goodsReceiptItemRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -280,6 +284,8 @@ public class ProductAppService : ApplicationService, IProductAppService
     [Authorize(LabSpecimenManagementPermissions.Products.Delete)]
     public async Task DeleteAsync(Guid id)
     {
+        await CheckProductNotReferencedAsync(id);
+
         // Delete child records before soft-deleting product
         var attachments = (await _attachmentRepository.GetQueryableAsync())
             .Where(x => x.ProductId == id).ToList();
@@ -330,6 +336,16 @@ public class ProductAppService : ApplicationService, IProductAppService
     }
 
     #region Private Methods
+
+    private async Task CheckProductNotReferencedAsync(Guid productId)
+    {
+        var query = await _goodsReceiptItemRepository.GetQueryableAsync();
+        var isReferenced = query.Any(x => x.ProductId == productId);
+        if (isReferenced)
+        {
+            throw new UserFriendlyException("Không thể xóa sản phẩm này vì đang được sử dụng trong phiếu nhập hàng.");
+        }
+    }
 
     private async Task ValidateDuplicateNameAsync(string name, ProductType productType, Guid? excludeId = null)
     {

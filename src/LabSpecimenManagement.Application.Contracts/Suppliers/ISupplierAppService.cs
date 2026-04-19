@@ -13,6 +13,7 @@ public interface ISupplierAppService : IApplicationService
     Task<SupplierDto> CreateAsync(CreateUpdateSupplierDto input);
     Task<SupplierDto> UpdateAsync(Guid id, CreateUpdateSupplierDto input);
     Task DeleteAsync(Guid id);
+    Task<int> BatchDeleteAsync(List<Guid> ids);
     Task ToggleActiveAsync(Guid id);
     Task<List<string>> GetSupplierGroupsAsync();
 }

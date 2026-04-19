@@ -8,6 +8,7 @@ using LabSpecimenManagement.MasterData.SampleConditions;
 using LabSpecimenManagement.MasterData.Units;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Products;
+using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.Subcontractors;
@@ -153,6 +154,16 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.BaseUnitName, opt => opt.Ignore())
             .ForMember(dest => dest.Attachments, opt => opt.Ignore())
             .ForMember(dest => dest.UnitConversions, opt => opt.Ignore());
+
+        // GoodsReceipt mappings
+        CreateMap<GoodsReceipt, GoodsReceiptListDto>()
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore());
+        CreateMap<GoodsReceipt, GoodsReceiptDto>()
+            .ForMember(dest => dest.Items, opt => opt.Ignore())
+            .ForMember(dest => dest.Payments, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore());
+        CreateMap<GoodsReceiptItem, GoodsReceiptItemDto>();
+        CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>();
 
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()

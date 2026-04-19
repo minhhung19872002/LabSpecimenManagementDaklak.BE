@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -18,15 +19,18 @@ namespace LabSpecimenManagement.Suppliers;
 public class SupplierAppService : ApplicationService, ISupplierAppService
 {
     private readonly IRepository<Supplier, Guid> _supplierRepository;
+    private readonly IRepository<GoodsReceipt, Guid> _goodsReceiptRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
     public SupplierAppService(
         IRepository<Supplier, Guid> supplierRepository,
+        IRepository<GoodsReceipt, Guid> goodsReceiptRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
         _supplierRepository = supplierRepository;
+        _goodsReceiptRepository = goodsReceiptRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -50,8 +54,28 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
 
         var totalCount = query.Count();
 
-        var items = query
-            .OrderByDescending(x => x.CreationTime)
+        IQueryable<Supplier> sortedQuery;
+        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        {
+            var sorting = input.Sorting.Trim().ToLower();
+            sortedQuery = sorting switch
+            {
+                "name asc" => query.OrderBy(x => x.Name),
+                "name desc" => query.OrderByDescending(x => x.Name),
+                "code asc" => query.OrderBy(x => x.Code),
+                "code desc" => query.OrderByDescending(x => x.Code),
+                "suppliergroup asc" => query.OrderBy(x => x.SupplierGroup),
+                "suppliergroup desc" => query.OrderByDescending(x => x.SupplierGroup),
+                "creationtime asc" => query.OrderBy(x => x.CreationTime),
+                _ => query.OrderByDescending(x => x.CreationTime),
+            };
+        }
+        else
+        {
+            sortedQuery = query.OrderByDescending(x => x.CreationTime);
+        }
+
+        var items = sortedQuery
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount)
             .ToList();
@@ -70,6 +94,8 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
     [Authorize(LabSpecimenManagementPermissions.Suppliers.Create)]
     public async Task<SupplierDto> CreateAsync(CreateUpdateSupplierDto input)
     {
+        await ValidateDuplicateNameAsync(input.Name);
+
         var code = !string.IsNullOrWhiteSpace(input.Code)
             ? input.Code.Trim()
             : await GenerateSupplierCodeAsync();
@@ -96,6 +122,8 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
     [Authorize(LabSpecimenManagementPermissions.Suppliers.Edit)]
     public async Task<SupplierDto> UpdateAsync(Guid id, CreateUpdateSupplierDto input)
     {
+        await ValidateDuplicateNameAsync(input.Name, id);
+
         var supplier = await _supplierRepository.GetAsync(id);
 
         // Only validate code if changed
@@ -124,7 +152,27 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
     [Authorize(LabSpecimenManagementPermissions.Suppliers.Delete)]
     public async Task DeleteAsync(Guid id)
     {
+        await CheckSupplierNotReferencedAsync(id);
         await _supplierRepository.DeleteAsync(id);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Suppliers.Delete)]
+    public async Task<int> BatchDeleteAsync(List<Guid> ids)
+    {
+        if (ids == null || !ids.Any()) return 0;
+
+        foreach (var id in ids)
+        {
+            await CheckSupplierNotReferencedAsync(id);
+        }
+
+        var count = 0;
+        foreach (var id in ids)
+        {
+            await _supplierRepository.DeleteAsync(id);
+            count++;
+        }
+        return count;
     }
 
     [Authorize(LabSpecimenManagementPermissions.Suppliers.Edit)]
@@ -148,6 +196,16 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
 
     #region Private Methods
 
+    private async Task CheckSupplierNotReferencedAsync(Guid supplierId)
+    {
+        var query = await _goodsReceiptRepository.GetQueryableAsync();
+        var isReferenced = query.Any(x => x.SupplierId == supplierId);
+        if (isReferenced)
+        {
+            throw new UserFriendlyException("Không thể xóa nhà cung cấp này vì đang được sử dụng trong phiếu nhập hàng.");
+        }
+    }
+
     private async Task<string> GenerateSupplierCodeAsync()
     {
         using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
@@ -159,14 +217,29 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
         }
     }
 
+    private async Task ValidateDuplicateNameAsync(string name, Guid? excludeId = null)
+    {
+        var query = await _supplierRepository.GetQueryableAsync();
+        var normalizedName = name.Trim().ToLower();
+
+        var exists = await AsyncExecuter.AnyAsync(query.Where(x =>
+            x.Name.ToLower() == normalizedName &&
+            (excludeId == null || x.Id != excludeId)));
+
+        if (exists)
+        {
+            throw new UserFriendlyException("Tên nhà cung cấp đã tồn tại. Vui lòng chọn tên khác.");
+        }
+    }
+
     private async Task ValidateDuplicateCodeAsync(string code, Guid? excludeId = null)
     {
         var query = await _supplierRepository.GetQueryableAsync();
         var normalizedCode = code.Trim().ToLower();
 
-        var exists = query.Any(x =>
+        var exists = await AsyncExecuter.AnyAsync(query.Where(x =>
             x.Code.ToLower() == normalizedCode &&
-            (excludeId == null || x.Id != excludeId));
+            (excludeId == null || x.Id != excludeId)));
 
         if (exists)
         {

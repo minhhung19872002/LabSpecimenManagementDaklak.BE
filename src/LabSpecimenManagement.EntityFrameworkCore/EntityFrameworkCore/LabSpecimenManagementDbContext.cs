@@ -27,6 +27,7 @@ using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Suppliers;
+using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
@@ -71,6 +72,9 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Supplier> SupplierEntities { get; set; }
     public DbSet<ProductAttachment> ProductAttachments { get; set; }
     public DbSet<ProductUnitConversion> ProductUnitConversions { get; set; }
+    public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
+    public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
+    public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -507,6 +511,68 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.HasIndex(x => x.ProductId);
+        });
+
+        // GoodsReceipt configuration
+        builder.Entity<GoodsReceipt>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "GoodsReceipts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.SupplierName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.SupplierAddress).HasMaxLength(500);
+            b.Property(x => x.SupplierPhone).HasMaxLength(20);
+            b.Property(x => x.PurchaserName).HasMaxLength(200);
+            b.Property(x => x.DeliveryNoteNumber).HasMaxLength(100);
+            b.Property(x => x.PreparedByName).HasMaxLength(200);
+            b.Property(x => x.SupplierRepresentativePhone).HasMaxLength(20);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+            b.Property(x => x.VatPercent).HasPrecision(5, 2);
+            b.Property(x => x.TotalAmountBeforeVat).HasPrecision(18, 2);
+            b.Property(x => x.TotalVatAmount).HasPrecision(18, 2);
+            b.Property(x => x.TotalAmountAfterVat).HasPrecision(18, 2);
+            b.Property(x => x.TotalPaid).HasPrecision(18, 2);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.SupplierId);
+            b.HasIndex(x => x.DocumentDate);
+            b.HasIndex(x => x.WarehouseStatus);
+            b.HasIndex(x => x.OrderStatus);
+            b.HasIndex(x => x.PaymentStatus);
+        });
+
+        builder.Entity<GoodsReceiptItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "GoodsReceiptItems", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.UnitName).IsRequired().HasMaxLength(100);
+            b.Property(x => x.Quantity).HasPrecision(18, 4);
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.AmountBeforeVat).HasPrecision(18, 2);
+            b.Property(x => x.VatPercent).HasPrecision(5, 2);
+            b.Property(x => x.VatAmount).HasPrecision(18, 2);
+            b.Property(x => x.AmountAfterVat).HasPrecision(18, 2);
+            b.Property(x => x.LotNumber).HasMaxLength(100);
+
+            b.HasIndex(x => x.GoodsReceiptId);
+            b.HasIndex(x => x.ProductId);
+        });
+
+        builder.Entity<GoodsReceiptPayment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "GoodsReceiptPayments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Amount).HasPrecision(18, 2);
+            b.Property(x => x.RemainingBeforePayment).HasPrecision(18, 2);
+            b.Property(x => x.Phone).HasMaxLength(20);
+            b.Property(x => x.RepresentativeName).HasMaxLength(200);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.GoodsReceiptId);
         });
 
         // SpecimenType configuration

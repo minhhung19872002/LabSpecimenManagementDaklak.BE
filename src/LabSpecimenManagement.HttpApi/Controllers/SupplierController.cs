@@ -55,6 +55,13 @@ public class SupplierController : LabSpecimenManagementController
         return _supplierAppService.DeleteAsync(id);
     }
 
+    [HttpPost("batch-delete")]
+    [Authorize(LabSpecimenManagementPermissions.Suppliers.Delete)]
+    public virtual Task<int> BatchDeleteAsync([FromBody] List<Guid> ids)
+    {
+        return _supplierAppService.BatchDeleteAsync(ids);
+    }
+
     [HttpPost("{id}/toggle-active")]
     [Authorize(LabSpecimenManagementPermissions.Suppliers.Edit)]
     public virtual Task ToggleActiveAsync(Guid id)
