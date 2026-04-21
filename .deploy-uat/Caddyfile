@@ -1,0 +1,19 @@
+{
+    email phihung19872002@gmail.com
+}
+
+uat.tihelab.vn {
+    encode zstd gzip
+    reverse_proxy frontend:8080
+}
+
+api-uat.tihelab.vn {
+    encode zstd gzip
+    reverse_proxy backend:5002 {
+        header_up X-Forwarded-Proto https
+    }
+}
+
+collabora-uat.tihelab.vn {
+    reverse_proxy collabora:9980
+}

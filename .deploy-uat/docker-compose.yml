@@ -1,0 +1,247 @@
+version: "3.8"
+
+services:
+    # PostgreSQL Database
+    postgres:
+        image: postgres:15-alpine
+        container_name: lab-specimen-postgres
+        environment:
+            POSTGRES_DB: LabSpecimenManagement
+            POSTGRES_USER: postgres
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myPassword}
+        ports:
+            - "5433:5432"
+        volumes:
+            - postgres_data:/var/lib/postgresql/data
+        healthcheck:
+            test: ["CMD-SHELL", "pg_isready -U postgres"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            - lab-specimen-network
+
+    # Redis Cache
+    redis:
+        image: redis:7-alpine
+        container_name: lab-specimen-redis
+        ports:
+            - "6379:6379"
+        volumes:
+            - redis_data:/data
+        healthcheck:
+            test: ["CMD", "redis-cli", "ping"]
+            interval: 10s
+            timeout: 3s
+            retries: 5
+        networks:
+            - lab-specimen-network
+
+    # MongoDB Document Store
+    mongodb:
+        image: mongo:7
+        container_name: lab-specimen-mongodb
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: root
+            MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-myPassword}
+        ports:
+            - "27017:27017"
+        volumes:
+            - mongodb_data:/data/db
+        healthcheck:
+            test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+            interval: 10s
+            timeout: 5s
+            retries: 5
+        networks:
+            - lab-specimen-network
+
+    # Gotenberg - PDF conversion service (LibreOffice based)
+    gotenberg:
+        image: gotenberg/gotenberg:8
+        container_name: lab-specimen-gotenberg
+        ports:
+            - "3100:3000"
+        command:
+            - "gotenberg"
+            - "--api-timeout=120s"
+            - "--libreoffice-restart-after=10"
+            - "--libreoffice-auto-start=true"
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 30s
+        networks:
+            - lab-specimen-network
+
+    # Collabora Online - LibreOffice Online with full formatting support (including dashed borders)
+    collabora:
+        image: collabora/code:latest
+        container_name: lab-specimen-collabora
+        ports:
+            - "8089:9980"
+        environment:
+            # Admin console credentials
+            - "username=admin"
+            - "password=admin123"
+            # Disable SSL (Caddy terminates TLS)
+            - "DONT_GEN_SSL_CERT=true"
+            # Use coolwsd.xml configuration overrides - enable trace logging and allow HTTP
+            - "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:logging.level=trace --o:storage.wopi[@allow]=true --o:storage.wopi.host[@allow]=true --o:storage.wopi.host[0]=.* --o:storage.ssl.as_scheme=false --o:storage.ssl.enable=false --o:net.post_allow.host[0]=.* --o:net.frame_ancestors=*"
+        cap_add:
+            - MKNOD
+        restart: unless-stopped
+        extra_hosts:
+            - "host.docker.internal:host-gateway"
+        networks:
+            - lab-specimen-network
+
+    # Database Migrator (runs migrations then exits)
+    db-migrator:
+        build:
+            context: ./lab-specimen-management-be
+            dockerfile: Dockerfile.Migrator
+        container_name: lab-specimen-db-migrator
+        environment:
+            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
+            - Redis__Configuration=redis:6379
+            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            mongodb:
+                condition: service_healthy
+        networks:
+            - lab-specimen-network
+        restart: "no"
+
+    # Backend API (.NET 9.0)
+    backend:
+        build:
+            context: ./lab-specimen-management-be
+            dockerfile: Dockerfile
+        container_name: lab-specimen-backend
+        environment:
+            - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+            - ASPNETCORE_URLS=http://+:5002
+            # Trust forwarded headers from Caddy reverse proxy
+            - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
+            # Database connection
+            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
+            # Redis configuration
+            - Redis__Configuration=redis:6379
+            # MongoDB configuration
+            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
+            # Application URLs
+            - App__SelfUrl=${BACKEND_URL:-http://localhost:5002}
+            - App__CorsOrigins=https://uat.tihelab.vn,https://api-uat.tihelab.vn,http://136.110.9.243:8080,http://136.110.9.243:5002,http://localhost:3001,http://localhost:8080
+            - App__RedirectAllowedUrls=https://uat.tihelab.vn,http://136.110.9.243:8080,http://localhost:3001
+            # Auth Server
+            - AuthServer__Authority=${BACKEND_URL:-http://localhost:5002}
+            - AuthServer__RequireHttpsMetadata=false
+            # String Encryption
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+            # Gotenberg PDF Service
+            - Gotenberg__Url=http://lab-specimen-gotenberg:3000
+        ports:
+            - "5002:5002"
+        volumes:
+            - backend_logs:/app/Logs
+            - uploaded_images:/app/wwwroot/images
+            - backend_keys:/app/wwwroot/Keys  # IMPORTANT: Persist OpenIddict keys (moved to wwwroot for permissions)
+            - ./lab-specimen-management-be/src/LabSpecimenManagement.HttpApi.Host/wwwroot/templates:/app/wwwroot/templates
+        depends_on:
+            postgres:
+                condition: service_healthy
+            redis:
+                condition: service_healthy
+            mongodb:
+                condition: service_healthy
+            collabora:
+                condition: service_started
+        healthcheck:
+            test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
+            interval: 30s
+            timeout: 10s
+            retries: 3
+            start_period: 40s
+        networks:
+            - lab-specimen-network
+
+    # Frontend (React + Vite)
+    frontend:
+        build:
+            context: ./lab-specimen-management-fe
+            dockerfile: Dockerfile
+            args:
+                - VITE_API_BASE_URL=${FRONTEND_API_URL:-http://localhost:5002}
+                - VITE_APP_NAME=Lab Specimen Management System
+                - VITE_NODE_ENV=${NODE_ENV:-production}
+        container_name: lab-specimen-frontend
+        ports:
+            - "8080:8080"
+        depends_on:
+            backend:
+                condition: service_healthy
+        healthcheck:
+            test:
+                [
+                    "CMD",
+                    "wget",
+                    "--quiet",
+                    "--tries=1",
+                    "--spider",
+                    "http://127.0.0.1:8080/health",
+                ]
+            interval: 30s
+            timeout: 3s
+            retries: 3
+            start_period: 10s
+        networks:
+            - lab-specimen-network
+
+    # Caddy reverse proxy — HTTPS + Let's Encrypt auto cert
+    caddy:
+        image: caddy:2-alpine
+        container_name: lab-specimen-caddy
+        ports:
+            - "80:80"
+            - "443:443"
+        volumes:
+            - ./Caddyfile:/etc/caddy/Caddyfile:ro
+            - caddy_data:/data
+            - caddy_config:/config
+        restart: unless-stopped
+        networks:
+            - lab-specimen-network
+
+volumes:
+    postgres_data:
+        driver: local
+    redis_data:
+        driver: local
+    mongodb_data:
+        driver: local
+    backend_logs:
+        driver: local
+    backend_keys:
+        driver: local  # Persist OpenIddict encryption/signing keys (auto-generated on first run)
+    uploaded_images:
+        driver: local
+    onlyoffice_data:
+        driver: local
+    onlyoffice_logs:
+        driver: local
+    caddy_data:
+        driver: local
+    caddy_config:
+        driver: local
+
+networks:
+    lab-specimen-network:
+        driver: bridge
