@@ -3,140 +3,27 @@ name: Deploy Backend to UAT
 on:
   push:
     branches:
-      - develop  # UAT branch
+      - develop
     paths:
       - 'src/**'
       - 'Dockerfile'
       - 'Dockerfile.Migrator'
       - '.github/workflows/backend-deploy-uat.yml'
+  workflow_dispatch:
 
-  workflow_dispatch:  # Allow manual trigger
-
-env:
-  # UAT ACR Configuration (separate from production)
-  ACR_SERVER: acrlabspecimenuat.azurecr.io
-  ACR_USERNAME: acrlabspecimenuat
-  IMAGE_NAME: lab-specimen-backend
-
-  # UAT VM Configuration
-  UAT_VM_HOST: 20.205.154.96
-  UAT_VM_USER: azureuser
+concurrency:
+  group: deploy-backend-uat
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
-
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Log in to Azure Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.ACR_SERVER }}
-        username: ${{ env.ACR_USERNAME }}
-        password: ${{ secrets.UAT_ACR_PASSWORD }}
-
-    - name: Build and push Backend Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        push: true
-        tags: |
-          ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest
-          ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
-        cache-from: type=registry,ref=${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest
-        cache-to: type=inline
-
-    - name: Build and push DbMigrator Docker image
-      uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: Dockerfile.Migrator
-        push: true
-        tags: |
-          ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
-          ${{ env.ACR_SERVER }}/lab-specimen-migrator:${{ github.sha }}
-        cache-from: type=registry,ref=${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
-        cache-to: type=inline
-
-    - name: Deploy to UAT VM via SSH
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ env.UAT_VM_HOST }}
-        username: ${{ env.UAT_VM_USER }}
-        key: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
-        script: |
-          cd /opt/lab-specimen
-
-          # Log in to ACR
-          echo "${{ secrets.UAT_ACR_PASSWORD }}" | docker login ${{ env.ACR_SERVER }} -u ${{ env.ACR_USERNAME }} --password-stdin
-
-          # Run database migrations
-          echo "Running database migrations..."
-          docker pull ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
-          docker run --rm --env-file /opt/lab-specimen/.env.uat \
-            -e ConnectionStrings__Default="Host=psql-lab-specimen-uat.postgres.database.azure.com;Database=labspecimen;Username=psqladmin;Password=qwchadZPozZ6omqSvbvQsSVmw;SSL Mode=Require" \
-            ${{ env.ACR_SERVER }}/lab-specimen-migrator:latest
-          echo "Database migrations completed successfully"
-
-          # Ensure Caddyfile has correct configuration for UAT
-          if ! grep -q "/connect/\*" Caddyfile; then
-            echo "Updating Caddyfile with OAuth endpoint configuration..."
-            cat > Caddyfile << 'EOFCADDY'
-          starlab-uat.bluestar.com.vn {
-            # Automatic HTTPS with Let's Encrypt
-
-            # OpenIddict OAuth endpoints (must be before /* to take precedence)
-            handle /connect/* {
-              reverse_proxy backend:5002
-            }
-
-            # Backend API
-            handle /api/* {
-              reverse_proxy backend:5002
-            }
-
-            # Health check
-            handle /health {
-              reverse_proxy backend:5002
-            }
-
-            # Frontend (must be last as it's a catch-all)
-            handle /* {
-              reverse_proxy frontend:8080
-            }
-
-            # Logs
-            log {
-              output file /data/access.log
-            }
-          }
-          EOFCADDY
-            echo "Caddyfile updated successfully"
-            docker-compose restart caddy
-          fi
-
-          # Update backend image in docker-compose
-          sed -i 's|image: .*lab-specimen-backend.*|image: ${{ env.ACR_SERVER }}/${{ env.IMAGE_NAME }}:latest|' docker-compose.yml
-
-          # Update backend environment to UAT
-          sed -i 's|ASPNETCORE_ENVIRONMENT=Production|ASPNETCORE_ENVIRONMENT=UAT|' docker-compose.yml
-
-          # Pull and restart using UAT environment file
-          docker-compose --env-file .env.uat pull backend
-          docker-compose --env-file .env.uat up -d backend
-
-          # Clean up old images
-          docker image prune -f
-
-    - name: Verify deployment
-      uses: appleboy/ssh-action@v1.0.0
-      with:
-        host: ${{ env.UAT_VM_HOST }}
-        username: ${{ env.UAT_VM_USER }}
-        key: ${{ secrets.UAT_SSH_PRIVATE_KEY }}
-        script: |
-          cd /opt/lab-specimen
-          docker-compose --env-file .env.uat ps backend
-          docker-compose --env-file .env.uat logs --tail=50 backend
+      - name: Deploy backend via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VM_HOST }}
+          username: ${{ secrets.VM_USER }}
+          key: ${{ secrets.VM_SSH_KEY }}
+          command_timeout: 20m
+          script: backend
