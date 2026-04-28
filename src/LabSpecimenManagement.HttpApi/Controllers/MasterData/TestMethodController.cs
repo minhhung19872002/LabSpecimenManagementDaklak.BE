@@ -158,4 +158,10 @@ public class TestMethodController : LabSpecimenManagementController
     {
         return _testMethodAppService.SaveConsumptionAsync(testMethodIndicatorId, input);
     }
+
+    [HttpPost("indicators/consumption-status")]
+    public virtual Task<List<ConsumptionStatusDto>> CheckConsumptionStatusAsync([FromBody] CheckConsumptionStatusInput input)
+    {
+        return _testMethodAppService.CheckConsumptionStatusAsync(input);
+    }
 }

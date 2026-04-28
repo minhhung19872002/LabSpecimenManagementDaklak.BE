@@ -623,7 +623,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     })
                     .ToList(),
                 // Shared Sample - waiting flag
-                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
+                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample,
+                SpecimenTypeId = sampleIndicator.SpecimenTypeId
             });
         }
 

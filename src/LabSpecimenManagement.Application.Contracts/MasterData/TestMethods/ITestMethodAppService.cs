@@ -38,4 +38,5 @@ public interface ITestMethodAppService : IApplicationService
     // Material consumption
     Task<List<MaterialConsumptionItemDto>> GetConsumptionAsync(Guid testMethodIndicatorId);
     Task SaveConsumptionAsync(Guid testMethodIndicatorId, SaveMaterialConsumptionDto input);
+    Task<List<ConsumptionStatusDto>> CheckConsumptionStatusAsync(CheckConsumptionStatusInput input);
 }

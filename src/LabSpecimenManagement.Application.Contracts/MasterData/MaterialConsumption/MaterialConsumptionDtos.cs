@@ -34,3 +34,29 @@ public class SaveMaterialConsumptionItemDto
     [Range(0.0001, double.MaxValue, ErrorMessage = "Số lượng phải lớn hơn 0")]
     public decimal Quantity { get; set; }
 }
+
+public class CheckConsumptionStatusInput
+{
+    [Required]
+    public List<ConsumptionStatusItemInput> Items { get; set; } = new();
+}
+
+public class ConsumptionStatusItemInput
+{
+    [Required]
+    public Guid TestMethodId { get; set; }
+
+    [Required]
+    public Guid IndicatorId { get; set; }
+
+    public Guid? SpecimenTypeId { get; set; }
+}
+
+public class ConsumptionStatusDto
+{
+    public Guid TestMethodId { get; set; }
+    public Guid IndicatorId { get; set; }
+    public Guid? SpecimenTypeId { get; set; }
+    public Guid? TestMethodIndicatorId { get; set; }
+    public bool HasConsumption { get; set; }
+}

@@ -801,4 +801,50 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             await _consumptionRepository.InsertManyAsync(newItems);
         }
     }
+
+    public async Task<List<ConsumptionStatusDto>> CheckConsumptionStatusAsync(CheckConsumptionStatusInput input)
+    {
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var consumptionQuery = await _consumptionRepository.GetQueryableAsync();
+
+        var results = new List<ConsumptionStatusDto>();
+
+        foreach (var item in input.Items)
+        {
+            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+                tmiQuery.Where(x =>
+                    x.TestMethodId == item.TestMethodId &&
+                    x.IndicatorId == item.IndicatorId &&
+                    x.SpecimenTypeId == item.SpecimenTypeId)
+            );
+
+            if (tmi == null)
+            {
+                results.Add(new ConsumptionStatusDto
+                {
+                    TestMethodId = item.TestMethodId,
+                    IndicatorId = item.IndicatorId,
+                    SpecimenTypeId = item.SpecimenTypeId,
+                    TestMethodIndicatorId = null,
+                    HasConsumption = false
+                });
+                continue;
+            }
+
+            var hasConsumption = await AsyncExecuter.AnyAsync(
+                consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id)
+            );
+
+            results.Add(new ConsumptionStatusDto
+            {
+                TestMethodId = item.TestMethodId,
+                IndicatorId = item.IndicatorId,
+                SpecimenTypeId = item.SpecimenTypeId,
+                TestMethodIndicatorId = tmi.Id,
+                HasConsumption = hasConsumption
+            });
+        }
+
+        return results;
+    }
 }
