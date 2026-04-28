@@ -8,6 +8,7 @@ on:
       - 'src/**'
       - 'Dockerfile'
       - 'Dockerfile.Migrator'
+      - '.deploy-uat/**'
       - '.github/workflows/backend-deploy-uat.yml'
   workflow_dispatch:
 
