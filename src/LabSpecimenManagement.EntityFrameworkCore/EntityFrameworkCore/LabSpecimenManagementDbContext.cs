@@ -75,6 +75,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
     public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
     public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
+    public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -637,6 +638,17 @@ public class LabSpecimenManagementDbContext :
             // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId
             // Allows same indicator multiple times with different specimen types
             b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
+        });
+
+        // MaterialConsumptionItem configuration
+        builder.Entity<MaterialConsumptionItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MaterialConsumptionItems", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Quantity).HasPrecision(18, 4);
+            b.HasIndex(x => x.TestMethodIndicatorId);
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => new { x.TestMethodIndicatorId, x.ProductId }).IsUnique();
         });
 
         // StorageLocation configuration

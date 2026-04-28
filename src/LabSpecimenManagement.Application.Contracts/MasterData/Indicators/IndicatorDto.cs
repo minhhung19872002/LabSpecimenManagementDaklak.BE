@@ -275,6 +275,7 @@ public class IndicatorWithMethodsDto
 /// </summary>
 public class IndicatorMethodDto
 {
+    public Guid TestMethodIndicatorId { get; set; }
     public Guid TestMethodId { get; set; }
     public string TestMethodCode { get; set; }
     public string TestMethodName { get; set; }

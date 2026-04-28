@@ -1330,6 +1330,36 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppLaboratories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.MaterialConsumptionItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("TestMethodIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("TestMethodIndicatorId");
+
+                    b.HasIndex("TestMethodIndicatorId", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("AppMaterialConsumptionItems", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Note", b =>
                 {
                     b.Property<Guid>("Id")

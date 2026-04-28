@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.MasterData.MaterialConsumption;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -33,4 +34,8 @@ public interface ITestMethodAppService : IApplicationService
 
     // Batch remove indicators - uses composite key (IndicatorId + SpecimenTypeId)
     Task<int> RemoveIndicatorsBatchAsync(Guid testMethodId, List<IndicatorKeyDto> indicatorKeys);
+
+    // Material consumption
+    Task<List<MaterialConsumptionItemDto>> GetConsumptionAsync(Guid testMethodIndicatorId);
+    Task SaveConsumptionAsync(Guid testMethodIndicatorId, SaveMaterialConsumptionDto input);
 }

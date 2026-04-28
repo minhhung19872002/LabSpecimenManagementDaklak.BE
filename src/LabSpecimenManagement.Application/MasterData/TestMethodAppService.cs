@@ -5,6 +5,8 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.MaterialConsumption;
+using LabSpecimenManagement.Products;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -21,6 +23,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<MaterialConsumptionItem, Guid> _consumptionRepository;
+    private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IDataFilter _dataFilter;
 
     public TestMethodAppService(
@@ -28,12 +33,18 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<MaterialConsumptionItem, Guid> consumptionRepository,
+        IRepository<Product, Guid> productRepository,
+        IRepository<Unit, Guid> unitRepository,
         IDataFilter dataFilter)
     {
         _testMethodRepository = testMethodRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _indicatorRepository = indicatorRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _consumptionRepository = consumptionRepository;
+        _productRepository = productRepository;
+        _unitRepository = unitRepository;
         _dataFilter = dataFilter;
     }
 
@@ -716,5 +727,78 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         await _testMethodIndicatorRepository.DeleteManyAsync(entitiesToDelete);
         return entitiesToDelete.Count;
+    }
+
+    public async Task<List<MaterialConsumptionItemDto>> GetConsumptionAsync(Guid testMethodIndicatorId)
+    {
+        await _testMethodIndicatorRepository.GetAsync(testMethodIndicatorId);
+
+        var consumptionQuery = await _consumptionRepository.GetQueryableAsync();
+        var items = await AsyncExecuter.ToListAsync(
+            consumptionQuery.Where(x => x.TestMethodIndicatorId == testMethodIndicatorId)
+        );
+
+        if (items.Count == 0) return new List<MaterialConsumptionItemDto>();
+
+        var productIds = items.Select(x => x.ProductId).Distinct().ToList();
+        var unitIds = items.Select(x => x.UnitId).Distinct().ToList();
+
+        var productQuery = await _productRepository.GetQueryableAsync();
+        var unitQuery = await _unitRepository.GetQueryableAsync();
+
+        var products = await AsyncExecuter.ToListAsync(
+            productQuery.Where(p => productIds.Contains(p.Id))
+        );
+        var units = await AsyncExecuter.ToListAsync(
+            unitQuery.Where(u => unitIds.Contains(u.Id))
+        );
+
+        var productDict = products.ToDictionary(p => p.Id);
+        var unitDict = units.ToDictionary(u => u.Id);
+
+        return items.Select(item =>
+        {
+            productDict.TryGetValue(item.ProductId, out var product);
+            unitDict.TryGetValue(item.UnitId, out var unit);
+            return new MaterialConsumptionItemDto
+            {
+                Id = item.Id,
+                TestMethodIndicatorId = item.TestMethodIndicatorId,
+                ProductId = item.ProductId,
+                ProductName = product?.Name ?? "",
+                ProductType = product?.ProductType ?? default,
+                UnitId = item.UnitId,
+                UnitName = unit?.Name ?? "",
+                Quantity = item.Quantity,
+            };
+        }).ToList();
+    }
+
+    public async Task SaveConsumptionAsync(Guid testMethodIndicatorId, SaveMaterialConsumptionDto input)
+    {
+        await _testMethodIndicatorRepository.GetAsync(testMethodIndicatorId);
+
+        var consumptionQuery = await _consumptionRepository.GetQueryableAsync();
+        var existing = await AsyncExecuter.ToListAsync(
+            consumptionQuery.Where(x => x.TestMethodIndicatorId == testMethodIndicatorId)
+        );
+
+        if (existing.Any())
+        {
+            await _consumptionRepository.DeleteManyAsync(existing);
+        }
+
+        var newItems = input.Items.Select(item => new MaterialConsumptionItem(
+            GuidGenerator.Create(),
+            testMethodIndicatorId,
+            item.ProductId,
+            item.UnitId,
+            item.Quantity
+        )).ToList();
+
+        if (newItems.Any())
+        {
+            await _consumptionRepository.InsertManyAsync(newItems);
+        }
     }
 }

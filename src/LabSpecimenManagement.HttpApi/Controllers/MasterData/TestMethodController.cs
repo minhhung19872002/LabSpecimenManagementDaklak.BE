@@ -1,5 +1,6 @@
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.MaterialConsumption;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -143,5 +144,18 @@ public class TestMethodController : LabSpecimenManagementController
     public virtual Task<int> RemoveIndicatorsBatchAsync(Guid id, [FromBody] BulkIndicatorKeysDto input)
     {
         return _testMethodAppService.RemoveIndicatorsBatchAsync(id, input.Keys);
+    }
+
+    [HttpGet("indicators/{testMethodIndicatorId}/consumption")]
+    public virtual Task<List<MaterialConsumptionItemDto>> GetConsumptionAsync(Guid testMethodIndicatorId)
+    {
+        return _testMethodAppService.GetConsumptionAsync(testMethodIndicatorId);
+    }
+
+    [HttpPut("indicators/{testMethodIndicatorId}/consumption")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task SaveConsumptionAsync(Guid testMethodIndicatorId, [FromBody] SaveMaterialConsumptionDto input)
+    {
+        return _testMethodAppService.SaveConsumptionAsync(testMethodIndicatorId, input);
     }
 }

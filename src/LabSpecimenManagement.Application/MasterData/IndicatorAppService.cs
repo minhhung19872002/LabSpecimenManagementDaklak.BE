@@ -949,6 +949,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                     var specimenType = methodIndicator.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(methodIndicator.SpecimenTypeId.Value, out var st) ? st : null;
                     dto.Methods.Add(new IndicatorMethodDto
                     {
+                        TestMethodIndicatorId = methodIndicator.Id,
                         TestMethodId = testMethod.Id,
                         TestMethodCode = testMethod.Code,
                         TestMethodName = testMethod.Name,
