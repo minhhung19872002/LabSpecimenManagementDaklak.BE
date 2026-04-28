@@ -13,5 +13,12 @@ cd "$REPO_DIR"
 git fetch --prune origin develop
 git reset --hard origin/develop
 cd "$HOME/starlab"
+
+if [ "$SERVICE" = "backend" ]; then
+  echo "[$(date -u +%FT%TZ)] running db migrations..."
+  docker compose up --build db-migrator
+  echo "[$(date -u +%FT%TZ)] db migrations done"
+fi
+
 docker compose up -d --build --no-deps "$SERVICE"
 echo "[$(date -u +%FT%TZ)] deploy $SERVICE done"
