@@ -10,6 +10,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Products;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
@@ -51,6 +52,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityUserRepository _identityUserRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionRepository;
+    private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -76,7 +81,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         INotificationCreator notificationCreator,
         ITestResultValueAppService testResultValueAppService,
         IIdentityUserRepository identityUserRepository,
-        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository)
+        IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<MaterialConsumptionItem, Guid> materialConsumptionRepository,
+        IRepository<Product, Guid> productRepository,
+        IRepository<ProductUnitConversion, Guid> productUnitConversionRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -102,6 +111,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _testResultValueAppService = testResultValueAppService;
         _identityUserRepository = identityUserRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _materialConsumptionRepository = materialConsumptionRepository;
+        _productRepository = productRepository;
+        _productUnitConversionRepository = productUnitConversionRepository;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -1482,6 +1495,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
         }
 
+        // Deduct stock based on material consumption setup
+        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators);
+
         // Update task status (sử dụng TẤT CẢ indicators đã cached, không fetch lại từ DB)
         // allTaskIndicators đã được update trong memory nên sẽ có ApprovalStatus mới
         var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
@@ -1498,6 +1514,78 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         if (task.TechnicalManagerId.HasValue && submittedIndicators.Any())
         {
             await NotifyTechnicalManagerOnSubmitAsync(task, submittedIndicators);
+        }
+    }
+
+    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators)
+    {
+        var indicatorsWithMethod = submittedIndicators.Where(i => i.MethodId.HasValue).ToList();
+        if (!indicatorsWithMethod.Any()) return;
+
+        var sampleIndicatorIds = indicatorsWithMethod
+            .Select(i => i.TestRequestSampleIndicatorId).Distinct().ToList();
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIndicatorIds.Contains(si.Id));
+        var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id);
+
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
+
+        var allConsumptionItems = new List<MaterialConsumptionItem>();
+        var processedTmiIds = new HashSet<Guid>();
+
+        foreach (var indicator in indicatorsWithMethod)
+        {
+            if (!sampleIndicatorMap.TryGetValue(indicator.TestRequestSampleIndicatorId, out var sampleIndicator))
+                continue;
+
+            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+                tmiQuery.Where(x =>
+                    x.TestMethodId == indicator.MethodId!.Value &&
+                    x.IndicatorId == sampleIndicator.IndicatorId &&
+                    x.SpecimenTypeId == sampleIndicator.SpecimenTypeId));
+
+            if (tmi == null || !processedTmiIds.Add(tmi.Id)) continue;
+
+            var consumptionItems = await AsyncExecuter.ToListAsync(
+                consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+
+            allConsumptionItems.AddRange(consumptionItems);
+        }
+
+        if (!allConsumptionItems.Any()) return;
+
+        var productIds = allConsumptionItems.Select(c => c.ProductId).Distinct().ToList();
+        var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
+        var productMap = products.ToDictionary(p => p.Id);
+
+        var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
+
+        foreach (var item in allConsumptionItems)
+        {
+            if (!productMap.TryGetValue(item.ProductId, out var product))
+                continue;
+
+            decimal baseQty;
+            if (item.UnitId == product.BaseUnitId)
+            {
+                baseQty = item.Quantity;
+            }
+            else
+            {
+                var conversion = await AsyncExecuter.FirstOrDefaultAsync(
+                    conversionQuery.Where(c =>
+                        c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId));
+
+                if (conversion == null || conversion.ConvertedQuantity == 0)
+                    continue;
+
+                decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
+                baseQty = item.Quantity * ratio;
+            }
+
+            product.AvailableQuantity -= baseQty;
+            await _productRepository.UpdateAsync(product, autoSave: true);
         }
     }
 
