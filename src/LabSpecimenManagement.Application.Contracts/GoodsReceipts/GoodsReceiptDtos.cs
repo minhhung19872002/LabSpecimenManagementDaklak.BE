@@ -130,6 +130,7 @@ public class CreateUpdateGoodsReceiptItemDto
 public class GetGoodsReceiptListInput : PagedRequestDto
 {
     public string? Search { get; set; }
+    public Guid? SupplierId { get; set; }
     public GoodsReceiptWarehouseStatus? WarehouseStatus { get; set; }
     public GoodsReceiptOrderStatus? OrderStatus { get; set; }
     public GoodsReceiptPaymentStatus? PaymentStatus { get; set; }

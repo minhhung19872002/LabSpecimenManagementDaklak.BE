@@ -61,6 +61,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
 
+        if (input.SupplierId.HasValue)
+            query = query.Where(x => x.SupplierId == input.SupplierId.Value);
+
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
             var search = input.Search.Trim().ToLower();
