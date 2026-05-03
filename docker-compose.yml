@@ -161,8 +161,8 @@ services:
             - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
             # Application URLs
             - App__SelfUrl=${BACKEND_URL:-http://localhost:5002}
-            - App__CorsOrigins=http://localhost:3001,http://localhost:8080,http://34.59.178.231,https://34.59.178.231,http://starlab.bluestar.com.vn,https://starlab.bluestar.com.vn
-            - App__RedirectAllowedUrls=http://localhost:3001,http://34.59.178.231,http://starlab.bluestar.com.vn
+            - App__CorsOrigins=http://localhost:3001,http://localhost:8080,http://34.59.178.231,https://34.59.178.231,http://tihelab.vn,https://tihelab.vn
+            - App__RedirectAllowedUrls=http://localhost:3001,http://34.59.178.231,http://tihelab.vn
             # Auth Server
             - AuthServer__Authority=${BACKEND_URL:-http://localhost:5002}
             - AuthServer__RequireHttpsMetadata=false
