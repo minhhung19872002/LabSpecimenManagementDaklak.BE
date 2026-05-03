@@ -159,6 +159,15 @@ public static class LabSpecimenManagementPermissions
         public const string AddPayment = Default + ".AddPayment";
     }
 
+    public static class StockAdjustments
+    {
+        public const string Default = GroupName + ".StockAdjustments";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+        public const string Confirm = Default + ".Confirm";
+    }
+
     // Master Data - Department Permissions (DEPRECATED - use MasterData instead)
     public static class Departments
     {

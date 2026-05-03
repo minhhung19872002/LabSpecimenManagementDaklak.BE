@@ -28,6 +28,7 @@ using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.GoodsReceipts;
+using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
@@ -76,6 +77,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
     public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
+    public DbSet<StockAdjustment> StockAdjustments { get; set; }
+    public DbSet<StockAdjustmentItem> StockAdjustmentItems { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -1450,6 +1453,35 @@ public class LabSpecimenManagementDbContext :
                 .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // StockAdjustment configuration
+        builder.Entity<StockAdjustment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "StockAdjustments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.CreationTime);
+        });
+
+        builder.Entity<StockAdjustmentItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "StockAdjustmentItems", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.UnitName).HasMaxLength(100);
+            b.Property(x => x.QuantityBefore).HasPrecision(18, 4);
+            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
+            b.Property(x => x.AdjustmentQuantity).HasPrecision(18, 4);
+
+            b.HasIndex(x => x.StockAdjustmentId);
+            b.HasIndex(x => x.ProductId);
         });
     }
 }
