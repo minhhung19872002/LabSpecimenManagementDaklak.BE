@@ -139,3 +139,23 @@ public class ProductFilterDto : PagedRequestDto
     public ProductType? ProductType { get; set; }
     public bool? IsDraft { get; set; }
 }
+
+/// <summary>
+/// DTO nguồn gốc nhập hàng của sản phẩm (group by NCC)
+/// </summary>
+public class ProductSourceDto
+{
+    public Guid SupplierId { get; set; }
+    public string SupplierCode { get; set; } = string.Empty;
+    public string SupplierName { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+    public string UnitName { get; set; } = string.Empty;
+    public decimal TotalImported { get; set; }
+    public decimal AvailableQuantity { get; set; }
+    public decimal? LatestUnitPrice { get; set; }
+}
+
+public class GetProductSourcesInput : PagedRequestDto
+{
+    public string? Search { get; set; }
+}

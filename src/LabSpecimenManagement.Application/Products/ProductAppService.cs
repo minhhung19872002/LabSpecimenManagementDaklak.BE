@@ -6,6 +6,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Suppliers;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -25,6 +26,8 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<GoodsReceiptItem, Guid> _goodsReceiptItemRepository;
+    private readonly IRepository<GoodsReceipt, Guid> _goodsReceiptRepository;
+    private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
@@ -34,6 +37,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<ProductUnitConversion, Guid> conversionRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<GoodsReceiptItem, Guid> goodsReceiptItemRepository,
+        IRepository<GoodsReceipt, Guid> goodsReceiptRepository,
+        IRepository<Supplier, Guid> supplierRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
@@ -42,6 +47,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         _conversionRepository = conversionRepository;
         _unitRepository = unitRepository;
         _goodsReceiptItemRepository = goodsReceiptItemRepository;
+        _goodsReceiptRepository = goodsReceiptRepository;
+        _supplierRepository = supplierRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -333,6 +340,78 @@ public class ProductAppService : ApplicationService, IProductAppService
             throw new UserFriendlyException("Tài liệu không thuộc sản phẩm này.");
         }
         await _attachmentRepository.DeleteAsync(attachment);
+    }
+
+    public async Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input)
+    {
+        var product = await _productRepository.GetAsync(productId);
+
+        var itemQuery = await _goodsReceiptItemRepository.GetQueryableAsync();
+        var receiptQuery = await _goodsReceiptRepository.GetQueryableAsync();
+        var supplierQuery = await _supplierRepository.GetQueryableAsync();
+
+        var unitQuery = await _unitRepository.GetQueryableAsync();
+        var unitName = unitQuery.Where(u => u.Id == product.BaseUnitId).Select(u => u.Name).FirstOrDefault() ?? "";
+
+        var sourceQuery = from item in itemQuery
+                          join receipt in receiptQuery on item.GoodsReceiptId equals receipt.Id
+                          join supplier in supplierQuery on receipt.SupplierId equals supplier.Id
+                          where item.ProductId == productId
+                          select new { item, receipt, supplier };
+
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.Trim().ToLower();
+            sourceQuery = sourceQuery.Where(x =>
+                x.supplier.Code.ToLower().Contains(search) ||
+                x.supplier.Name.ToLower().Contains(search));
+        }
+
+        var grouped = sourceQuery
+            .GroupBy(x => new { x.supplier.Id, x.supplier.Code, x.supplier.Name })
+            .Select(g => new
+            {
+                SupplierId = g.Key.Id,
+                SupplierCode = g.Key.Code,
+                SupplierName = g.Key.Name,
+                TotalImported = g.Sum(x => x.item.Quantity),
+                LatestReceiptTime = g.Max(x => x.receipt.CreationTime),
+            })
+            .ToList();
+
+        var totalCount = grouped.Count;
+
+        var paged = grouped
+            .OrderByDescending(x => x.LatestReceiptTime)
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
+            .ToList();
+
+        var supplierIds = paged.Select(x => x.SupplierId).ToHashSet();
+        var latestPrices = sourceQuery
+            .Where(x => supplierIds.Contains(x.supplier.Id))
+            .GroupBy(x => x.supplier.Id)
+            .Select(g => new
+            {
+                SupplierId = g.Key,
+                LatestPrice = g.OrderByDescending(x => x.receipt.CreationTime).Select(x => x.item.UnitPrice).FirstOrDefault()
+            })
+            .ToList()
+            .ToDictionary(x => x.SupplierId, x => x.LatestPrice);
+
+        var dtos = paged.Select(x => new ProductSourceDto
+        {
+            SupplierId = x.SupplierId,
+            SupplierCode = x.SupplierCode,
+            SupplierName = x.SupplierName,
+            ProductName = product.Name,
+            UnitName = unitName,
+            TotalImported = x.TotalImported,
+            AvailableQuantity = product.AvailableQuantity,
+            LatestUnitPrice = latestPrices.GetValueOrDefault(x.SupplierId),
+        }).ToList();
+
+        return new PagedResultDto<ProductSourceDto>(totalCount, dtos);
     }
 
     #region Private Methods
