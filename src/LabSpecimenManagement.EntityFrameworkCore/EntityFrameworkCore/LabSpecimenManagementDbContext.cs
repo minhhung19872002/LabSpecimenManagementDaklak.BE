@@ -79,6 +79,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
     public DbSet<StockAdjustmentItem> StockAdjustmentItems { get; set; }
+    public DbSet<StockMovementLog> StockMovementLogs { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -1482,6 +1483,24 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.StockAdjustmentId);
             b.HasIndex(x => x.ProductId);
+        });
+
+        builder.Entity<StockMovementLog>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "StockMovementLogs", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.ReferenceCode).HasMaxLength(100);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+            b.Property(x => x.QuantityBefore).HasPrecision(18, 4);
+            b.Property(x => x.QuantityAfter).HasPrecision(18, 4);
+            b.Property(x => x.ChangeQuantity).HasPrecision(18, 4);
+
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.MovementType);
+            b.HasIndex(x => x.ReferenceId);
+            b.HasIndex(x => x.CreationTime);
         });
     }
 }

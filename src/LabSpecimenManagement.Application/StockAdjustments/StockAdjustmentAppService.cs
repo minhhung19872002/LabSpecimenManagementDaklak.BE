@@ -23,6 +23,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     private readonly IRepository<StockAdjustmentItem, Guid> _itemRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<StockMovementLog, Guid> _stockMovementLogRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -32,6 +33,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         IRepository<StockAdjustmentItem, Guid> itemRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<StockMovementLog, Guid> stockMovementLogRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -40,6 +42,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         _itemRepository = itemRepository;
         _productRepository = productRepository;
         _unitRepository = unitRepository;
+        _stockMovementLogRepository = stockMovementLogRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -223,8 +226,20 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         foreach (var item in items)
         {
             var product = await _productRepository.GetAsync(item.ProductId);
+            var quantityBefore = product.AvailableQuantity;
             product.AvailableQuantity = item.ActualQuantity;
             await _productRepository.UpdateAsync(product, autoSave: true);
+
+            var log = new StockMovementLog(
+                GuidGenerator.Create(),
+                product.Id,
+                product.Name,
+                quantityBefore,
+                item.ActualQuantity,
+                StockMovementType.StockAdjustment,
+                adjustment.Id,
+                adjustment.Code);
+            await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
         }
 
         adjustment.Status = StockAdjustmentStatus.Confirmed;
