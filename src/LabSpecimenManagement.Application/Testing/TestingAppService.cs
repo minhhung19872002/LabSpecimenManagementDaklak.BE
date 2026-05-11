@@ -10,6 +10,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
@@ -55,6 +56,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionRepository;
     private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
 
     public TestingAppService(
@@ -85,6 +87,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<MaterialConsumptionItem, Guid> materialConsumptionRepository,
         IRepository<Product, Guid> productRepository,
+        IRepository<Equipment, Guid> equipmentRepository,
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
@@ -114,6 +117,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _materialConsumptionRepository = materialConsumptionRepository;
         _productRepository = productRepository;
+        _equipmentRepository = equipmentRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
     }
 
@@ -1555,37 +1559,58 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (!allConsumptionItems.Any()) return;
 
-        var productIds = allConsumptionItems.Select(c => c.ProductId).Distinct().ToList();
-        var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
-        var productMap = products.ToDictionary(p => p.Id);
+        var productItems = allConsumptionItems.Where(c => c.ProductId.HasValue).ToList();
+        var equipmentItems = allConsumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
 
-        var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
-
-        foreach (var item in allConsumptionItems)
+        if (productItems.Any())
         {
-            if (!productMap.TryGetValue(item.ProductId, out var product))
-                continue;
+            var productIds = productItems.Select(c => c.ProductId!.Value).Distinct().ToList();
+            var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
+            var productMap = products.ToDictionary(p => p.Id);
 
-            decimal baseQty;
-            if (item.UnitId == product.BaseUnitId)
-            {
-                baseQty = item.Quantity;
-            }
-            else
-            {
-                var conversion = await AsyncExecuter.FirstOrDefaultAsync(
-                    conversionQuery.Where(c =>
-                        c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId));
+            var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
 
-                if (conversion == null || conversion.ConvertedQuantity == 0)
+            foreach (var item in productItems)
+            {
+                if (!productMap.TryGetValue(item.ProductId!.Value, out var product))
                     continue;
 
-                decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
-                baseQty = item.Quantity * ratio;
-            }
+                decimal baseQty;
+                if (item.UnitId == product.BaseUnitId)
+                {
+                    baseQty = item.Quantity;
+                }
+                else
+                {
+                    var conversion = await AsyncExecuter.FirstOrDefaultAsync(
+                        conversionQuery.Where(c =>
+                            c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId));
 
-            product.AvailableQuantity -= baseQty;
-            await _productRepository.UpdateAsync(product, autoSave: true);
+                    if (conversion == null || conversion.ConvertedQuantity == 0)
+                        continue;
+
+                    decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
+                    baseQty = item.Quantity * ratio;
+                }
+
+                product.AvailableQuantity -= baseQty;
+                await _productRepository.UpdateAsync(product, autoSave: true);
+            }
+        }
+
+        if (equipmentItems.Any())
+        {
+            var usageByEquipment = equipmentItems
+                .GroupBy(c => c.EquipmentId!.Value)
+                .ToDictionary(g => g.Key, g => (int)g.Sum(c => c.Quantity));
+
+            var equipments = await _equipmentRepository.GetListAsync(e => usageByEquipment.Keys.Contains(e.Id));
+
+            foreach (var equipment in equipments)
+            {
+                equipment.UsageCount += usageByEquipment[equipment.Id];
+                await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
+            }
         }
     }
 

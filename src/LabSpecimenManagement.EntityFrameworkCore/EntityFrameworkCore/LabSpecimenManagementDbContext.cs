@@ -659,7 +659,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Quantity).HasPrecision(18, 4);
             b.HasIndex(x => x.TestMethodIndicatorId);
             b.HasIndex(x => x.ProductId);
-            b.HasIndex(x => new { x.TestMethodIndicatorId, x.ProductId }).IsUnique();
+            b.HasIndex(x => x.EquipmentId);
         });
 
         // StorageLocation configuration

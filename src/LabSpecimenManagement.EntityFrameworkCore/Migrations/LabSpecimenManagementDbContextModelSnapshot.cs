@@ -1534,7 +1534,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("ProductId")
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProductId")
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Quantity")
@@ -1544,17 +1547,16 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("TestMethodIndicatorId")
                         .HasColumnType("uuid");
 
-                    b.Property<Guid>("UnitId")
+                    b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
 
+                    b.HasIndex("EquipmentId");
+
                     b.HasIndex("ProductId");
 
                     b.HasIndex("TestMethodIndicatorId");
-
-                    b.HasIndex("TestMethodIndicatorId", "ProductId")
-                        .IsUnique();
 
                     b.ToTable("AppMaterialConsumptionItems", (string)null);
                 });

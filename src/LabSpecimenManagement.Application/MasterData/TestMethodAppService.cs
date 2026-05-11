@@ -6,6 +6,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.MasterData.MaterialConsumption;
+using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.Products;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -25,6 +26,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<MaterialConsumptionItem, Guid> _consumptionRepository;
     private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IDataFilter _dataFilter;
 
@@ -35,6 +37,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<MaterialConsumptionItem, Guid> consumptionRepository,
         IRepository<Product, Guid> productRepository,
+        IRepository<Equipment, Guid> equipmentRepository,
         IRepository<Unit, Guid> unitRepository,
         IDataFilter dataFilter)
     {
@@ -44,6 +47,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         _specimenTypeRepository = specimenTypeRepository;
         _consumptionRepository = consumptionRepository;
         _productRepository = productRepository;
+        _equipmentRepository = equipmentRepository;
         _unitRepository = unitRepository;
         _dataFilter = dataFilter;
     }
@@ -740,35 +744,46 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         if (items.Count == 0) return new List<MaterialConsumptionItemDto>();
 
-        var productIds = items.Select(x => x.ProductId).Distinct().ToList();
-        var unitIds = items.Select(x => x.UnitId).Distinct().ToList();
+        var productIds = items.Where(x => x.ProductId.HasValue).Select(x => x.ProductId!.Value).Distinct().ToList();
+        var equipmentIds = items.Where(x => x.EquipmentId.HasValue).Select(x => x.EquipmentId!.Value).Distinct().ToList();
+        var unitIds = items.Where(x => x.UnitId.HasValue).Select(x => x.UnitId!.Value).Distinct().ToList();
 
         var productQuery = await _productRepository.GetQueryableAsync();
         var unitQuery = await _unitRepository.GetQueryableAsync();
 
-        var products = await AsyncExecuter.ToListAsync(
-            productQuery.Where(p => productIds.Contains(p.Id))
-        );
-        var units = await AsyncExecuter.ToListAsync(
-            unitQuery.Where(u => unitIds.Contains(u.Id))
-        );
+        var products = productIds.Any()
+            ? await AsyncExecuter.ToListAsync(productQuery.Where(p => productIds.Contains(p.Id)))
+            : new List<Product>();
+        var equipments = equipmentIds.Any()
+            ? await _equipmentRepository.GetListAsync(e => equipmentIds.Contains(e.Id))
+            : new List<Equipment>();
+        var units = unitIds.Any()
+            ? await AsyncExecuter.ToListAsync(unitQuery.Where(u => unitIds.Contains(u.Id)))
+            : new List<Unit>();
 
         var productDict = products.ToDictionary(p => p.Id);
+        var equipmentDict = equipments.ToDictionary(e => e.Id);
         var unitDict = units.ToDictionary(u => u.Id);
 
         return items.Select(item =>
         {
-            productDict.TryGetValue(item.ProductId, out var product);
-            unitDict.TryGetValue(item.UnitId, out var unit);
+            var isEquipment = item.EquipmentId.HasValue;
+            productDict.TryGetValue(item.ProductId ?? Guid.Empty, out var product);
+            equipmentDict.TryGetValue(item.EquipmentId ?? Guid.Empty, out var equipment);
+            unitDict.TryGetValue(item.UnitId ?? Guid.Empty, out var unit);
             return new MaterialConsumptionItemDto
             {
                 Id = item.Id,
                 TestMethodIndicatorId = item.TestMethodIndicatorId,
+                IsEquipment = isEquipment,
                 ProductId = item.ProductId,
-                ProductName = product?.Name ?? "",
-                ProductType = product?.ProductType ?? default,
+                ProductName = product?.Name,
+                ProductType = product?.ProductType,
+                EquipmentId = item.EquipmentId,
+                EquipmentName = equipment?.Name,
+                EquipmentSerialNumber = equipment?.SerialNumber,
                 UnitId = item.UnitId,
-                UnitName = unit?.Name ?? "",
+                UnitName = unit?.Name,
                 Quantity = item.Quantity,
             };
         }).ToList();
@@ -791,7 +806,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var newItems = input.Items.Select(item => new MaterialConsumptionItem(
             GuidGenerator.Create(),
             testMethodIndicatorId,
-            item.ProductId,
+            item.IsEquipment ? null : item.ProductId,
+            item.IsEquipment ? item.EquipmentId : null,
             item.UnitId,
             item.Quantity
         )).ToList();
