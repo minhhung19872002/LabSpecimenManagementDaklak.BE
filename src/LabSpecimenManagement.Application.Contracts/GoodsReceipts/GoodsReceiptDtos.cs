@@ -66,6 +66,10 @@ public class GoodsReceiptItemDto : EntityDto<Guid>
     public decimal AmountAfterVat { get; set; }
     public string? LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }
+    public bool IsEquipment { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? Model { get; set; }
+    public string? Manufacturer { get; set; }
 }
 
 public class GoodsReceiptPaymentDto : EntityDto<Guid>
@@ -111,11 +115,12 @@ public class CreateUpdateGoodsReceiptItemDto
 {
     public Guid? Id { get; set; }
 
-    [Required]
-    public Guid ProductId { get; set; }
+    public Guid? ProductId { get; set; }
 
-    [Required]
-    public Guid UnitId { get; set; }
+    [StringLength(500)]
+    public string? ProductName { get; set; }
+
+    public Guid? UnitId { get; set; }
 
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
@@ -125,6 +130,17 @@ public class CreateUpdateGoodsReceiptItemDto
     public string? LotNumber { get; set; }
 
     public DateTime? LotExpiryDate { get; set; }
+
+    public bool IsEquipment { get; set; }
+
+    [StringLength(200)]
+    public string? SerialNumber { get; set; }
+
+    [StringLength(256)]
+    public string? Model { get; set; }
+
+    [StringLength(500)]
+    public string? Manufacturer { get; set; }
 }
 
 public class GetGoodsReceiptListInput : PagedRequestDto

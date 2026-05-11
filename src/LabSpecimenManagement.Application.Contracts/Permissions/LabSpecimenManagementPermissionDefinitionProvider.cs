@@ -115,6 +115,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Delete, L("Permission:StockAdjustments.Delete"));
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Confirm, L("Permission:StockAdjustments.Confirm"));
 
+        var equipmentPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Equipments.Default, L("Permission:Equipments"));
+        equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Create, L("Permission:Equipments.Create"));
+        equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Edit, L("Permission:Equipments.Edit"));
+        equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Delete, L("Permission:Equipments.Delete"));
+        equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.UpdateStatus, L("Permission:Equipments.UpdateStatus"));
+
         // Master Data - Unified Permissions (for all master data features)
         var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));
         masterDataPermission.AddChild(LabSpecimenManagementPermissions.MasterData.View, L("Permission:MasterData.View"));

@@ -27,6 +27,7 @@ using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Suppliers;
+using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
@@ -80,6 +81,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
     public DbSet<StockAdjustmentItem> StockAdjustmentItems { get; set; }
     public DbSet<StockMovementLog> StockMovementLogs { get; set; }
+    public DbSet<Equipment> Equipments { get; set; }
+    public DbSet<EquipmentAttachment> EquipmentAttachments { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -552,8 +555,8 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "GoodsReceiptItems", LabSpecimenManagementConsts.DbSchema);
             b.ConfigureByConvention();
 
-            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
-            b.Property(x => x.UnitName).IsRequired().HasMaxLength(100);
+            b.Property(x => x.ProductName).HasMaxLength(500);
+            b.Property(x => x.UnitName).HasMaxLength(100);
             b.Property(x => x.Quantity).HasPrecision(18, 4);
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
             b.Property(x => x.AmountBeforeVat).HasPrecision(18, 2);
@@ -561,6 +564,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.VatAmount).HasPrecision(18, 2);
             b.Property(x => x.AmountAfterVat).HasPrecision(18, 2);
             b.Property(x => x.LotNumber).HasMaxLength(100);
+            b.Property(x => x.IsEquipment).HasDefaultValue(false);
+            b.Property(x => x.SerialNumber).HasMaxLength(200);
+            b.Property(x => x.Model).HasMaxLength(256);
+            b.Property(x => x.Manufacturer).HasMaxLength(500);
 
             b.HasIndex(x => x.GoodsReceiptId);
             b.HasIndex(x => x.ProductId);
@@ -1501,6 +1508,46 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.MovementType);
             b.HasIndex(x => x.ReferenceId);
             b.HasIndex(x => x.CreationTime);
+        });
+
+        builder.Entity<Equipment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Equipments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(500);
+            b.Property(x => x.SerialNumber).IsRequired().HasMaxLength(200);
+            b.Property(x => x.GoodsReceiptCode).HasMaxLength(50);
+            b.Property(x => x.SupplierName).HasMaxLength(500);
+            b.Property(x => x.Model).HasMaxLength(256);
+            b.Property(x => x.Manufacturer).HasMaxLength(256);
+            b.Property(x => x.Origin).HasMaxLength(256);
+            b.Property(x => x.UnitName).HasMaxLength(100);
+            b.Property(x => x.Price).HasPrecision(18, 2);
+            b.Property(x => x.LotNumber).HasMaxLength(100);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.SerialNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.Code);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.SupplierId);
+            b.HasIndex(x => x.GoodsReceiptId);
+            b.HasIndex(x => x.CreationTime);
+        });
+
+        builder.Entity<EquipmentAttachment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "EquipmentAttachments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.FileId).IsRequired().HasMaxLength(50);
+            b.Property(x => x.FileName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.FilePath).IsRequired().HasMaxLength(500);
+            b.Property(x => x.FileType).HasMaxLength(50);
+
+            b.HasIndex(x => x.EquipmentId);
+            b.HasIndex(x => x.FileId);
         });
     }
 }

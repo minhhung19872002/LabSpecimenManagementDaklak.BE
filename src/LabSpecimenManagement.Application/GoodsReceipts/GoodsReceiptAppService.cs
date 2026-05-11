@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
@@ -29,6 +30,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
     private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -41,6 +43,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<ProductUnitConversion, Guid> conversionRepository,
         IRepository<Supplier, Guid> supplierRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<Equipment, Guid> equipmentRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -52,6 +55,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _conversionRepository = conversionRepository;
         _supplierRepository = supplierRepository;
         _unitRepository = unitRepository;
+        _equipmentRepository = equipmentRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -304,7 +308,28 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         foreach (var item in items)
         {
-            var product = await _productRepository.GetAsync(item.ProductId);
+            if (item.IsEquipment)
+            {
+                var equipCode = await GenerateEquipmentCodeAsync();
+                var equipment = new Equipment(GuidGenerator.Create(), equipCode, item.ProductName, item.SerialNumber ?? "")
+                {
+                    GoodsReceiptId = id,
+                    GoodsReceiptCode = receipt.Code,
+                    SupplierId = receipt.SupplierId,
+                    SupplierName = receipt.SupplierName,
+                    Model = item.Model,
+                    Manufacturer = item.Manufacturer,
+                    UnitId = item.UnitId,
+                    UnitName = item.UnitName,
+                    Price = item.UnitPrice,
+                    LotNumber = item.LotNumber,
+                    LotExpiryDate = item.LotExpiryDate,
+                };
+                await _equipmentRepository.InsertAsync(equipment, autoSave: true);
+                continue;
+            }
+
+            var product = await _productRepository.GetAsync(item.ProductId!.Value);
             decimal baseQty;
 
             if (item.UnitId == product.BaseUnitId)
@@ -428,6 +453,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         }
     }
 
+    private async Task<string> GenerateEquipmentCodeAsync()
+    {
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var todayPrefix = _codeGenerator.GetTodayPrefix("TB");
+            var equipQuery = await _equipmentRepository.GetQueryableAsync();
+            var count = equipQuery.Count(x => x.Code.StartsWith(todayPrefix));
+            return _codeGenerator.GenerateCodeWithDate("TB", count);
+        }
+    }
+
     private async Task SaveItemsAsync(
         Guid receiptId,
         List<CreateUpdateGoodsReceiptItemDto> items,
@@ -442,49 +478,87 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             if (itemDto.LotExpiryDate.HasValue && itemDto.LotExpiryDate.Value.Date < DateTime.UtcNow.Date)
                 throw new UserFriendlyException($"Lô hàng đã hết hạn (HSD: {itemDto.LotExpiryDate.Value:dd/MM/yyyy}). Không thể sử dụng lô đã hết hạn.");
 
+            if (itemDto.IsEquipment)
+            {
+                if (itemDto.Quantity != 1)
+                    throw new UserFriendlyException("Số lượng thiết bị trong mỗi dòng phải là 1. Vui lòng thêm dòng riêng cho mỗi thiết bị.");
+                if (string.IsNullOrWhiteSpace(itemDto.SerialNumber))
+                    throw new UserFriendlyException("Thiết bị phải có serial number.");
+            }
+
+            string resolvedName;
+            Guid? resolvedProductId;
+            Guid? resolvedUnitId;
+            string? resolvedUnitName;
+
+            if (itemDto.IsEquipment)
+            {
+                if (string.IsNullOrWhiteSpace(itemDto.ProductName))
+                    throw new UserFriendlyException("Thiết bị phải có tên.");
+                resolvedName = itemDto.ProductName!;
+                resolvedProductId = null;
+                resolvedUnitId = itemDto.UnitId;
+                resolvedUnitName = itemDto.UnitId.HasValue
+                    ? unitQuery.FirstOrDefault(u => u.Id == itemDto.UnitId)?.Name
+                    : null;
+            }
+            else
+            {
+                if (!itemDto.ProductId.HasValue || itemDto.ProductId == Guid.Empty)
+                    throw new UserFriendlyException("Hàng hóa phải có vật phẩm.");
+                var product = productQuery.FirstOrDefault(p => p.Id == itemDto.ProductId.Value)
+                    ?? throw new UserFriendlyException($"Không tìm thấy vật phẩm với ID {itemDto.ProductId}.");
+                if (!itemDto.UnitId.HasValue || itemDto.UnitId == Guid.Empty)
+                    throw new UserFriendlyException("Hàng hóa phải có đơn vị.");
+                var unit = unitQuery.FirstOrDefault(u => u.Id == itemDto.UnitId.Value)
+                    ?? throw new UserFriendlyException($"Không tìm thấy đơn vị với ID {itemDto.UnitId}.");
+                resolvedName = product.Name;
+                resolvedProductId = product.Id;
+                resolvedUnitId = unit.Id;
+                resolvedUnitName = unit.Name;
+            }
+
             if (itemDto.Id.HasValue && existingItems != null)
             {
                 var existing = existingItems.FirstOrDefault(x => x.Id == itemDto.Id.Value);
                 if (existing != null)
                 {
-                    var product = productQuery.FirstOrDefault(p => p.Id == itemDto.ProductId)
-                        ?? throw new UserFriendlyException($"Không tìm thấy vật phẩm với ID {itemDto.ProductId}.");
-                    var unit = unitQuery.FirstOrDefault(u => u.Id == itemDto.UnitId)
-                        ?? throw new UserFriendlyException($"Không tìm thấy đơn vị với ID {itemDto.UnitId}.");
-
-                    existing.ProductId = itemDto.ProductId;
-                    existing.ProductName = product.Name;
-                    existing.UnitId = itemDto.UnitId;
-                    existing.UnitName = unit.Name;
+                    existing.ProductId = resolvedProductId;
+                    existing.ProductName = resolvedName;
+                    existing.UnitId = resolvedUnitId;
+                    existing.UnitName = resolvedUnitName;
                     existing.Quantity = itemDto.Quantity;
                     existing.UnitPrice = itemDto.UnitPrice;
                     existing.VatPercent = itemDto.VatPercent;
                     existing.LotNumber = itemDto.LotNumber;
                     existing.LotExpiryDate = itemDto.LotExpiryDate;
+                    existing.IsEquipment = itemDto.IsEquipment;
+                    existing.SerialNumber = itemDto.SerialNumber;
+                    existing.Model = itemDto.Model;
+                    existing.Manufacturer = itemDto.Manufacturer;
                     existing.Calculate();
                     await _itemRepository.UpdateAsync(existing, autoSave: true);
                     continue;
                 }
             }
 
-            var prod = productQuery.FirstOrDefault(p => p.Id == itemDto.ProductId)
-                ?? throw new UserFriendlyException($"Không tìm thấy vật phẩm với ID {itemDto.ProductId}.");
-            var u = unitQuery.FirstOrDefault(u => u.Id == itemDto.UnitId)
-                ?? throw new UserFriendlyException($"Không tìm thấy đơn vị với ID {itemDto.UnitId}.");
-
             var item = new GoodsReceiptItem(
                 GuidGenerator.Create(),
                 receiptId,
-                prod.Id,
-                prod.Name,
-                u.Id,
-                u.Name)
+                resolvedProductId,
+                resolvedName,
+                resolvedUnitId,
+                resolvedUnitName)
             {
                 Quantity = itemDto.Quantity,
                 UnitPrice = itemDto.UnitPrice,
                 VatPercent = itemDto.VatPercent,
                 LotNumber = itemDto.LotNumber,
                 LotExpiryDate = itemDto.LotExpiryDate,
+                IsEquipment = itemDto.IsEquipment,
+                SerialNumber = itemDto.SerialNumber,
+                Model = itemDto.Model,
+                Manufacturer = itemDto.Manufacturer,
             };
             item.Calculate();
             await _itemRepository.InsertAsync(item, autoSave: true);

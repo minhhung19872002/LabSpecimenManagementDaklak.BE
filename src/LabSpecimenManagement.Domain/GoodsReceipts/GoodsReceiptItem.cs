@@ -6,10 +6,10 @@ namespace LabSpecimenManagement.GoodsReceipts;
 public class GoodsReceiptItem : Entity<Guid>
 {
     public Guid GoodsReceiptId { get; set; }
-    public Guid ProductId { get; set; }
+    public Guid? ProductId { get; set; }
     public string ProductName { get; set; }
-    public Guid UnitId { get; set; }
-    public string UnitName { get; set; }
+    public Guid? UnitId { get; set; }
+    public string? UnitName { get; set; }
     public decimal Quantity { get; set; }
     public decimal UnitPrice { get; set; }
     public decimal AmountBeforeVat { get; set; }
@@ -18,6 +18,10 @@ public class GoodsReceiptItem : Entity<Guid>
     public decimal AmountAfterVat { get; set; }
     public string? LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }
+    public bool IsEquipment { get; set; }
+    public string? SerialNumber { get; set; }
+    public string? Model { get; set; }
+    public string? Manufacturer { get; set; }
 
     protected GoodsReceiptItem()
     {
@@ -26,10 +30,10 @@ public class GoodsReceiptItem : Entity<Guid>
     public GoodsReceiptItem(
         Guid id,
         Guid goodsReceiptId,
-        Guid productId,
+        Guid? productId,
         string productName,
-        Guid unitId,
-        string unitName) : base(id)
+        Guid? unitId,
+        string? unitName) : base(id)
     {
         GoodsReceiptId = goodsReceiptId;
         ProductId = productId;
