@@ -85,6 +85,15 @@ public class DepartmentWorkAssignmentDto
     public List<TechnicianWorkDto> Technicians { get; set; } = new();
 }
 
+public class RegionalBubbleDto
+{
+    public string Ward { get; set; }
+    public string District { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+}
+
 public class StatisticsDataDto
 {
     public StatisticsOverviewDto Overview { get; set; }
@@ -95,4 +104,5 @@ public class StatisticsDataDto
     public List<LabStatisticsDto> LabStatistics { get; set; }
     public TATStatusDto TATStatus { get; set; }
     public List<DepartmentWorkAssignmentDto> DepartmentWorkAssignments { get; set; }
+    public List<RegionalBubbleDto> RegionalBubbles { get; set; }
 }

@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
 using Volo.Abp.Application.Services;
@@ -27,6 +28,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IIdentityUserRepository _identityUserRepository;
     private readonly IIdentityRoleRepository _identityRoleRepository;
+    private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
 
     public StatisticsAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -38,7 +41,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         IRepository<Department, Guid> departmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IIdentityUserRepository identityUserRepository,
-        IIdentityRoleRepository identityRoleRepository)
+        IIdentityRoleRepository identityRoleRepository,
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<PaymentHistory, Guid> paymentHistoryRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -50,6 +55,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         _specimenTypeRepository = specimenTypeRepository;
         _identityUserRepository = identityUserRepository;
         _identityRoleRepository = identityRoleRepository;
+        _receiptRepository = receiptRepository;
+        _paymentHistoryRepository = paymentHistoryRepository;
     }
 
     public async Task<StatisticsOverviewDto> GetOverviewAsync(DateTime? fromDate = null, DateTime? toDate = null)
@@ -129,6 +136,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         // Department work assignments (per technician indicator breakdown)
         var departmentWorkAssignments = await BuildDepartmentWorkAssignmentAsync(fromDate, toDate);
 
+        // Regional bubble chart (geographic distribution)
+        var regionalBubbles = await BuildRegionalBubblesAsync(fromDate, toDate);
+
         return new StatisticsDataDto
         {
             Overview = overview,
@@ -138,7 +148,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             MonthlyTrends = monthlyTrends,
             LabStatistics = labStatistics,
             TATStatus = tatStatus,
-            DepartmentWorkAssignments = departmentWorkAssignments
+            DepartmentWorkAssignments = departmentWorkAssignments,
+            RegionalBubbles = regionalBubbles
         };
     }
 
@@ -498,6 +509,81 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             };
         })
         .ToList();
+    }
+
+    private async Task<List<RegionalBubbleDto>> BuildRegionalBubblesAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var filteredRequests = await AsyncExecuter.ToListAsync(
+            testRequestQuery.Where(r => r.RequestDate >= dateFrom && r.RequestDate < dateTo
+                                        && r.Ward != null && r.Ward != ""));
+
+        if (!filteredRequests.Any()) return new List<RegionalBubbleDto>();
+
+        var requestIds = filteredRequests.Select(r => r.Id).ToList();
+
+        // Samples per request
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var samples = await AsyncExecuter.ToListAsync(
+            sampleQuery.Where(s => requestIds.Contains(s.TestRequestId)));
+
+        var sampleCountByRequest = samples
+            .GroupBy(s => s.TestRequestId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Indicators per request (through samples)
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var indicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var indicatorCounts = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .Where(i => sampleIds.Contains(i.TestRequestSampleId))
+                .GroupBy(i => i.TestRequestSampleId)
+                .Select(g => new { SampleId = g.Key, Count = g.Count() }));
+
+        var indicatorCountBySample = indicatorCounts.ToDictionary(x => x.SampleId, x => x.Count);
+        var indicatorCountByRequest = samples
+            .GroupBy(s => s.TestRequestId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(s => indicatorCountBySample.TryGetValue(s.Id, out var c) ? c : 0));
+
+        // Revenue per request (Receipt → PaymentHistory)
+        var receiptQuery = await _receiptRepository.GetQueryableAsync();
+        var receipts = await AsyncExecuter.ToListAsync(
+            receiptQuery.Where(r => requestIds.Contains(r.TestRequestId)));
+        var receiptIds = receipts.Select(r => r.Id).ToList();
+        var receiptToRequest = receipts.ToDictionary(r => r.Id, r => r.TestRequestId);
+
+        var paymentQuery = await _paymentHistoryRepository.GetQueryableAsync();
+        var payments = await AsyncExecuter.ToListAsync(
+            paymentQuery.Where(p => receiptIds.Contains(p.ReceiptId)));
+
+        var revenueByRequest = payments
+            .GroupBy(p => receiptToRequest.TryGetValue(p.ReceiptId, out var rid) ? rid : Guid.Empty)
+            .Where(g => g.Key != Guid.Empty)
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+
+        // Group by Ward + District
+        return filteredRequests
+            .GroupBy(r => new { r.Ward, District = r.District ?? "Không xác định" })
+            .Select(g =>
+            {
+                var ids = g.Select(r => r.Id).ToList();
+                return new RegionalBubbleDto
+                {
+                    Ward = g.Key.Ward!,
+                    District = g.Key.District,
+                    TotalRevenue = Math.Round(ids.Sum(id => revenueByRequest.TryGetValue(id, out var rev) ? rev : 0) / 1_000_000m, 1),
+                    TotalSamples = ids.Sum(id => sampleCountByRequest.TryGetValue(id, out var sc) ? sc : 0),
+                    TotalIndicators = ids.Sum(id => indicatorCountByRequest.TryGetValue(id, out var ic) ? ic : 0),
+                };
+            })
+            .Where(x => x.TotalSamples > 0 || x.TotalRevenue > 0)
+            .OrderByDescending(x => x.TotalRevenue)
+            .ToList();
     }
 
     public async Task<IRemoteStreamContent> ExportToExcelAsync(DateTime? fromDate = null, DateTime? toDate = null)
