@@ -123,6 +123,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         // Lab statistics (indicators per lab + technician count)
         var labStatistics = await BuildLabStatisticsAsync(fromDate, toDate);
 
+        // TAT status pie chart (on-time vs late indicators)
+        var tatStatus = await BuildTATStatusAsync(fromDate, toDate);
+
         return new StatisticsDataDto
         {
             Overview = overview,
@@ -130,7 +133,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             TATCompliance = tatCompliance,
             WorkloadByDepartment = workloadByDepartment,
             MonthlyTrends = monthlyTrends,
-            LabStatistics = labStatistics
+            LabStatistics = labStatistics,
+            TATStatus = tatStatus
         };
     }
 
@@ -321,6 +325,31 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         }
 
         return result;
+    }
+
+    private async Task<TATStatusDto> BuildTATStatusAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var query = from ti in indicatorQuery
+                    join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+                    where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                          && ti.IsSentToQuality
+                          && ti.ApprovalDate != null
+                          && t.RequestCompletionDate != null
+                    select new { ti.ApprovalDate, t.RequestCompletionDate };
+
+        var data = await AsyncExecuter.ToListAsync(query);
+
+        return new TATStatusDto
+        {
+            OnTimeCount = data.Count(x => x.ApprovalDate <= x.RequestCompletionDate),
+            LateCount = data.Count(x => x.ApprovalDate > x.RequestCompletionDate),
+        };
     }
 
     private async Task<List<LabStatisticsDto>> BuildLabStatisticsAsync(DateTime? fromDate, DateTime? toDate)
