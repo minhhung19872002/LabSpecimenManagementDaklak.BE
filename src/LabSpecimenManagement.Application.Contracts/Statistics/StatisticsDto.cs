@@ -50,6 +50,15 @@ public class MonthlyTrendDto
     public int Reports { get; set; }
 }
 
+public class LabStatisticsDto
+{
+    public Guid LabId { get; set; }
+    public string LabName { get; set; }
+    public int InProgressCount { get; set; }
+    public int PendingCount { get; set; }
+    public int TechnicianCount { get; set; }
+}
+
 public class StatisticsDataDto
 {
     public StatisticsOverviewDto Overview { get; set; }
@@ -57,4 +66,5 @@ public class StatisticsDataDto
     public List<TATComplianceDto> TATCompliance { get; set; }
     public List<WorkloadByDepartmentDto> WorkloadByDepartment { get; set; }
     public List<MonthlyTrendDto> MonthlyTrends { get; set; }
+    public List<LabStatisticsDto> LabStatistics { get; set; }
 }

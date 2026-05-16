@@ -10,6 +10,8 @@ using MiniExcelLibs;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Data;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Statistics;
 
@@ -23,6 +25,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IIdentityUserRepository _identityUserRepository;
+    private readonly IIdentityRoleRepository _identityRoleRepository;
 
     public StatisticsAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -32,7 +36,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Department, Guid> departmentRepository,
-        IRepository<SpecimenType, Guid> specimenTypeRepository)
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IIdentityUserRepository identityUserRepository,
+        IIdentityRoleRepository identityRoleRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -42,6 +48,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         _laboratoryRepository = laboratoryRepository;
         _departmentRepository = departmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _identityUserRepository = identityUserRepository;
+        _identityRoleRepository = identityRoleRepository;
     }
 
     public async Task<StatisticsOverviewDto> GetOverviewAsync(DateTime? fromDate = null, DateTime? toDate = null)
@@ -112,13 +120,17 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         // Monthly trends for last 12 months
         var monthlyTrends = await BuildMonthlyTrendsAsync();
 
+        // Lab statistics (indicators per lab + technician count)
+        var labStatistics = await BuildLabStatisticsAsync(fromDate, toDate);
+
         return new StatisticsDataDto
         {
             Overview = overview,
             SampleMatrix = sampleMatrix,
             TATCompliance = tatCompliance,
             WorkloadByDepartment = workloadByDepartment,
-            MonthlyTrends = monthlyTrends
+            MonthlyTrends = monthlyTrends,
+            LabStatistics = labStatistics
         };
     }
 
@@ -309,6 +321,63 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         }
 
         return result;
+    }
+
+    private async Task<List<LabStatisticsDto>> BuildLabStatisticsAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var departments = await _departmentRepository.GetListAsync();
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var allLabIds = labs.Select(l => l.Id).ToList();
+        var labIndicators = from ti in indicatorQuery
+                            join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+                            where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                                  && allLabIds.Contains(t.LaboratoryId)
+                            select new { ti.ApprovalStatus, ti.TestDate, t.LaboratoryId };
+
+        var filtered = await AsyncExecuter.ToListAsync(labIndicators);
+
+        // Technician count per department
+        var techRole = (await _identityRoleRepository.GetListAsync())
+            .FirstOrDefault(r => r.Name == "LabTechnician");
+        var techCountByDept = new Dictionary<Guid, int>();
+        if (techRole != null)
+        {
+            var technicians = await _identityUserRepository.GetListAsync(roleId: techRole.Id);
+            techCountByDept = technicians
+                .GroupBy(u => u.GetProperty<Guid?>("DepartmentId"))
+                .Where(g => g.Key.HasValue)
+                .ToDictionary(g => g.Key!.Value, g => g.Count());
+        }
+
+        return labs.Select(lab =>
+        {
+            var labInds = filtered.Where(x => x.LaboratoryId == lab.Id).ToList();
+            return new LabStatisticsDto
+            {
+                LabId = lab.Id,
+                LabName = deptDict.TryGetValue(lab.DepartmentId, out var name) ? name : lab.Code,
+                InProgressCount = labInds.Count(x =>
+                    (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Entered
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Rejected
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Approved),
+                PendingCount = labInds.Count(x =>
+                    x.ApprovalStatus == IndicatorApprovalStatus.Pending
+                    || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
+                    || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                TechnicianCount = techCountByDept.TryGetValue(lab.DepartmentId, out var count) ? count : 0,
+            };
+        })
+        .Where(dto => dto.InProgressCount > 0 || dto.PendingCount > 0 || dto.TechnicianCount > 0)
+        .ToList();
     }
 
     public async Task<IRemoteStreamContent> ExportToExcelAsync(DateTime? fromDate = null, DateTime? toDate = null)
