@@ -566,16 +566,15 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             .Where(g => g.Key != Guid.Empty)
             .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
 
-        // Group by Ward + District
+        // Group by Ward
         return filteredRequests
-            .GroupBy(r => new { r.Ward, District = r.District ?? "Không xác định" })
+            .GroupBy(r => r.Ward!)
             .Select(g =>
             {
                 var ids = g.Select(r => r.Id).ToList();
                 return new RegionalBubbleDto
                 {
-                    Ward = g.Key.Ward!,
-                    District = g.Key.District,
+                    Ward = g.Key,
                     TotalRevenue = Math.Round(ids.Sum(id => revenueByRequest.TryGetValue(id, out var rev) ? rev : 0) / 1_000_000m, 1),
                     TotalSamples = ids.Sum(id => sampleCountByRequest.TryGetValue(id, out var sc) ? sc : 0),
                     TotalIndicators = ids.Sum(id => indicatorCountByRequest.TryGetValue(id, out var ic) ? ic : 0),

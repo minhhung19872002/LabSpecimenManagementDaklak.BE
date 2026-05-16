@@ -88,7 +88,6 @@ public class DepartmentWorkAssignmentDto
 public class RegionalBubbleDto
 {
     public string Ward { get; set; }
-    public string District { get; set; }
     public decimal TotalRevenue { get; set; }
     public int TotalSamples { get; set; }
     public int TotalIndicators { get; set; }
