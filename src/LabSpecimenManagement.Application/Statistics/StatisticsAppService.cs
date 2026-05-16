@@ -126,6 +126,9 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         // TAT status pie chart (on-time vs late indicators)
         var tatStatus = await BuildTATStatusAsync(fromDate, toDate);
 
+        // Department work assignments (per technician indicator breakdown)
+        var departmentWorkAssignments = await BuildDepartmentWorkAssignmentAsync(fromDate, toDate);
+
         return new StatisticsDataDto
         {
             Overview = overview,
@@ -134,7 +137,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             WorkloadByDepartment = workloadByDepartment,
             MonthlyTrends = monthlyTrends,
             LabStatistics = labStatistics,
-            TATStatus = tatStatus
+            TATStatus = tatStatus,
+            DepartmentWorkAssignments = departmentWorkAssignments
         };
     }
 
@@ -406,6 +410,93 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             };
         })
         .Where(dto => dto.InProgressCount > 0 || dto.PendingCount > 0 || dto.TechnicianCount > 0)
+        .ToList();
+    }
+
+    private async Task<List<DepartmentWorkAssignmentDto>> BuildDepartmentWorkAssignmentAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var departments = await _departmentRepository.GetListAsync();
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var allLabIds = labs.Select(l => l.Id).ToList();
+        var indicators = await AsyncExecuter.ToListAsync(
+            from ti in indicatorQuery
+            join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+            where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                  && allLabIds.Contains(t.LaboratoryId)
+            select new
+            {
+                t.LaboratoryId,
+                ti.TechnicianId,
+                ti.ApprovalStatus,
+                ti.TestDate
+            });
+
+        var techIds = indicators
+            .Where(x => x.TechnicianId.HasValue)
+            .Select(x => x.TechnicianId!.Value)
+            .Distinct()
+            .ToList();
+
+        var techUsers = new Dictionary<Guid, string>();
+        if (techIds.Any())
+        {
+            var users = await _identityUserRepository.GetListAsync();
+            techUsers = users
+                .Where(u => techIds.Contains(u.Id))
+                .ToDictionary(u => u.Id, u => u.Name ?? u.UserName);
+        }
+
+        return labs.Select(lab =>
+        {
+            var labInds = indicators.Where(x => x.LaboratoryId == lab.Id).ToList();
+
+            var grouped = labInds
+                .GroupBy(x => x.TechnicianId ?? Guid.Empty)
+                .Select(g =>
+                {
+                    var techName = g.Key == Guid.Empty
+                        ? "Chưa phân công"
+                        : techUsers.TryGetValue(g.Key, out var name) ? name : "Không xác định";
+
+                    var items = g.ToList();
+                    return new TechnicianWorkDto
+                    {
+                        TechnicianId = g.Key,
+                        TechnicianName = techName,
+                        TestingCount = items.Count(x =>
+                            (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)),
+                        NotTestedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Pending
+                            || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
+                            || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                        WaitingApprovalCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Entered),
+                        RejectedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Rejected),
+                        ApprovedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Approved),
+                        TotalCount = items.Count
+                    };
+                })
+                .OrderByDescending(x => x.TotalCount)
+                .ToList();
+
+            return new DepartmentWorkAssignmentDto
+            {
+                LabId = lab.Id,
+                LabName = deptDict.TryGetValue(lab.DepartmentId, out var dName) ? dName : lab.Code,
+                TotalIndicators = labInds.Count,
+                Technicians = grouped
+            };
+        })
         .ToList();
     }
 
