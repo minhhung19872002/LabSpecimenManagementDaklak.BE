@@ -109,6 +109,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     /// Danh sách chỉ tiêu - Indicators
     /// </summary>
     public List<QualityManagementIndicatorDto> Indicators { get; set; } = new();
+
+    /// <summary>
+    /// Danh sách đầy đủ tất cả chỉ tiêu của phiếu (bao gồm các chỉ tiêu chưa vào scope QLCL)
+    /// </summary>
+    public List<QualityManagementIndicatorDto> AllIndicators { get; set; } = new();
 }
 
 /// <summary>

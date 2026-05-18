@@ -22,6 +22,11 @@ public interface IQualityManagementAppService : IApplicationService
     Task<QualityManagementTaskDto> GetAsync(Guid id);
 
     /// <summary>
+    /// Get Quality Management Task detail with full indicator list across all labs
+    /// </summary>
+    Task<QualityManagementTaskDto> GetFullDetailAsync(Guid id);
+
+    /// <summary>
     /// Get statistics for dashboard
     /// </summary>
     Task<QualityManagementStatisticsDto> GetStatisticsAsync();
