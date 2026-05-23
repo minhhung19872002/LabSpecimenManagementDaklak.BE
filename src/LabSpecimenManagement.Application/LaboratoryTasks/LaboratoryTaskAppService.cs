@@ -2862,51 +2862,83 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             // Determine task name based on priority
             // Priority: "Cần duyệt kết quả" > "Cần phân công công việc" > "Sắp tới ngày trả kết quả"
             string taskName;
-            bool shouldInclude = false;
 
             if (task.Status == LaboratoryTaskStatus.WaitingApproval)
             {
                 taskName = "Cần duyệt kết quả";
-                shouldInclude = true;
             }
             else if (task.Status == LaboratoryTaskStatus.UnderEvaluation)
             {
                 taskName = "Cần phân công công việc";
-                shouldInclude = true;
             }
             else if (daysUntilDeadline.HasValue && daysUntilDeadline.Value <= 5 &&
                      task.Status != LaboratoryTaskStatus.Approved &&
                      task.Status != LaboratoryTaskStatus.SentToQuality)
             {
                 taskName = "Sắp tới ngày trả kết quả thử nghiệm";
-                shouldInclude = true;
             }
             else
             {
-                continue; // Skip tasks that don't match any condition
+                continue;
             }
 
-            if (shouldInclude)
+            result.Add(new LabTechManagerPendingTaskDto
             {
-                result.Add(new LabTechManagerPendingTaskDto
-                {
-                    Id = task.Id,
-                    ContractNumber = task.ContractNumber ?? "",
-                    TaskName = taskName,
-                    TransferDate = task.TransferDate,
-                    RequestCompletionDate = task.RequestCompletionDate,
-                    Status = task.Status,
-                    DaysUntilDeadline = daysUntilDeadline
-                });
-            }
+                Id = task.Id,
+                ContractNumber = task.ContractNumber ?? "",
+                TaskName = taskName,
+                TransferDate = task.TransferDate,
+                RequestCompletionDate = task.RequestCompletionDate,
+                Status = task.Status,
+                DaysUntilDeadline = daysUntilDeadline,
+                CreationTime = task.CreationTime,
+            });
         }
 
-        // Sort: PendingApproval first, then NotAssigned, then by deadline
+        // --- Indicators needing method setup (only have "-" placeholder method) ---
+        await AppendIndicatorsNeedingMethodSetupAsync(currentUserId.Value, result);
+
         return result
-            .OrderBy(x => x.Status == LaboratoryTaskStatus.WaitingApproval ? 0 :
-                          x.Status == LaboratoryTaskStatus.UnderEvaluation ? 1 : 2)
-            .ThenBy(x => x.RequestCompletionDate ?? DateTime.MaxValue)
+            .OrderByDescending(x => x.CreationTime)
             .ToList();
+    }
+
+    private async Task AppendIndicatorsNeedingMethodSetupAsync(
+        Guid currentUserId, List<LabTechManagerPendingTaskDto> result)
+    {
+        var managedLabIds = (await _laboratoryRepository.GetQueryableAsync())
+            .Where(l => l.TechnicalManagerId == currentUserId)
+            .Select(l => l.Id)
+            .ToList();
+
+        if (managedLabIds.Count == 0) return;
+
+        var managedGroupIds = (await _indicatorGroupRepository.GetQueryableAsync())
+            .Where(g => g.LaboratoryId.HasValue && managedLabIds.Contains(g.LaboratoryId.Value))
+            .Select(g => g.Id)
+            .ToList();
+
+        if (managedGroupIds.Count == 0) return;
+
+        var indicators = (await _indicatorRepository.GetQueryableAsync())
+            .Where(i => i.NeedsMethodSetup
+                        && i.IsActive
+                        && i.ParentIndicatorId == null
+                        && managedGroupIds.Contains(i.IndicatorGroupId))
+            .Select(i => new { i.Id, i.Code, i.Name, i.CreationTime })
+            .ToList();
+
+        foreach (var ind in indicators)
+        {
+            result.Add(new LabTechManagerPendingTaskDto
+            {
+                Id = ind.Id,
+                ContractNumber = ind.Code,
+                TaskName = $"Cần cập nhật phương pháp: {ind.Name}",
+                TaskType = "IndicatorMethodSetup",
+                CreationTime = ind.CreationTime,
+            });
+        }
     }
 
     /// <summary>

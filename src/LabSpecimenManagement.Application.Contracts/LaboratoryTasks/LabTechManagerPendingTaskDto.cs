@@ -44,4 +44,14 @@ public class LabTechManagerPendingTaskDto
     /// Số ngày còn lại đến deadline (null nếu không có deadline)
     /// </summary>
     public int? DaysUntilDeadline { get; set; }
+
+    /// <summary>
+    /// Loại task: "LaboratoryTask" (default) hoặc "IndicatorMethodSetup"
+    /// </summary>
+    public string TaskType { get; set; } = "LaboratoryTask";
+
+    /// <summary>
+    /// Thời gian tạo (để sort mới nhất lên đầu)
+    /// </summary>
+    public DateTime CreationTime { get; set; }
 }
