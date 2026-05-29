@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Testing;
 
 namespace LabSpecimenManagement.QualityManagement;
@@ -15,9 +16,24 @@ public class QualityManagementIndicatorDto
     public Guid Id { get; set; }
 
     /// <summary>
+    /// QualityManagementIndicator ID thực tế nếu chỉ tiêu đã vào scope QLCL
+    /// </summary>
+    public Guid? QualityManagementIndicatorId { get; set; }
+
+    /// <summary>
+    /// TestRequestSampleIndicator ID gốc
+    /// </summary>
+    public Guid TestRequestSampleIndicatorId { get; set; }
+
+    /// <summary>
     /// LaboratoryTaskIndicator ID
     /// </summary>
-    public Guid LaboratoryTaskIndicatorId { get; set; }
+    public Guid? LaboratoryTaskIndicatorId { get; set; }
+
+    /// <summary>
+    /// LaboratoryTask ID hiện tại của chỉ tiêu
+    /// </summary>
+    public Guid? LaboratoryTaskId { get; set; }
 
     /// <summary>
     /// Laboratory ID
@@ -152,7 +168,7 @@ public class QualityManagementIndicatorDto
     /// <summary>
     /// Trạng thái phê duyệt - Approval Status
     /// </summary>
-    public QualityIndicatorApprovalStatus ApprovalStatus { get; set; }
+    public QualityIndicatorApprovalStatus? ApprovalStatus { get; set; }
 
     /// <summary>
     /// Lý do từ chối - Rejection Reason
@@ -208,4 +224,44 @@ public class QualityManagementIndicatorDto
     /// ID chỉ tiêu cha (null nếu là chỉ tiêu gốc) - Parent Indicator ID
     /// </summary>
     public Guid? ParentIndicatorId { get; set; }
+
+    /// <summary>
+    /// Tên QLKT phụ trách task hiện tại của chỉ tiêu
+    /// </summary>
+    public string? TechnicalManagerName { get; set; }
+
+    /// <summary>
+    /// ID KTV đang được gán cho chỉ tiêu
+    /// </summary>
+    public Guid? TechnicianId { get; set; }
+
+    /// <summary>
+    /// Tên KTV đang được gán cho chỉ tiêu
+    /// </summary>
+    public string? TechnicianName { get; set; }
+
+    /// <summary>
+    /// Ngày QLKT duyệt/chấp nhận chỉ tiêu
+    /// </summary>
+    public DateTime? QlktApprovalDate { get; set; }
+
+    /// <summary>
+    /// Trạng thái workflow phía QLKT/KTV của chỉ tiêu
+    /// </summary>
+    public IndicatorApprovalStatus? IndicatorApprovalStatus { get; set; }
+
+    /// <summary>
+    /// Trạng thái thử nghiệm suy ra từ workflow hiện tại
+    /// </summary>
+    public TestingStatus? TestingStatus { get; set; }
+
+    /// <summary>
+    /// Trạng thái hiển thị tổng hợp cho màn QLCL
+    /// </summary>
+    public QLCLDisplayStatus? QlclDisplayStatus { get; set; }
+
+    /// <summary>
+    /// Chỉ tiêu này hiện có nằm trong scope của task QLCL đang xem hay không
+    /// </summary>
+    public bool IsInQualityScope { get; set; }
 }

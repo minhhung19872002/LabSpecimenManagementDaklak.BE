@@ -87,6 +87,17 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Tạo nhanh nhiều chỉ tiêu mới từ modal chọn chỉ tiêu của phiếu yêu cầu.
+    /// Chỉ tiêu được link ngay với nền mẫu đã chọn và chưa có phương pháp thử.
+    /// </summary>
+    [HttpPost("quick-create-indicators")]
+    public Task<QuickCreateIndicatorsFromTestRequestResultDto> QuickCreateIndicatorsAsync(
+        [FromBody] QuickCreateIndicatorsFromTestRequestDto input)
+    {
+        return _testRequestAppService.QuickCreateIndicatorsAsync(input);
+    }
+
+    /// <summary>
     /// Print test request form - update status from New to Pending
     /// </summary>
     [HttpPost("{id}/print")]

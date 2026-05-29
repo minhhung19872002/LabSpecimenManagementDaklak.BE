@@ -50,6 +50,49 @@ public class MonthlyTrendDto
     public int Reports { get; set; }
 }
 
+public class TATStatusDto
+{
+    public int OnTimeCount { get; set; }
+    public int LateCount { get; set; }
+}
+
+public class LabStatisticsDto
+{
+    public Guid LabId { get; set; }
+    public string LabName { get; set; }
+    public int InProgressCount { get; set; }
+    public int PendingCount { get; set; }
+    public int TechnicianCount { get; set; }
+}
+
+public class TechnicianWorkDto
+{
+    public Guid TechnicianId { get; set; }
+    public string TechnicianName { get; set; }
+    public int TestingCount { get; set; }
+    public int NotTestedCount { get; set; }
+    public int WaitingApprovalCount { get; set; }
+    public int RejectedCount { get; set; }
+    public int ApprovedCount { get; set; }
+    public int TotalCount { get; set; }
+}
+
+public class DepartmentWorkAssignmentDto
+{
+    public Guid LabId { get; set; }
+    public string LabName { get; set; }
+    public int TotalIndicators { get; set; }
+    public List<TechnicianWorkDto> Technicians { get; set; } = new();
+}
+
+public class RegionalBubbleDto
+{
+    public string Ward { get; set; }
+    public decimal TotalRevenue { get; set; }
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+}
+
 public class StatisticsDataDto
 {
     public StatisticsOverviewDto Overview { get; set; }
@@ -57,4 +100,8 @@ public class StatisticsDataDto
     public List<TATComplianceDto> TATCompliance { get; set; }
     public List<WorkloadByDepartmentDto> WorkloadByDepartment { get; set; }
     public List<MonthlyTrendDto> MonthlyTrends { get; set; }
+    public List<LabStatisticsDto> LabStatistics { get; set; }
+    public TATStatusDto TATStatus { get; set; }
+    public List<DepartmentWorkAssignmentDto> DepartmentWorkAssignments { get; set; }
+    public List<RegionalBubbleDto> RegionalBubbles { get; set; }
 }

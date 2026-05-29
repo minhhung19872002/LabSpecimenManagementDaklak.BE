@@ -157,6 +157,11 @@ public interface ITestRequestAppService :
     /// </summary>
     Task<string> GenerateContractNumberAsync();
 
+    /// <summary>
+    /// Tạo nhanh nhiều chỉ tiêu mới từ màn phiếu yêu cầu, link ngay với nền mẫu và để phương pháp = null.
+    /// </summary>
+    Task<QuickCreateIndicatorsFromTestRequestResultDto> QuickCreateIndicatorsAsync(QuickCreateIndicatorsFromTestRequestDto input);
+
     #region Workflow Redesign - BPGN Confirmation (Per-Indicator)
 
     /// <summary>

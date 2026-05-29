@@ -5,11 +5,14 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Content;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Data;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.Statistics;
 
@@ -23,6 +26,10 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IIdentityUserRepository _identityUserRepository;
+    private readonly IIdentityRoleRepository _identityRoleRepository;
+    private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
 
     public StatisticsAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -32,7 +39,11 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Department, Guid> departmentRepository,
-        IRepository<SpecimenType, Guid> specimenTypeRepository)
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IIdentityUserRepository identityUserRepository,
+        IIdentityRoleRepository identityRoleRepository,
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<PaymentHistory, Guid> paymentHistoryRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -42,6 +53,10 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         _laboratoryRepository = laboratoryRepository;
         _departmentRepository = departmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _identityUserRepository = identityUserRepository;
+        _identityRoleRepository = identityRoleRepository;
+        _receiptRepository = receiptRepository;
+        _paymentHistoryRepository = paymentHistoryRepository;
     }
 
     public async Task<StatisticsOverviewDto> GetOverviewAsync(DateTime? fromDate = null, DateTime? toDate = null)
@@ -112,13 +127,29 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         // Monthly trends for last 12 months
         var monthlyTrends = await BuildMonthlyTrendsAsync();
 
+        // Lab statistics (indicators per lab + technician count)
+        var labStatistics = await BuildLabStatisticsAsync(fromDate, toDate);
+
+        // TAT status pie chart (on-time vs late indicators)
+        var tatStatus = await BuildTATStatusAsync(fromDate, toDate);
+
+        // Department work assignments (per technician indicator breakdown)
+        var departmentWorkAssignments = await BuildDepartmentWorkAssignmentAsync(fromDate, toDate);
+
+        // Regional bubble chart (geographic distribution)
+        var regionalBubbles = await BuildRegionalBubblesAsync(fromDate, toDate);
+
         return new StatisticsDataDto
         {
             Overview = overview,
             SampleMatrix = sampleMatrix,
             TATCompliance = tatCompliance,
             WorkloadByDepartment = workloadByDepartment,
-            MonthlyTrends = monthlyTrends
+            MonthlyTrends = monthlyTrends,
+            LabStatistics = labStatistics,
+            TATStatus = tatStatus,
+            DepartmentWorkAssignments = departmentWorkAssignments,
+            RegionalBubbles = regionalBubbles
         };
     }
 
@@ -309,6 +340,249 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         }
 
         return result;
+    }
+
+    private async Task<TATStatusDto> BuildTATStatusAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var query = from ti in indicatorQuery
+                    join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+                    where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                          && ti.IsSentToQuality
+                          && ti.ApprovalDate != null
+                          && t.RequestCompletionDate != null
+                    select new { ti.ApprovalDate, t.RequestCompletionDate };
+
+        var data = await AsyncExecuter.ToListAsync(query);
+
+        return new TATStatusDto
+        {
+            OnTimeCount = data.Count(x => x.ApprovalDate <= x.RequestCompletionDate),
+            LateCount = data.Count(x => x.ApprovalDate > x.RequestCompletionDate),
+        };
+    }
+
+    private async Task<List<LabStatisticsDto>> BuildLabStatisticsAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var departments = await _departmentRepository.GetListAsync();
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var allLabIds = labs.Select(l => l.Id).ToList();
+        var labIndicators = from ti in indicatorQuery
+                            join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+                            where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                                  && allLabIds.Contains(t.LaboratoryId)
+                            select new { ti.ApprovalStatus, ti.TestDate, t.LaboratoryId };
+
+        var filtered = await AsyncExecuter.ToListAsync(labIndicators);
+
+        // Technician count per department
+        var techRole = (await _identityRoleRepository.GetListAsync())
+            .FirstOrDefault(r => r.Name == "LabTechnician");
+        var techCountByDept = new Dictionary<Guid, int>();
+        if (techRole != null)
+        {
+            var technicians = await _identityUserRepository.GetListAsync(roleId: techRole.Id);
+            techCountByDept = technicians
+                .GroupBy(u => u.GetProperty<Guid?>("DepartmentId"))
+                .Where(g => g.Key.HasValue)
+                .ToDictionary(g => g.Key!.Value, g => g.Count());
+        }
+
+        return labs.Select(lab =>
+        {
+            var labInds = filtered.Where(x => x.LaboratoryId == lab.Id).ToList();
+            return new LabStatisticsDto
+            {
+                LabId = lab.Id,
+                LabName = deptDict.TryGetValue(lab.DepartmentId, out var name) ? name : lab.Code,
+                InProgressCount = labInds.Count(x =>
+                    (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Entered
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Rejected
+                    || x.ApprovalStatus == IndicatorApprovalStatus.Approved),
+                PendingCount = labInds.Count(x =>
+                    x.ApprovalStatus == IndicatorApprovalStatus.Pending
+                    || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
+                    || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                TechnicianCount = techCountByDept.TryGetValue(lab.DepartmentId, out var count) ? count : 0,
+            };
+        })
+        .Where(dto => dto.InProgressCount > 0 || dto.PendingCount > 0 || dto.TechnicianCount > 0)
+        .ToList();
+    }
+
+    private async Task<List<DepartmentWorkAssignmentDto>> BuildDepartmentWorkAssignmentAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var departments = await _departmentRepository.GetListAsync();
+        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+
+        var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+
+        var allLabIds = labs.Select(l => l.Id).ToList();
+        var indicators = await AsyncExecuter.ToListAsync(
+            from ti in indicatorQuery
+            join t in taskQuery on ti.LaboratoryTaskId equals t.Id
+            where t.CreationTime >= dateFrom && t.CreationTime < dateTo
+                  && allLabIds.Contains(t.LaboratoryId)
+            select new
+            {
+                t.LaboratoryId,
+                ti.TechnicianId,
+                ti.ApprovalStatus,
+                ti.TestDate
+            });
+
+        var techIds = indicators
+            .Where(x => x.TechnicianId.HasValue)
+            .Select(x => x.TechnicianId!.Value)
+            .Distinct()
+            .ToList();
+
+        var techUsers = new Dictionary<Guid, string>();
+        if (techIds.Any())
+        {
+            var users = await _identityUserRepository.GetListAsync();
+            techUsers = users
+                .Where(u => techIds.Contains(u.Id))
+                .ToDictionary(u => u.Id, u => u.Name ?? u.UserName);
+        }
+
+        return labs.Select(lab =>
+        {
+            var labInds = indicators.Where(x => x.LaboratoryId == lab.Id).ToList();
+
+            var grouped = labInds
+                .GroupBy(x => x.TechnicianId ?? Guid.Empty)
+                .Select(g =>
+                {
+                    var techName = g.Key == Guid.Empty
+                        ? "Chưa phân công"
+                        : techUsers.TryGetValue(g.Key, out var name) ? name : "Không xác định";
+
+                    var items = g.ToList();
+                    return new TechnicianWorkDto
+                    {
+                        TechnicianId = g.Key,
+                        TechnicianName = techName,
+                        TestingCount = items.Count(x =>
+                            (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)),
+                        NotTestedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Pending
+                            || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
+                            || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                        WaitingApprovalCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Entered),
+                        RejectedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Rejected),
+                        ApprovedCount = items.Count(x =>
+                            x.ApprovalStatus == IndicatorApprovalStatus.Approved),
+                        TotalCount = items.Count
+                    };
+                })
+                .OrderByDescending(x => x.TotalCount)
+                .ToList();
+
+            return new DepartmentWorkAssignmentDto
+            {
+                LabId = lab.Id,
+                LabName = deptDict.TryGetValue(lab.DepartmentId, out var dName) ? dName : lab.Code,
+                TotalIndicators = labInds.Count,
+                Technicians = grouped
+            };
+        })
+        .ToList();
+    }
+
+    private async Task<List<RegionalBubbleDto>> BuildRegionalBubblesAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
+        var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
+
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var filteredRequests = await AsyncExecuter.ToListAsync(
+            testRequestQuery.Where(r => r.RequestDate >= dateFrom && r.RequestDate < dateTo
+                                        && r.Ward != null && r.Ward != ""));
+
+        if (!filteredRequests.Any()) return new List<RegionalBubbleDto>();
+
+        var requestIds = filteredRequests.Select(r => r.Id).ToList();
+
+        // Samples per request
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var samples = await AsyncExecuter.ToListAsync(
+            sampleQuery.Where(s => requestIds.Contains(s.TestRequestId)));
+
+        var sampleCountByRequest = samples
+            .GroupBy(s => s.TestRequestId)
+            .ToDictionary(g => g.Key, g => g.Count());
+
+        // Indicators per request (through samples)
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var indicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var indicatorCounts = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .Where(i => sampleIds.Contains(i.TestRequestSampleId))
+                .GroupBy(i => i.TestRequestSampleId)
+                .Select(g => new { SampleId = g.Key, Count = g.Count() }));
+
+        var indicatorCountBySample = indicatorCounts.ToDictionary(x => x.SampleId, x => x.Count);
+        var indicatorCountByRequest = samples
+            .GroupBy(s => s.TestRequestId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(s => indicatorCountBySample.TryGetValue(s.Id, out var c) ? c : 0));
+
+        // Revenue per request (Receipt → PaymentHistory)
+        var receiptQuery = await _receiptRepository.GetQueryableAsync();
+        var receipts = await AsyncExecuter.ToListAsync(
+            receiptQuery.Where(r => requestIds.Contains(r.TestRequestId)));
+        var receiptIds = receipts.Select(r => r.Id).ToList();
+        var receiptToRequest = receipts.ToDictionary(r => r.Id, r => r.TestRequestId);
+
+        var paymentQuery = await _paymentHistoryRepository.GetQueryableAsync();
+        var payments = await AsyncExecuter.ToListAsync(
+            paymentQuery.Where(p => receiptIds.Contains(p.ReceiptId)));
+
+        var revenueByRequest = payments
+            .GroupBy(p => receiptToRequest.TryGetValue(p.ReceiptId, out var rid) ? rid : Guid.Empty)
+            .Where(g => g.Key != Guid.Empty)
+            .ToDictionary(g => g.Key, g => g.Sum(p => p.Amount));
+
+        // Group by Ward
+        return filteredRequests
+            .GroupBy(r => r.Ward!)
+            .Select(g =>
+            {
+                var ids = g.Select(r => r.Id).ToList();
+                return new RegionalBubbleDto
+                {
+                    Ward = g.Key,
+                    TotalRevenue = Math.Round(ids.Sum(id => revenueByRequest.TryGetValue(id, out var rev) ? rev : 0) / 1_000_000m, 1),
+                    TotalSamples = ids.Sum(id => sampleCountByRequest.TryGetValue(id, out var sc) ? sc : 0),
+                    TotalIndicators = ids.Sum(id => indicatorCountByRequest.TryGetValue(id, out var ic) ? ic : 0),
+                };
+            })
+            .Where(x => x.TotalSamples > 0 || x.TotalRevenue > 0)
+            .OrderByDescending(x => x.TotalRevenue)
+            .ToList();
     }
 
     public async Task<IRemoteStreamContent> ExportToExcelAsync(DateTime? fromDate = null, DateTime? toDate = null)

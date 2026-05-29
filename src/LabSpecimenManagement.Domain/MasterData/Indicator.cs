@@ -45,6 +45,11 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public Guid? ParentIndicatorId { get; set; }
 
+    /// <summary>
+    /// Chỉ tiêu cần QLKT cập nhật phương pháp thử (tạo từ QuickCreate)
+    /// </summary>
+    public bool NeedsMethodSetup { get; set; }
+
     protected Indicator()
     {
     }

@@ -210,6 +210,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return await MapToDetailDtoAsync(task);
     }
 
+    public async Task<QualityManagementTaskDto> GetFullDetailAsync(Guid id)
+    {
+        var task = await _taskRepository.GetAsync(id);
+        var dto = await MapToDetailDtoAsync(task);
+        dto.AllIndicators = await MapAllIndicatorsToDtoAsync(task);
+        return dto;
+    }
+
     public async Task<QualityManagementStatisticsDto> GetStatisticsAsync()
     {
         var tasks = await _taskRepository.GetListAsync();
@@ -1446,7 +1454,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return new QualityManagementIndicatorDto
         {
             Id = indicator.Id,
+            QualityManagementIndicatorId = indicator.Id,
+            TestRequestSampleIndicatorId = sampleIndicator.Id,
             LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
+            LaboratoryTaskId = labTask.Id,
             LaboratoryId = lab.Id,
             LaboratoryName = labDept.Name,
             SampleId = sample.Id,
@@ -1494,8 +1505,299 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             }).ToList(),
             FreeTextNote = labIndicator.FreeTextNote,
             MasterDataNotes = await GetMasterDataNotesAsync(labIndicator.MasterDataNoteIds),
-            ParentIndicatorId = masterIndicator.ParentIndicatorId
+            ParentIndicatorId = masterIndicator.ParentIndicatorId,
+            TechnicalManagerName = null,
+            TechnicianId = labIndicator.TechnicianId,
+            QlktApprovalDate = labIndicator.ApprovalDate,
+            IndicatorApprovalStatus = labIndicator.ApprovalStatus,
+            TestingStatus = DetermineTestingStatus(
+                labIndicator.ApprovalStatus,
+                labIndicator.TestDate,
+                labIndicator.Result),
+            QlclDisplayStatus = MapQLCLDisplayStatus(
+                (await _testRequestRepository.GetAsync(labTask.TestRequestId)).Status,
+                labIndicator.ApprovalStatus,
+                indicator.ApprovalStatus,
+                indicator.IsPrinted,
+                labIndicator.TechnicianId,
+                labIndicator.MethodId,
+                labIndicator.TestDate,
+                labIndicator.Result),
+            IsInQualityScope = true
         };
+    }
+
+    private async Task<List<QualityManagementIndicatorDto>> MapAllIndicatorsToDtoAsync(QualityManagementTask task)
+    {
+        var qualityIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _masterIndicatorRepository.GetQueryableAsync();
+        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
+        var userQuery = await _userRepository.GetQueryableAsync();
+
+        var rawItems = (
+            from si in sampleIndicatorQuery
+            join s in sampleQuery on si.TestRequestSampleId equals s.Id
+            join tr in testRequestQuery on s.TestRequestId equals tr.Id
+            where tr.Id == task.TestRequestId
+            join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+            join li in labIndicatorQuery on si.Id equals li.TestRequestSampleIndicatorId into liJoin
+            from li in liJoin.DefaultIfEmpty()
+            join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id into ltJoin
+            from lt in ltJoin.DefaultIfEmpty()
+            join qi in qualityIndicatorQuery.Where(q => q.QualityManagementTaskId == task.Id)
+                on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
+            from qi in qiJoin.DefaultIfEmpty()
+            join tm in testMethodQuery on (li != null ? li.MethodId : si.TestMethodId) equals tm.Id into tmJoin
+            from tm in tmJoin.DefaultIfEmpty()
+            join techManager in userQuery on lt.TechnicalManagerId equals techManager.Id into techManagerJoin
+            from techManager in techManagerJoin.DefaultIfEmpty()
+            join technician in userQuery on li.TechnicianId equals technician.Id into technicianJoin
+            from technician in technicianJoin.DefaultIfEmpty()
+            select new
+            {
+                SampleIndicator = si,
+                Sample = s,
+                TestRequestStatus = tr.Status,
+                MasterIndicator = mi,
+                LaboratoryTaskIndicator = li,
+                LaboratoryTask = lt,
+                QualityIndicator = qi,
+                Method = tm,
+                TechnicalManager = techManager,
+                Technician = technician
+            }).ToList();
+
+        var laboratoryIds = rawItems
+            .Select(x => x.LaboratoryTask?.LaboratoryId ?? x.SampleIndicator.LaboratoryId)
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .Distinct()
+            .ToList();
+        var laboratories = laboratoryIds.Any()
+            ? await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id))
+            : new List<Laboratory>();
+        var departmentIds = laboratories.Select(x => x.DepartmentId).Distinct().ToList();
+        var departments = departmentIds.Any()
+            ? await _departmentRepository.GetListAsync(d => departmentIds.Contains(d.Id))
+            : new List<Department>();
+        var labNameMap = laboratories.Join(
+                departments,
+                lab => lab.DepartmentId,
+                dept => dept.Id,
+                (lab, dept) => new { lab.Id, DepartmentName = dept.Name })
+            .ToDictionary(x => x.Id, x => x.DepartmentName);
+
+        var specimenTypeIds = rawItems
+            .Where(x => x.Sample.SpecimenTypeId.HasValue)
+            .Select(x => x.Sample.SpecimenTypeId!.Value)
+            .Distinct()
+            .ToList();
+        var specimenTypes = specimenTypeIds.Any()
+            ? await _specimenTypeRepository.GetListAsync(s => specimenTypeIds.Contains(s.Id))
+            : new List<SpecimenType>();
+        var specimenTypeMap = specimenTypes.ToDictionary(x => x.Id, x => x.Name);
+
+        var approvedByIds = rawItems
+            .Where(x => x.QualityIndicator?.ApprovedById.HasValue == true)
+            .Select(x => (Guid?)x.QualityIndicator!.ApprovedById!.Value);
+        var approvedByNames = await _userNameProvider.GetUserNamesAsync(approvedByIds);
+
+        var labIndicatorIds = rawItems
+            .Where(x => x.LaboratoryTaskIndicator != null)
+            .Select(x => x.LaboratoryTaskIndicator!.Id)
+            .Distinct()
+            .ToList();
+        var indicatorImages = labIndicatorIds.Any()
+            ? await _indicatorImageRepository.GetListAsync(x => labIndicatorIds.Contains(x.LaboratoryTaskIndicatorId))
+            : new List<IndicatorImage>();
+        var indicatorImageMap = indicatorImages
+            .GroupBy(x => x.LaboratoryTaskIndicatorId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+                {
+                    Id = x.Id,
+                    LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                    FileId = x.FileId,
+                    FileName = x.FileName,
+                    FileSize = x.FileSize,
+                    Url = $"/api/v1/files/{x.FileId}",
+                    CreationTime = x.CreationTime,
+                    CreatorId = x.CreatorId
+                }).ToList());
+
+        var standardIds = rawItems
+            .Select(x => x.LaboratoryTaskIndicator?.StandardId ?? x.QualityIndicator?.StandardId)
+            .Where(x => x.HasValue)
+            .Select(x => x!.Value)
+            .Distinct()
+            .ToList();
+        var standards = standardIds.Any()
+            ? await _standardRepository.GetListAsync(s => standardIds.Contains(s.Id))
+            : new List<Standard>();
+        var standardMap = standards.ToDictionary(x => x.Id, x => x.Name);
+
+        var masterIndicatorIds = rawItems.Select(x => x.MasterIndicator.Id).Distinct().ToList();
+        var standardIndicators = standardIds.Any()
+            ? await _standardIndicatorRepository.GetListAsync(si =>
+                standardIds.Contains(si.StandardId) &&
+                masterIndicatorIds.Contains(si.IndicatorId))
+            : new List<StandardIndicator>();
+
+        var allNoteIds = rawItems
+            .Where(x => x.LaboratoryTaskIndicator != null)
+            .SelectMany(x => ParseMasterDataNoteIds(x.LaboratoryTaskIndicator!.MasterDataNoteIds))
+            .Distinct()
+            .ToList();
+        var notes = allNoteIds.Any()
+            ? await _noteRepository.GetListAsync(n => allNoteIds.Contains(n.Id))
+            : new List<Note>();
+        var noteMap = notes
+            .Where(x => !string.IsNullOrWhiteSpace(x.Content))
+            .ToDictionary(x => x.Id, x => x.Content!);
+
+        return rawItems
+            .OrderBy(x => x.Sample.SampleCode)
+            .ThenBy(x => x.Sample.SampleName)
+            .ThenBy(x => x.MasterIndicator.Name)
+            .ThenBy(x => x.Method?.Name ?? x.LaboratoryTaskIndicator!.SubContractMethodName)
+            .Select(x =>
+            {
+                var labIndicator = x.LaboratoryTaskIndicator;
+                var qualityIndicator = x.QualityIndicator;
+                var standardId = labIndicator?.StandardId ?? qualityIndicator?.StandardId;
+                var standardName = standardId.HasValue && standardMap.TryGetValue(standardId.Value, out var foundStandardName)
+                    ? foundStandardName
+                    : null;
+
+                var effectiveMethodId = labIndicator?.MethodId ?? x.SampleIndicator.TestMethodId;
+                var matchingStandardIndicator = standardId.HasValue
+                    ? standardIndicators.FirstOrDefault(si =>
+                        si.StandardId == standardId.Value &&
+                        si.IndicatorId == x.MasterIndicator.Id &&
+                        effectiveMethodId.HasValue &&
+                        si.TestMethodId == effectiveMethodId.Value)
+                    : null;
+
+                matchingStandardIndicator ??= standardId.HasValue
+                    ? standardIndicators.FirstOrDefault(si =>
+                        si.StandardId == standardId.Value &&
+                        si.IndicatorId == x.MasterIndicator.Id)
+                    : null;
+
+                var effectiveLaboratoryId = x.LaboratoryTask?.LaboratoryId ?? x.SampleIndicator.LaboratoryId;
+                var laboratoryName = effectiveLaboratoryId.HasValue && labNameMap.TryGetValue(effectiveLaboratoryId.Value, out var departmentName)
+                    ? departmentName
+                    : null;
+
+                var approvedByName = qualityIndicator?.ApprovedById.HasValue == true &&
+                                     approvedByNames.TryGetValue(qualityIndicator.ApprovedById.Value, out var name)
+                    ? name
+                    : null;
+
+                var noteContents = labIndicator != null
+                    ? ParseMasterDataNoteIds(labIndicator.MasterDataNoteIds)
+                        .Where(noteId => noteMap.ContainsKey(noteId))
+                        .Select(noteId => noteMap[noteId])
+                        .ToList()
+                    : new List<string>();
+
+                var technicalManagerName = x.TechnicalManager != null
+                    ? string.IsNullOrWhiteSpace($"{x.TechnicalManager.Surname} {x.TechnicalManager.Name}".Trim())
+                        ? x.TechnicalManager.UserName
+                        : $"{x.TechnicalManager.Surname} {x.TechnicalManager.Name}".Trim()
+                    : null;
+
+                var technicianName = x.Technician != null
+                    ? string.IsNullOrWhiteSpace($"{x.Technician.Surname} {x.Technician.Name}".Trim())
+                        ? x.Technician.UserName
+                        : $"{x.Technician.Surname} {x.Technician.Name}".Trim()
+                    : null;
+
+                var testingStatus = labIndicator != null
+                    ? DetermineTestingStatus(labIndicator.ApprovalStatus, labIndicator.TestDate, labIndicator.Result)
+                    : null;
+
+                var qlclDisplayStatus = MapQLCLDisplayStatus(
+                    x.TestRequestStatus,
+                    labIndicator?.ApprovalStatus,
+                    qualityIndicator?.ApprovalStatus,
+                    qualityIndicator?.IsPrinted ?? false,
+                    labIndicator?.TechnicianId,
+                    labIndicator?.MethodId,
+                    labIndicator?.TestDate,
+                    labIndicator?.Result);
+
+                return new QualityManagementIndicatorDto
+                {
+                    Id = qualityIndicator?.Id ?? x.SampleIndicator.Id,
+                    QualityManagementIndicatorId = qualityIndicator?.Id,
+                    TestRequestSampleIndicatorId = x.SampleIndicator.Id,
+                    LaboratoryTaskIndicatorId = labIndicator?.Id,
+                    LaboratoryTaskId = x.LaboratoryTask?.Id,
+                    LaboratoryId = effectiveLaboratoryId ?? Guid.Empty,
+                    LaboratoryName = laboratoryName,
+                    SampleId = x.Sample.Id,
+                    SampleCode = x.Sample.SampleCode,
+                    SampleName = x.Sample.SampleName,
+                    SpecimenTypeName = x.Sample.SpecimenTypeId.HasValue &&
+                                       specimenTypeMap.TryGetValue(x.Sample.SpecimenTypeId.Value, out var specimenTypeName)
+                        ? specimenTypeName
+                        : null,
+                    IndicatorId = x.MasterIndicator.Id,
+                    IndicatorCode = x.MasterIndicator.Code,
+                    IndicatorName = x.MasterIndicator.Name,
+                    IndicatorFormattedName = x.MasterIndicator.FormattedName,
+                    MethodId = effectiveMethodId,
+                    MethodName = !string.IsNullOrWhiteSpace(labIndicator?.SubContractMethodName)
+                        ? labIndicator!.SubContractMethodName
+                        : x.Method?.Name,
+                    MethodFormattedName = !string.IsNullOrWhiteSpace(labIndicator?.SubContractMethodName)
+                        ? null
+                        : x.Method?.FormattedName,
+                    Unit = labIndicator?.Unit,
+                    Result = labIndicator?.Result,
+                    ResultSentDate = labIndicator?.EntryDate,
+                    ApprovalDate = qualityIndicator?.ApprovalDate,
+                    StandardId = standardId,
+                    StandardName = standardName,
+                    ReferenceLimit = qualityIndicator?.ReferenceLimit,
+                    ComparisonOperator = matchingStandardIndicator?.ComparisonOperator,
+                    AllowedLimit = matchingStandardIndicator?.AllowedLimit,
+                    LowerOperator = matchingStandardIndicator?.LowerOperator,
+                    LowerLimit = matchingStandardIndicator?.LowerLimit,
+                    UpperOperator = matchingStandardIndicator?.UpperOperator,
+                    UpperLimit = matchingStandardIndicator?.UpperLimit,
+                    ApprovalStatus = qualityIndicator?.ApprovalStatus,
+                    RejectionReason = qualityIndicator?.RejectionReason,
+                    IsResultSent = qualityIndicator?.IsResultSent ?? false,
+                    QualityResultSentDate = qualityIndicator?.ResultSentDate,
+                    IsPrinted = qualityIndicator?.IsPrinted ?? false,
+                    PrintedDate = qualityIndicator?.PrintedDate,
+                    ApprovedById = qualityIndicator?.ApprovedById,
+                    ApprovedByName = approvedByName,
+                    Images = labIndicator != null && indicatorImageMap.TryGetValue(labIndicator.Id, out var images)
+                        ? images
+                        : new List<IndicatorImageDto>(),
+                    FreeTextNote = labIndicator?.FreeTextNote,
+                    MasterDataNotes = noteContents,
+                    ParentIndicatorId = x.MasterIndicator.ParentIndicatorId,
+                    TechnicalManagerName = technicalManagerName,
+                    TechnicianId = labIndicator?.TechnicianId,
+                    TechnicianName = technicianName,
+                    QlktApprovalDate = labIndicator?.ApprovalDate,
+                    IndicatorApprovalStatus = labIndicator?.ApprovalStatus,
+                    TestingStatus = testingStatus,
+                    QlclDisplayStatus = qlclDisplayStatus,
+                    IsInQualityScope = qualityIndicator != null
+                };
+            })
+            .ToList();
     }
 
     /// <summary>
@@ -1528,6 +1830,26 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         return noteContents;
+    }
+
+    private static List<Guid> ParseMasterDataNoteIds(string? masterDataNoteIds)
+    {
+        if (string.IsNullOrWhiteSpace(masterDataNoteIds))
+        {
+            return new List<Guid>();
+        }
+
+        var rawIds = masterDataNoteIds.Contains("[")
+            ? JsonSerializer.Deserialize<List<string>>(masterDataNoteIds) ?? new List<string>()
+            : masterDataNoteIds.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                .Select(s => s.Trim())
+                .ToList();
+
+        return rawIds
+            .Select(id => Guid.TryParse(id, out var noteId) ? noteId : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .ToList();
     }
 
     private async Task UpdateTaskStatusAsync(Guid taskId)

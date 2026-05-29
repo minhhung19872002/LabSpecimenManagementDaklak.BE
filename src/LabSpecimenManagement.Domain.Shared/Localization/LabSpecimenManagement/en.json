@@ -54,6 +54,10 @@
     "Permission:Units": "Units",
     "Permission:Units.Create": "Create",
     "Permission:Units.Edit": "Edit",
-    "Permission:Units.Delete": "Delete"
+    "Permission:Units.Delete": "Delete",
+    "Permission:Organizations": "Organizations",
+    "Permission:Organizations.Create": "Create",
+    "Permission:Organizations.Edit": "Edit",
+    "Permission:Organizations.Delete": "Delete"
   }
 }

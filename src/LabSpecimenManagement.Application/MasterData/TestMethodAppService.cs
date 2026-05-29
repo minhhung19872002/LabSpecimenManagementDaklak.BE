@@ -491,6 +491,21 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         if (newItems.Any())
         {
             await _testMethodIndicatorRepository.InsertManyAsync(newItems);
+
+            if (testMethod.Name != "-")
+            {
+                var indicatorIds = newItems.Select(x => x.IndicatorId).Distinct().ToList();
+                var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+                var indicatorsToUpdate = indicatorQuery
+                    .Where(i => indicatorIds.Contains(i.Id) && i.NeedsMethodSetup)
+                    .ToList();
+
+                foreach (var ind in indicatorsToUpdate)
+                {
+                    ind.NeedsMethodSetup = false;
+                    await _indicatorRepository.UpdateAsync(ind);
+                }
+            }
         }
     }
 
@@ -554,6 +569,12 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var actualSpecimenTypeId = entity.SpecimenTypeId;
         var indicator = await _indicatorRepository.FindAsync(indicatorId);
         var testMethod = await _testMethodRepository.FindAsync(actualTestMethodId);
+
+        if (indicator is { NeedsMethodSetup: true } && testMethod?.Name != "-")
+        {
+            indicator.NeedsMethodSetup = false;
+            await _indicatorRepository.UpdateAsync(indicator);
+        }
         var specimenType = actualSpecimenTypeId.HasValue
             ? await _specimenTypeRepository.FindAsync(actualSpecimenTypeId.Value)
             : null;

@@ -41,6 +41,15 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get Quality Management Task by ID with full indicator list across all labs
+    /// </summary>
+    [HttpGet("{id}/full-detail")]
+    public virtual Task<QualityManagementTaskDto> GetFullDetailAsync(Guid id)
+    {
+        return _qualityManagementAppService.GetFullDetailAsync(id);
+    }
+
+    /// <summary>
     /// Get statistics for dashboard
     /// </summary>
     [HttpGet("statistics")]

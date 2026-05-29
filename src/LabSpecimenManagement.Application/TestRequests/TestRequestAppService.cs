@@ -7,6 +7,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Files;
+using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Receipts;
 using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
@@ -20,6 +21,7 @@ using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
+using Volo.Abp.Domain.Entities;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 using Volo.Abp.Users;
@@ -53,6 +55,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<TestRequestSampleAttachment, Guid> _attachmentRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IRepository<SampleTestingImage, Guid> _sampleTestingImageRepository;
     private readonly IRepository<IndicatorImage, Guid> _indicatorImageRepository;
     private readonly INotificationAppService _notificationAppService;
@@ -68,6 +71,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IDataFilter _dataFilter;
 
     public TestRequestAppService(
@@ -87,6 +91,7 @@ public partial class TestRequestAppService :
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<TestRequestSampleAttachment, Guid> attachmentRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<SampleTestingImage, Guid> sampleTestingImageRepository,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         INotificationAppService notificationAppService,
@@ -101,6 +106,7 @@ public partial class TestRequestAppService :
         IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IDataFilter dataFilter)
         : base(repository)
     {
@@ -120,6 +126,7 @@ public partial class TestRequestAppService :
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _attachmentRepository = attachmentRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _sampleTestingImageRepository = sampleTestingImageRepository;
         _indicatorImageRepository = indicatorImageRepository;
         _notificationAppService = notificationAppService;
@@ -134,6 +141,7 @@ public partial class TestRequestAppService :
         _costChangeHistoryRepository = costChangeHistoryRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _dataFilter = dataFilter;
     }
 
@@ -2147,7 +2155,7 @@ public partial class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new EntityNotFoundException("ChangeHistory", id);
+            throw new Common.Exceptions.EntityNotFoundException("ChangeHistory", id);
         }
 
         var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
@@ -2816,7 +2824,7 @@ public partial class TestRequestAppService :
 
         if (!pendingChanges.Any())
         {
-            throw new EntityNotFoundException("ChangeHistory", id);
+            throw new Common.Exceptions.EntityNotFoundException("ChangeHistory", id);
         }
 
         var currentUserId = _currentUser.Id ?? throw new Common.Exceptions.UnauthorizedAccessException("Người dùng chưa đăng nhập");
@@ -3169,7 +3177,7 @@ public partial class TestRequestAppService :
 
         if (testRequest == null)
         {
-            throw new EntityNotFoundException("TestRequest", id);
+            throw new Common.Exceptions.EntityNotFoundException("TestRequest", id);
         }
 
         var result = new TestRequestTimelineDto

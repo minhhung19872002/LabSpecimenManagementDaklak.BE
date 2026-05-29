@@ -1364,6 +1364,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<bool>("NeedsMethodSetup")
+                        .HasColumnType("boolean");
+
                     b.Property<Guid?>("ParentIndicatorId")
                         .HasColumnType("uuid");
 
