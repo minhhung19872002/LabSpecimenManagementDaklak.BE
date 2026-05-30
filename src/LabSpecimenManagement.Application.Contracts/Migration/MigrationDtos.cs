@@ -74,6 +74,7 @@ public class MigrationRollbackResultDto
     public int LabTaskIndicatorCount { get; set; }
     public int QmTaskCount { get; set; }
     public int QmIndicatorCount { get; set; }
+    public int ReceiptCount { get; set; }
 }
 
 public class MigrationValidationError

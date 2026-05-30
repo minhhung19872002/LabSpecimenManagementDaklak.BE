@@ -4,6 +4,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
@@ -22,6 +23,8 @@ public partial class MigrationAppService : ApplicationService, IMigrationAppServ
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _labTaskIndicatorRepository;
     private readonly IRepository<QualityManagementTask, Guid> _qmTaskRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qmIndicatorRepository;
+    private readonly IRepository<Receipt, Guid> _receiptRepository;
+    private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
@@ -39,6 +42,8 @@ public partial class MigrationAppService : ApplicationService, IMigrationAppServ
         IRepository<LaboratoryTaskIndicator, Guid> labTaskIndicatorRepository,
         IRepository<QualityManagementTask, Guid> qmTaskRepository,
         IRepository<QualityManagementIndicator, Guid> qmIndicatorRepository,
+        IRepository<Receipt, Guid> receiptRepository,
+        IRepository<PaymentHistory, Guid> paymentHistoryRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
@@ -55,6 +60,8 @@ public partial class MigrationAppService : ApplicationService, IMigrationAppServ
         _labTaskIndicatorRepository = labTaskIndicatorRepository;
         _qmTaskRepository = qmTaskRepository;
         _qmIndicatorRepository = qmIndicatorRepository;
+        _receiptRepository = receiptRepository;
+        _paymentHistoryRepository = paymentHistoryRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _laboratoryRepository = laboratoryRepository;
