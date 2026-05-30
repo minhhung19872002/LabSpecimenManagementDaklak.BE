@@ -268,6 +268,11 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var receiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Receipts.Default, L("Permission:Receipts"));
         receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.View, L("Permission:Receipts.View"));
         receiptPermission.AddChild(LabSpecimenManagementPermissions.Receipts.Confirm, L("Permission:Receipts.Confirm"));
+
+        // Migration Permissions (Di chuyển dữ liệu)
+        var migrationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Migration.Default, L("Permission:Migration"));
+        migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Preview, L("Permission:Migration.Preview"));
+        migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Import, L("Permission:Migration.Import"));
     }
 
     private static LocalizableString L(string name)
