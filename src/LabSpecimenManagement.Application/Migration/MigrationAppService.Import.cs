@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp;
 using Volo.Abp.Data;
@@ -42,6 +43,8 @@ public partial class MigrationAppService
         var allLabTaskIndicators = new List<LaboratoryTaskIndicator>();
         var allQmTasks = new List<QualityManagementTask>();
         var allQmIndicators = new List<QualityManagementIndicator>();
+        var allReceipts = new List<Receipt>();
+        var allPaymentHistories = new List<PaymentHistory>();
 
         var (requestNumberPrefix, requestNumberCounter) = await GetMigrationRequestNumberBaseAsync();
 
@@ -61,7 +64,8 @@ public partial class MigrationAppService
                 requestNumberPrefix, ref requestNumberCounter,
                 allTestRequests, allSamples, allIndicators,
                 allLabTasks, allLabTaskIndicators,
-                allQmTasks, allQmIndicators);
+                allQmTasks, allQmIndicators,
+                allReceipts, allPaymentHistories);
         }
 
         await _testRequestRepository.InsertManyAsync(allTestRequests, autoSave: true);
@@ -70,7 +74,9 @@ public partial class MigrationAppService
         await _labTaskRepository.InsertManyAsync(allLabTasks, autoSave: true);
         await _labTaskIndicatorRepository.InsertManyAsync(allLabTaskIndicators, autoSave: true);
         await _qmTaskRepository.InsertManyAsync(allQmTasks, autoSave: true);
-        await _qmIndicatorRepository.InsertManyAsync(allQmIndicators);
+        await _qmIndicatorRepository.InsertManyAsync(allQmIndicators, autoSave: true);
+        await _receiptRepository.InsertManyAsync(allReceipts, autoSave: true);
+        await _paymentHistoryRepository.InsertManyAsync(allPaymentHistories);
 
         result.Success = true;
         return result;
@@ -88,7 +94,9 @@ public partial class MigrationAppService
         List<LaboratoryTask> allLabTasks,
         List<LaboratoryTaskIndicator> allLabTaskIndicators,
         List<QualityManagementTask> allQmTasks,
-        List<QualityManagementIndicator> allQmIndicators)
+        List<QualityManagementIndicator> allQmIndicators,
+        List<Receipt> allReceipts,
+        List<PaymentHistory> allPaymentHistories)
     {
         var firstRow = phieuRows.First();
         var contractNumber = firstRow.SoHopDong?.Trim();
@@ -105,6 +113,7 @@ public partial class MigrationAppService
         testRequest.ContractNumber = contractNumber;
         testRequest.ContractDate = ParseExcelDate(firstRow.NgayHopDong);
         testRequest.Status = TestRequestStatus.ReportPublished;
+        testRequest.PaymentReceived = true;
         testRequest.ReportPublishedDate = ParseExcelDate(firstRow.NgayQlDuyet);
         testRequest.TotalSampleCount = phieuRows.Select(r => r.MaSoMau?.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().Count();
         testRequest.TotalCost = phieuRows.Sum(r => ParseDecimal(r.DonGia));
@@ -272,6 +281,30 @@ public partial class MigrationAppService
                 allQmIndicators.Add(qmi);
             }
         }
+
+        var receipt = new Receipt(
+            _guidGenerator.Create(),
+            testRequest.Id,
+            ReceiptStatus.Paid);
+
+        receipt.PaidDate = requestDate;
+
+        allReceipts.Add(receipt);
+
+        if (testRequest.TotalCost > 0)
+        {
+            var paymentHistory = new PaymentHistory(
+                _guidGenerator.Create(),
+                receipt.Id,
+                1,
+                testRequest.TotalCost,
+                testRequest.TotalCost,
+                PaymentMethod.BankTransfer,
+                requestDate,
+                "Migration từ hệ thống VNPT");
+
+            allPaymentHistories.Add(paymentHistory);
+        }
     }
 
     [RemoteService(IsEnabled = false)]
@@ -299,6 +332,17 @@ public partial class MigrationAppService
             }
 
             var trIds = testRequests.Select(x => x.Id).ToList();
+
+            var receipts = await _receiptRepository.GetListAsync(x => trIds.Contains(x.TestRequestId));
+            var receiptIds = receipts.Select(x => x.Id).ToList();
+            if (receiptIds.Count > 0)
+            {
+                var paymentHistories = await _paymentHistoryRepository.GetListAsync(x => receiptIds.Contains(x.ReceiptId));
+                if (paymentHistories.Count > 0)
+                    await _paymentHistoryRepository.DeleteManyAsync(paymentHistories);
+                await _receiptRepository.DeleteManyAsync(receipts);
+                result.ReceiptCount = receipts.Count;
+            }
 
             var qmTasks = await _qmTaskRepository.GetListAsync(x => trIds.Contains(x.TestRequestId));
             var qmTaskIds = qmTasks.Select(x => x.Id).ToList();
