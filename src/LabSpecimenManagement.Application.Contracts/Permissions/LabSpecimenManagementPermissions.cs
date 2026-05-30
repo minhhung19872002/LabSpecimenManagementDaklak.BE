@@ -330,4 +330,12 @@ public static class LabSpecimenManagementPermissions
         public const string View = Default + ".View";
         public const string Confirm = Default + ".Confirm";
     }
+
+    // Migration Permissions (Di chuyển dữ liệu)
+    public static class Migration
+    {
+        public const string Default = GroupName + ".Migration";
+        public const string Preview = Default + ".Preview";
+        public const string Import = Default + ".Import";
+    }
 }
