@@ -132,17 +132,20 @@ public partial class MigrationAppService
                 }
             }
 
-            var resolvedLab = ResolveLabForIndicator(ktv, tenChiTieu, masterData);
-            if (resolvedLab == null)
+            if (DetermineIndicatorCase(row) >= 2)
             {
-                errors.Add(new MigrationValidationError
+                var resolvedLab = ResolveLabForIndicator(ktv, tenChiTieu, masterData);
+                if (resolvedLab == null)
                 {
-                    ExcelRowNumber = row.ExcelRowNumber,
-                    IdPhieu = row.SoHopDong ?? "",
-                    ErrorType = "LabNotResolved",
-                    ErrorValue = $"KTV={ktv ?? "(trống)"}, ChiTieu={tenChiTieu ?? "(trống)"}",
-                    Message = $"Không xác định được phòng thí nghiệm cho KTV \"{ktv}\" và chỉ tiêu \"{tenChiTieu}\"."
-                });
+                    errors.Add(new MigrationValidationError
+                    {
+                        ExcelRowNumber = row.ExcelRowNumber,
+                        IdPhieu = row.SoHopDong ?? "",
+                        ErrorType = "LabNotResolved",
+                        ErrorValue = $"KTV={ktv ?? "(trống)"}, ChiTieu={tenChiTieu ?? "(trống)"}",
+                        Message = $"Không xác định được phòng thí nghiệm cho KTV \"{ktv}\" và chỉ tiêu \"{tenChiTieu}\"."
+                    });
+                }
             }
         }
 

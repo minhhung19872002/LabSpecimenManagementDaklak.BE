@@ -82,6 +82,16 @@ public partial class MigrationAppService
         return result;
     }
 
+    private static readonly DateTime MigrationCutoffDate = new(2026, 5, 1);
+
+    private static int DetermineIndicatorCase(VnptExcelRow row)
+    {
+        if (!string.IsNullOrWhiteSpace(row.NgayQlDuyet)) return 4;
+        if (!string.IsNullOrWhiteSpace(row.NgayGuiQl)) return 3;
+        if (!string.IsNullOrWhiteSpace(row.NgayPhanChiTieu)) return 2;
+        return 1;
+    }
+
     private void BuildSingleTestRequest(
         List<VnptExcelRow> phieuRows,
         MasterData masterData,
@@ -102,6 +112,8 @@ public partial class MigrationAppService
         var contractNumber = firstRow.SoHopDong?.Trim();
         var customerName = firstRow.KhachHang?.Trim() ?? "";
         var requestDate = ParseExcelDate(firstRow.NgayHopDong) ?? DateTime.Now;
+        var isOld = requestDate < MigrationCutoffDate;
+        var phieuCase = isOld ? 4 : phieuRows.Min(DetermineIndicatorCase);
 
         var requestNumber = $"{requestNumberPrefix}-{(requestNumberCounter++):D4}";
         var testRequest = new TestRequest(
@@ -112,11 +124,24 @@ public partial class MigrationAppService
 
         testRequest.ContractNumber = contractNumber;
         testRequest.ContractDate = ParseExcelDate(firstRow.NgayHopDong);
-        testRequest.Status = TestRequestStatus.ReportPublished;
-        testRequest.PaymentReceived = true;
-        testRequest.ReportPublishedDate = ParseExcelDate(firstRow.NgayQlDuyet);
         testRequest.TotalSampleCount = phieuRows.Select(r => r.MaSoMau?.Trim()).Where(s => !string.IsNullOrWhiteSpace(s)).Distinct().Count();
         testRequest.TotalCost = phieuRows.Sum(r => ParseDecimal(r.DonGia));
+
+        switch (phieuCase)
+        {
+            case 4:
+                testRequest.Status = TestRequestStatus.ReportPublished;
+                testRequest.PaymentReceived = true;
+                testRequest.ReportPublishedDate = ParseExcelDate(firstRow.NgayQlDuyet);
+                break;
+            case 2:
+            case 3:
+                testRequest.Status = TestRequestStatus.InProgress;
+                break;
+            default:
+                testRequest.Status = TestRequestStatus.New;
+                break;
+        }
 
         allTestRequests.Add(testRequest);
         result.TestRequestCount++;
@@ -144,10 +169,11 @@ public partial class MigrationAppService
             result.SampleCount++;
         }
 
-        var trsiList = new List<(TestRequestSampleIndicator Trsi, VnptExcelRow Row, Guid? LabId)>();
+        var trsiList = new List<(TestRequestSampleIndicator Trsi, VnptExcelRow Row, Guid? LabId, int Case)>();
 
         foreach (var row in phieuRows)
         {
+            var indicatorCase = isOld ? 4 : DetermineIndicatorCase(row);
             var sample = sampleMap[row.MaSoMau!.Trim()];
             var indicatorKey = StringHelper.NormalizeAndTrim(row.TenChiTieu!).ToLowerInvariant();
             var indicatorId = masterData.IndicatorByName[indicatorKey];
@@ -166,12 +192,19 @@ public partial class MigrationAppService
 
             trsi.UnitPrice = ParseDecimal(row.DonGia);
             trsi.LaboratoryId = ResolveLabForIndicator(row.KyThuatVien, row.TenChiTieu, masterData);
-            trsi.TransferDate = ParseExcelDate(row.NgayPhanChiTieu);
             trsi.RequestDate = ParseExcelDate(row.NgayYcHoanThanh);
-            trsi.SentToDepartment = true;
+
+            if (indicatorCase >= 2)
+            {
+                trsi.SentToDepartment = true;
+                trsi.TransferDate = ParseExcelDate(row.NgayPhanChiTieu);
+            }
 
             allIndicators.Add(trsi);
-            trsiList.Add((trsi, row, trsi.LaboratoryId));
+
+            if (indicatorCase >= 2)
+                trsiList.Add((trsi, row, trsi.LaboratoryId, indicatorCase));
+
             result.IndicatorCount++;
         }
 
@@ -180,7 +213,7 @@ public partial class MigrationAppService
             .GroupBy(x => x.LabId!.Value)
             .ToList();
 
-        var ltiMap = new Dictionary<Guid, LaboratoryTaskIndicator>();
+        var ltiMap = new Dictionary<Guid, (LaboratoryTaskIndicator Lti, int Case)>();
 
         foreach (var labGroup in labGroups)
         {
@@ -206,7 +239,22 @@ public partial class MigrationAppService
                 groupItems.Min(x => ParseExcelDate(x.Row.NgayPhanChiTieu)),
                 groupItems.Max(x => ParseExcelDate(x.Row.NgayYcHoanThanh)));
 
-            labTask.Status = LaboratoryTaskStatus.SentToQuality;
+            if (isOld)
+            {
+                labTask.Status = LaboratoryTaskStatus.SentToQuality;
+            }
+            else if (groupItems.Any(x => x.Case >= 3))
+            {
+                labTask.Status = LaboratoryTaskStatus.SentToQuality;
+            }
+            else if (groupItems.Any(x => ParseExcelDate(x.Row.NgayLuuKq) != null))
+            {
+                labTask.Status = LaboratoryTaskStatus.WaitingApproval;
+            }
+            else
+            {
+                labTask.Status = LaboratoryTaskStatus.Assigned;
+            }
 
             allLabTasks.Add(labTask);
             result.LabTaskCount++;
@@ -218,12 +266,9 @@ public partial class MigrationAppService
                     labTask.Id,
                     item.Trsi.Id);
 
-                lti.ApprovalStatus = IndicatorApprovalStatus.Approved;
-                lti.IsSentToQuality = true;
                 lti.Result = item.Row.KetQua?.Trim();
                 lti.Unit = item.Row.DonViTinh?.Trim();
-                lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq);
-                lti.ApprovalDate = ParseExcelDate(item.Row.NgayQlDuyet);
+                lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu);
 
                 if (!string.IsNullOrWhiteSpace(item.Row.PhuongPhap))
                 {
@@ -239,71 +284,105 @@ public partial class MigrationAppService
                         lti.TechnicianId = ktvId;
                 }
 
-                if (technicalManagerId.HasValue)
-                    lti.ApprovedById = technicalManagerId;
+                switch (item.Case)
+                {
+                    case 4:
+                    case 3:
+                        lti.ApprovalStatus = IndicatorApprovalStatus.Approved;
+                        lti.IsSentToQuality = true;
+                        lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem) ?? ParseExcelDate(item.Row.NgayLuuKq);
+                        lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq);
+                        lti.SubmitDate = ParseExcelDate(item.Row.NgayGuiQl);
+                        lti.ApprovalDate = item.Case == 4
+                            ? ParseExcelDate(item.Row.NgayQlDuyet)
+                            : ParseExcelDate(item.Row.NgayGuiQl);
+                        if (technicalManagerId.HasValue)
+                            lti.ApprovedById = technicalManagerId;
+                        break;
+                    default:
+                        lti.ApprovalStatus = IndicatorApprovalStatus.Pending;
+                        lti.IsSentToQuality = false;
+                        lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem);
+                        lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq);
+                        break;
+                }
 
                 allLabTaskIndicators.Add(lti);
-                ltiMap[item.Trsi.Id] = lti;
+                ltiMap[item.Trsi.Id] = (lti, item.Case);
             }
         }
 
-        if (ltiMap.Count > 0)
+        var qmEligibleItems = ltiMap.Where(x => x.Value.Case >= 3).ToList();
+
+        if (qmEligibleItems.Count > 0)
         {
             var qmTask = new QualityManagementTask(
                 _guidGenerator.Create(),
                 testRequest.Id,
                 contractNumber ?? "",
                 QualityTaskType.ResultApproval,
-                trsiList.Where(x => ltiMap.ContainsKey(x.Trsi.Id)).Select(x => x.Row.MaSoMau).Distinct().Count(),
-                ltiMap.Count,
-                phieuRows.Min(r => ParseExcelDate(r.NgayGuiQl)),
+                qmEligibleItems.Select(x => trsiList.First(t => t.Trsi.Id == x.Key).Row.MaSoMau).Distinct().Count(),
+                qmEligibleItems.Count,
+                phieuRows.Where(r => !string.IsNullOrWhiteSpace(r.NgayGuiQl)).Min(r => ParseExcelDate(r.NgayGuiQl)),
                 phieuRows.Max(r => ParseExcelDate(r.NgayYcHoanThanh)));
 
-            qmTask.Status = QualityManagementStatus.FullyPublished;
+            qmTask.Status = qmEligibleItems.All(x => x.Value.Case == 4)
+                ? QualityManagementStatus.FullyPublished
+                : QualityManagementStatus.PendingApproval;
 
             allQmTasks.Add(qmTask);
             result.QmTaskCount++;
 
-            foreach (var (trsiId, lti) in ltiMap)
+            foreach (var (trsiId, (lti, indicatorCase)) in qmEligibleItems)
             {
                 var qmi = new QualityManagementIndicator(
                     _guidGenerator.Create(),
                     qmTask.Id,
                     lti.Id);
 
-                qmi.ApprovalStatus = QualityIndicatorApprovalStatus.Approved;
-                qmi.IsPrinted = true;
+                var matchingRow = trsiList.First(x => x.Trsi.Id == trsiId);
 
-                var matchingRow = trsiList.FirstOrDefault(x => x.Trsi.Id == trsiId);
-                qmi.PrintedDate = ParseExcelDate(matchingRow.Row?.NgayQlDuyet);
-                qmi.ApprovalDate = ParseExcelDate(matchingRow.Row?.NgayQlDuyet);
+                if (indicatorCase == 4)
+                {
+                    qmi.ApprovalStatus = QualityIndicatorApprovalStatus.Approved;
+                    qmi.IsPrinted = true;
+                    qmi.PrintedDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet);
+                    qmi.ApprovalDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet);
+                }
+                else
+                {
+                    qmi.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
+                }
 
                 allQmIndicators.Add(qmi);
             }
         }
 
-        var receipt = new Receipt(
-            _guidGenerator.Create(),
-            testRequest.Id,
-            ReceiptStatus.Paid);
-
-        receipt.PaidDate = requestDate;
-
-        allReceipts.Add(receipt);
-
-        if (testRequest.TotalCost > 0)
+        if (isOld || phieuCase == 4)
         {
-            var paymentHistory = new PaymentHistory(
+            var receipt = new Receipt(
                 _guidGenerator.Create(),
-                receipt.Id,
-                1,
-                testRequest.TotalCost,
-                testRequest.TotalCost,
-                PaymentMethod.BankTransfer,
-                requestDate,
-                "Migration từ hệ thống VNPT");
+                testRequest.Id,
+                ReceiptStatus.Paid);
 
-            allPaymentHistories.Add(paymentHistory);
+            receipt.PaidDate = requestDate;
+
+            allReceipts.Add(receipt);
+
+            if (testRequest.TotalCost > 0)
+            {
+                var paymentHistory = new PaymentHistory(
+                    _guidGenerator.Create(),
+                    receipt.Id,
+                    1,
+                    testRequest.TotalCost,
+                    testRequest.TotalCost,
+                    PaymentMethod.BankTransfer,
+                    requestDate,
+                    "Migration từ hệ thống VNPT");
+
+                allPaymentHistories.Add(paymentHistory);
+            }
         }
     }
 
