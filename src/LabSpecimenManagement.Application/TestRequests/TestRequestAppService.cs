@@ -428,15 +428,8 @@ public partial class TestRequestAppService :
         // Get total count
         var totalCount = await AsyncExecuter.CountAsync(queryable);
 
-        // Apply sorting - default sort by CreationTime descending (newest first)
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
-        {
-            queryable = queryable.OrderBy(input.Sorting);
-        }
-        else
-        {
-            queryable = queryable.OrderByDescending(x => x.CreationTime);
-        }
+        // Apply sorting - default sort by ContractDate descending (newest first)
+        queryable = queryable.OrderByDescending(x => x.ContractDate).ThenByDescending(x => x.CreationTime);
 
         // Apply paging
         queryable = queryable
