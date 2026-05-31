@@ -140,6 +140,7 @@ public partial class MigrationAppService
                 break;
             case 3:
                 testRequest.Status = TestRequestStatus.InProgress;
+                testRequest.PaymentReceived = true;
                 testRequest.SentToDepartment = true;
                 testRequest.SampleSentDate = phieuRows.Min(r => ParseExcelDate(r.NgayPhanChiTieu));
                 testRequest.InProgressDate = phieuRows.Min(r => ParseExcelDate(r.NgayBdKiemNghiem))
@@ -147,11 +148,13 @@ public partial class MigrationAppService
                 break;
             case 2:
                 testRequest.Status = TestRequestStatus.SampleSent;
+                testRequest.PaymentReceived = true;
                 testRequest.SentToDepartment = true;
                 testRequest.SampleSentDate = phieuRows.Min(r => ParseExcelDate(r.NgayPhanChiTieu));
                 break;
             default:
                 testRequest.Status = TestRequestStatus.New;
+                testRequest.PaymentReceived = true;
                 break;
         }
 
@@ -302,7 +305,7 @@ public partial class MigrationAppService
                         lti.SubmitDate = ParseExcelDate(item.Row.NgayGuiQl);
                         break;
                     default:
-                        lti.ApprovalStatus = IndicatorApprovalStatus.Pending;
+                        lti.ApprovalStatus = IndicatorApprovalStatus.AcceptedForTesting;
                         lti.IsSentToQuality = false;
                         lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu);
                         lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem);
@@ -372,31 +375,28 @@ public partial class MigrationAppService
             }
         }
 
-        if (isOld || phieuCase == 4)
+        var receipt = new Receipt(
+            _guidGenerator.Create(),
+            testRequest.Id,
+            ReceiptStatus.Paid);
+
+        receipt.PaidDate = requestDate;
+
+        allReceipts.Add(receipt);
+
+        if (testRequest.TotalCost > 0)
         {
-            var receipt = new Receipt(
+            var paymentHistory = new PaymentHistory(
                 _guidGenerator.Create(),
-                testRequest.Id,
-                ReceiptStatus.Paid);
+                receipt.Id,
+                1,
+                testRequest.TotalCost,
+                testRequest.TotalCost,
+                PaymentMethod.BankTransfer,
+                requestDate,
+                "Migration từ hệ thống VNPT");
 
-            receipt.PaidDate = requestDate;
-
-            allReceipts.Add(receipt);
-
-            if (testRequest.TotalCost > 0)
-            {
-                var paymentHistory = new PaymentHistory(
-                    _guidGenerator.Create(),
-                    receipt.Id,
-                    1,
-                    testRequest.TotalCost,
-                    testRequest.TotalCost,
-                    PaymentMethod.BankTransfer,
-                    requestDate,
-                    "Migration từ hệ thống VNPT");
-
-                allPaymentHistories.Add(paymentHistory);
-            }
+            allPaymentHistories.Add(paymentHistory);
         }
     }
 
