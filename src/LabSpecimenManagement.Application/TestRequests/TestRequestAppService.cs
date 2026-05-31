@@ -39,7 +39,7 @@ public partial class TestRequestAppService :
         UpdateTestRequestDto>,
     ITestRequestAppService
 {
-    private const int ContractNumberSeed = 26170;
+    private const int ContractNumberSeed = 26338;
 
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
