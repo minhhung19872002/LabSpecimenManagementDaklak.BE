@@ -113,7 +113,7 @@ public partial class MigrationAppService
         var customerName = firstRow.KhachHang?.Trim() ?? "";
         var requestDate = ParseExcelDate(firstRow.NgayHopDong) ?? DateTime.Now;
         var isOld = requestDate < MigrationCutoffDate;
-        var phieuCase = isOld ? 4 : phieuRows.Min(DetermineIndicatorCase);
+        var phieuCase = isOld ? 4 : phieuRows.Max(DetermineIndicatorCase);
 
         var requestNumber = $"{requestNumberPrefix}-{(requestNumberCounter++):D4}";
         var testRequest = new TestRequest(
@@ -132,11 +132,23 @@ public partial class MigrationAppService
             case 4:
                 testRequest.Status = TestRequestStatus.ReportPublished;
                 testRequest.PaymentReceived = true;
-                testRequest.ReportPublishedDate = ParseExcelDate(firstRow.NgayQlDuyet);
+                testRequest.SentToDepartment = true;
+                testRequest.SampleSentDate = phieuRows.Min(r => ParseExcelDate(r.NgayPhanChiTieu));
+                testRequest.InProgressDate = phieuRows.Min(r => ParseExcelDate(r.NgayBdKiemNghiem))
+                    ?? phieuRows.Min(r => ParseExcelDate(r.NgayLuuKq));
+                testRequest.ReportPublishedDate = phieuRows.Max(r => ParseExcelDate(r.NgayQlDuyet));
                 break;
-            case 2:
             case 3:
                 testRequest.Status = TestRequestStatus.InProgress;
+                testRequest.SentToDepartment = true;
+                testRequest.SampleSentDate = phieuRows.Min(r => ParseExcelDate(r.NgayPhanChiTieu));
+                testRequest.InProgressDate = phieuRows.Min(r => ParseExcelDate(r.NgayBdKiemNghiem))
+                    ?? phieuRows.Min(r => ParseExcelDate(r.NgayGuiQl));
+                break;
+            case 2:
+                testRequest.Status = TestRequestStatus.SampleSent;
+                testRequest.SentToDepartment = true;
+                testRequest.SampleSentDate = phieuRows.Min(r => ParseExcelDate(r.NgayPhanChiTieu));
                 break;
             default:
                 testRequest.Status = TestRequestStatus.New;
@@ -239,22 +251,7 @@ public partial class MigrationAppService
                 groupItems.Min(x => ParseExcelDate(x.Row.NgayPhanChiTieu)),
                 groupItems.Max(x => ParseExcelDate(x.Row.NgayYcHoanThanh)));
 
-            if (isOld)
-            {
-                labTask.Status = LaboratoryTaskStatus.SentToQuality;
-            }
-            else if (groupItems.Any(x => x.Case >= 3))
-            {
-                labTask.Status = LaboratoryTaskStatus.SentToQuality;
-            }
-            else if (groupItems.Any(x => ParseExcelDate(x.Row.NgayLuuKq) != null))
-            {
-                labTask.Status = LaboratoryTaskStatus.WaitingApproval;
-            }
-            else
-            {
-                labTask.Status = LaboratoryTaskStatus.Assigned;
-            }
+            labTask.SampleSentDate = testRequest.SampleSentDate;
 
             allLabTasks.Add(labTask);
             result.LabTaskCount++;
@@ -268,7 +265,6 @@ public partial class MigrationAppService
 
                 lti.Result = item.Row.KetQua?.Trim();
                 lti.Unit = item.Row.DonViTinh?.Trim();
-                lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu);
 
                 if (!string.IsNullOrWhiteSpace(item.Row.PhuongPhap))
                 {
@@ -287,21 +283,28 @@ public partial class MigrationAppService
                 switch (item.Case)
                 {
                     case 4:
-                    case 3:
                         lti.ApprovalStatus = IndicatorApprovalStatus.Approved;
                         lti.IsSentToQuality = true;
-                        lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem) ?? ParseExcelDate(item.Row.NgayLuuKq);
-                        lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq);
-                        lti.SubmitDate = ParseExcelDate(item.Row.NgayGuiQl);
-                        lti.ApprovalDate = item.Case == 4
-                            ? ParseExcelDate(item.Row.NgayQlDuyet)
-                            : ParseExcelDate(item.Row.NgayGuiQl);
+                        lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu) ?? requestDate;
+                        lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem) ?? ParseExcelDate(item.Row.NgayLuuKq) ?? requestDate;
+                        lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq) ?? requestDate;
+                        lti.SubmitDate = ParseExcelDate(item.Row.NgayGuiQl) ?? requestDate;
+                        lti.ApprovalDate = ParseExcelDate(item.Row.NgayQlDuyet) ?? requestDate;
                         if (technicalManagerId.HasValue)
                             lti.ApprovedById = technicalManagerId;
+                        break;
+                    case 3:
+                        lti.ApprovalStatus = IndicatorApprovalStatus.Entered;
+                        lti.IsSentToQuality = false;
+                        lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu) ?? requestDate;
+                        lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem) ?? ParseExcelDate(item.Row.NgayLuuKq) ?? requestDate;
+                        lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq) ?? requestDate;
+                        lti.SubmitDate = ParseExcelDate(item.Row.NgayGuiQl);
                         break;
                     default:
                         lti.ApprovalStatus = IndicatorApprovalStatus.Pending;
                         lti.IsSentToQuality = false;
+                        lti.AssignedDate = ParseExcelDate(item.Row.NgayPhanChiTieu);
                         lti.TestDate = ParseExcelDate(item.Row.NgayBdKiemNghiem);
                         lti.EntryDate = ParseExcelDate(item.Row.NgayLuuKq);
                         break;
@@ -310,30 +313,49 @@ public partial class MigrationAppService
                 allLabTaskIndicators.Add(lti);
                 ltiMap[item.Trsi.Id] = (lti, item.Case);
             }
+
+            if (isOld || groupItems.All(x => x.Case == 4))
+            {
+                labTask.Status = LaboratoryTaskStatus.SentToQuality;
+            }
+            else if (groupItems.Any(x => x.Case == 3))
+            {
+                labTask.Status = LaboratoryTaskStatus.WaitingApproval;
+            }
+            else if (groupItems.Any(x => x.Case == 4) || groupItems.Any(x => ParseExcelDate(x.Row.NgayBdKiemNghiem) != null))
+            {
+                labTask.Status = LaboratoryTaskStatus.InProgress;
+            }
+            else
+            {
+                labTask.Status = LaboratoryTaskStatus.Assigned;
+            }
         }
 
-        var qmEligibleItems = ltiMap.Where(x => x.Value.Case >= 3).ToList();
+        var qmEligibleItems = ltiMap.Where(x => x.Value.Case == 4).ToList();
 
         if (qmEligibleItems.Count > 0)
         {
+            var qmRows = qmEligibleItems
+                .Select(x => trsiList.First(t => t.Trsi.Id == x.Key).Row)
+                .ToList();
+
             var qmTask = new QualityManagementTask(
                 _guidGenerator.Create(),
                 testRequest.Id,
                 contractNumber ?? "",
                 QualityTaskType.ResultApproval,
-                qmEligibleItems.Select(x => trsiList.First(t => t.Trsi.Id == x.Key).Row.MaSoMau).Distinct().Count(),
+                qmRows.Select(r => r.MaSoMau).Distinct().Count(),
                 qmEligibleItems.Count,
-                phieuRows.Where(r => !string.IsNullOrWhiteSpace(r.NgayGuiQl)).Min(r => ParseExcelDate(r.NgayGuiQl)),
-                phieuRows.Max(r => ParseExcelDate(r.NgayYcHoanThanh)));
+                qmRows.Min(r => ParseExcelDate(r.NgayQlDuyet)),
+                qmRows.Max(r => ParseExcelDate(r.NgayYcHoanThanh)));
 
-            qmTask.Status = qmEligibleItems.All(x => x.Value.Case == 4)
-                ? QualityManagementStatus.FullyPublished
-                : QualityManagementStatus.PendingApproval;
+            qmTask.Status = QualityManagementStatus.FullyPublished;
 
             allQmTasks.Add(qmTask);
             result.QmTaskCount++;
 
-            foreach (var (trsiId, (lti, indicatorCase)) in qmEligibleItems)
+            foreach (var (trsiId, (lti, _)) in qmEligibleItems)
             {
                 var qmi = new QualityManagementIndicator(
                     _guidGenerator.Create(),
@@ -341,18 +363,10 @@ public partial class MigrationAppService
                     lti.Id);
 
                 var matchingRow = trsiList.First(x => x.Trsi.Id == trsiId);
-
-                if (indicatorCase == 4)
-                {
-                    qmi.ApprovalStatus = QualityIndicatorApprovalStatus.Approved;
-                    qmi.IsPrinted = true;
-                    qmi.PrintedDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet);
-                    qmi.ApprovalDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet);
-                }
-                else
-                {
-                    qmi.ApprovalStatus = QualityIndicatorApprovalStatus.PendingApproval;
-                }
+                qmi.ApprovalStatus = QualityIndicatorApprovalStatus.Approved;
+                qmi.IsPrinted = true;
+                qmi.PrintedDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet) ?? requestDate;
+                qmi.ApprovalDate = ParseExcelDate(matchingRow.Row.NgayQlDuyet) ?? requestDate;
 
                 allQmIndicators.Add(qmi);
             }
