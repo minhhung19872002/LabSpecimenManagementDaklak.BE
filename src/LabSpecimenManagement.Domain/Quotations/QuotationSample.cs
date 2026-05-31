@@ -26,6 +26,11 @@ public class QuotationSample : Entity<Guid>
     public string SampleName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Số lượng mẫu
+    /// </summary>
+    public int Quantity { get; set; } = 1;
+
+    /// <summary>
     /// Tổng tiền của mẫu này (tự động tính từ các indicators)
     /// </summary>
     public decimal TotalPrice { get; set; }
@@ -58,6 +63,6 @@ public class QuotationSample : Entity<Guid>
     /// </summary>
     public void RecalculateTotalPrice()
     {
-        TotalPrice = Indicators.Sum(i => i.UnitPrice);
+        TotalPrice = Indicators.Sum(i => i.UnitPrice) * Quantity;
     }
 }
