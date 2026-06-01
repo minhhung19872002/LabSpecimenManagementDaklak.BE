@@ -71,7 +71,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
             // 5. Calculate totals
             var totalSample = samples.Sum(s => s.Quantity);
             var totalUnitPrice = samples.Sum(s => s.Indicators.Sum(i => i.UnitPrice));
-            var totalAmount = samples.Sum(s => s.Indicators.Sum(i => i.Quantity * i.UnitPrice));
+            var totalAmount = samples.Sum(s => s.Quantity * s.Indicators.Sum(i => i.Quantity * i.UnitPrice));
 
             // 6. Build placeholder values
             var placeholders = new Dictionary<string, string>
@@ -310,7 +310,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                     var indicatorFormattedName = indicatorGroup.FormattedDisplayName;
                     var totalQuantity = indicatorGroup.TotalQuantity;
                     var totalUnitPrice = indicatorGroup.TotalUnitPrice;
-                    var amount = totalQuantity * totalUnitPrice;
+                    var amount = totalQuantity * totalUnitPrice * sample.Quantity;
 
                     // Check if indicator name has HTML or newlines
                     var hasHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorFormattedName);

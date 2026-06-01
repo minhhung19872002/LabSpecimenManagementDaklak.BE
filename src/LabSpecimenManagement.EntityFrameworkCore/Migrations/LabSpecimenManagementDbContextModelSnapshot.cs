@@ -3377,6 +3377,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("Quantity")
+                        .HasColumnType("integer");
+
                     b.Property<Guid>("QuotationId")
                         .HasColumnType("uuid");
 

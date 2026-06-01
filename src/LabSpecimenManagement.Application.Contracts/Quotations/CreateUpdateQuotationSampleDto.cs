@@ -27,6 +27,12 @@ public class CreateUpdateQuotationSampleDto
     public string SampleName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Số lượng mẫu
+    /// </summary>
+    [Range(1, int.MaxValue)]
+    public int Quantity { get; set; } = 1;
+
+    /// <summary>
     /// Danh sách chỉ tiêu trong mẫu
     /// </summary>
     public List<CreateUpdateQuotationSampleIndicatorDto> Indicators { get; set; } = new();

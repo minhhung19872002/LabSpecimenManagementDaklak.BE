@@ -208,7 +208,10 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                 GuidGenerator.Create(),
                 quotation.Id,
                 sampleDto.SortOrder,
-                sampleDto.SampleName);
+                sampleDto.SampleName)
+            {
+                Quantity = sampleDto.Quantity
+            };
 
             // Add indicators to sample
             foreach (var indicatorDto in sampleDto.Indicators)
@@ -296,6 +299,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                 var existingSample = existingSamples.First(x => x.Id == sampleDto.Id.Value);
                 existingSample.SortOrder = sampleDto.SortOrder;
                 existingSample.SampleName = sampleDto.SampleName;
+                existingSample.Quantity = sampleDto.Quantity;
 
                 // Handle indicators
                 var existingIndicatorIds = existingSample.Indicators.Select(i => i.Id).ToList();
@@ -353,7 +357,10 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     GuidGenerator.Create(),
                     quotation.Id,
                     sampleDto.SortOrder,
-                    sampleDto.SampleName);
+                    sampleDto.SampleName)
+                {
+                    Quantity = sampleDto.Quantity
+                };
 
                 foreach (var indicatorDto in sampleDto.Indicators)
                 {
@@ -456,6 +463,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                 QuotationId = sample.QuotationId,
                 SortOrder = sample.SortOrder,
                 SampleName = sample.SampleName,
+                Quantity = sample.Quantity,
                 TotalPrice = sample.TotalPrice,
                 Indicators = sample.Indicators.OrderBy(i => i.SortOrder).Select(indicator => new QuotationSampleIndicatorDto
                 {
@@ -513,6 +521,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     QuotationId = sample.QuotationId,
                     SortOrder = sample.SortOrder,
                     SampleName = sample.SampleName,
+                    Quantity = sample.Quantity,
                     TotalPrice = sample.TotalPrice,
                     Indicators = sample.Indicators.OrderBy(i => i.SortOrder).Select(indicator =>
                     {

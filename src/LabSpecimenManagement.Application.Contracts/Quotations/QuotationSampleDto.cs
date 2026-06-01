@@ -25,6 +25,11 @@ public class QuotationSampleDto : EntityDto<Guid>
     public string SampleName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Số lượng mẫu
+    /// </summary>
+    public int Quantity { get; set; } = 1;
+
+    /// <summary>
     /// Tổng tiền của mẫu này
     /// </summary>
     public decimal TotalPrice { get; set; }
