@@ -3237,9 +3237,6 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             query = query.Where(x => x.TechnicianId.HasValue && input.TechnicianIds.Contains(x.TechnicianId.Value));
         }
 
-        // Count unique contracts (not rows) for pagination
-        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
-
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
 
@@ -3257,6 +3254,27 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Pagination by contract count (not row count)
         // skipCount and maxResultCount refer to number of contracts, not rows
         var allItems = sortedQuery.ToList();
+
+        // Filter by QLKTDisplayStatus if specified (computed in-memory)
+        if (input.QlktDisplayStatuses != null && input.QlktDisplayStatuses.Count > 0)
+        {
+            var statusSet = new HashSet<int>(input.QlktDisplayStatuses);
+            allItems = allItems.Where(x =>
+            {
+                var status = MapQLKTDisplayStatus(
+                    x.IndicatorApprovalStatus,
+                    x.MethodId,
+                    x.TechnicianId,
+                    x.TestDate,
+                    x.Result,
+                    x.QualityApprovalStatus);
+                return statusSet.Contains((int)status);
+            }).ToList();
+        }
+
+        // Count unique contracts AFTER filtering
+        var totalContractCount = allItems.Select(x => x.ContractNumber).Distinct().Count();
+
         var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Resolve user names
