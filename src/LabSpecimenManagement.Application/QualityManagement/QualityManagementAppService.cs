@@ -2183,6 +2183,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityTaskId = qt != null ? (Guid?)qt.Id : null,
                         LaboratoryTaskId = lt != null ? (Guid?)lt.Id : null,
                         ContractNumber = tr.ContractNumber,
+                        ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
 
@@ -2260,7 +2261,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractdate desc" : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
@@ -2270,7 +2271,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            "contractdate asc" => query.OrderBy(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractdate desc" => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
         // Pagination by contract count (not row count)

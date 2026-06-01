@@ -241,27 +241,31 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Get total count after all filters
         var totalCount = tasksWithStatus.Count;
 
+        // Load ContractDates for sorting
+        var taskTestRequestIds = tasksWithStatus.Select(x => x.Task.TestRequestId).Distinct().ToList();
+        var trQueryable = await _testRequestRepository.GetQueryableAsync();
+        var contractDateMap = trQueryable
+            .Where(tr => taskTestRequestIds.Contains(tr.Id))
+            .Select(tr => new { tr.Id, tr.ContractDate })
+            .ToDictionary(tr => tr.Id, tr => tr.ContractDate);
+
         // Apply sorting
         var sortedTasks = tasksWithStatus.AsEnumerable();
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
+        sortedTasks = sortingKey switch
         {
-            sortedTasks = input.Sorting.ToLower() switch
-            {
-                SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
-                SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
-                SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
-                SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
-                SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
-                SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
-                SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
-                SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
-                _ => sortedTasks.OrderByDescending(x => x.Task.CreationTime)
-            };
-        }
-        else
-        {
-            sortedTasks = sortedTasks.OrderByDescending(x => x.Task.CreationTime);
-        }
+            SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
+            SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
+            SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
+            SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
+            SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
+            SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
+            SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
+            SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
+            SortingFields.ContractDate => sortedTasks.OrderBy(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId)),
+            SortingFields.ContractDateDesc => sortedTasks.OrderByDescending(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId)),
+            _ => sortedTasks.OrderByDescending(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId))
+        };
 
         // Apply paging
         var pagedTasks = sortedTasks
@@ -2393,6 +2397,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         TestRequestId = tr.Id,
                         LaboratoryTaskId = lt.Id,
                         ContractNumber = tr.ContractNumber,
+                        ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
@@ -2523,6 +2528,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractdate asc" => query.OrderBy(x => x.ContractDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            "contractdate desc" => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
