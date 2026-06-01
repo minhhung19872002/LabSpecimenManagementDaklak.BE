@@ -2513,9 +2513,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             query = query.Where(x => x.TechnicianId.HasValue && technicianIdSet.Contains(x.TechnicianId.Value));
         }
 
-        // Count unique contracts (not rows) for pagination
-        var totalContractCount = query.Select(x => x.ContractNumber).Distinct().Count();
-
         // Apply sorting
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
 
@@ -2531,6 +2528,27 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         // Pagination by contract count (not row count)
         var allItems = sortedQuery.ToList();
+
+        // Filter by QLKTDisplayStatus if specified (computed in-memory)
+        if (input.QlktDisplayStatuses != null && input.QlktDisplayStatuses.Count > 0)
+        {
+            var statusSet = new HashSet<int>(input.QlktDisplayStatuses);
+            allItems = allItems.Where(x =>
+            {
+                var status = MapQLKTDisplayStatus(
+                    x.IndicatorApprovalStatus,
+                    x.MethodId,
+                    x.TechnicianId,
+                    x.TestDate,
+                    x.Result,
+                    x.QualityApprovalStatus);
+                return statusSet.Contains((int)status);
+            }).ToList();
+        }
+
+        // Count unique contracts AFTER filtering
+        var totalContractCount = allItems.Select(x => x.ContractNumber).Distinct().Count();
+
         var items = GetItemsByContractPagination(allItems, input.SkipCount, input.MaxResultCount);
 
         // Resolve user names

@@ -49,6 +49,11 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     /// </summary>
     public List<int>? QlclDisplayStatuses { get; set; }
 
+    /// <summary>
+    /// Filter by QLKTDisplayStatus values (computed in-memory, used by Testing page)
+    /// </summary>
+    public List<int>? QlktDisplayStatuses { get; set; }
+
     public GetSampleAssignmentLogInput()
     {
         // Default sorting: RequestCompletionDate ascending
