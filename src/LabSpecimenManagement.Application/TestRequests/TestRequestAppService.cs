@@ -3390,21 +3390,7 @@ public partial class TestRequestAppService :
         // Mẫu nhiệm vụ không cần thanh toán nên bỏ qua step này
         if (!testRequest.SampleTypeTask)
         {
-            var isPaid = isCancelled
-                ? testRequest.PaymentReceived
-                : (testRequest.PaymentReceived ||
-                   currentStatus == TestRequestStatus.Paid ||
-                   currentStatus == TestRequestStatus.UnderReview ||
-                   currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
-                   currentStatus == TestRequestStatus.RequestApproved ||
-                   currentStatus == TestRequestStatus.SampleSent ||
-                   currentStatus == TestRequestStatus.InProgress ||
-                   currentStatus == TestRequestStatus.PendingApproval ||
-                   currentStatus == TestRequestStatus.Approved ||
-                   currentStatus == TestRequestStatus.PendingChangeApproval ||
-                   currentStatus == TestRequestStatus.PartialResultSent ||
-                   currentStatus == TestRequestStatus.ReportPublished ||
-                   currentStatus == TestRequestStatus.Completed);
+            var isPaid = testRequest.PaymentReceived;
             // Use Receipt.PaidDate as the real payment date (TestRequest.PendingDate is never set)
             var paidByUserName = receipt?.PaidDate.HasValue == true && receipt.LastModifierId.HasValue
                 ? await _userNameProvider.GetUserNameAsync(receipt.LastModifierId)
@@ -3423,24 +3409,11 @@ public partial class TestRequestAppService :
         // Mẫu nhiệm vụ (SampleTypeTask): hiển thị "Không cần thanh toán"
         // Mẫu thường: hiển thị "Chờ thanh toán"
         // Dựa vào flag SentToAccounting hoặc PaymentReceived (nếu đã thanh toán thì chờ thanh toán cũng xanh)
-        var isSentToAccounting = isCancelled
-            ? (testRequest.SentToAccounting || testRequest.PaymentReceived)
-            : (testRequest.SentToAccounting ||
+        var isSentToAccounting = testRequest.SentToAccounting ||
                testRequest.PaymentReceived ||
                currentStatus == TestRequestStatus.PendingPayment ||
                currentStatus == TestRequestStatus.NoPaymentRequired ||
-               currentStatus == TestRequestStatus.Paid ||
-               currentStatus == TestRequestStatus.UnderReview ||
-               currentStatus == TestRequestStatus.WaitingCustomerConfirm ||
-               currentStatus == TestRequestStatus.RequestApproved ||
-               currentStatus == TestRequestStatus.SampleSent ||
-               currentStatus == TestRequestStatus.InProgress ||
-               currentStatus == TestRequestStatus.PendingApproval ||
-               currentStatus == TestRequestStatus.Approved ||
-               currentStatus == TestRequestStatus.PendingChangeApproval ||
-               currentStatus == TestRequestStatus.PartialResultSent ||
-               currentStatus == TestRequestStatus.ReportPublished ||
-               currentStatus == TestRequestStatus.Completed);
+               currentStatus == TestRequestStatus.Paid;
         var paymentStepTitle = testRequest.SampleTypeTask ? "Không cần thanh toán" : "Chờ thanh toán";
         // Use Receipt.CreationTime as the actual "sent to accounting" date (more accurate than TestRequest.CreationTime)
         var sentToAccountingDate = receipt?.CreationTime ?? testRequest.CreationTime;
@@ -3950,7 +3923,8 @@ public partial class TestRequestAppService :
 
         // CHỈ cập nhật status sang UnderReview khi đang ở trạng thái ban đầu (PendingPayment/Paid/NoPaymentRequired)
         // và TẤT CẢ indicators đã có LaboratoryId
-        var isInitialSend = entity.Status == TestRequestStatus.PendingPayment
+        var isInitialSend = entity.Status == TestRequestStatus.New
+            || entity.Status == TestRequestStatus.PendingPayment
             || entity.Status == TestRequestStatus.Paid
             || entity.Status == TestRequestStatus.NoPaymentRequired;
         if (isInitialSend && indicatorsWithLabCount == totalIndicatorCount)
