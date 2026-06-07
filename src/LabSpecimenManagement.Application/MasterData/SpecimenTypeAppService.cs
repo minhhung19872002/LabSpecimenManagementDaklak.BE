@@ -25,6 +25,8 @@ public class SpecimenTypeAppService :
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IDataFilter _dataFilter;
 
     public SpecimenTypeAppService(
@@ -33,6 +35,8 @@ public class SpecimenTypeAppService :
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
         IDataFilter dataFilter)
         : base(repository)
     {
@@ -40,6 +44,8 @@ public class SpecimenTypeAppService :
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _testMethodRepository = testMethodRepository;
         _dataFilter = dataFilter;
     }
 
@@ -417,6 +423,38 @@ public class SpecimenTypeAppService :
         if (newItems.Any())
         {
             await _specimenTypeIndicatorRepository.InsertManyAsync(newItems);
+
+            // Auto-create TestMethodIndicator with default method "-" so indicators
+            // are immediately usable in the "Chọn chỉ tiêu" modal (method + price visible)
+            var dashMethod = (await _testMethodRepository.GetListAsync(m => m.Name == "-" && m.IsActive))
+                .FirstOrDefault();
+
+            if (dashMethod != null)
+            {
+                var existingTmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+                var newIndicatorIds = newItems.Select(x => x.IndicatorId).ToList();
+                var existingTmiIndicatorIds = existingTmiQuery
+                    .Where(tmi => tmi.TestMethodId == dashMethod.Id
+                                  && tmi.SpecimenTypeId == specimenTypeId
+                                  && newIndicatorIds.Contains(tmi.IndicatorId))
+                    .Select(tmi => tmi.IndicatorId)
+                    .ToHashSet();
+
+                var newTmiItems = newItems
+                    .Where(sti => !existingTmiIndicatorIds.Contains(sti.IndicatorId))
+                    .Select(sti => new TestMethodIndicator(
+                        GuidGenerator.Create(),
+                        dashMethod.Id,
+                        sti.IndicatorId,
+                        0,
+                        specimenTypeId))
+                    .ToList();
+
+                if (newTmiItems.Any())
+                {
+                    await _testMethodIndicatorRepository.InsertManyAsync(newTmiItems);
+                }
+            }
         }
     }
 
