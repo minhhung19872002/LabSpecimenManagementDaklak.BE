@@ -209,7 +209,7 @@ public class FormTemplateController : LabSpecimenManagementController
         }
 
         var fileBytes = System.IO.File.ReadAllBytes(filePath);
-        return File(fileBytes, contentType, fileName);
+        return File(fileBytes, contentType, Path.GetFileName(fileName));
     }
 
     /// <summary>
