@@ -2313,6 +2313,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             ContractNumber = x.ContractNumber,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
+            ContractDate = x.ContractDate,
             SampleId = x.SampleId,
             SampleCode = x.SampleCode,
             SampleName = x.SampleName,
