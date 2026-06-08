@@ -180,6 +180,35 @@ public class FormTemplateController : LabSpecimenManagementController
         };
     }
 
+    [HttpDelete("{fileName}")]
+    [Authorize]
+    public IActionResult Delete(string fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            throw new ValidationException("fileName", "Tên file không được để trống");
+        }
+
+        var templatesPath = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        var filePath = Path.Combine(templatesPath, fileName);
+
+        var fullPath = Path.GetFullPath(filePath);
+        if (!fullPath.StartsWith(Path.GetFullPath(templatesPath)))
+        {
+            throw new ValidationException("fileName", "Tên file không hợp lệ");
+        }
+
+        if (!System.IO.File.Exists(filePath))
+        {
+            throw new EntityNotFoundException("Template", fileName);
+        }
+
+        System.IO.File.Delete(filePath);
+        _logger.LogInformation("Form template deleted: {FileName}", fileName);
+
+        return NoContent();
+    }
+
     /// <summary>
     /// Download a form template by filename
     /// </summary>
@@ -209,7 +238,7 @@ public class FormTemplateController : LabSpecimenManagementController
         }
 
         var fileBytes = System.IO.File.ReadAllBytes(filePath);
-        return File(fileBytes, contentType, fileName);
+        return File(fileBytes, contentType, Path.GetFileName(fileName));
     }
 
     /// <summary>

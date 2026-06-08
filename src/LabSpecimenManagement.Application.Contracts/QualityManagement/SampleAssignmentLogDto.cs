@@ -44,6 +44,11 @@ public class SampleAssignmentLogDto
     /// </summary>
     public DateTime? RequestCompletionDate { get; set; }
 
+    /// <summary>
+    /// Ngày hợp đồng - Contract Date
+    /// </summary>
+    public DateTime? ContractDate { get; set; }
+
     #endregion
 
     #region Sample Info

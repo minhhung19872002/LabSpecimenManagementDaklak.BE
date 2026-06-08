@@ -4143,7 +4143,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 0;
         if (lastRow < 2) return rows; // No data rows
 
-        // Expected columns: Tên mẫu, Loại mẫu, Chỉ tiêu kiểm nghiệm, Phương pháp, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu
+        // Expected columns: Loại mẫu, Tên mẫu, Lượng mẫu, Chỉ tiêu kiểm nghiệm, Tình trạng mẫu, Phương pháp, Địa chỉ lấy mẫu
         for (int rowNum = 2; rowNum <= lastRow; rowNum++)
         {
             var row = worksheet.Row(rowNum);
@@ -4154,13 +4154,13 @@ public class ImportAppService : ApplicationService, IImportAppService
             var importRow = new SpecimenForTestRequestImportRow
             {
                 ExcelRowNumber = rowNum,
-                SampleName = row.Cell(1).GetString()?.Trim() ?? "",
-                SpecimenTypeName = row.Cell(2).GetString()?.Trim(),
-                IndicatorName = row.Cell(3).GetString()?.Trim() ?? "",
-                TestMethodName = row.Cell(4).GetString()?.Trim(),
-                SamplingAddress = row.Cell(5).GetString()?.Trim(),
-                SampleQuantity = row.Cell(6).GetString()?.Trim(),
-                StatusText = row.Cell(7).GetString()?.Trim()
+                SpecimenTypeName = row.Cell(1).GetString()?.Trim(),
+                SampleName = row.Cell(2).GetString()?.Trim() ?? "",
+                SampleQuantity = row.Cell(3).GetString()?.Trim(),
+                IndicatorName = row.Cell(4).GetString()?.Trim() ?? "",
+                StatusText = row.Cell(5).GetString()?.Trim(),
+                TestMethodName = row.Cell(6).GetString()?.Trim(),
+                SamplingAddress = row.Cell(7).GetString()?.Trim()
             };
 
             // Skip rows with no sample name and no indicator
@@ -4181,8 +4181,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var workbook = new XLWorkbook();
         var worksheet = workbook.Worksheets.Add("Import Errors");
 
-        // Column mapping: Tên mẫu, Loại mẫu, Chỉ tiêu kiểm nghiệm, Phương pháp, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Lỗi
-        var columns = new[] { "Tên mẫu", "Loại mẫu", "Chỉ tiêu kiểm nghiệm", "Phương pháp", "Địa chỉ lấy mẫu", "Lượng mẫu", "Tình trạng mẫu", "Lỗi" };
+        // Column mapping: Loại mẫu, Tên mẫu, Lượng mẫu, Chỉ tiêu kiểm nghiệm, Tình trạng mẫu, Phương pháp, Địa chỉ lấy mẫu, Lỗi
+        var columns = new[] { "Loại mẫu", "Tên mẫu", "Lượng mẫu", "Chỉ tiêu kiểm nghiệm", "Tình trạng mẫu", "Phương pháp", "Địa chỉ lấy mẫu", "Lỗi" };
 
         // Write header row with styling
         for (int col = 0; col < columns.Length; col++)
@@ -4215,45 +4215,49 @@ public class ImportAppService : ApplicationService, IImportAppService
             var hasError = rowErrors.ContainsKey(dataRowNumber);
             var errorColumnsForRow = errorColumnsByRow.GetValueOrDefault(dataRowNumber, new HashSet<string>());
 
-            // Column 1: Tên mẫu
+            // Column 1: Loại mẫu
             var cell1 = worksheet.Cell(excelRowNumber, 1);
-            cell1.Value = row.SampleName ?? "";
-            if (errorColumnsForRow.Contains("Tên mẫu"))
+            cell1.Value = row.SpecimenTypeName ?? "";
+            if (errorColumnsForRow.Contains("Loại mẫu"))
             {
                 ApplyErrorStyle(cell1);
             }
 
-            // Column 2: Loại mẫu
+            // Column 2: Tên mẫu
             var cell2 = worksheet.Cell(excelRowNumber, 2);
-            cell2.Value = row.SpecimenTypeName ?? "";
-
-            // Column 3: Chỉ tiêu kiểm nghiệm
-            var cell3 = worksheet.Cell(excelRowNumber, 3);
-            cell3.Value = row.IndicatorName ?? "";
-            if (errorColumnsForRow.Contains("Chỉ tiêu kiểm nghiệm"))
+            cell2.Value = row.SampleName ?? "";
+            if (errorColumnsForRow.Contains("Tên mẫu"))
             {
-                ApplyErrorStyle(cell3);
+                ApplyErrorStyle(cell2);
             }
 
-            // Column 4: Phương pháp
+            // Column 3: Lượng mẫu
+            var cell3 = worksheet.Cell(excelRowNumber, 3);
+            cell3.Value = row.SampleQuantity ?? "";
+
+            // Column 4: Chỉ tiêu kiểm nghiệm
             var cell4 = worksheet.Cell(excelRowNumber, 4);
-            cell4.Value = row.TestMethodName ?? "";
-            if (errorColumnsForRow.Contains("Phương pháp"))
+            cell4.Value = row.IndicatorName ?? "";
+            if (errorColumnsForRow.Contains("Chỉ tiêu kiểm nghiệm"))
             {
                 ApplyErrorStyle(cell4);
             }
 
-            // Column 5: Địa chỉ lấy mẫu
+            // Column 5: Tình trạng mẫu
             var cell5 = worksheet.Cell(excelRowNumber, 5);
-            cell5.Value = row.SamplingAddress ?? "";
+            cell5.Value = row.StatusText ?? "";
 
-            // Column 6: Lượng mẫu
+            // Column 6: Phương pháp
             var cell6 = worksheet.Cell(excelRowNumber, 6);
-            cell6.Value = row.SampleQuantity ?? "";
+            cell6.Value = row.TestMethodName ?? "";
+            if (errorColumnsForRow.Contains("Phương pháp"))
+            {
+                ApplyErrorStyle(cell6);
+            }
 
-            // Column 7: Tình trạng mẫu
+            // Column 7: Địa chỉ lấy mẫu
             var cell7 = worksheet.Cell(excelRowNumber, 7);
-            cell7.Value = row.StatusText ?? "";
+            cell7.Value = row.SamplingAddress ?? "";
 
             // Column 8: Lỗi
             var cell8 = worksheet.Cell(excelRowNumber, 8);

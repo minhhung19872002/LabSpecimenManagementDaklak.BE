@@ -649,10 +649,14 @@ public partial class LaboratoryTaskAppService
     {
         var testRequest = await _testRequestRepository.GetAsync(testRequestId);
 
-        // Cập nhật khi đang ở UnderReview hoặc RequestApproved
-        // (RequestApproved có thể xảy ra khi QLKT đánh giá lại sau khi đã duyệt)
+        // Cập nhật khi đang ở UnderReview, RequestApproved,
+        // hoặc các trạng thái ban đầu khi gửi QLKT một phần (partial send)
         if (testRequest.Status == TestRequestStatus.UnderReview ||
-            testRequest.Status == TestRequestStatus.RequestApproved)
+            testRequest.Status == TestRequestStatus.RequestApproved ||
+            testRequest.Status == TestRequestStatus.New ||
+            testRequest.Status == TestRequestStatus.Paid ||
+            testRequest.Status == TestRequestStatus.PendingPayment ||
+            testRequest.Status == TestRequestStatus.NoPaymentRequired)
         {
             testRequest.Status = TestRequestStatus.WaitingCustomerConfirm;
             await _testRequestRepository.UpdateAsync(testRequest);
@@ -666,9 +670,14 @@ public partial class LaboratoryTaskAppService
     {
         var testRequest = await _testRequestRepository.GetAsync(testRequestId);
 
-        // Chỉ cập nhật khi đang ở UnderReview hoặc WaitingCustomerConfirm
+        // Chỉ cập nhật khi đang ở UnderReview, WaitingCustomerConfirm,
+        // hoặc các trạng thái ban đầu khi gửi QLKT một phần (partial send)
         if (testRequest.Status != TestRequestStatus.UnderReview &&
-            testRequest.Status != TestRequestStatus.WaitingCustomerConfirm)
+            testRequest.Status != TestRequestStatus.WaitingCustomerConfirm &&
+            testRequest.Status != TestRequestStatus.New &&
+            testRequest.Status != TestRequestStatus.Paid &&
+            testRequest.Status != TestRequestStatus.PendingPayment &&
+            testRequest.Status != TestRequestStatus.NoPaymentRequired)
         {
             return;
         }

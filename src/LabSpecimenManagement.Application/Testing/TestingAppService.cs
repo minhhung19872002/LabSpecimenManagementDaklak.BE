@@ -258,27 +258,31 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Get total count after all filters
         var totalCount = tasksWithStatus.Count;
 
+        // Load ContractDates for sorting
+        var taskTestRequestIds = tasksWithStatus.Select(x => x.Task.TestRequestId).Distinct().ToList();
+        var trQueryable = await _testRequestRepository.GetQueryableAsync();
+        var contractDateMap = trQueryable
+            .Where(tr => taskTestRequestIds.Contains(tr.Id))
+            .Select(tr => new { tr.Id, tr.ContractDate })
+            .ToDictionary(tr => tr.Id, tr => tr.ContractDate);
+
         // Apply sorting
         var sortedTasks = tasksWithStatus.AsEnumerable();
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
+        sortedTasks = sortingKey switch
         {
-            sortedTasks = input.Sorting.ToLower() switch
-            {
-                SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
-                SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
-                SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
-                SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
-                SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
-                SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
-                SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
-                SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
-                _ => sortedTasks.OrderByDescending(x => x.Task.CreationTime)
-            };
-        }
-        else
-        {
-            sortedTasks = sortedTasks.OrderByDescending(x => x.Task.CreationTime);
-        }
+            SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
+            SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
+            SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
+            SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
+            SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
+            SortingFields.TestDateDesc => sortedTasks.OrderByDescending(x => x.Task.TestDate),
+            SortingFields.TestingStatus => sortedTasks.OrderBy(x => x.TestingStatus),
+            SortingFields.TestingStatusDesc => sortedTasks.OrderByDescending(x => x.TestingStatus),
+            SortingFields.ContractDate => sortedTasks.OrderBy(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId)),
+            SortingFields.ContractDateDesc => sortedTasks.OrderByDescending(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId)),
+            _ => sortedTasks.OrderByDescending(x => contractDateMap.GetValueOrDefault(x.Task.TestRequestId))
+        };
 
         // Apply paging
         var pagedTasks = sortedTasks
@@ -2506,6 +2510,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         TestRequestId = tr.Id,
                         LaboratoryTaskId = lt.Id,
                         ContractNumber = tr.ContractNumber,
+                        ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
@@ -2627,16 +2632,19 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         // Apply sorting
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "requestcompletiondate asc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            SortingFields.RequestCompletionDate => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.RequestCompletionDateDesc => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumber => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumberDesc => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDate => query.OrderBy(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDateDesc => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDate => query.OrderBy(x => x.ContractDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDateDesc => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
         // Pagination by contract count (not row count)
@@ -2654,7 +2662,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     x.TechnicianId,
                     x.TestDate,
                     x.Result,
-                    x.QualityApprovalStatus);
+                    x.QualityApprovalStatus,
+                    x.TestRequestStatus);
                 return statusSet.Contains((int)status);
             }).ToList();
         }
@@ -2688,6 +2697,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             ContractNumber = x.ContractNumber,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
+            ContractDate = x.ContractDate,
             SampleId = x.SampleId,
             SampleCode = x.SampleCode,
             SampleName = x.SampleName,
@@ -2717,7 +2727,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 x.TechnicianId,
                 x.TestDate,
                 x.Result,
-                x.QualityApprovalStatus),
+                x.QualityApprovalStatus,
+                x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
@@ -2757,6 +2768,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         TestDate = li.TestDate,
                         Result = li.Result,
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        TestRequestStatus = tr.Status,
                     };
 
         // Apply user access control (same as GetSampleAssignmentLogAsync)
@@ -2795,7 +2807,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var statusCounts = allItems
             .Select(x => MapQLKTDisplayStatus(
                 x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
-                x.TestDate, x.Result, x.QualityApprovalStatus))
+                x.TestDate, x.Result, x.QualityApprovalStatus, x.TestRequestStatus))
             .ToList();
 
         return new QualityManagement.SampleAssignmentLogStatisticsDto
@@ -2842,8 +2854,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         Guid? technicianId,
         DateTime? testDate,
         string? result,
-        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        TestRequestStatus testRequestStatus = TestRequestStatus.New)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLKTDisplayStatus.RequestCancelled;
+        }
+
         // 1. Handle special statuses first (terminal or special states)
         switch (approvalStatus)
         {

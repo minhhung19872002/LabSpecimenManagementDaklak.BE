@@ -224,23 +224,20 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var totalCount = queryable.Count();
 
         // Apply sorting
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        var trQueryable = await _testRequestRepository.GetQueryableAsync();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
+        queryable = sortingKey switch
         {
-            queryable = input.Sorting.ToLower() switch
-            {
-                SortingFields.TransferDate => queryable.OrderBy(x => x.TransferDate),
-                SortingFields.TransferDateDesc => queryable.OrderByDescending(x => x.TransferDate),
-                SortingFields.RequestCompletionDate => queryable.OrderBy(x => x.RequestCompletionDate),
-                SortingFields.RequestCompletionDateDesc => queryable.OrderByDescending(x => x.RequestCompletionDate),
-                SortingFields.Status => queryable.OrderBy(x => x.Status),
-                SortingFields.StatusDesc => queryable.OrderByDescending(x => x.Status),
-                _ => queryable.OrderByDescending(x => x.CreationTime)
-            };
-        }
-        else
-        {
-            queryable = queryable.OrderByDescending(x => x.CreationTime);
-        }
+            SortingFields.TransferDate => queryable.OrderBy(x => x.TransferDate),
+            SortingFields.TransferDateDesc => queryable.OrderByDescending(x => x.TransferDate),
+            SortingFields.RequestCompletionDate => queryable.OrderBy(x => x.RequestCompletionDate),
+            SortingFields.RequestCompletionDateDesc => queryable.OrderByDescending(x => x.RequestCompletionDate),
+            SortingFields.Status => queryable.OrderBy(x => x.Status),
+            SortingFields.StatusDesc => queryable.OrderByDescending(x => x.Status),
+            SortingFields.ContractDate => queryable.OrderBy(x => trQueryable.Where(tr => tr.Id == x.TestRequestId).Select(tr => tr.ContractDate).FirstOrDefault()),
+            SortingFields.ContractDateDesc => queryable.OrderByDescending(x => trQueryable.Where(tr => tr.Id == x.TestRequestId).Select(tr => tr.ContractDate).FirstOrDefault()),
+            _ => queryable.OrderByDescending(x => trQueryable.Where(tr => tr.Id == x.TestRequestId).Select(tr => tr.ContractDate).FirstOrDefault())
+        };
 
         // Apply paging
         var tasks = queryable
@@ -3124,6 +3121,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         TestRequestId = tr.Id,
                         LaboratoryTaskId = lt.Id,
                         ContractNumber = tr.ContractNumber,
+                        ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
@@ -3239,17 +3237,19 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            SortingFields.RequestCompletionDate => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.RequestCompletionDateDesc => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumber => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumberDesc => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDate => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDateDesc => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDate => query.OrderBy(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDateDesc => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
         // Pagination by contract count (not row count)
@@ -3268,7 +3268,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     x.TechnicianId,
                     x.TestDate,
                     x.Result,
-                    x.QualityApprovalStatus);
+                    x.QualityApprovalStatus,
+                    x.TestRequestStatus);
                 return statusSet.Contains((int)status);
             }).ToList();
         }
@@ -3302,6 +3303,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ContractNumber = x.ContractNumber,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
+            ContractDate = x.ContractDate,
             SampleId = x.SampleId,
             SampleCode = x.SampleCode,
             SampleName = x.SampleName,
@@ -3332,7 +3334,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 x.TechnicianId,
                 x.TestDate,
                 x.Result,
-                x.QualityApprovalStatus),
+                x.QualityApprovalStatus,
+                x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
@@ -3355,9 +3358,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
         var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
 
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+
         // Build base query
         var query = from li in labIndicatorQuery
                     join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
                     join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
                     from qi in qiJoin.DefaultIfEmpty()
                     select new
@@ -3370,6 +3376,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         TestDate = li.TestDate,
                         Result = li.Result,
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        TestRequestStatus = tr.Status,
                     };
 
         // Apply same access control as GetSampleAssignmentLogAsync (QLKT)
@@ -3400,7 +3407,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var statusCounts = allItems
             .Select(x => MapQLKTDisplayStatus(
                 x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
-                x.TestDate, x.Result, x.QualityApprovalStatus))
+                x.TestDate, x.Result, x.QualityApprovalStatus, x.TestRequestStatus))
             .ToList();
 
         return new SampleAssignmentLogStatisticsDto
@@ -3503,8 +3510,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         Guid? technicianId,
         DateTime? testDate,
         string? result,
-        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        TestRequestStatus testRequestStatus = TestRequestStatus.New)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLKTDisplayStatus.RequestCancelled;
+        }
+
         // 1. Handle special statuses first (terminal or special states)
         switch (approvalStatus)
         {

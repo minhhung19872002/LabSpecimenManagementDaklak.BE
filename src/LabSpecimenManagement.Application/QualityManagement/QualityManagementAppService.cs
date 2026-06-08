@@ -168,29 +168,34 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         var totalCount = query.Count();
 
+        // Join TestRequest to get ContractDate for sorting
+        var trQueryable = await _testRequestRepository.GetQueryableAsync();
+        var joinedQuery = query.Join(
+            trQueryable,
+            t => t.TestRequestId,
+            tr => tr.Id,
+            (t, tr) => new { Task = t, ContractDate = tr.ContractDate });
+
         // Sorting
-        if (!string.IsNullOrWhiteSpace(input.Sorting))
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
+        var sortedQuery = sortingKey switch
         {
-            query = input.Sorting.ToLower() switch
-            {
-                SortingFields.ContractNumber => query.OrderBy(t => t.ContractNumber),
-                SortingFields.ContractNumberDesc => query.OrderByDescending(t => t.ContractNumber),
-                SortingFields.TransferDate => query.OrderBy(t => t.TransferDate),
-                SortingFields.TransferDateDesc => query.OrderByDescending(t => t.TransferDate),
-                SortingFields.RequestCompletionDate => query.OrderBy(t => t.RequestCompletionDate),
-                SortingFields.RequestCompletionDateDesc => query.OrderByDescending(t => t.RequestCompletionDate),
-                SortingFields.Status => query.OrderBy(t => t.Status),
-                SortingFields.StatusDesc => query.OrderByDescending(t => t.Status),
-                _ => query.OrderByDescending(t => t.CreationTime)
-            };
-        }
-        else
-        {
-            query = query.OrderByDescending(t => t.CreationTime);
-        }
+            SortingFields.ContractNumber => joinedQuery.OrderBy(x => x.Task.ContractNumber),
+            SortingFields.ContractNumberDesc => joinedQuery.OrderByDescending(x => x.Task.ContractNumber),
+            SortingFields.TransferDate => joinedQuery.OrderBy(x => x.Task.TransferDate),
+            SortingFields.TransferDateDesc => joinedQuery.OrderByDescending(x => x.Task.TransferDate),
+            SortingFields.RequestCompletionDate => joinedQuery.OrderBy(x => x.Task.RequestCompletionDate),
+            SortingFields.RequestCompletionDateDesc => joinedQuery.OrderByDescending(x => x.Task.RequestCompletionDate),
+            SortingFields.Status => joinedQuery.OrderBy(x => x.Task.Status),
+            SortingFields.StatusDesc => joinedQuery.OrderByDescending(x => x.Task.Status),
+            SortingFields.ContractDate => joinedQuery.OrderBy(x => x.ContractDate),
+            SortingFields.ContractDateDesc => joinedQuery.OrderByDescending(x => x.ContractDate),
+            _ => joinedQuery.OrderByDescending(x => x.ContractDate)
+        };
 
         // Pagination
-        var tasks = query
+        var tasks = sortedQuery
+            .Select(x => x.Task)
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount)
             .ToList();
@@ -2183,6 +2188,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         QualityTaskId = qt != null ? (Guid?)qt.Id : null,
                         LaboratoryTaskId = lt != null ? (Guid?)lt.Id : null,
                         ContractNumber = tr.ContractNumber,
+                        ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
 
@@ -2260,17 +2266,19 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractnumber desc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            _ => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
+            SortingFields.RequestCompletionDate => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.RequestCompletionDateDesc => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumber => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumberDesc => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDate => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDateDesc => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDate => query.OrderBy(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDateDesc => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            _ => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
         // Pagination by contract count (not row count)
@@ -2310,6 +2318,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             ContractNumber = x.ContractNumber,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
+            ContractDate = x.ContractDate,
             SampleId = x.SampleId,
             SampleCode = x.SampleCode,
             SampleName = x.SampleName,
@@ -2455,6 +2464,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         DateTime? testDate,
         string? result)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLCLDisplayStatus.RequestCancelled;
+        }
+
         // 1. Đã phát hành báo cáo
         if (isReportPublished)
         {
