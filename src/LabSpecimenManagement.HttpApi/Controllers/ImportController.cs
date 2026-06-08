@@ -346,10 +346,10 @@ public class ImportController : LabSpecimenManagementController
 
     /// <summary>
     /// Get template for importing Specimens in TestRequestForm
-    /// Template columns: Tên mẫu, Loại mẫu, Địa chỉ lấy mẫu, Lượng mẫu, Tình trạng mẫu, Chỉ tiêu kiểm nghiệm
+    /// Template columns: Loại mẫu, Tên mẫu, Lượng mẫu, Chỉ tiêu kiểm nghiệm, Tình trạng mẫu, Phương pháp, Địa chỉ lấy mẫu
     /// </summary>
     [HttpGet("specimens-for-test-request/template")]
-    [Authorize] // Any authenticated user can download template
+    [Authorize]
     public virtual IActionResult GetSpecimenForTestRequestTemplate()
     {
         var templatePath = System.IO.Path.Combine(_webHostEnvironment.WebRootPath,
