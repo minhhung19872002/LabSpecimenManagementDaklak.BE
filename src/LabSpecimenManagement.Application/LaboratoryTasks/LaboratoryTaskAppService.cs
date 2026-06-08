@@ -3236,18 +3236,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         }
 
         // Apply sorting - CRITICAL: Must sort by ContractNumber then SampleId first to ensure row spanning works correctly
-        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? "contractdate desc" : input.Sorting.ToLower();
+        var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
 
         var sortedQuery = sortingKey switch
         {
-            "requestcompletiondate desc" => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "requestcompletiondate asc" => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber asc" => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractnumber desc" => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate asc" => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "transferdate desc" => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractdate asc" => query.OrderBy(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
-            "contractdate desc" => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.RequestCompletionDate => query.OrderBy(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.RequestCompletionDateDesc => query.OrderByDescending(x => x.RequestCompletionDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumber => query.OrderBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractNumberDesc => query.OrderByDescending(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDate => query.OrderBy(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.TransferDateDesc => query.OrderByDescending(x => x.TransferDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDate => query.OrderBy(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
+            SortingFields.ContractDateDesc => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName),
             _ => query.OrderByDescending(x => x.ContractDate).ThenBy(x => x.ContractNumber).ThenBy(x => x.SampleId).ThenBy(x => x.IndicatorName)
         };
 
