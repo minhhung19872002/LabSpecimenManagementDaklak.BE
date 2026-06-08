@@ -428,8 +428,13 @@ public partial class TestRequestAppService :
         // Get total count
         var totalCount = await AsyncExecuter.CountAsync(queryable);
 
-        // Apply sorting - default sort by ContractDate descending (newest first)
-        queryable = queryable.OrderByDescending(x => x.ContractDate).ThenByDescending(x => x.CreationTime);
+        // Apply sorting
+        queryable = input.Sorting?.ToLower() switch
+        {
+            "expectedcompletiondate asc" => queryable.OrderBy(x => x.ExpectedCompletionDate).ThenByDescending(x => x.CreationTime),
+            "expectedcompletiondate desc" => queryable.OrderByDescending(x => x.ExpectedCompletionDate).ThenByDescending(x => x.CreationTime),
+            _ => queryable.OrderByDescending(x => x.ContractDate).ThenByDescending(x => x.CreationTime),
+        };
 
         // Apply paging
         queryable = queryable
