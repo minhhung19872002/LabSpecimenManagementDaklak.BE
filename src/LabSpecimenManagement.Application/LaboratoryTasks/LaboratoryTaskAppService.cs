@@ -3267,7 +3267,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     x.TechnicianId,
                     x.TestDate,
                     x.Result,
-                    x.QualityApprovalStatus);
+                    x.QualityApprovalStatus,
+                    x.TestRequestStatus);
                 return statusSet.Contains((int)status);
             }).ToList();
         }
@@ -3332,7 +3333,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 x.TechnicianId,
                 x.TestDate,
                 x.Result,
-                x.QualityApprovalStatus),
+                x.QualityApprovalStatus,
+                x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
@@ -3355,9 +3357,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
         var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
 
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+
         // Build base query
         var query = from li in labIndicatorQuery
                     join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
                     join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
                     from qi in qiJoin.DefaultIfEmpty()
                     select new
@@ -3370,6 +3375,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         TestDate = li.TestDate,
                         Result = li.Result,
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        TestRequestStatus = tr.Status,
                     };
 
         // Apply same access control as GetSampleAssignmentLogAsync (QLKT)
@@ -3400,7 +3406,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var statusCounts = allItems
             .Select(x => MapQLKTDisplayStatus(
                 x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
-                x.TestDate, x.Result, x.QualityApprovalStatus))
+                x.TestDate, x.Result, x.QualityApprovalStatus, x.TestRequestStatus))
             .ToList();
 
         return new SampleAssignmentLogStatisticsDto
@@ -3503,8 +3509,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         Guid? technicianId,
         DateTime? testDate,
         string? result,
-        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        TestRequestStatus testRequestStatus = TestRequestStatus.New)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLKTDisplayStatus.RequestCancelled;
+        }
+
         // 1. Handle special statuses first (terminal or special states)
         switch (approvalStatus)
         {

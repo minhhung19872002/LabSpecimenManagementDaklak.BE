@@ -2464,6 +2464,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         DateTime? testDate,
         string? result)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLCLDisplayStatus.RequestCancelled;
+        }
+
         // 1. Đã phát hành báo cáo
         if (isReportPublished)
         {

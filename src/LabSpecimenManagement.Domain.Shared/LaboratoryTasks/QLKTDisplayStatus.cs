@@ -79,5 +79,10 @@ public enum QLKTDisplayStatus
     /// <summary>
     /// Hoàn thành - QLCL đã duyệt
     /// </summary>
-    Completed = 14
+    Completed = 14,
+
+    /// <summary>
+    /// Hủy bỏ yêu cầu - Phiếu yêu cầu thử nghiệm đã bị hủy
+    /// </summary>
+    RequestCancelled = 15
 }

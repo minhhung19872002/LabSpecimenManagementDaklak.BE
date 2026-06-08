@@ -2548,7 +2548,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     x.TechnicianId,
                     x.TestDate,
                     x.Result,
-                    x.QualityApprovalStatus);
+                    x.QualityApprovalStatus,
+                    x.TestRequestStatus);
                 return statusSet.Contains((int)status);
             }).ToList();
         }
@@ -2612,7 +2613,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 x.TechnicianId,
                 x.TestDate,
                 x.Result,
-                x.QualityApprovalStatus),
+                x.QualityApprovalStatus,
+                x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false
         }).ToList();
@@ -2652,6 +2654,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         TestDate = li.TestDate,
                         Result = li.Result,
                         QualityApprovalStatus = qi != null ? (QualityIndicatorApprovalStatus?)qi.ApprovalStatus : null,
+                        TestRequestStatus = tr.Status,
                     };
 
         // Apply user access control (same as GetSampleAssignmentLogAsync)
@@ -2690,7 +2693,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var statusCounts = allItems
             .Select(x => MapQLKTDisplayStatus(
                 x.IndicatorApprovalStatus, x.MethodId, x.TechnicianId,
-                x.TestDate, x.Result, x.QualityApprovalStatus))
+                x.TestDate, x.Result, x.QualityApprovalStatus, x.TestRequestStatus))
             .ToList();
 
         return new QualityManagement.SampleAssignmentLogStatisticsDto
@@ -2737,8 +2740,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         Guid? technicianId,
         DateTime? testDate,
         string? result,
-        QualityIndicatorApprovalStatus? qualityApprovalStatus)
+        QualityIndicatorApprovalStatus? qualityApprovalStatus,
+        TestRequestStatus testRequestStatus = TestRequestStatus.New)
     {
+        if (testRequestStatus == TestRequestStatus.Cancelled)
+        {
+            return QLKTDisplayStatus.RequestCancelled;
+        }
+
         // 1. Handle special statuses first (terminal or special states)
         switch (approvalStatus)
         {

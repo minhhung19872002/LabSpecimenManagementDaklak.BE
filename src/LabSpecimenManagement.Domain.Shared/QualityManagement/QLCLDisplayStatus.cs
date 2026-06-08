@@ -69,5 +69,10 @@ public enum QLCLDisplayStatus
     /// <summary>
     /// Đã phát hành báo cáo
     /// </summary>
-    Published = 12
+    Published = 12,
+
+    /// <summary>
+    /// Hủy bỏ yêu cầu - Phiếu yêu cầu thử nghiệm đã bị hủy
+    /// </summary>
+    RequestCancelled = 13
 }
