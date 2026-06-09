@@ -334,13 +334,22 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Lấy ngày thí nghiệm từ các indicators
         var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
 
-        // Tính Min/Max TestDate giống báo cáo
-        var indicatorsWithTestDate = taskIndicators.Where(ti => ti.TestDate.HasValue).ToList();
-        var earliestTestDate = indicatorsWithTestDate.OrderBy(ti => ti.TestDate).FirstOrDefault()?.TestDate;
-        var latestTestDate = indicatorsWithTestDate.OrderByDescending(ti => ti.TestDate).FirstOrDefault()?.TestDate;
+        // Tính Min(TestDate) - Max(SubmitDate) giống báo cáo (ResultFormAppService.CalculateTimeOfTesting)
+        var earliestTestDate = taskIndicators
+            .Where(ti => ti.TestDate.HasValue)
+            .Select(ti => ti.TestDate!.Value)
+            .DefaultIfEmpty()
+            .Min();
+        var latestSubmitDate = taskIndicators
+            .Where(ti => ti.SubmitDate.HasValue)
+            .Select(ti => ti.SubmitDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
 
         // Calculate TestDateRange: "dd/MM/yyyy - dd/MM/yyyy"
-        var testDateRange = CalculateTestDateRange(earliestTestDate, latestTestDate);
+        var testDateRange = CalculateTestDateRange(
+            earliestTestDate == default ? null : earliestTestDate,
+            latestSubmitDate == default ? null : latestSubmitDate);
 
         var dto = new LaboratoryTaskDto
         {
@@ -352,7 +361,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             TechnicalManagerId = task.TechnicalManagerId,
             TransferDate = task.TransferDate,
             RequestCompletionDate = task.RequestCompletionDate,
-            TestDate = earliestTestDate ?? task.TestDate, // Ưu tiên ngày sớm nhất từ indicators, fallback về task.TestDate
+            TestDate = earliestTestDate != default ? earliestTestDate : task.TestDate,
             TestDateRange = testDateRange, // Khoảng ngày: Min - Max
             Status = task.Status,
             Notes = task.Notes,
