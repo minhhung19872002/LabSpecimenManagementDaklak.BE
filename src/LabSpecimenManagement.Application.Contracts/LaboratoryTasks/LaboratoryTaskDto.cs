@@ -72,7 +72,7 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date (ngày sớm nhất từ indicators)
+    /// Ngày thử nghiệm - Test Date (ngày sớm nhất từ indicators)
     /// </summary>
     public DateTime? TestDate { get; set; }
 

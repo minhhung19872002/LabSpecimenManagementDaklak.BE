@@ -49,7 +49,7 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date (entered by Technical Manager later)
+    /// Ngày thử nghiệm - Test Date (entered by Technical Manager later)
     /// </summary>
     public DateTime? TestDate { get; set; }
 

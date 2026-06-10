@@ -9,7 +9,7 @@ namespace LabSpecimenManagement.LaboratoryTasks;
 public class UpdateLaboratoryTaskDto
 {
     /// <summary>
-    /// Ngày thí nghiệm - Test Date (entered by Technical Manager)
+    /// Ngày thử nghiệm - Test Date (entered by Technical Manager)
     /// </summary>
     public DateTime? TestDate { get; set; }
 
