@@ -31,6 +31,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -44,6 +45,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<Supplier, Guid> supplierRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<Equipment, Guid> equipmentRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -56,6 +58,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _supplierRepository = supplierRepository;
         _unitRepository = unitRepository;
         _equipmentRepository = equipmentRepository;
+        _manufacturerRepository = manufacturerRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -64,6 +67,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     public async Task<PagedResultDto<GoodsReceiptListDto>> GetListAsync(GetGoodsReceiptListInput input)
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
+
+        if (input.ReceiptType.HasValue)
+            query = query.Where(x => x.ReceiptType == input.ReceiptType.Value);
 
         if (input.SupplierId.HasValue)
             query = query.Where(x => x.SupplierId == input.SupplierId.Value);
@@ -83,7 +89,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             var search = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 x.Code.ToLower().Contains(search) ||
-                x.SupplierName.ToLower().Contains(search));
+                (x.SupplierName != null && x.SupplierName.ToLower().Contains(search)));
         }
 
         if (input.WarehouseStatus.HasValue)
@@ -151,17 +157,27 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Create)]
     public async Task<GoodsReceiptDto> CreateAsync(CreateUpdateGoodsReceiptDto input)
     {
-        var supplier = await _supplierRepository.GetAsync(input.SupplierId);
-        var code = await GenerateCodeAsync();
+        Guid? supplierId = null;
+        string? supplierName = null;
+
+        if (input.SupplierId.HasValue)
+        {
+            var supplier = await _supplierRepository.GetAsync(input.SupplierId.Value);
+            supplierId = supplier.Id;
+            supplierName = supplier.Name;
+        }
+
+        var code = await GenerateCodeAsync(input.ReceiptType);
 
         var receipt = new GoodsReceipt(
             GuidGenerator.Create(),
             code,
-            supplier.Id,
-            supplier.Name)
+            input.ReceiptType,
+            supplierId,
+            supplierName)
         {
-            SupplierAddress = supplier.Address,
-            SupplierPhone = supplier.Phone,
+            SupplierAddress = input.SupplierAddress,
+            SupplierPhone = input.SupplierPhone,
             PurchaserName = input.PurchaserName,
             DeliveryNoteNumber = input.DeliveryNoteNumber,
             PreparedByName = CurrentUser.Name ?? CurrentUser.UserName,
@@ -174,7 +190,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         await _goodsReceiptRepository.InsertAsync(receipt, autoSave: true);
 
-        await SaveItemsAsync(receipt.Id, input.Items, input.VatPercent);
+        await SaveItemsAsync(receipt.Id, input.Items, input.VatPercent, receipt.ReceiptType);
 
         var savedItems = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == receipt.Id).ToList();
@@ -193,12 +209,24 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
             throw new UserFriendlyException("Không thể sửa phiếu đã nhập kho.");
 
-        var supplier = await _supplierRepository.GetAsync(input.SupplierId);
+        if (input.ReceiptType != receipt.ReceiptType)
+            throw new UserFriendlyException("Không thể thay đổi loại phiếu nhập hàng.");
 
-        receipt.SupplierId = supplier.Id;
-        receipt.SupplierName = supplier.Name;
-        receipt.SupplierAddress = supplier.Address;
-        receipt.SupplierPhone = supplier.Phone;
+        if (input.SupplierId.HasValue)
+        {
+            var supplier = await _supplierRepository.GetAsync(input.SupplierId.Value);
+            receipt.SupplierId = supplier.Id;
+            receipt.SupplierName = supplier.Name;
+        }
+        else
+        {
+            receipt.SupplierId = null;
+            receipt.SupplierName = null;
+        }
+
+        receipt.SupplierAddress = input.SupplierAddress;
+        receipt.SupplierPhone = input.SupplierPhone;
+        receipt.ReceiptType = input.ReceiptType;
         receipt.PurchaserName = input.PurchaserName;
         receipt.DeliveryNoteNumber = input.DeliveryNoteNumber;
         receipt.DocumentDate = input.DocumentDate;
@@ -222,7 +250,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 await _itemRepository.DeleteAsync(existing, autoSave: true);
         }
 
-        await SaveItemsAsync(id, input.Items, input.VatPercent, existingItems);
+        await SaveItemsAsync(id, input.Items, input.VatPercent, receipt.ReceiptType, existingItems);
 
         var savedItems = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == id).ToList();
@@ -315,8 +343,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 {
                     GoodsReceiptId = id,
                     GoodsReceiptCode = receipt.Code,
-                    SupplierId = receipt.SupplierId,
-                    SupplierName = receipt.SupplierName,
+                    SupplierId = item.SupplierId ?? receipt.SupplierId,
+                    SupplierName = item.SupplierName ?? receipt.SupplierName,
                     Model = item.Model,
                     Manufacturer = item.Manufacturer,
                     UnitId = item.UnitId,
@@ -355,12 +383,15 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             await _productRepository.UpdateAsync(product, autoSave: true);
         }
 
-        // Update supplier financials
-        var supplier = await _supplierRepository.GetAsync(receipt.SupplierId);
-        supplier.TotalPurchase += receipt.TotalAmountAfterVat;
-        supplier.TotalPurchaseAfterReturn += receipt.TotalAmountAfterVat;
-        supplier.OutstandingDebt += receipt.TotalAmountAfterVat - receipt.TotalPaid;
-        await _supplierRepository.UpdateAsync(supplier, autoSave: true);
+        // Update supplier financials only for Goods receipts
+        if (receipt.ReceiptType == GoodsReceiptType.Goods && receipt.SupplierId.HasValue)
+        {
+            var supplier = await _supplierRepository.GetAsync(receipt.SupplierId.Value);
+            supplier.TotalPurchase += receipt.TotalAmountAfterVat;
+            supplier.TotalPurchaseAfterReturn += receipt.TotalAmountAfterVat;
+            supplier.OutstandingDebt += receipt.TotalAmountAfterVat - receipt.TotalPaid;
+            await _supplierRepository.UpdateAsync(supplier, autoSave: true);
+        }
 
         receipt.WarehouseStatus = GoodsReceiptWarehouseStatus.Imported;
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
@@ -401,10 +432,12 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.UpdatePaymentStatus();
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
 
-        // Update supplier debt if already imported
-        if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
+        // Update supplier debt if already imported (Goods receipts only)
+        if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported &&
+            receipt.ReceiptType == GoodsReceiptType.Goods &&
+            receipt.SupplierId.HasValue)
         {
-            var supplier = await _supplierRepository.GetAsync(receipt.SupplierId);
+            var supplier = await _supplierRepository.GetAsync(receipt.SupplierId.Value);
             supplier.OutstandingDebt -= input.Amount;
             await _supplierRepository.UpdateAsync(supplier, autoSave: true);
         }
@@ -442,14 +475,15 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
     #region Private Methods
 
-    private async Task<string> GenerateCodeAsync()
+    private async Task<string> GenerateCodeAsync(GoodsReceiptType receiptType)
     {
+        var prefix = receiptType == GoodsReceiptType.Equipment ? "PNTB" : "PNH";
         using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
         {
-            var todayPrefix = _codeGenerator.GetTodayPrefix("PNH");
+            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix);
             var query = await _goodsReceiptRepository.GetQueryableAsync();
             var count = query.Count(x => x.Code.StartsWith(todayPrefix));
-            return _codeGenerator.GenerateCodeWithDate("PNH", count);
+            return _codeGenerator.GenerateCodeWithDate(prefix, count);
         }
     }
 
@@ -464,12 +498,80 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         }
     }
 
+    private async Task<string> GenerateManufacturerCodeAsync()
+    {
+        const string prefix = "HSX";
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var query = await _manufacturerRepository.GetQueryableAsync();
+            var maxNumber = query
+                .Where(x => x.Code.StartsWith(prefix))
+                .Select(x => x.Code.Substring(prefix.Length))
+                .AsEnumerable()
+                .Select(s => int.TryParse(s, out var n) ? n : 0)
+                .DefaultIfEmpty(0)
+                .Max();
+
+            return $"{prefix}{(maxNumber + 1):D3}";
+        }
+    }
+
+    /// <summary>
+    /// Resolves manufacturer name to an ID, creating a new Manufacturer entity if none exists with that name.
+    /// Priority: manufacturerName > existingManufacturerId (a provided name always overrides the existing ID).
+    /// </summary>
+    private async Task<(Guid? manufacturerId, string? manufacturerName)> ResolveManufacturerAsync(
+        string? manufacturerName,
+        Guid? existingManufacturerId)
+    {
+        if (!string.IsNullOrWhiteSpace(manufacturerName))
+        {
+            var normalizedName = manufacturerName.Trim();
+
+            var query = await _manufacturerRepository.GetQueryableAsync();
+            var existing = query.FirstOrDefault(
+                m => m.Name.ToLower() == normalizedName.ToLower());
+
+            if (existing != null)
+                return (existing.Id, existing.Name);
+
+            const int maxRetries = 3;
+            for (int retry = 0; retry < maxRetries; retry++)
+            {
+                try
+                {
+                    var newCode = await GenerateManufacturerCodeAsync();
+                    var newManufacturer = new Manufacturer(GuidGenerator.Create(), newCode, normalizedName);
+                    await _manufacturerRepository.InsertAsync(newManufacturer, autoSave: true);
+                    return (newManufacturer.Id, newManufacturer.Name);
+                }
+                catch (Exception) when (retry < maxRetries - 1)
+                {
+                    var retryQuery = await _manufacturerRepository.GetQueryableAsync();
+                    var justCreated = retryQuery.FirstOrDefault(
+                        m => m.Name.ToLower() == normalizedName.ToLower());
+                    if (justCreated != null)
+                        return (justCreated.Id, justCreated.Name);
+                }
+            }
+        }
+
+        return (existingManufacturerId, null);
+    }
+
     private async Task SaveItemsAsync(
         Guid receiptId,
         List<CreateUpdateGoodsReceiptItemDto> items,
         decimal defaultVatPercent,
+        GoodsReceiptType receiptType,
         List<GoodsReceiptItem>? existingItems = null)
     {
+        // Validate that item types match the receipt type
+        if (receiptType == GoodsReceiptType.Goods && items.Any(i => i.IsEquipment))
+            throw new UserFriendlyException("Phiếu nhập hàng hóa không được chứa dòng thiết bị.");
+        if (receiptType == GoodsReceiptType.Equipment && items.Any(i => !i.IsEquipment))
+            throw new UserFriendlyException("Phiếu nhập thiết bị không được chứa dòng hàng hóa thông thường.");
+
         var unitQuery = await _unitRepository.GetQueryableAsync();
         var productQuery = await _productRepository.GetQueryableAsync();
 
@@ -518,6 +620,26 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 resolvedUnitName = unit.Name;
             }
 
+            // Resolve supplier for equipment items
+            Guid? resolvedItemSupplierId = null;
+            string? resolvedItemSupplierName = null;
+            if (itemDto.IsEquipment)
+            {
+                if (!itemDto.SupplierId.HasValue)
+                    throw new UserFriendlyException("Thiết bị phải có nhà cung cấp.");
+                var itemSupplier = await _supplierRepository.GetAsync(itemDto.SupplierId.Value);
+                resolvedItemSupplierId = itemSupplier.Id;
+                resolvedItemSupplierName = itemSupplier.Name;
+            }
+
+            // Resolve manufacturer for all items
+            var manufacturerName = !string.IsNullOrWhiteSpace(itemDto.ManufacturerName)
+                ? itemDto.ManufacturerName
+                : itemDto.Manufacturer;
+            var (resolvedManufacturerId, resolvedManufacturerName) =
+                await ResolveManufacturerAsync(manufacturerName, itemDto.ManufacturerId);
+            var resolvedManufacturerDisplayName = resolvedManufacturerName ?? itemDto.Manufacturer;
+
             if (itemDto.Id.HasValue && existingItems != null)
             {
                 var existing = existingItems.FirstOrDefault(x => x.Id == itemDto.Id.Value);
@@ -535,7 +657,10 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                     existing.IsEquipment = itemDto.IsEquipment;
                     existing.SerialNumber = itemDto.SerialNumber;
                     existing.Model = itemDto.Model;
-                    existing.Manufacturer = itemDto.Manufacturer;
+                    existing.Manufacturer = resolvedManufacturerDisplayName;
+                    existing.ManufacturerId = resolvedManufacturerId;
+                    existing.SupplierId = resolvedItemSupplierId;
+                    existing.SupplierName = resolvedItemSupplierName;
                     existing.Calculate();
                     await _itemRepository.UpdateAsync(existing, autoSave: true);
                     continue;
@@ -558,7 +683,10 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 IsEquipment = itemDto.IsEquipment,
                 SerialNumber = itemDto.SerialNumber,
                 Model = itemDto.Model,
-                Manufacturer = itemDto.Manufacturer,
+                Manufacturer = resolvedManufacturerDisplayName,
+                ManufacturerId = resolvedManufacturerId,
+                SupplierId = resolvedItemSupplierId,
+                SupplierName = resolvedItemSupplierName,
             };
             item.Calculate();
             await _itemRepository.InsertAsync(item, autoSave: true);

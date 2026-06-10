@@ -1,0 +1,10 @@
+using LabSpecimenManagement.GoodsReceipts;
+using Xunit;
+
+namespace LabSpecimenManagement.EntityFrameworkCore.Applications;
+
+[Collection(LabSpecimenManagementTestConsts.CollectionDefinitionName)]
+public class EfCoreGoodsReceiptAppServiceTests : GoodsReceiptAppService_Tests<LabSpecimenManagementEntityFrameworkCoreTestModule>
+{
+
+}

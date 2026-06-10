@@ -22,6 +22,9 @@ public class GoodsReceiptItem : Entity<Guid>
     public string? SerialNumber { get; set; }
     public string? Model { get; set; }
     public string? Manufacturer { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public Guid? SupplierId { get; set; }
+    public string? SupplierName { get; set; }
 
     protected GoodsReceiptItem()
     {
