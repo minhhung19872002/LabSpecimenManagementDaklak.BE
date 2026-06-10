@@ -57,6 +57,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<LaboratoryDepartmentSupporter, Guid> _departmentSupporterRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -85,7 +86,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IRepository<Note, Guid> noteRepository,
         IRepository<Department, Guid> departmentRepository,
-        IRepository<LaboratoryDepartmentSupporter, Guid> departmentSupporterRepository)
+        IRepository<LaboratoryDepartmentSupporter, Guid> departmentSupporterRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -114,6 +116,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _noteRepository = noteRepository;
         _departmentRepository = departmentRepository;
         _departmentSupporterRepository = departmentSupporterRepository;
+        _specimenTypeRepository = specimenTypeRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -456,6 +459,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ? (await _noteRepository.GetListAsync(n => allNoteIds.Contains(n.Id))).ToDictionary(n => n.Id)
             : new Dictionary<Guid, Note>();
 
+        var specimenTypeNameCache = new Dictionary<Guid, string?>();
+
         foreach (var taskIndicator in taskIndicators)
         {
             var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
@@ -544,6 +549,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 SampleId = sampleIndicator.TestRequestSampleId,
                 SampleCode = sample?.SampleCode,
                 SampleName = sample?.SampleName,
+                SpecimenTypeId = sample?.SpecimenTypeId,
+                SpecimenTypeName = await ResolveSpecimenTypeNameAsync(sample?.SpecimenTypeId, specimenTypeNameCache),
                 IndicatorId = sampleIndicator.IndicatorId,
                 IndicatorCode = indicator?.Code,
                 IndicatorName = indicator?.Name,
@@ -1896,6 +1903,15 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private static bool IsDashMethodName(string? methodName)
     {
         return string.Equals(methodName?.Trim(), "-", StringComparison.Ordinal);
+    }
+
+    private async Task<string?> ResolveSpecimenTypeNameAsync(Guid? specimenTypeId, Dictionary<Guid, string?> cache)
+    {
+        if (!specimenTypeId.HasValue) return null;
+        if (cache.TryGetValue(specimenTypeId.Value, out var cached)) return cached;
+        var st = await _specimenTypeRepository.FindAsync(specimenTypeId.Value);
+        cache[specimenTypeId.Value] = st?.Name;
+        return st?.Name;
     }
 
     /// <summary>
