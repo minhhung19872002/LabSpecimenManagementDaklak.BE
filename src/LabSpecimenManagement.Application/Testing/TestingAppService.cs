@@ -58,6 +58,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
+    private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -88,7 +89,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<MaterialConsumptionItem, Guid> materialConsumptionRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<Equipment, Guid> equipmentRepository,
-        IRepository<ProductUnitConversion, Guid> productUnitConversionRepository)
+        IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
+        IRepository<TestBatchItem, Guid> testBatchItemRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -119,6 +121,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _productRepository = productRepository;
         _equipmentRepository = equipmentRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
+        _testBatchItemRepository = testBatchItemRepository;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -1506,6 +1509,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Deduct stock based on material consumption setup
         await DeductStockForSubmittedIndicatorsAsync(submittedIndicators);
 
+        // Mark corresponding batch items as externally completed
+        await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
+
         // Update task status (sử dụng TẤT CẢ indicators đã cached, không fetch lại từ DB)
         // allTaskIndicators đã được update trong memory nên sẽ có ApprovalStatus mới
         var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
@@ -1618,9 +1624,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
-    /// <summary>
-    /// Notify technical manager when KTV submits indicator results
-    /// </summary>
+    private async Task MarkBatchItemsAsExternallyCompletedAsync(List<LaboratoryTaskIndicator> submittedIndicators)
+    {
+        var indicatorIds = submittedIndicators.Select(i => i.Id).ToList();
+        var batchItems = await _testBatchItemRepository.GetListAsync(x =>
+            indicatorIds.Contains(x.LaboratoryTaskIndicatorId) && !x.IsExternallyCompleted);
+
+        foreach (var item in batchItems)
+        {
+            var indicator = submittedIndicators.First(i => i.Id == item.LaboratoryTaskIndicatorId);
+            item.IsExternallyCompleted = true;
+            item.Result = indicator.Result;
+            item.TestDate = indicator.TestDate;
+            item.IsSubmitted = true;
+            await _testBatchItemRepository.UpdateAsync(item, autoSave: false);
+        }
+    }
+
     private async Task NotifyTechnicalManagerOnSubmitAsync(LaboratoryTask task, List<LaboratoryTaskIndicator> submittedIndicators)
     {
         var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);

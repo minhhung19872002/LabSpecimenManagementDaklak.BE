@@ -31,6 +31,7 @@ using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
+using LabSpecimenManagement.Testing;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -143,6 +144,11 @@ public class LabSpecimenManagementDbContext :
 
     // Notes (Master Data)
     public DbSet<Note> Notes { get; set; }
+
+    // Test Batch Entities
+    public DbSet<TestBatch> TestBatches { get; set; }
+    public DbSet<TestBatchItem> TestBatchItems { get; set; }
+    public DbSet<TestBatchConsumption> TestBatchConsumptions { get; set; }
 
     #region Entities from the modules
 
@@ -1564,6 +1570,64 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.EquipmentId);
             b.HasIndex(x => x.FileId);
+        });
+
+        // ============ TEST BATCH CONFIGURATION ============
+
+        builder.Entity<TestBatch>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestBatches", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(200);
+            b.Property(x => x.Note).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.IndicatorId);
+            b.HasIndex(x => x.MethodId);
+            b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.CreationTime);
+
+            b.HasMany(x => x.Items)
+                .WithOne()
+                .HasForeignKey(x => x.TestBatchId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasMany(x => x.Consumptions)
+                .WithOne()
+                .HasForeignKey(x => x.TestBatchId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<TestBatchItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestBatchItems", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.ContractNumber).HasMaxLength(100);
+            b.Property(x => x.SampleCode).HasMaxLength(100);
+            b.Property(x => x.Result).HasMaxLength(500);
+
+            b.HasIndex(x => x.TestBatchId);
+            b.HasIndex(x => x.LaboratoryTaskIndicatorId);
+            b.HasIndex(x => x.LaboratoryTaskId);
+        });
+
+        builder.Entity<TestBatchConsumption>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestBatchConsumptions", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
+
+            b.HasIndex(x => x.TestBatchId);
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.EquipmentId);
         });
     }
 }
