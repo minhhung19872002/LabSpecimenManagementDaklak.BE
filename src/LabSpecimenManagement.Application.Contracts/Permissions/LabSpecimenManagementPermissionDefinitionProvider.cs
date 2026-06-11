@@ -94,7 +94,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         supplierPermission.AddChild(LabSpecimenManagementPermissions.Suppliers.Edit, L("Permission:Suppliers.Edit"));
         supplierPermission.AddChild(LabSpecimenManagementPermissions.Suppliers.Delete, L("Permission:Suppliers.Delete"));
 
-        // Products Permissions (Quản lý vật phẩm)
+        // Products Permissions (Quản lý vật tư)
         var productPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Products.Default, L("Permission:Products"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Create, L("Permission:Products.Create"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Edit, L("Permission:Products.Edit"));

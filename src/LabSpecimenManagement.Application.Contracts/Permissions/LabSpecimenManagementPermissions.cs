@@ -137,7 +137,7 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
-    // Products (Quản lý vật phẩm)
+    // Products (Quản lý vật tư)
     public static class Products
     {
         public const string Default = GroupName + ".Products";

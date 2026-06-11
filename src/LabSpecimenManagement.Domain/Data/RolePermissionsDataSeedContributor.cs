@@ -394,7 +394,7 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.Suppliers.Edit,
             LabSpecimenManagementPermissions.Suppliers.Delete,
 
-            // Products (Quản lý vật phẩm)
+            // Products (Quản lý vật tư)
             LabSpecimenManagementPermissions.Products.Default,
             LabSpecimenManagementPermissions.Products.Create,
             LabSpecimenManagementPermissions.Products.Edit,
