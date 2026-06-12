@@ -48,7 +48,7 @@ public class TestingListDto : EntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date
+    /// Ngày thử nghiệm - Test Date
     /// </summary>
     public DateTime? TestDate { get; set; }
 

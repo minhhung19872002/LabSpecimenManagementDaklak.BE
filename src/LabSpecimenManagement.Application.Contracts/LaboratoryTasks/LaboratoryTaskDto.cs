@@ -72,7 +72,7 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
-    /// Ngày thí nghiệm - Test Date (ngày sớm nhất từ indicators)
+    /// Ngày thử nghiệm - Test Date (ngày sớm nhất từ indicators)
     /// </summary>
     public DateTime? TestDate { get; set; }
 
@@ -151,6 +151,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? SampleSentDate { get; set; }
 
     /// <summary>
+    /// Ngày gửi QLKT (từ TestRequest.UnderReviewDate)
+    /// </summary>
+    public DateTime? UnderReviewDate { get; set; }
+
+    /// <summary>
     /// Ngày nhận mẫu từ lab trước (dành cho Lab Hóa nhận từ Vi Sinh)
     /// </summary>
     public DateTime? SampleReceivedDate { get; set; }
@@ -207,6 +212,11 @@ public class LaboratoryTaskIndicatorDto
     /// ID nền mẫu (loại mẫu) - Specimen Type ID
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Tên nền mẫu - Specimen Type Name
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
 
     /// <summary>
     /// Indicator ID

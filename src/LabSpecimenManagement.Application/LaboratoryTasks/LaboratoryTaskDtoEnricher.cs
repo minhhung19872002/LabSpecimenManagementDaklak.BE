@@ -26,6 +26,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IUserNameProvider _userNameProvider;
 
     public LaboratoryTaskDtoEnricher(
@@ -39,6 +40,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Note, Guid> noteRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
         IUserNameProvider userNameProvider)
     {
         _testRequestRepository = testRequestRepository;
@@ -51,6 +53,7 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
         _noteRepository = noteRepository;
+        _specimenTypeRepository = specimenTypeRepository;
         _userNameProvider = userNameProvider;
     }
 
@@ -111,6 +114,9 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
         var sampleIds = sampleIndicators.Values.Select(si => si.TestRequestSampleId).Distinct().ToList();
         var samples = await LoadSamplesAsync(sampleIds);
 
+        var specimenTypeIds = samples.Values.Where(s => s.SpecimenTypeId.HasValue).Select(s => s.SpecimenTypeId!.Value).Distinct().ToList();
+        var specimenTypes = await LoadSpecimenTypesAsync(specimenTypeIds);
+
         var indicatorIds = sampleIndicators.Values.Select(si => si.IndicatorId).Distinct().ToList();
         var indicators = await LoadIndicatorsAsync(indicatorIds);
 
@@ -169,6 +175,10 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
                     dto.SampleCode = sample.SampleCode;
                     dto.SampleName = sample.SampleName;
                     dto.SpecimenTypeId = sample.SpecimenTypeId;
+                    if (sample.SpecimenTypeId.HasValue && specimenTypes.TryGetValue(sample.SpecimenTypeId.Value, out var specimenType))
+                    {
+                        dto.SpecimenTypeName = specimenType.Name;
+                    }
                 }
 
                 // Set indicator info
@@ -302,6 +312,13 @@ public class LaboratoryTaskDtoEnricher : ITransientDependency
     {
         if (ids.Count == 0) return new Dictionary<Guid, Note>();
         var items = await _noteRepository.GetListAsync(x => ids.Contains(x.Id));
+        return items.ToDictionary(x => x.Id);
+    }
+
+    private async Task<Dictionary<Guid, SpecimenType>> LoadSpecimenTypesAsync(List<Guid> ids)
+    {
+        if (ids.Count == 0) return new Dictionary<Guid, SpecimenType>();
+        var items = await _specimenTypeRepository.GetListAsync(x => ids.Contains(x.Id));
         return items.ToDictionary(x => x.Id);
     }
 

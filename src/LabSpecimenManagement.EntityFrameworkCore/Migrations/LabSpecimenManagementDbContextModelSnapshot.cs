@@ -4829,6 +4829,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<DateTime?>("FormPrintedDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid?>("InProgressByUserId")
                         .HasColumnType("uuid");
 
@@ -4851,6 +4854,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("LastModifierId")
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
+
+                    b.Property<string>("LastPrintedIndicatorHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
 
                     b.Property<bool>("MethodCustomer")
                         .HasColumnType("boolean");

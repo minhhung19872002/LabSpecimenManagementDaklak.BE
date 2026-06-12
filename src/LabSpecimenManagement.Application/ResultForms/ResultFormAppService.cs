@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
@@ -2427,7 +2428,23 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             await sourceStream.CopyToAsync(destStream);
         }
 
-        // 7. Process document - replace placeholders
+        // 7. Auto-set FormPrintedDate based on indicator changes
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var allIndicatorIds = (await _sampleIndicatorRepository.GetListAsync(
+                x => sampleIds.Contains(x.TestRequestSampleId)))
+            .Select(si => si.Id)
+            .OrderBy(id => id)
+            .ToList();
+        var currentHash = ComputeIndicatorHash(allIndicatorIds);
+
+        if (!testRequest.FormPrintedDate.HasValue || testRequest.LastPrintedIndicatorHash != currentHash)
+        {
+            testRequest.FormPrintedDate = Clock.Now;
+            testRequest.LastPrintedIndicatorHash = currentHash;
+            await _testRequestRepository.UpdateAsync(testRequest);
+        }
+
+        // 8. Process document - replace placeholders
         // Note: OpenXML only supports .docx format
         // For .doc files, we just copy the template and let user edit in OnlyOffice
         _logger.LogInformation("Template extension: {Extension}, processing DOCX: {IsDocx}",
@@ -2564,6 +2581,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TotalAmount}}", totalAmount },
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
+            { "{{FormPrintedDate}}", input.FormPrintedDate?.ToString("dd/MM/yyyy") ?? currentDateText },
             { "{{CurrentDate}}", currentDateText },
 
             // Checkbox - Test Method
@@ -2635,7 +2653,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
-        foreach (var sample in samples.OrderBy(s => s.SortOrder))
+        foreach (var sample in samples.OrderBy(s => s.SampleCode))
         {
             // Build indicator details with parent-child grouping
             var indicatorDetails = BuildPreviewIndicatorSubTableWithGrouping(sample.Indicators, indicatorDict);
@@ -2817,7 +2835,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
-        foreach (var sample in samples.OrderBy(s => s.SortOrder))
+        foreach (var sample in samples.OrderBy(s => s.SampleCode))
         {
             // Get sample indicators for this sample with their prices
             var sampleIndicatorList = allSampleIndicators
@@ -4386,10 +4404,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var subContractInfo = testRequest.SubContract ?? "";
 
         // Format dates
-        var currentDate = DateTime.Now;
         // DateReceiving = Ngày trả kết quả (ResultDeliveryDate), không phải RequestDate
         var dateReceiving = testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "";
         var contractDate = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
+        var formPrintedDate = testRequest.FormPrintedDate?.ToString("dd/MM/yyyy") ?? "";
+        var currentDateText = DateTime.Now.ToString("dd/MM/yyyy");
 
         // Total amount formatting - Mẫu nhiệm vụ hiển thị 0
         var actualTotalCost = testRequest.SampleTypeTask ? 0 : testRequest.TotalCost;
@@ -4400,9 +4419,6 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Receipt number
         var receiptNumber = testRequest.ReceiptNumber ?? "";
-
-        // Current date formatted - DD/MM/YYYY format
-        var currentDateText = currentDate.ToString("dd/MM/yyyy");
 
         var placeholders = new Dictionary<string, string>
         {
@@ -4430,6 +4446,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TotalByText}}", totalByText },
             { "{{ReceiptNumberTTDV}}", receiptNumber },
             { "{{CurrentDate}}", currentDateText },
+            { "{{FormPrintedDate}}", formPrintedDate },
 
             // Checkbox - Test Method
             { "{{CB_TestMethod_Center}}", testRequest.MethodWestHighlandInstitute ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
@@ -4497,6 +4514,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Lowercase prefix hành chính: "Tỉnh Đắk Lắk" → "tỉnh Đắk Lắk", "Quận 1" → "quận 1", etc.
     /// </summary>
+    private static string ComputeIndicatorHash(List<Guid> sortedIds)
+    {
+        var input = string.Join(",", sortedIds);
+        var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(input));
+        return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
     private static string LowercaseAdministrativePrefix(string? value, params string[] prefixes)
     {
         if (string.IsNullOrWhiteSpace(value)) return "";

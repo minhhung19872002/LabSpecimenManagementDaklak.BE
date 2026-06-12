@@ -968,7 +968,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
-        dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate; // Ưu tiên TestRequest.SampleSentDate (ngày BPGN xác nhận gửi mẫu)
+        dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate;
+        dto.UnderReviewDate = testRequest?.UnderReviewDate;
 
         // Collect all user IDs needed for this DTO (batch fetch)
         var allUserIds = new List<Guid?> { task.TechnicalManagerId };

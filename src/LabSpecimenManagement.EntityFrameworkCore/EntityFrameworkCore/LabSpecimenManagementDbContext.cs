@@ -232,6 +232,9 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.RequestNumber).IsRequired().HasMaxLength(128);
             b.Property(x => x.Subcontractor).HasMaxLength(256);
 
+            // Form print tracking
+            b.Property(x => x.LastPrintedIndicatorHash).HasMaxLength(64);
+
             b.HasIndex(x => x.RequestNumber);
             b.HasIndex(x => x.ContractNumber);
             b.HasIndex(x => x.RequestDate);
