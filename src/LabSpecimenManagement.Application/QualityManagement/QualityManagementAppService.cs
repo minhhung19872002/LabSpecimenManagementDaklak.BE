@@ -48,6 +48,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IRepository<TestBatch, Guid> _testBatchRepository;
 
     public QualityManagementAppService(
         IRepository<QualityManagementTask, Guid> taskRepository,
@@ -74,7 +76,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         IResultFormAppService resultFormAppService,
         IRepository<IndicatorImage, Guid> indicatorImageRepository,
         IPublishedReportRepository publishedReportRepository,
-        IRepository<Note, Guid> noteRepository)
+        IRepository<Note, Guid> noteRepository,
+        IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IRepository<TestBatch, Guid> testBatchRepository)
     {
         _taskRepository = taskRepository;
         _indicatorRepository = indicatorRepository;
@@ -101,6 +105,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         _indicatorImageRepository = indicatorImageRepository;
         _publishedReportRepository = publishedReportRepository;
         _noteRepository = noteRepository;
+        _testBatchItemRepository = testBatchItemRepository;
+        _testBatchRepository = testBatchRepository;
     }
 
     public async Task<PagedResultDto<QualityManagementTaskDto>> GetListAsync(GetQualityManagementListInput input)
@@ -350,6 +356,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         labIndicator.IsSentToQuality = false; // Reset để QLKT có thể gửi lại sau khi KTV sửa
         await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
 
+        // Reset TestBatchItem to allow re-entry in batch
+        await ResetBatchItemOnRejectAsync(labIndicator.Id);
+
         // Add to rejection history
         await _rejectionHistoryRepository.InsertAsync(new IndicatorRejectionHistory(
             GuidGenerator.Create(),
@@ -539,6 +548,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 labIndicator.RejectionReason = reason;
                 labIndicator.IsSentToQuality = false;
                 await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
+
+                // Reset TestBatchItem to allow re-entry in batch
+                await ResetBatchItemOnRejectAsync(labIndicator.Id);
 
                 // Add to rejection history
                 await _rejectionHistoryRepository.InsertAsync(new IndicatorRejectionHistory(
@@ -2605,4 +2617,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
     }
 
     #endregion
+
+    private async Task ResetBatchItemOnRejectAsync(Guid laboratoryTaskIndicatorId)
+    {
+        var batchItem = await _testBatchItemRepository.FirstOrDefaultAsync(
+            bi => bi.LaboratoryTaskIndicatorId == laboratoryTaskIndicatorId);
+        if (batchItem != null && batchItem.IsSubmitted)
+        {
+            batchItem.IsSubmitted = false;
+            await _testBatchItemRepository.UpdateAsync(batchItem, autoSave: false);
+
+            var batch = await _testBatchRepository.GetAsync(batchItem.TestBatchId);
+            if (batch.Status == TestBatchStatus.Completed)
+            {
+                batch.Status = TestBatchStatus.Running;
+                await _testBatchRepository.UpdateAsync(batch, autoSave: false);
+            }
+        }
+    }
 }

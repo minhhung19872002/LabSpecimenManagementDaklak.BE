@@ -86,6 +86,18 @@ public class TestBatchController : LabSpecimenManagementController
         return _testBatchAppService.ConfirmConsumptionAsync(id, input);
     }
 
+    [HttpGet("{id}/consumption-preview")]
+    public Task<ConsumptionPreviewDto> GetConsumptionPreviewAsync(Guid id)
+    {
+        return _testBatchAppService.GetConsumptionPreviewAsync(id);
+    }
+
+    [HttpPost("{id}/submit-with-consumption")]
+    public Task<TestBatchDto> SubmitWithConsumptionAsync(Guid id, [FromBody] SubmitWithConsumptionDto input)
+    {
+        return _testBatchAppService.SubmitWithConsumptionAsync(id, input);
+    }
+
     [HttpPost("{id}/cancel")]
     public Task<TestBatchDto> CancelAsync(Guid id)
     {

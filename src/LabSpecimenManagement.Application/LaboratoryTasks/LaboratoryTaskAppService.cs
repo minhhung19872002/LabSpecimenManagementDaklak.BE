@@ -58,6 +58,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<LaboratoryDepartmentSupporter, Guid> _departmentSupporterRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IRepository<TestBatch, Guid> _testBatchRepository;
 
     public LaboratoryTaskAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -87,7 +89,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         IRepository<Note, Guid> noteRepository,
         IRepository<Department, Guid> departmentRepository,
         IRepository<LaboratoryDepartmentSupporter, Guid> departmentSupporterRepository,
-        IRepository<SpecimenType, Guid> specimenTypeRepository)
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IRepository<TestBatch, Guid> testBatchRepository)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -117,6 +121,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         _departmentRepository = departmentRepository;
         _departmentSupporterRepository = departmentSupporterRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _testBatchItemRepository = testBatchItemRepository;
+        _testBatchRepository = testBatchRepository;
     }
 
     public async Task<LaboratoryTaskDto> GetAsync(Guid id)
@@ -559,7 +565,6 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 SampleId = sampleIndicator.TestRequestSampleId,
                 SampleCode = sample?.SampleCode,
                 SampleName = sample?.SampleName,
-                SpecimenTypeId = sample?.SpecimenTypeId,
                 SpecimenTypeName = await ResolveSpecimenTypeNameAsync(sample?.SpecimenTypeId, specimenTypeNameCache),
                 IndicatorId = sampleIndicator.IndicatorId,
                 IndicatorCode = indicator?.Code,
@@ -940,6 +945,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 Clock.Now
             );
             await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
+
+            // Reset TestBatchItem to allow re-entry in batch
+            await ResetBatchItemOnRejectAsync(indicatorId);
         }
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
@@ -2334,6 +2342,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     Clock.Now
                 );
                 await _rejectionHistoryRepository.InsertAsync(rejectionHistory, autoSave: true);
+
+                // Reset TestBatchItem to allow re-entry in batch
+                await ResetBatchItemOnRejectAsync(indicatorId);
             }
 
             await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: true);
@@ -3591,4 +3602,22 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     #endregion
+
+    private async Task ResetBatchItemOnRejectAsync(Guid laboratoryTaskIndicatorId)
+    {
+        var batchItem = await _testBatchItemRepository.FirstOrDefaultAsync(
+            bi => bi.LaboratoryTaskIndicatorId == laboratoryTaskIndicatorId);
+        if (batchItem != null && batchItem.IsSubmitted)
+        {
+            batchItem.IsSubmitted = false;
+            await _testBatchItemRepository.UpdateAsync(batchItem, autoSave: false);
+
+            var batch = await _testBatchRepository.GetAsync(batchItem.TestBatchId);
+            if (batch.Status == TestBatchStatus.Completed)
+            {
+                batch.Status = TestBatchStatus.Running;
+                await _testBatchRepository.UpdateAsync(batch, autoSave: false);
+            }
+        }
+    }
 }

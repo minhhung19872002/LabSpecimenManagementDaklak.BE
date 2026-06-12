@@ -4056,6 +4056,32 @@ public partial class TestRequestAppService :
         entity.CancelledByUserName = currentUserName;
         entity.CancellationReason = input.Reason;
 
+        // Cascade: mark all related LaboratoryTaskIndicators as CustomerCancelled
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == id);
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        if (sampleIds.Any())
+        {
+            var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                si => sampleIds.Contains(si.TestRequestSampleId));
+            var sampleIndicatorIds = sampleIndicators.Select(si => si.Id).ToList();
+
+            if (sampleIndicatorIds.Any())
+            {
+                var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                    lti => sampleIndicatorIds.Contains(lti.TestRequestSampleIndicatorId));
+
+                foreach (var lti in labTaskIndicators)
+                {
+                    if (lti.ApprovalStatus != IndicatorApprovalStatus.Approved &&
+                        lti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+                    {
+                        lti.ApprovalStatus = IndicatorApprovalStatus.CustomerCancelled;
+                        await _laboratoryTaskIndicatorRepository.UpdateAsync(lti, autoSave: false);
+                    }
+                }
+            }
+        }
+
         await Repository.UpdateAsync(entity);
     }
 

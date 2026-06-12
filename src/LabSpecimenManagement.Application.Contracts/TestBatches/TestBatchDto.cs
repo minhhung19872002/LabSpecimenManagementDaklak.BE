@@ -7,6 +7,8 @@ namespace LabSpecimenManagement.TestBatches;
 
 public class TestBatchDto : FullAuditedEntityDto<Guid>
 {
+    public bool HasApprovedIndicators { get; set; }
+
     public string Code { get; set; } = null!;
 
     public string Name { get; set; } = null!;
@@ -77,6 +79,8 @@ public class TestBatchItemDto : EntityDto<Guid>
     public bool IsSubmitted { get; set; }
 
     public bool IsExternallyCompleted { get; set; }
+
+    public int ApprovalStatus { get; set; }
 }
 
 public class TestBatchConsumptionDto : EntityDto<Guid>

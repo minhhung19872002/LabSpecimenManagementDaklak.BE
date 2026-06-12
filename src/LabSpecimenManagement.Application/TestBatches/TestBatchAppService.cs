@@ -374,7 +374,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         }
 
         var items = await _testBatchItemRepository.GetListAsync(x => x.TestBatchId == batch.Id);
-        var submittableItems = items.Where(x => !x.IsExternallyCompleted && !string.IsNullOrWhiteSpace(x.Result)).ToList();
+        var submittableItems = items.Where(x => !x.IsExternallyCompleted && !x.IsSubmitted && !string.IsNullOrWhiteSpace(x.Result)).ToList();
 
         if (!submittableItems.Any())
         {
@@ -583,13 +583,237 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         return await MapToDetailDtoAsync(batch);
     }
 
+    public async Task<ConsumptionPreviewDto> GetConsumptionPreviewAsync(Guid id)
+    {
+        var batch = await _testBatchRepository.GetAsync(id);
+
+        if (batch.Status != TestBatchStatus.Draft && batch.Status != TestBatchStatus.Running)
+        {
+            throw new UserFriendlyException("Chỉ có thể xem tiêu hao khi mẻ đang thực hiện");
+        }
+
+        var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
+        var hasDeducted = existingConsumptions.Any(c => c.IsDeducted);
+
+        var lines = new List<ConsumptionPreviewLineDto>();
+
+        if (hasDeducted)
+        {
+            foreach (var c in existingConsumptions)
+            {
+                lines.Add(new ConsumptionPreviewLineDto
+                {
+                    ConsumptionId = c.Id,
+                    ProductId = c.ProductId,
+                    EquipmentId = c.EquipmentId,
+                    UnitId = c.UnitId,
+                    RecommendedQuantity = c.RecommendedQuantity,
+                    ActualQuantity = c.ActualQuantity,
+                    IsDeducted = c.IsDeducted,
+                });
+            }
+        }
+        else
+        {
+            var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+                tmiQuery.Where(x =>
+                    x.TestMethodId == batch.MethodId &&
+                    x.IndicatorId == batch.IndicatorId &&
+                    x.SpecimenTypeId == batch.SpecimenTypeId));
+
+            if (tmi != null)
+            {
+                var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
+                var templates = await AsyncExecuter.ToListAsync(
+                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+
+                foreach (var template in templates)
+                {
+                    lines.Add(new ConsumptionPreviewLineDto
+                    {
+                        ProductId = template.ProductId,
+                        EquipmentId = template.EquipmentId,
+                        UnitId = template.UnitId,
+                        RecommendedQuantity = template.Quantity,
+                        ActualQuantity = template.Quantity,
+                        IsDeducted = false,
+                    });
+                }
+            }
+        }
+
+        // Enrich with names and stock info
+        var productIds = lines.Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
+        var equipmentIds = lines.Where(l => l.EquipmentId.HasValue).Select(l => l.EquipmentId!.Value).Distinct().ToList();
+        var unitIds = lines.Where(l => l.UnitId.HasValue).Select(l => l.UnitId!.Value).Distinct().ToList();
+
+        var products = productIds.Any() ? await _productRepository.GetListAsync(p => productIds.Contains(p.Id)) : new List<Product>();
+        var equipments = equipmentIds.Any() ? await _equipmentRepository.GetListAsync(e => equipmentIds.Contains(e.Id)) : new List<Equipment>();
+        var units = unitIds.Any() ? await _unitRepository.GetListAsync(u => unitIds.Contains(u.Id)) : new List<Unit>();
+
+        var productMap = products.ToDictionary(p => p.Id);
+        var equipmentMap = equipments.ToDictionary(e => e.Id);
+        var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
+
+        foreach (var line in lines)
+        {
+            if (line.ProductId.HasValue && productMap.TryGetValue(line.ProductId.Value, out var product))
+            {
+                line.ProductName = product.Name;
+                line.ProductCode = product.Code;
+                line.ProductType = (int)product.ProductType;
+                line.AvailableQuantity = product.AvailableQuantity;
+                line.ExceedsStock = line.ActualQuantity > product.AvailableQuantity;
+            }
+            if (line.EquipmentId.HasValue && equipmentMap.TryGetValue(line.EquipmentId.Value, out var equipment))
+            {
+                line.EquipmentName = equipment.Name;
+            }
+            if (line.UnitId.HasValue && unitMap.TryGetValue(line.UnitId.Value, out var unitName))
+            {
+                line.UnitName = unitName;
+            }
+        }
+
+        return new ConsumptionPreviewDto
+        {
+            IsFirstSubmit = !hasDeducted,
+            Lines = lines,
+        };
+    }
+
+    public async Task<TestBatchDto> SubmitWithConsumptionAsync(Guid id, SubmitWithConsumptionDto input)
+    {
+        var batch = await _testBatchRepository.GetAsync(id);
+
+        if (batch.Status != TestBatchStatus.Running && batch.Status != TestBatchStatus.Draft)
+        {
+            throw new UserFriendlyException("Chỉ có thể gửi kết quả khi mẻ đang thực hiện");
+        }
+
+        if (input.ItemIds == null || !input.ItemIds.Any())
+        {
+            throw new UserFriendlyException("Vui lòng chọn ít nhất 1 chỉ tiêu để gửi");
+        }
+
+        // Step 1: Submit items
+        var allItems = await _testBatchItemRepository.GetListAsync(x => x.TestBatchId == batch.Id);
+        var selectedItems = allItems.Where(x => input.ItemIds.Contains(x.Id)).ToList();
+
+        if (!selectedItems.Any())
+        {
+            throw new UserFriendlyException("Không tìm thấy chỉ tiêu được chọn");
+        }
+
+        var submittableItems = selectedItems
+            .Where(x => !x.IsExternallyCompleted && !x.IsSubmitted && !string.IsNullOrWhiteSpace(x.Result))
+            .ToList();
+
+        if (!submittableItems.Any())
+        {
+            throw new UserFriendlyException("Không có chỉ tiêu nào có kết quả để gửi");
+        }
+
+        var taskIndicatorIds = submittableItems.Select(x => x.LaboratoryTaskIndicatorId).ToList();
+        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => taskIndicatorIds.Contains(x.Id));
+        var taskIndicatorMap = taskIndicators.ToDictionary(x => x.Id);
+
+        foreach (var item in submittableItems)
+        {
+            if (!taskIndicatorMap.TryGetValue(item.LaboratoryTaskIndicatorId, out var taskIndicator))
+                continue;
+
+            taskIndicator.Result = item.Result;
+            taskIndicator.TestDate = item.TestDate ?? batch.TestDate;
+            taskIndicator.SubmitDate = Clock.Now;
+            taskIndicator.EntryDate ??= Clock.Now;
+            taskIndicator.EnteredById ??= CurrentUser.Id;
+            taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Entered;
+
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator, autoSave: false);
+
+            item.IsSubmitted = true;
+            await _testBatchItemRepository.UpdateAsync(item, autoSave: false);
+        }
+
+        var allSubmitted = allItems.All(x => x.IsSubmitted || x.IsExternallyCompleted);
+        if (allSubmitted)
+        {
+            batch.Status = TestBatchStatus.Completed;
+            batch.CompletedDate = Clock.Now;
+            batch.CompletedById = CurrentUser.Id;
+        }
+        else if (batch.Status == TestBatchStatus.Draft)
+        {
+            batch.Status = TestBatchStatus.Running;
+        }
+
+        // Step 2: Handle consumption (only on first submit)
+        if (!batch.ConsumptionConfirmed && input.ConsumptionLines != null && input.ConsumptionLines.Any())
+        {
+            var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
+            var nonDeducted = existingConsumptions.Where(c => !c.IsDeducted).ToList();
+            if (nonDeducted.Any())
+            {
+                await _testBatchConsumptionRepository.DeleteManyAsync(nonDeducted);
+            }
+
+            foreach (var line in input.ConsumptionLines)
+            {
+                var consumption = new TestBatchConsumption(
+                    GuidGenerator.Create(),
+                    batch.Id,
+                    line.ProductId,
+                    line.EquipmentId,
+                    line.UnitId,
+                    line.RecommendedQuantity);
+                consumption.ActualQuantity = line.ActualQuantity;
+
+                batch.Consumptions.Add(consumption);
+            }
+
+            await _testBatchRepository.UpdateAsync(batch, autoSave: true);
+
+            var allConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id && !x.IsDeducted);
+            await DeductStockAsync(allConsumptions);
+
+            foreach (var consumption in allConsumptions)
+            {
+                consumption.IsDeducted = true;
+                await _testBatchConsumptionRepository.UpdateAsync(consumption, autoSave: false);
+            }
+
+            batch.ConsumptionConfirmed = true;
+            batch.ConsumptionConfirmedDate = Clock.Now;
+        }
+
+        await _testBatchRepository.UpdateAsync(batch, autoSave: true);
+
+        await UpdateTaskStatusesAsync(submittableItems);
+
+        return await MapToDetailDtoAsync(batch);
+    }
+
     public async Task<TestBatchDto> CancelAsync(Guid id)
     {
         var batch = await _testBatchRepository.GetAsync(id);
 
-        if (batch.Status == TestBatchStatus.Completed && batch.ConsumptionConfirmed)
+        if (batch.Status == TestBatchStatus.Cancelled)
         {
-            throw new UserFriendlyException("Không thể hủy mẻ đã xác nhận tiêu hao");
+            throw new UserFriendlyException("Mẻ đã bị hủy trước đó");
+        }
+
+        var batchItems = await _testBatchItemRepository.GetListAsync(x => x.TestBatchId == batch.Id);
+        var taskIndicatorIds = batchItems.Select(x => x.LaboratoryTaskIndicatorId).ToList();
+
+        if (taskIndicatorIds.Any())
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => taskIndicatorIds.Contains(x.Id));
+            if (taskIndicators.Any(x => x.ApprovalStatus == IndicatorApprovalStatus.Approved))
+            {
+                throw new UserFriendlyException("Không thể hủy mẻ vì có chỉ tiêu đã được QLKT duyệt");
+            }
         }
 
         batch.Status = TestBatchStatus.Cancelled;
@@ -789,7 +1013,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
             var allEntered = allIndicators.All(i =>
                 i.ApprovalStatus == IndicatorApprovalStatus.Entered ||
-                i.ApprovalStatus == IndicatorApprovalStatus.Approved);
+                i.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                i.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled ||
+                i.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
 
             if (allEntered && task.Status != LaboratoryTaskStatus.Approved)
             {
@@ -915,6 +1141,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             Note = batch.Note,
             ConsumptionConfirmed = batch.ConsumptionConfirmed,
             ConsumptionConfirmedDate = batch.ConsumptionConfirmedDate,
+            HasApprovedIndicators = taskIndicators.Any(x => x.ApprovalStatus == IndicatorApprovalStatus.Approved),
             CreationTime = batch.CreationTime,
             CreatorId = batch.CreatorId,
             LastModificationTime = batch.LastModificationTime,
@@ -947,6 +1174,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     TestDate = i.TestDate,
                     IsSubmitted = i.IsSubmitted,
                     IsExternallyCompleted = i.IsExternallyCompleted,
+                    ApprovalStatus = taskIndicator != null ? (int)taskIndicator.ApprovalStatus : 0,
                 };
             }).ToList(),
             Consumptions = consumptions.Select(c => new TestBatchConsumptionDto
