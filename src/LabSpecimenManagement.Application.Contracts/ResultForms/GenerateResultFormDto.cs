@@ -331,6 +331,8 @@ public class PreviewTestRequestFormInput
 
     public bool AgreeTerms { get; set; }
 
+    public DateTime? FormPrintedDate { get; set; }
+
     #endregion
 
     #region Legacy fields

@@ -477,6 +477,16 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? DeliveryNote { get; set; }
 
+    /// <summary>
+    /// Ngày hợp đồng trên form in BM05 (tự động set khi in)
+    /// </summary>
+    public DateTime? FormPrintedDate { get; set; }
+
+    /// <summary>
+    /// Hash của danh sách chỉ tiêu tại lần in gần nhất (SHA256, dùng để phát hiện thay đổi)
+    /// </summary>
+    public string? LastPrintedIndicatorHash { get; set; }
+
     #endregion
 
     #region Collections
