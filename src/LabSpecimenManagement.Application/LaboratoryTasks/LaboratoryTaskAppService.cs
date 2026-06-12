@@ -1619,133 +1619,100 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return;
         }
 
-        // Check conditions for status calculation
-        // Logic mới: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành tất cả mới lên status cao hơn)
-        // Ngoại trừ PendingApproval - cần hiển thị ngay khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
-        // Ngoại trừ CannotTest/SupplementaryRequested - cần QLKT đánh giá
+        // Ưu tiên trạng thái theo yêu cầu BA: hiển thị trạng thái "cần xử lý nhất"
+        // Nếu có BẤT KỲ chỉ tiêu nào ở trạng thái ưu tiên cao → hiển thị trạng thái đó
 
-        // TẤT CẢ chỉ tiêu đã gửi QLCL
-        var allSentToQuality = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
-
-        // TẤT CẢ chỉ tiêu đã được duyệt (Approved)
-        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-
-        // Có ≥1 chỉ tiêu đã nhập KQ (Entered - chờ duyệt) - ưu tiên hiển thị vì cần action
-        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-
-        // Có ≥1 chỉ tiêu CannotTest hoặc SupplementaryRequested - cần QLKT đánh giá
+        // Priority 1: Đánh giá TN - có chỉ tiêu cần QLKT đánh giá
         var anyNeedEvaluation = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested);
+            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested ||
+            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending && !ti.MethodId.HasValue && !ti.TestDate.HasValue));
 
-        // TẤT CẢ chỉ tiêu đã được giao việc (có method + KTV)
-        // Chỉ xét các chỉ tiêu AcceptedForTesting hoặc MethodChanged (đã được QLKT chấp nhận)
-        var acceptedIndicators = activeIndicators.Where(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Entered ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved).ToList();
+        // Priority 2: Cần phân công - đã chấp nhận TN nhưng chưa giao KTV
+        var anyNeedAssignment = activeIndicators.Any(ti =>
+            (ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged) &&
+            (!ti.MethodId.HasValue || !ti.TechnicianId.HasValue));
 
-        var allAssigned = acceptedIndicators.Any() && acceptedIndicators.All(ti => ti.MethodId.HasValue && ti.TechnicianId.HasValue);
-
-        // Có ≥1 chỉ tiêu đang thử nghiệm (có testDate, KTV đã check-in, status = Pending hoặc AcceptedForTesting)
-        // Chỉ tính những chỉ tiêu đang "testing" thực sự, không tính Approved/Entered/Rejected
-        var anyTesting = activeIndicators.Any(ti =>
-            ti.TestDate.HasValue &&
-            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting));
-
-        // Check trạng thái workflow đánh giá
-        // Tất cả chỉ tiêu đã được QLKT đánh giá (AcceptedForTesting, MethodChanged, TestingRejected, hoặc đã approved)
-        var allEvaluated = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-
-        // Tất cả được chấp nhận thử nghiệm (không có TestingRejected)
-        var allAcceptedForTesting = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-
-        // Có ít nhất 1 chỉ tiêu được chấp nhận (cho PartialAccepted)
-        var anyAcceptedForTesting = activeIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-
-        // Có chỉ tiêu đang chờ KH xác nhận (MethodChangeRequested hoặc TestingRejected chưa confirm)
+        // Priority 3: Chờ KH phản hồi
         var anyWaitingCustomer = activeIndicators.Any(ti =>
             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
 
-        // Có ≥1 chỉ tiêu KTV báo không TN được - cần QLKT xử lý
-        var anyCannotTest = activeIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest);
+        // Priority 4: Đã phân công - đã giao KTV nhưng chưa bắt đầu TN
+        var anyAssignedNotTesting = activeIndicators.Any(ti =>
+            ti.MethodId.HasValue && ti.TechnicianId.HasValue && !ti.TestDate.HasValue &&
+            (ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.Pending));
+
+        // Priority 5: Chờ duyệt KQ - KTV đã nhập kết quả
+        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
+
+        // Priority 6: Từ chối KQ - QLKT từ chối, KTV cần nhập lại
+        var anyRejected = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Rejected);
+
+        // Priority 7: Đang TN - KTV đang thử nghiệm
+        var anyTesting = activeIndicators.Any(ti =>
+            ti.TestDate.HasValue &&
+            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
+             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged));
+
+        // Priority 8: Đã gửi QLCL - tất cả đã gửi
+        var allSentToQuality = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
+
+        // Priority 9: Từ chối TN - tất cả bị từ chối
+        var allTestingRejected = activeIndicators.All(ti =>
+            ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
+
+        // Fallback: Đã duyệt (tất cả approved nhưng chưa gửi QLCL)
+        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
 
         LaboratoryTaskStatus newStatus;
 
-        // Logic ưu tiên:
-        // 1. CannotTest/SupplementaryRequested ưu tiên cao nhất - cần QLKT đánh giá ngay
-        // 2. PendingApproval được ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần QLKT action)
-        // 3. Các status khác phải TẤT CẢ chỉ tiêu đạt được mới chuyển lên
-
         if (anyNeedEvaluation)
         {
-            // Có ≥1 chỉ tiêu CannotTest/SupplementaryRequested - cần QLKT đánh giá
             newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
-        else if (anyEntered)
+        else if (anyNeedAssignment)
         {
-            // Có ≥1 chỉ tiêu chờ duyệt - ưu tiên hiển thị vì cần QLKT duyệt
-            newStatus = LaboratoryTaskStatus.WaitingApproval;
-        }
-        else if (allSentToQuality)
-        {
-            // TẤT CẢ chỉ tiêu đã gửi QLCL
-            newStatus = LaboratoryTaskStatus.SentToQuality;
-        }
-        else if (allApproved)
-        {
-            // TẤT CẢ chỉ tiêu đã được duyệt (nhưng chưa gửi hết QLCL)
-            newStatus = LaboratoryTaskStatus.Approved;
-        }
-        else if (allAssigned && anyTesting)
-        {
-            // TẤT CẢ chỉ tiêu đã được giao việc VÀ có ≥1 đang thử nghiệm
-            newStatus = LaboratoryTaskStatus.InProgress;
-        }
-        else if (allAssigned)
-        {
-            // TẤT CẢ chỉ tiêu đã được giao việc (chưa có ai test)
-            newStatus = LaboratoryTaskStatus.Assigned;
+            newStatus = LaboratoryTaskStatus.FullyAccepted;
         }
         else if (anyWaitingCustomer)
         {
-            // Có chỉ tiêu đang chờ KH xác nhận
             newStatus = LaboratoryTaskStatus.WaitingCustomerResponse;
         }
-        else if (allEvaluated && allAcceptedForTesting)
+        else if (anyAssignedNotTesting)
         {
-            // Tất cả chỉ tiêu đã được đánh giá và chấp nhận thử nghiệm
-            newStatus = LaboratoryTaskStatus.FullyAccepted;
+            newStatus = LaboratoryTaskStatus.Assigned;
         }
-        else if (allEvaluated && anyAcceptedForTesting)
+        else if (anyEntered)
         {
-            // Một phần được chấp nhận, một phần bị từ chối
-            newStatus = LaboratoryTaskStatus.PartialAccepted;
+            newStatus = LaboratoryTaskStatus.WaitingApproval;
         }
-        else if (allEvaluated)
+        else if (anyRejected)
         {
-            // Tất cả bị từ chối thử nghiệm
+            newStatus = LaboratoryTaskStatus.Rejected;
+        }
+        else if (anyTesting)
+        {
+            newStatus = LaboratoryTaskStatus.InProgress;
+        }
+        else if (allSentToQuality)
+        {
+            newStatus = LaboratoryTaskStatus.SentToQuality;
+        }
+        else if (allTestingRejected)
+        {
             newStatus = LaboratoryTaskStatus.TestingRejected;
+        }
+        else if (allApproved)
+        {
+            newStatus = LaboratoryTaskStatus.Approved;
         }
         else
         {
-            // Còn chỉ tiêu chưa được đánh giá
             newStatus = LaboratoryTaskStatus.UnderEvaluation;
         }
 
