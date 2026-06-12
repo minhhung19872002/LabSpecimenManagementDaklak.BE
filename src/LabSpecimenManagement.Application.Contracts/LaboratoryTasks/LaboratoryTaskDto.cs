@@ -151,6 +151,11 @@ public class LaboratoryTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? SampleSentDate { get; set; }
 
     /// <summary>
+    /// Ngày gửi QLKT (từ TestRequest.UnderReviewDate)
+    /// </summary>
+    public DateTime? UnderReviewDate { get; set; }
+
+    /// <summary>
     /// Ngày nhận mẫu từ lab trước (dành cho Lab Hóa nhận từ Vi Sinh)
     /// </summary>
     public DateTime? SampleReceivedDate { get; set; }

@@ -52,6 +52,11 @@ public class TestingDetailDto : EntityDto<Guid>
     public DateTime? SampleSentDate { get; set; }
 
     /// <summary>
+    /// Ngày gửi QLKT (từ TestRequest.UnderReviewDate)
+    /// </summary>
+    public DateTime? UnderReviewDate { get; set; }
+
+    /// <summary>
     /// Tên khách hàng
     /// </summary>
     public string? CustomerName { get; set; }
