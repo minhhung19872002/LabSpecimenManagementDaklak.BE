@@ -190,7 +190,16 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         if (input.Status.HasValue)
         {
-            queryable = queryable.Where(x => x.Status == input.Status.Value);
+            if (input.Status.Value == LaboratoryTaskStatus.FullyAccepted)
+            {
+                queryable = queryable.Where(x =>
+                    x.Status == LaboratoryTaskStatus.FullyAccepted ||
+                    x.Status == LaboratoryTaskStatus.PartialAccepted);
+            }
+            else
+            {
+                queryable = queryable.Where(x => x.Status == input.Status.Value);
+            }
         }
 
         if (input.TestRequestStatus.HasValue)
