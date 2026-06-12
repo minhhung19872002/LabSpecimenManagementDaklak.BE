@@ -3926,21 +3926,28 @@ public partial class TestRequestAppService :
         // Method này sẽ tự skip các indicators đã được gửi trước đó
         await CreateLaboratoryTasksAsync(entity);
 
-        // CHỈ cập nhật status sang UnderReview khi đang ở trạng thái ban đầu (PendingPayment/Paid/NoPaymentRequired)
-        // và TẤT CẢ indicators đã có LaboratoryId
+        // Lưu thời gian gửi QLKT ngay từ lần đầu tiên (không ghi đè nếu đã có)
         var isInitialSend = entity.Status == TestRequestStatus.New
             || entity.Status == TestRequestStatus.PendingPayment
             || entity.Status == TestRequestStatus.Paid
             || entity.Status == TestRequestStatus.NoPaymentRequired;
-        if (isInitialSend && indicatorsWithLabCount == totalIndicatorCount)
+
+        if (isInitialSend)
         {
-            entity.Status = TestRequestStatus.UnderReview;
-            entity.UnderReviewDate = Clock.Now;
-            entity.UnderReviewByUserId = _currentUser.Id;
-            entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            if (!entity.UnderReviewDate.HasValue)
+            {
+                entity.UnderReviewDate = Clock.Now;
+                entity.UnderReviewByUserId = _currentUser.Id;
+                entity.UnderReviewByUserName = _currentUser.Name ?? _currentUser.UserName;
+            }
+
+            if (indicatorsWithLabCount == totalIndicatorCount)
+            {
+                entity.Status = TestRequestStatus.UnderReview;
+            }
+
             await Repository.UpdateAsync(entity);
         }
-        // Ngược lại: Giữ nguyên status hiện tại
 
         // Thông báo cho QLKT về yêu cầu mới cần đánh giá
         await NotifyTechnicalManagersOnSampleSentAsync(entity);
