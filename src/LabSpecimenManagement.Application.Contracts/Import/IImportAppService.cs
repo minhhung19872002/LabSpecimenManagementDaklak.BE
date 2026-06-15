@@ -268,6 +268,18 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
+    #region Warehouse Import
+
+    Task<byte[]> GetWarehouseTemplateAsync();
+
+    [DisableValidation]
+    Task<WarehouseImportPreviewDto> PreviewWarehousesAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportWarehousesAsync(byte[] fileBytes);
+
+    #endregion
+
     #region TestResultValue Import
 
     /// <summary>

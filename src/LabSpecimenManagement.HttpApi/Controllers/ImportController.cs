@@ -530,6 +530,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Warehouse Import
+
+    [HttpGet("warehouses/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual async Task<IActionResult> GetWarehouseTemplateAsync()
+    {
+        var bytes = await _importAppService.GetWarehouseTemplateAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_muc_kho.xlsx");
+    }
+
+    [HttpPost("warehouses/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<WarehouseImportPreviewDto> PreviewWarehousesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewWarehousesAsync(fileBytes);
+    }
+
+    [HttpPost("warehouses")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportWarehousesAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportWarehousesAsync(fileBytes);
+    }
+
+    #endregion
+
     #region TestResultValue Import
 
     /// <summary>

@@ -145,6 +145,10 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<Unit, UnitDto>();
         CreateMap<CreateUpdateUnitDto, Unit>();
 
+        // Warehouse mappings
+        CreateMap<Warehouse, WarehouseDto>();
+        CreateMap<CreateUpdateWarehouseDto, Warehouse>();
+
         // Supplier mappings
         CreateMap<Supplier, SupplierDto>()
             .ForMember(dest => dest.LogoUrl, opt => opt.Ignore());

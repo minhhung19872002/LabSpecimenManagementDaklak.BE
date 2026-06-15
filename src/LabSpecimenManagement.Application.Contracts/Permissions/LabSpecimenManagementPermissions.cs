@@ -337,6 +337,15 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // Master Data - Warehouses Permissions (Danh mục kho)
+    public static class Warehouses
+    {
+        public const string Default = GroupName + ".Warehouses";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Master Data - Notes Permissions (Quản lý ghi chú)
     public static class Notes
     {

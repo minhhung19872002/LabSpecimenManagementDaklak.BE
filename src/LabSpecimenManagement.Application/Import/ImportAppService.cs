@@ -42,6 +42,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<SpecimenTypeIndicator, Guid> _specimenTypeIndicatorRepository;
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
     private readonly IRepository<TestResultValueIndicator, Guid> _testResultValueIndicatorRepository;
     private readonly IGuidGenerator _guidGenerator;
@@ -68,6 +69,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<SpecimenTypeIndicator, Guid> specimenTypeIndicatorRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Note, Guid> noteRepository,
+        IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<TestResultValue, Guid> testResultValueRepository,
         IRepository<TestResultValueIndicator, Guid> testResultValueIndicatorRepository,
         IGuidGenerator guidGenerator,
@@ -93,6 +95,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _specimenTypeIndicatorRepository = specimenTypeIndicatorRepository;
         _laboratoryRepository = laboratoryRepository;
         _noteRepository = noteRepository;
+        _warehouseRepository = warehouseRepository;
         _testResultValueRepository = testResultValueRepository;
         _testResultValueIndicatorRepository = testResultValueIndicatorRepository;
         _guidGenerator = guidGenerator;
@@ -5384,6 +5387,311 @@ public class ImportAppService : ApplicationService, IImportAppService
         }
 
         return maxNumber + 1;
+    }
+
+    #endregion
+
+    #region Warehouse Import
+
+    public async Task<byte[]> GetWarehouseTemplateAsync()
+    {
+        var warehouses = await _warehouseRepository.GetListAsync();
+        var activeWarehouses = warehouses.Where(w => w.IsActive).ToList();
+
+        var templateBytes = ReadStaticTemplate("Danh muc kho.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var worksheet = workbook.Worksheet(1);
+
+        if (activeWarehouses.Count > 0)
+        {
+            var sorted = activeWarehouses.OrderBy(w => w.Name).ToList();
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var row = i + 2;
+                worksheet.Cell(row, 1).Value = sorted[i].Name ?? "";
+                worksheet.Cell(row, 2).Value = sorted[i].PhysicalLocation ?? "";
+            }
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    public async Task<WarehouseImportPreviewDto> PreviewWarehousesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewWarehousesInternalAsync(memoryStream);
+    }
+
+    private async Task<WarehouseImportPreviewDto> PreviewWarehousesInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadWarehouseExcelRows(memoryStream);
+
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        var existingWarehouses = await _warehouseRepository.GetListAsync();
+        var warehouseDict = existingWarehouses
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var result = new WarehouseImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var newWarehouseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateWarehouseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2;
+
+            var item = new WarehouseImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                Name = row.Name?.Trim() ?? "",
+                PhysicalLocation = row.PhysicalLocation?.Trim(),
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(row.Name))
+            {
+                item.IsValid = false;
+                var error = "Tên kho không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên kho",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else
+            {
+                var normalizedName = StringHelper.NormalizeAndTrim(row.Name).ToLowerInvariant();
+                if (warehouseDict.TryGetValue(normalizedName, out var existingWarehouse))
+                {
+                    item.IsNew = false;
+                    item.ExistingId = existingWarehouse.Id;
+                    updateWarehouseNames.Add(normalizedName);
+                }
+                else
+                {
+                    item.IsNew = true;
+                    newWarehouseNames.Add(normalizedName);
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+            {
+                validationResult.ValidRows++;
+            }
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = validationResult.InvalidRows;
+        result.NewWarehouses = newWarehouseNames.Count;
+        result.UpdateWarehouses = updateWarehouseNames.Count;
+
+        if (!validationResult.IsValid)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateWarehouseErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Danh_muc_kho_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<WarehouseImportRow> ReadWarehouseExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<WarehouseImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var name = row.Cell(1).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            rows.Add(new WarehouseImportRow
+            {
+                Name = name,
+                PhysicalLocation = row.Cell(2).GetString()?.Trim()
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportWarehousesAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewWarehousesInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        var processedWarehouses = new Dictionary<string, Warehouse>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var existingWarehouses = await _warehouseRepository.GetListAsync();
+            foreach (var warehouse in existingWarehouses)
+            {
+                var key = StringHelper.NormalizeAndTrim(warehouse.Name).ToLowerInvariant();
+                if (!processedWarehouses.ContainsKey(key))
+                {
+                    processedWarehouses[key] = warehouse;
+                }
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            var nextCodeNumber = await GetNextWarehouseCodeNumberAsync();
+
+            foreach (var item in validItems)
+            {
+                var warehouseKey = StringHelper.NormalizeAndTrim(item.Name).ToLowerInvariant();
+
+                if (processedWarehouses.TryGetValue(warehouseKey, out var existingWarehouse))
+                {
+                    existingWarehouse.Name = StringHelper.Normalize(item.Name);
+                    existingWarehouse.PhysicalLocation = item.PhysicalLocation;
+                    await _warehouseRepository.UpdateAsync(existingWarehouse);
+                    updatedCount++;
+                }
+                else
+                {
+                    var code = $"KH-{nextCodeNumber:D3}";
+                    nextCodeNumber++;
+
+                    var newWarehouse = new Warehouse(
+                        GuidGenerator.Create(),
+                        code,
+                        StringHelper.Normalize(item.Name)
+                    )
+                    {
+                        PhysicalLocation = item.PhysicalLocation,
+                        IsActive = true,
+                        SortOrder = 0
+                    };
+                    await _warehouseRepository.InsertAsync(newWarehouse);
+                    processedWarehouses[warehouseKey] = newWarehouse;
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                Message = $"Import thành công: {newCount} kho mới, {updatedCount} kho cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateWarehouseErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        var errorColumnIndex = 3;
+        var headerRow = worksheet.Row(1);
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        int dataRowNumber = 2;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var name = row.Cell(1).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+
+            dataRowNumber++;
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    private async Task<int> GetNextWarehouseCodeNumberAsync()
+    {
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var existingWarehouses = await _warehouseRepository.GetListAsync();
+            var codes = existingWarehouses
+                .Where(w => w.Code.StartsWith("KH-"))
+                .Select(w => w.Code)
+                .ToList();
+
+            int maxNumber = 0;
+            foreach (var code in codes)
+            {
+                var numberPart = code.Replace("KH-", "");
+                if (int.TryParse(numberPart, out var num) && num > maxNumber)
+                {
+                    maxNumber = num;
+                }
+            }
+
+            return maxNumber + 1;
+        }
     }
 
     #endregion

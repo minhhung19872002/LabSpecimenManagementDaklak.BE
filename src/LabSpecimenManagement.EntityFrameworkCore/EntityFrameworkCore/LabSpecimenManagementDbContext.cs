@@ -71,6 +71,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<SampleTypeCategory> SampleTypeCategories { get; set; }
     public DbSet<SampleCondition> SampleConditions { get; set; }
     public DbSet<Unit> Units { get; set; }
+    public DbSet<Warehouse> Warehouses { get; set; }
     public DbSet<Product> Products { get; set; }
     public DbSet<Supplier> SupplierEntities { get; set; }
     public DbSet<ProductAttachment> ProductAttachments { get; set; }
@@ -699,6 +700,19 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Humidity).HasMaxLength(50);
 
             // Filtered unique index - only enforce uniqueness for non-deleted records
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+        });
+
+        // Warehouse configuration
+        builder.Entity<Warehouse>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "Warehouses", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.Name).IsRequired().HasMaxLength(256);
+            b.Property(x => x.PhysicalLocation).HasMaxLength(500);
+
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 

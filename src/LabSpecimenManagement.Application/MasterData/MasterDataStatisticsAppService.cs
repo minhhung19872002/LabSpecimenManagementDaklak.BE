@@ -27,6 +27,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IWebHostEnvironment _environment;
 
     public MasterDataStatisticsAppService(
@@ -43,6 +44,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         IRepository<TestResultValue, Guid> testResultValueRepository,
         IRepository<Note, Guid> noteRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<Warehouse, Guid> warehouseRepository,
         IWebHostEnvironment environment)
     {
         _departmentRepository = departmentRepository;
@@ -58,6 +60,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         _testResultValueRepository = testResultValueRepository;
         _noteRepository = noteRepository;
         _unitRepository = unitRepository;
+        _warehouseRepository = warehouseRepository;
         _environment = environment;
     }
 
@@ -76,6 +79,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         var testResultValueCount = await _testResultValueRepository.CountAsync();
         var noteCount = await _noteRepository.CountAsync();
         var unitCount = await _unitRepository.CountAsync();
+        var warehouseCount = await _warehouseRepository.CountAsync();
 
         // Count form templates from file system
         var formTemplateCount = 0;
@@ -101,7 +105,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
             FormTemplateCount = formTemplateCount,
             TestResultValueCount = (int)testResultValueCount,
             NoteCount = (int)noteCount,
-            UnitCount = (int)unitCount
+            UnitCount = (int)unitCount,
+            WarehouseCount = (int)warehouseCount
         };
     }
 }
