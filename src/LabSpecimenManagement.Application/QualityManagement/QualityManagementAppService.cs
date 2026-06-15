@@ -125,14 +125,21 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(t => t.TaskType == input.TaskType.Value);
         }
 
-        // Filter by date range
-        if (input.FromDate.HasValue)
+        // Filter by date range (Ngày chuyển = UnderReviewDate từ TestRequest)
+        if (input.FromDate.HasValue || input.ToDate.HasValue)
         {
-            query = query.Where(t => t.TransferDate >= input.FromDate.Value);
-        }
-        if (input.ToDate.HasValue)
-        {
-            query = query.Where(t => t.TransferDate <= input.ToDate.Value);
+            var trDateQuery = await _testRequestRepository.GetQueryableAsync();
+            if (input.FromDate.HasValue)
+            {
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate >= input.FromDate.Value);
+            }
+            if (input.ToDate.HasValue)
+            {
+                var toDateEnd = input.ToDate.Value.Date.AddDays(1);
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate < toDateEnd);
+            }
+            var matchingIds = trDateQuery.Select(tr => tr.Id);
+            query = query.Where(t => matchingIds.Contains(t.TestRequestId));
         }
 
         // Filter overdue: RequestCompletionDate - Now <= 2 days and not HandedOver
@@ -174,7 +181,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             trQueryable,
             t => t.TestRequestId,
             tr => tr.Id,
-            (t, tr) => new { Task = t, ContractDate = tr.ContractDate });
+            (t, tr) => new { Task = t, ContractDate = tr.ContractDate, UnderReviewDate = tr.UnderReviewDate });
 
         // Sorting
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
@@ -182,8 +189,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         {
             SortingFields.ContractNumber => joinedQuery.OrderBy(x => x.Task.ContractNumber),
             SortingFields.ContractNumberDesc => joinedQuery.OrderByDescending(x => x.Task.ContractNumber),
-            SortingFields.TransferDate => joinedQuery.OrderBy(x => x.Task.TransferDate),
-            SortingFields.TransferDateDesc => joinedQuery.OrderByDescending(x => x.Task.TransferDate),
+            SortingFields.TransferDate => joinedQuery.OrderBy(x => x.UnderReviewDate),
+            SortingFields.TransferDateDesc => joinedQuery.OrderByDescending(x => x.UnderReviewDate),
             SortingFields.RequestCompletionDate => joinedQuery.OrderBy(x => x.Task.RequestCompletionDate),
             SortingFields.RequestCompletionDateDesc => joinedQuery.OrderByDescending(x => x.Task.RequestCompletionDate),
             SortingFields.Status => joinedQuery.OrderBy(x => x.Task.Status),
@@ -1260,13 +1267,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 continue;
             }
 
+            var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
+
             result.Add(new QualityManagerPendingTaskDto
             {
                 Id = task.Id,
                 TestRequestId = task.TestRequestId,
                 ContractNumber = task.ContractNumber,
                 TaskName = taskName,
-                TransferDate = task.TransferDate,
+                TransferDate = testRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
                 Status = task.Status,
                 DaysUntilDeadline = daysUntilDeadline
@@ -1316,7 +1325,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TotalSampleCount = task.TotalSampleCount,
             TotalIndicatorCount = task.TotalIndicatorCount,
             LaboratoryNames = labNames,
-            TransferDate = task.TransferDate,
+            TransferDate = testRequest?.UnderReviewDate,
             RequestCompletionDate = task.RequestCompletionDate,
             Status = task.Status,
             HandoverDate = task.HandoverDate,
@@ -2211,7 +2220,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                             ? null
                             : (tm != null ? tm.FormattedName : null),
                         Unit = li != null ? li.Unit : null,
-                        TransferDate = si.TransferDate,
+                        TransferDate = tr.UnderReviewDate,
                         TestDate = li != null ? li.TestDate : null,
                         Result = li != null ? li.Result : null,
 
@@ -2252,12 +2261,13 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         if (input.FromDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+            query = query.Where(x => x.TransferDate >= input.FromDate.Value);
         }
 
         if (input.ToDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+            var toDateEnd = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.TransferDate < toDateEnd);
         }
 
         if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)

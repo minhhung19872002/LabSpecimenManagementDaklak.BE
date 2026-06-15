@@ -46,6 +46,16 @@ public class GetTestingListInput : PagedAndSortedResultRequestDto
     public DateTime? RequestCompletionDateTo { get; set; }
 
     /// <summary>
+    /// Lọc theo ngày chuyển đi (UnderReviewDate) - từ ngày
+    /// </summary>
+    public DateTime? TransferDateFrom { get; set; }
+
+    /// <summary>
+    /// Lọc theo ngày chuyển đi (UnderReviewDate) - đến ngày
+    /// </summary>
+    public DateTime? TransferDateTo { get; set; }
+
+    /// <summary>
     /// Lọc theo chỉ tiêu (multiple select) - Filter by Indicator IDs
     /// </summary>
     public List<Guid>? IndicatorIds { get; set; }

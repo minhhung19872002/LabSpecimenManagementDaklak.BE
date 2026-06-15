@@ -212,14 +212,21 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             queryable = queryable.Where(x => testRequestIds.Contains(x.TestRequestId));
         }
 
-        if (input.TransferDateFrom.HasValue)
+        // Filter TransferDate = UnderReviewDate từ TestRequest
+        if (input.TransferDateFrom.HasValue || input.TransferDateTo.HasValue)
         {
-            queryable = queryable.Where(x => x.TransferDate >= input.TransferDateFrom.Value);
-        }
-
-        if (input.TransferDateTo.HasValue)
-        {
-            queryable = queryable.Where(x => x.TransferDate <= input.TransferDateTo.Value);
+            var trDateQuery = await _testRequestRepository.GetQueryableAsync();
+            if (input.TransferDateFrom.HasValue)
+            {
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate >= input.TransferDateFrom.Value);
+            }
+            if (input.TransferDateTo.HasValue)
+            {
+                var transferDateEnd = input.TransferDateTo.Value.Date.AddDays(1);
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate < transferDateEnd);
+            }
+            var matchingIds = trDateQuery.Select(tr => tr.Id);
+            queryable = queryable.Where(x => matchingIds.Contains(x.TestRequestId));
         }
 
         if (input.RequestCompletionDateFrom.HasValue)
@@ -240,8 +247,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
         queryable = sortingKey switch
         {
-            SortingFields.TransferDate => queryable.OrderBy(x => x.TransferDate),
-            SortingFields.TransferDateDesc => queryable.OrderByDescending(x => x.TransferDate),
+            SortingFields.TransferDate => queryable.OrderBy(x => trQueryable.Where(tr => tr.Id == x.TestRequestId).Select(tr => tr.UnderReviewDate).FirstOrDefault()),
+            SortingFields.TransferDateDesc => queryable.OrderByDescending(x => trQueryable.Where(tr => tr.Id == x.TestRequestId).Select(tr => tr.UnderReviewDate).FirstOrDefault()),
             SortingFields.RequestCompletionDate => queryable.OrderBy(x => x.RequestCompletionDate),
             SortingFields.RequestCompletionDateDesc => queryable.OrderByDescending(x => x.RequestCompletionDate),
             SortingFields.Status => queryable.OrderBy(x => x.Status),
@@ -371,7 +378,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ContractNumber = task.ContractNumber,
             TotalSampleCount = task.TotalSampleCount,
             TechnicalManagerId = task.TechnicalManagerId,
-            TransferDate = task.TransferDate,
+            TransferDate = null,
             RequestCompletionDate = task.RequestCompletionDate,
             TestDate = earliestTestDate != default ? earliestTestDate : task.TestDate,
             TestDateRange = testDateRange, // Khoảng ngày: Min - Max
@@ -411,6 +418,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             dto.CustomerName = testRequest.CustomerName;
             dto.SampleSentDate = testRequest.SampleSentDate ?? task.SampleSentDate;
             dto.UnderReviewDate = testRequest.UnderReviewDate;
+            dto.TransferDate = testRequest.UnderReviewDate;
         }
 
         // Get Laboratory info
@@ -2877,12 +2885,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 continue;
             }
 
+            var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
+
             result.Add(new LabTechManagerPendingTaskDto
             {
                 Id = task.Id,
                 ContractNumber = task.ContractNumber ?? "",
                 TaskName = taskName,
-                TransferDate = task.TransferDate,
+                TransferDate = testRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
                 Status = task.Status,
                 DaysUntilDeadline = daysUntilDeadline,
@@ -3008,12 +3018,14 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 taskName = "Có chỉ tiêu cần thực hiện";
             }
 
+            var techTestRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
+
             result.Add(new LabTechnicianPendingTaskDto
             {
                 Id = task.Id,
                 ContractNumber = task.ContractNumber ?? "",
                 TaskName = taskName,
-                TransferDate = task.TransferDate,
+                TransferDate = techTestRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
                 PendingCount = pendingCount,
                 EnteredCount = enteredCount,
@@ -3139,7 +3151,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
-                        TransferDate = si.TransferDate,
+                        TransferDate = tr.UnderReviewDate,
                         TestDate = li.TestDate,
                         Result = li.Result,
 
@@ -3203,12 +3215,13 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         if (input.FromDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+            query = query.Where(x => x.TransferDate >= input.FromDate.Value);
         }
 
         if (input.ToDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+            var toDateEnd = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.TransferDate < toDateEnd);
         }
 
         if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
