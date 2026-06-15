@@ -594,6 +594,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(500);
+            b.Property(x => x.Description).HasMaxLength(1000);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);

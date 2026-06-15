@@ -280,6 +280,18 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
+    #region Manufacturer Import
+
+    Task<byte[]> GetManufacturerTemplateAsync();
+
+    [DisableValidation]
+    Task<ManufacturerImportPreviewDto> PreviewManufacturersAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportManufacturersAsync(byte[] fileBytes);
+
+    #endregion
+
     #region TestResultValue Import
 
     /// <summary>

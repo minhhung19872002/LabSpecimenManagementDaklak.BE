@@ -17,4 +17,5 @@ public class MasterDataStatisticsDto
     public int NoteCount { get; set; }
     public int UnitCount { get; set; }
     public int WarehouseCount { get; set; }
+    public int ManufacturerCount { get; set; }
 }

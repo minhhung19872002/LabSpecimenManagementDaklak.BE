@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Permissions;
+using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -12,6 +14,7 @@ using Volo.Abp.Domain.Repositories;
 namespace LabSpecimenManagement.MasterData;
 
 [RemoteService(IsEnabled = false)]
+[Authorize(LabSpecimenManagementPermissions.Manufacturers.Default)]
 public class ManufacturerAppService :
     CrudAppService<
         Manufacturer,
@@ -21,6 +24,7 @@ public class ManufacturerAppService :
         CreateUpdateManufacturerDto>,
     IManufacturerAppService
 {
+    private const string CodePrefix = "HSX";
     private readonly IDataFilter _dataFilter;
 
     public ManufacturerAppService(
@@ -29,43 +33,37 @@ public class ManufacturerAppService :
         : base(repository)
     {
         _dataFilter = dataFilter;
+        GetPolicyName = LabSpecimenManagementPermissions.Manufacturers.Default;
+        GetListPolicyName = LabSpecimenManagementPermissions.Manufacturers.Default;
+        CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
+        UpdatePolicyName = LabSpecimenManagementPermissions.MasterData.Edit;
+        DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
+    }
+
+    public override async Task<PagedResultDto<ManufacturerDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    {
+        var query = await Repository.GetQueryableAsync();
+
+        var totalCount = await AsyncExecuter.CountAsync(query);
+
+        var items = await AsyncExecuter.ToListAsync(
+            query.OrderByDescending(x => x.CreationTime).ApplyPaging(input));
+
+        var dtos = ObjectMapper.Map<List<Manufacturer>, List<ManufacturerDto>>(items);
+
+        return new PagedResultDto<ManufacturerDto>(totalCount, dtos);
     }
 
     public override async Task<ManufacturerDto> CreateAsync(CreateUpdateManufacturerDto input)
     {
-        // Auto-generate code if not provided
-        if (string.IsNullOrWhiteSpace(input.Code))
-        {
-            input.Code = await GenerateCodeAsync();
-        }
-
-        // Validate duplicate code and name
-        var errors = await ValidateDuplicateAsync(input.Code, input.Name, null);
-        if (errors.Count > 0)
-        {
-            throw new UserFriendlyException(string.Join("; ", errors.Values));
-        }
+        await ValidateDuplicateNameAsync(input.Name);
 
         return await base.CreateAsync(input);
     }
 
     public override async Task<ManufacturerDto> UpdateAsync(Guid id, CreateUpdateManufacturerDto input)
     {
-        // Get existing entity to preserve code if not provided
-        var existingEntity = await Repository.GetAsync(id);
-
-        // If code is not provided, keep the existing code
-        if (string.IsNullOrWhiteSpace(input.Code))
-        {
-            input.Code = existingEntity.Code;
-        }
-
-        // Validate duplicate code and name (exclude current entity)
-        var errors = await ValidateDuplicateAsync(input.Code, input.Name, id);
-        if (errors.Count > 0)
-        {
-            throw new UserFriendlyException(string.Join("; ", errors.Values));
-        }
+        await ValidateDuplicateNameAsync(input.Name, id);
 
         return await base.UpdateAsync(id, input);
     }
@@ -73,84 +71,117 @@ public class ManufacturerAppService :
     public async Task<ListResultDto<ManufacturerDto>> GetActiveAsync()
     {
         var query = await Repository.GetQueryableAsync();
-        var items = query
-            .WhereActive()
-            .OrderBy(x => x.Name)
-            .ToList();
+        var items = await AsyncExecuter.ToListAsync(
+            query.WhereActive().OrderBy(x => x.Name));
 
         var dtos = ObjectMapper.Map<List<Manufacturer>, List<ManufacturerDto>>(items);
 
         return new ListResultDto<ManufacturerDto>(dtos);
     }
 
-    protected override Task<Manufacturer> MapToEntityAsync(CreateUpdateManufacturerDto createInput)
+    public async Task<string> GetNextCodeAsync()
     {
-        return Task.FromResult(new Manufacturer(GuidGenerator.Create(), createInput.Code!, createInput.Name)
+        return await GenerateCodeAsync();
+    }
+
+    public async Task ToggleActiveAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+        entity.IsActive = !entity.IsActive;
+        await Repository.UpdateAsync(entity);
+    }
+
+    public async Task<int> BatchDeleteAsync(List<Guid> ids)
+    {
+        var count = 0;
+        foreach (var id in ids)
         {
+            try
+            {
+                await Repository.DeleteAsync(id);
+                count++;
+            }
+            catch
+            {
+            }
+        }
+        return count;
+    }
+
+    public async Task<int> BatchToggleActiveAsync(List<Guid> ids, bool isActive)
+    {
+        var count = 0;
+        foreach (var id in ids)
+        {
+            try
+            {
+                var entity = await Repository.GetAsync(id);
+                entity.IsActive = isActive;
+                await Repository.UpdateAsync(entity);
+                count++;
+            }
+            catch
+            {
+            }
+        }
+        return count;
+    }
+
+    protected override async Task<Manufacturer> MapToEntityAsync(CreateUpdateManufacturerDto createInput)
+    {
+        var code = await GenerateCodeAsync();
+        return new Manufacturer(GuidGenerator.Create(), code, createInput.Name)
+        {
+            Description = createInput.Description,
             IsActive = createInput.IsActive
-        });
+        };
     }
 
     protected override Task MapToEntityAsync(CreateUpdateManufacturerDto updateInput, Manufacturer entity)
     {
-        entity.Code = updateInput.Code!;
         entity.Name = updateInput.Name;
+        entity.Description = updateInput.Description;
         entity.IsActive = updateInput.IsActive;
         return Task.CompletedTask;
     }
 
-    private async Task<string> GenerateCodeAsync()
+    public async Task<string> GenerateCodeAsync()
     {
         using (_dataFilter.Disable<ISoftDelete>())
         {
             var query = await Repository.GetQueryableAsync();
             var codes = query
-                .Where(x => x.Code.StartsWith("HSX"))
+                .Where(x => x.Code.StartsWith(CodePrefix))
                 .Select(x => x.Code)
                 .ToList();
 
-            var maxNumber = 0;
+            int maxNumber = 0;
             foreach (var code in codes)
             {
-                var numberPart = code.Substring(3);
+                var numberPart = code.Replace($"{CodePrefix}-", "").Replace(CodePrefix, "");
                 if (int.TryParse(numberPart, out var num) && num > maxNumber)
                 {
                     maxNumber = num;
                 }
             }
 
-            return $"HSX{(maxNumber + 1):D3}";
+            var nextNumber = maxNumber + 1;
+            return $"{CodePrefix}-{nextNumber:D3}";
         }
     }
 
-    private async Task<Dictionary<string, string>> ValidateDuplicateAsync(string? code, string name, Guid? excludeId)
+    private async Task ValidateDuplicateNameAsync(string name, Guid? excludeId = null)
     {
-        var errors = new Dictionary<string, string>();
         var query = await Repository.GetQueryableAsync();
+        var normalizedName = name.Trim().ToLower();
 
-        // Check duplicate code (only if code is provided)
-        if (!string.IsNullOrWhiteSpace(code))
-        {
-            var duplicateCode = query.FirstOrDefault(x =>
-                x.Code.ToLower() == code.ToLower() &&
-                (excludeId == null || x.Id != excludeId));
-
-            if (duplicateCode != null)
-            {
-                errors["code"] = "Mã hãng sản xuất đã tồn tại";
-            }
-        }
-
-        // Check duplicate name
-        var duplicateName = query.FirstOrDefault(x =>
-            x.Name.ToLower() == name.ToLower() &&
+        var exists = query.Any(x =>
+            x.Name.ToLower() == normalizedName &&
             (excludeId == null || x.Id != excludeId));
 
-        if (duplicateName != null)
+        if (exists)
         {
-            errors["name"] = "Tên hãng sản xuất đã tồn tại";
+            throw new UserFriendlyException("Tên hãng sản xuất đã tồn tại. Vui lòng chọn tên khác.");
         }
-
-        return errors;
     }
 }

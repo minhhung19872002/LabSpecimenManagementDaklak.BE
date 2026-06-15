@@ -43,6 +43,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
     private readonly IRepository<TestResultValueIndicator, Guid> _testResultValueIndicatorRepository;
     private readonly IGuidGenerator _guidGenerator;
@@ -70,6 +71,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<Note, Guid> noteRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<TestResultValue, Guid> testResultValueRepository,
         IRepository<TestResultValueIndicator, Guid> testResultValueIndicatorRepository,
         IGuidGenerator guidGenerator,
@@ -96,6 +98,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _laboratoryRepository = laboratoryRepository;
         _noteRepository = noteRepository;
         _warehouseRepository = warehouseRepository;
+        _manufacturerRepository = manufacturerRepository;
         _testResultValueRepository = testResultValueRepository;
         _testResultValueIndicatorRepository = testResultValueIndicatorRepository;
         _guidGenerator = guidGenerator;
@@ -6225,6 +6228,310 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var outputStream = new MemoryStream();
         workbook.SaveAs(outputStream);
         return outputStream.ToArray();
+    }
+
+    #endregion
+
+    #region Manufacturer Import
+
+    public async Task<byte[]> GetManufacturerTemplateAsync()
+    {
+        var manufacturers = await _manufacturerRepository.GetListAsync();
+        var activeManufacturers = manufacturers.Where(m => m.IsActive).ToList();
+
+        var templateBytes = ReadStaticTemplate("Danh muc hang san xuat.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var worksheet = workbook.Worksheet(1);
+
+        if (activeManufacturers.Count > 0)
+        {
+            var sorted = activeManufacturers.OrderBy(m => m.Name).ToList();
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var row = i + 2;
+                worksheet.Cell(row, 1).Value = sorted[i].Name ?? "";
+                worksheet.Cell(row, 2).Value = sorted[i].Description ?? "";
+            }
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    public async Task<ManufacturerImportPreviewDto> PreviewManufacturersAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewManufacturersInternalAsync(memoryStream);
+    }
+
+    private async Task<ManufacturerImportPreviewDto> PreviewManufacturersInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadManufacturerExcelRows(memoryStream);
+
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        var existingManufacturers = await _manufacturerRepository.GetListAsync();
+        var manufacturerDict = existingManufacturers
+            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var result = new ManufacturerImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var newNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2;
+
+            var item = new ManufacturerImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                Name = row.Name?.Trim() ?? "",
+                Description = row.Description?.Trim(),
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(row.Name))
+            {
+                item.IsValid = false;
+                var error = "Tên hãng sản xuất không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên hãng sản xuất",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else
+            {
+                var normalizedName = StringHelper.NormalizeAndTrim(row.Name).ToLowerInvariant();
+                if (manufacturerDict.TryGetValue(normalizedName, out var existing))
+                {
+                    item.IsNew = false;
+                    item.ExistingId = existing.Id;
+                    updateNames.Add(normalizedName);
+                }
+                else
+                {
+                    item.IsNew = true;
+                    newNames.Add(normalizedName);
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+            {
+                validationResult.ValidRows++;
+            }
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = validationResult.InvalidRows;
+        result.NewManufacturers = newNames.Count;
+        result.UpdateManufacturers = updateNames.Count;
+
+        if (!validationResult.IsValid)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateManufacturerErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Danh_muc_hang_san_xuat_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<ManufacturerImportRow> ReadManufacturerExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<ManufacturerImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var name = row.Cell(1).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            rows.Add(new ManufacturerImportRow
+            {
+                Name = name,
+                Description = row.Cell(2).GetString()?.Trim()
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportManufacturersAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewManufacturersInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        var processedManufacturers = new Dictionary<string, Manufacturer>(StringComparer.OrdinalIgnoreCase);
+
+        try
+        {
+            var existingManufacturers = await _manufacturerRepository.GetListAsync();
+            foreach (var manufacturer in existingManufacturers)
+            {
+                var key = StringHelper.NormalizeAndTrim(manufacturer.Name).ToLowerInvariant();
+                if (!processedManufacturers.ContainsKey(key))
+                {
+                    processedManufacturers[key] = manufacturer;
+                }
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            var nextCodeNumber = await GetNextManufacturerCodeNumberAsync();
+
+            foreach (var item in validItems)
+            {
+                var manufacturerKey = StringHelper.NormalizeAndTrim(item.Name).ToLowerInvariant();
+
+                if (processedManufacturers.TryGetValue(manufacturerKey, out var existing))
+                {
+                    existing.Name = StringHelper.Normalize(item.Name);
+                    existing.Description = item.Description;
+                    await _manufacturerRepository.UpdateAsync(existing);
+                    updatedCount++;
+                }
+                else
+                {
+                    var code = $"HSX-{nextCodeNumber:D3}";
+                    nextCodeNumber++;
+
+                    var newManufacturer = new Manufacturer(
+                        GuidGenerator.Create(),
+                        code,
+                        StringHelper.Normalize(item.Name)
+                    )
+                    {
+                        Description = item.Description,
+                        IsActive = true
+                    };
+                    await _manufacturerRepository.InsertAsync(newManufacturer);
+                    processedManufacturers[manufacturerKey] = newManufacturer;
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                Message = $"Import thành công: {newCount} hãng SX mới, {updatedCount} hãng SX cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateManufacturerErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        var errorColumnIndex = 3;
+        var headerRow = worksheet.Row(1);
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        int dataRowNumber = 2;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var name = row.Cell(1).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(name)) continue;
+
+            var hasError = rowErrors.ContainsKey(dataRowNumber);
+
+            if (hasError)
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+
+            dataRowNumber++;
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    private async Task<int> GetNextManufacturerCodeNumberAsync()
+    {
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            var existingManufacturers = await _manufacturerRepository.GetListAsync();
+            var codes = existingManufacturers
+                .Where(m => m.Code.StartsWith("HSX"))
+                .Select(m => m.Code)
+                .ToList();
+
+            int maxNumber = 0;
+            foreach (var code in codes)
+            {
+                var numberPart = code.Replace("HSX-", "").Replace("HSX", "");
+                if (int.TryParse(numberPart, out var num) && num > maxNumber)
+                {
+                    maxNumber = num;
+                }
+            }
+
+            return maxNumber + 1;
+        }
     }
 
     #endregion

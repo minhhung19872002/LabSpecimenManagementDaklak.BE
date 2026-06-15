@@ -241,6 +241,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         warehousePermission.AddChild(LabSpecimenManagementPermissions.Warehouses.Edit, L("Permission:Warehouses.Edit"));
         warehousePermission.AddChild(LabSpecimenManagementPermissions.Warehouses.Delete, L("Permission:Warehouses.Delete"));
 
+        // Master Data - Manufacturers Permissions (Danh mục hãng sản xuất)
+        var manufacturerPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Manufacturers.Default, L("Permission:Manufacturers"));
+        manufacturerPermission.AddChild(LabSpecimenManagementPermissions.Manufacturers.Create, L("Permission:Manufacturers.Create"));
+        manufacturerPermission.AddChild(LabSpecimenManagementPermissions.Manufacturers.Edit, L("Permission:Manufacturers.Edit"));
+        manufacturerPermission.AddChild(LabSpecimenManagementPermissions.Manufacturers.Delete, L("Permission:Manufacturers.Delete"));
+
         // Master Data - Notes Permissions (Quản lý ghi chú)
         var notePermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Notes.Default, L("Permission:Notes"));
         notePermission.AddChild(LabSpecimenManagementPermissions.Notes.Create, L("Permission:Notes.Create"));

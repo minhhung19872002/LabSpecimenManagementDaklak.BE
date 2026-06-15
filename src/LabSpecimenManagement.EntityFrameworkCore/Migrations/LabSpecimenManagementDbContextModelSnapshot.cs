@@ -1581,6 +1581,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<string>("Description")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")

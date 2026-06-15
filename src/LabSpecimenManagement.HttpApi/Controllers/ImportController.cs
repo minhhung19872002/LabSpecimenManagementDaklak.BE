@@ -566,6 +566,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Manufacturer Import
+
+    [HttpGet("manufacturers/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual async Task<IActionResult> GetManufacturerTemplateAsync()
+    {
+        var bytes = await _importAppService.GetManufacturerTemplateAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_muc_hang_san_xuat.xlsx");
+    }
+
+    [HttpPost("manufacturers/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ManufacturerImportPreviewDto> PreviewManufacturersAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewManufacturersAsync(fileBytes);
+    }
+
+    [HttpPost("manufacturers")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportManufacturersAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportManufacturersAsync(fileBytes);
+    }
+
+    #endregion
+
     #region TestResultValue Import
 
     /// <summary>

@@ -1,9 +1,11 @@
+using System;
+using System.Collections.Generic;
+using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using System;
-using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 
@@ -11,7 +13,7 @@ namespace LabSpecimenManagement.Controllers.MasterData;
 
 [RemoteService(Name = "Default")]
 [Route("api/v1/manufacturers")]
-[Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+[Authorize(LabSpecimenManagementPermissions.Manufacturers.Default)]
 public class ManufacturerController : LabSpecimenManagementController
 {
     private readonly IManufacturerAppService _manufacturerAppService;
@@ -22,9 +24,15 @@ public class ManufacturerController : LabSpecimenManagementController
     }
 
     [HttpGet]
-    public virtual async Task<PagedResultDto<ManufacturerDto>> GetListAsync([FromQuery] PagedAndSortedResultRequestDto input)
+    public virtual async Task<PagedResultDto<ManufacturerDto>> GetListAsync([FromQuery] PagedRequestDto input)
     {
-        return await _manufacturerAppService.GetListAsync(input);
+        var abpInput = new PagedAndSortedResultRequestDto
+        {
+            SkipCount = input.SkipCount,
+            MaxResultCount = input.MaxResultCount,
+            Sorting = input.Sorting
+        };
+        return await _manufacturerAppService.GetListAsync(abpInput);
     }
 
     [HttpGet("{id}")]
@@ -33,24 +41,18 @@ public class ManufacturerController : LabSpecimenManagementController
         return _manufacturerAppService.GetAsync(id);
     }
 
-    [HttpGet("active")]
-    public virtual Task<ListResultDto<ManufacturerDto>> GetActiveAsync()
-    {
-        return _manufacturerAppService.GetActiveAsync();
-    }
-
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
-    public virtual async Task<ManufacturerDto> CreateAsync([FromBody] CreateUpdateManufacturerDto input)
+    public virtual Task<ManufacturerDto> CreateAsync([FromBody] CreateUpdateManufacturerDto input)
     {
-        return await _manufacturerAppService.CreateAsync(input);
+        return _manufacturerAppService.CreateAsync(input);
     }
 
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
-    public virtual async Task<ManufacturerDto> UpdateAsync(Guid id, [FromBody] CreateUpdateManufacturerDto input)
+    public virtual Task<ManufacturerDto> UpdateAsync(Guid id, [FromBody] CreateUpdateManufacturerDto input)
     {
-        return await _manufacturerAppService.UpdateAsync(id, input);
+        return _manufacturerAppService.UpdateAsync(id, input);
     }
 
     [HttpDelete("{id}")]
@@ -58,5 +60,38 @@ public class ManufacturerController : LabSpecimenManagementController
     public virtual Task DeleteAsync(Guid id)
     {
         return _manufacturerAppService.DeleteAsync(id);
+    }
+
+    [HttpGet("active")]
+    public virtual Task<ListResultDto<ManufacturerDto>> GetActiveAsync()
+    {
+        return _manufacturerAppService.GetActiveAsync();
+    }
+
+    [HttpGet("next-code")]
+    public virtual Task<string> GetNextCodeAsync()
+    {
+        return _manufacturerAppService.GetNextCodeAsync();
+    }
+
+    [HttpPost("{id}/toggle-active")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task ToggleActiveAsync(Guid id)
+    {
+        return _manufacturerAppService.ToggleActiveAsync(id);
+    }
+
+    [HttpPost("batch-delete")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
+    public virtual Task<int> BatchDeleteAsync([FromBody] BatchIdsDto input)
+    {
+        return _manufacturerAppService.BatchDeleteAsync(input.Ids);
+    }
+
+    [HttpPost("batch-toggle-active")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> BatchToggleActiveAsync([FromBody] BatchToggleActiveDto input)
+    {
+        return _manufacturerAppService.BatchToggleActiveAsync(input.Ids, input.IsActive);
     }
 }

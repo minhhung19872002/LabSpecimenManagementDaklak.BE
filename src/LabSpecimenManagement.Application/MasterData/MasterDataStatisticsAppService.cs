@@ -28,6 +28,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
     private readonly IRepository<Note, Guid> _noteRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IWebHostEnvironment _environment;
 
     public MasterDataStatisticsAppService(
@@ -45,6 +46,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         IRepository<Note, Guid> noteRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         IWebHostEnvironment environment)
     {
         _departmentRepository = departmentRepository;
@@ -61,6 +63,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         _noteRepository = noteRepository;
         _unitRepository = unitRepository;
         _warehouseRepository = warehouseRepository;
+        _manufacturerRepository = manufacturerRepository;
         _environment = environment;
     }
 
@@ -80,6 +83,7 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         var noteCount = await _noteRepository.CountAsync();
         var unitCount = await _unitRepository.CountAsync();
         var warehouseCount = await _warehouseRepository.CountAsync();
+        var manufacturerCount = await _manufacturerRepository.CountAsync();
 
         // Count form templates from file system
         var formTemplateCount = 0;
@@ -106,7 +110,8 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
             TestResultValueCount = (int)testResultValueCount,
             NoteCount = (int)noteCount,
             UnitCount = (int)unitCount,
-            WarehouseCount = (int)warehouseCount
+            WarehouseCount = (int)warehouseCount,
+            ManufacturerCount = (int)manufacturerCount
         };
     }
 }

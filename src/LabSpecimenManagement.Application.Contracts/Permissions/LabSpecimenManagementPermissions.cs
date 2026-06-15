@@ -346,6 +346,15 @@ public static class LabSpecimenManagementPermissions
         public const string Delete = Default + ".Delete";
     }
 
+    // Master Data - Manufacturers Permissions (Danh mục hãng sản xuất)
+    public static class Manufacturers
+    {
+        public const string Default = GroupName + ".Manufacturers";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Master Data - Notes Permissions (Quản lý ghi chú)
     public static class Notes
     {
