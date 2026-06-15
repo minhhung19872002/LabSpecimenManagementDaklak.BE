@@ -223,6 +223,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             taskQuery = taskQuery.Where(x => x.Task.RequestCompletionDate <= input.RequestCompletionDateTo.Value);
         }
 
+        // Apply TransferDate (UnderReviewDate) range filter
+        if (input.TransferDateFrom.HasValue || input.TransferDateTo.HasValue)
+        {
+            var trDateQuery = await _testRequestRepository.GetQueryableAsync();
+            if (input.TransferDateFrom.HasValue)
+            {
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate >= input.TransferDateFrom.Value);
+            }
+            if (input.TransferDateTo.HasValue)
+            {
+                var transferDateEnd = input.TransferDateTo.Value.Date.AddDays(1);
+                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate < transferDateEnd);
+            }
+            var matchingTrIds = trDateQuery.Select(tr => tr.Id);
+            taskQuery = taskQuery.Where(x => matchingTrIds.Contains(x.Task.TestRequestId));
+        }
+
         // Apply indicator filter (join through TestRequestSampleIndicator to get IndicatorId)
         if (input.IndicatorIds != null && input.IndicatorIds.Any())
         {
@@ -264,18 +281,20 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Load ContractDates for sorting
         var taskTestRequestIds = tasksWithStatus.Select(x => x.Task.TestRequestId).Distinct().ToList();
         var trQueryable = await _testRequestRepository.GetQueryableAsync();
-        var contractDateMap = trQueryable
+        var testRequestDateMap = trQueryable
             .Where(tr => taskTestRequestIds.Contains(tr.Id))
-            .Select(tr => new { tr.Id, tr.ContractDate })
-            .ToDictionary(tr => tr.Id, tr => tr.ContractDate);
+            .Select(tr => new { tr.Id, tr.ContractDate, tr.UnderReviewDate })
+            .ToDictionary(tr => tr.Id, tr => new { tr.ContractDate, tr.UnderReviewDate });
+
+        var contractDateMap = testRequestDateMap.ToDictionary(x => x.Key, x => x.Value.ContractDate);
 
         // Apply sorting
         var sortedTasks = tasksWithStatus.AsEnumerable();
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
         sortedTasks = sortingKey switch
         {
-            SortingFields.TransferDate => sortedTasks.OrderBy(x => x.Task.TransferDate),
-            SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => x.Task.TransferDate),
+            SortingFields.TransferDate => sortedTasks.OrderBy(x => testRequestDateMap.GetValueOrDefault(x.Task.TestRequestId)?.UnderReviewDate),
+            SortingFields.TransferDateDesc => sortedTasks.OrderByDescending(x => testRequestDateMap.GetValueOrDefault(x.Task.TestRequestId)?.UnderReviewDate),
             SortingFields.RequestCompletionDate => sortedTasks.OrderBy(x => x.Task.RequestCompletionDate),
             SortingFields.RequestCompletionDateDesc => sortedTasks.OrderByDescending(x => x.Task.RequestCompletionDate),
             SortingFields.TestDate => sortedTasks.OrderBy(x => x.Task.TestDate),
@@ -825,7 +844,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             Id = task.Id,
             LaboratoryTaskId = task.Id,
             ContractNumber = task.ContractNumber,
-            TransferDate = task.TransferDate,
+            TransferDate = null,
             RequestCompletionDate = task.RequestCompletionDate,
             TestDate = task.TestDate,
             TestingStatus = testingStatus,
@@ -844,6 +863,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
+        dto.TransferDate = testRequest?.UnderReviewDate;
 
         // Filter out parent indicators with children for counting
         var filteredIndicators = await FilterIndicatorsForStatusCalculationAsync(indicators);
@@ -2555,7 +2575,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                             ? null
                             : (tm != null ? tm.FormattedName : null),
                         Unit = li.Unit,
-                        TransferDate = si.TransferDate,
+                        TransferDate = tr.UnderReviewDate,
                         TestDate = li.TestDate,
                         Result = li.Result,
 
@@ -2622,12 +2642,13 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (input.FromDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate >= input.FromDate.Value);
+            query = query.Where(x => x.TransferDate >= input.FromDate.Value);
         }
 
         if (input.ToDate.HasValue)
         {
-            query = query.Where(x => x.RequestCompletionDate <= input.ToDate.Value);
+            var toDateEnd = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.TransferDate < toDateEnd);
         }
 
         if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
