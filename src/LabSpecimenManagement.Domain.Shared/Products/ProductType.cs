@@ -16,7 +16,17 @@ public enum ProductType
     Biological = 1,
 
     /// <summary>
-    /// Vật tư
+    /// Vật tư tiêu hao
     /// </summary>
-    Supply = 2
+    Supply = 2,
+
+    /// <summary>
+    /// Chất chuẩn
+    /// </summary>
+    Standard = 3,
+
+    /// <summary>
+    /// Dung môi
+    /// </summary>
+    Solvent = 4
 }

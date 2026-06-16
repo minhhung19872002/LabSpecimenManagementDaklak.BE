@@ -135,12 +135,15 @@ public class ProductAppService : ApplicationService, IProductAppService
             input.ProductType,
             input.BaseUnitId)
         {
+            FormattedName = input.FormattedName,
+            IdentificationCode = input.IdentificationCode,
             PackagingSpec = input.PackagingSpec,
             CASNumber = input.CASNumber,
             Manufacturer = input.Manufacturer,
             Origin = input.Origin,
             Concentration = input.Concentration,
             StorageConditions = input.StorageConditions,
+            FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
             MinStockLevel = input.MinStockLevel,
             MaxStockLevel = input.MaxStockLevel,
@@ -194,6 +197,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         var product = await _productRepository.GetAsync(id);
 
         product.Name = input.Name;
+        product.FormattedName = input.FormattedName;
+        product.IdentificationCode = input.IdentificationCode;
         product.ProductType = input.ProductType;
         product.BaseUnitId = input.BaseUnitId;
         product.PackagingSpec = input.PackagingSpec;
@@ -202,6 +207,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.Origin = input.Origin;
         product.Concentration = input.Concentration;
         product.StorageConditions = input.StorageConditions;
+        product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;
         product.MinStockLevel = input.MinStockLevel;
         product.MaxStockLevel = input.MaxStockLevel;

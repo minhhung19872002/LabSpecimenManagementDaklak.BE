@@ -2955,6 +2955,16 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<string>("FormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedStorageConditions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IdentificationCode")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 

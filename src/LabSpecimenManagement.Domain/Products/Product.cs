@@ -20,6 +20,16 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Name { get; set; }
 
     /// <summary>
+    /// Tên hàng hóa có định dạng HTML (rich text)
+    /// </summary>
+    public string? FormattedName { get; set; }
+
+    /// <summary>
+    /// Mã nhận dạng
+    /// </summary>
+    public string? IdentificationCode { get; set; }
+
+    /// <summary>
     /// Loại sản phẩm
     /// </summary>
     public ProductType ProductType { get; set; }
@@ -55,9 +65,14 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? Concentration { get; set; }
 
     /// <summary>
-    /// Điều kiện bảo quản (JSON array tags)
+    /// Điều kiện bảo quản (plain text)
     /// </summary>
     public string? StorageConditions { get; set; }
+
+    /// <summary>
+    /// Điều kiện bảo quản có định dạng HTML (rich text)
+    /// </summary>
+    public string? FormattedStorageConditions { get; set; }
 
     /// <summary>
     /// Nhóm / Phân loại (JSON array tags)

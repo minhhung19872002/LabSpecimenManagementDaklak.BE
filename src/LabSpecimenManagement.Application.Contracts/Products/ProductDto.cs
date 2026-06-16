@@ -13,6 +13,8 @@ public class ProductDto : FullAuditedEntityDto<Guid>
 {
     public string Code { get; set; }
     public string Name { get; set; }
+    public string? FormattedName { get; set; }
+    public string? IdentificationCode { get; set; }
     public ProductType ProductType { get; set; }
     public Guid BaseUnitId { get; set; }
     public string? BaseUnitName { get; set; }
@@ -22,6 +24,7 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? Origin { get; set; }
     public string? Concentration { get; set; }
     public string? StorageConditions { get; set; }
+    public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
     public decimal? MinStockLevel { get; set; }
     public decimal? MaxStockLevel { get; set; }
@@ -40,6 +43,11 @@ public class CreateUpdateProductDto
     [Required(ErrorMessage = "Vui lòng nhập tên hàng hóa")]
     [StringLength(500, ErrorMessage = "Tên hàng hóa không được vượt quá 500 ký tự")]
     public string Name { get; set; }
+
+    public string? FormattedName { get; set; }
+
+    [StringLength(256)]
+    public string? IdentificationCode { get; set; }
 
     [Required(ErrorMessage = "Vui lòng chọn loại sản phẩm")]
     public ProductType ProductType { get; set; }
@@ -62,14 +70,10 @@ public class CreateUpdateProductDto
     [StringLength(256)]
     public string? Concentration { get; set; }
 
-    /// <summary>
-    /// JSON array tags điều kiện bảo quản
-    /// </summary>
     public string? StorageConditions { get; set; }
 
-    /// <summary>
-    /// JSON array tags nhóm/phân loại
-    /// </summary>
+    public string? FormattedStorageConditions { get; set; }
+
     public string? Categories { get; set; }
 
     public decimal? MinStockLevel { get; set; }
