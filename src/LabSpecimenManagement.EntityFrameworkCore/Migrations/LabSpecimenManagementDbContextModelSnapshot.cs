@@ -2911,7 +2911,7 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<decimal>("AvailableQuantity")
                         .HasColumnType("numeric");
 
-                    b.Property<Guid>("BaseUnitId")
+                    b.Property<Guid?>("BaseUnitId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("CASNumber")
@@ -3007,15 +3007,27 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<int?>("PackagingQuantity")
+                        .HasColumnType("integer");
+
                     b.Property<string>("PackagingSpec")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("PackagingUnitId")
+                        .HasColumnType("uuid");
 
                     b.Property<int>("ProductType")
                         .HasColumnType("integer");
 
                     b.Property<string>("StorageConditions")
                         .HasColumnType("text");
+
+                    b.Property<int?>("VolumePerUnit")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("VolumeUnitId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 

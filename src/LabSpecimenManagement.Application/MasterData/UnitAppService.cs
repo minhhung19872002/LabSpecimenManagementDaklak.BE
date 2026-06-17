@@ -34,15 +34,29 @@ public class UnitAppService :
         DeletePolicyName = LabSpecimenManagementPermissions.MasterData.Delete;
     }
 
-    public async Task<ListResultDto<UnitDto>> GetActiveUnitsAsync()
+    public async Task<ListResultDto<UnitDto>> GetActiveUnitsAsync(List<Guid>? includeIds = null)
     {
         var query = await Repository.GetQueryableAsync();
-        var items = query
+
+        var activeItems = query
             .WhereActive()
             .OrderBy(x => x.Name)
             .ToList();
 
-        var dtos = ObjectMapper.Map<List<Unit>, List<UnitDto>>(items);
+        if (includeIds != null && includeIds.Count > 0)
+        {
+            var activeIds = activeItems.Select(x => x.Id).ToHashSet();
+            var missingIds = includeIds.Where(id => !activeIds.Contains(id)).ToList();
+            if (missingIds.Count > 0)
+            {
+                var inactiveItems = query
+                    .Where(x => missingIds.Contains(x.Id))
+                    .ToList();
+                activeItems.AddRange(inactiveItems);
+            }
+        }
+
+        var dtos = ObjectMapper.Map<List<Unit>, List<UnitDto>>(activeItems);
 
         return new ListResultDto<UnitDto>(dtos);
     }

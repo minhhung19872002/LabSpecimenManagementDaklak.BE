@@ -16,8 +16,14 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? FormattedName { get; set; }
     public string? IdentificationCode { get; set; }
     public ProductType ProductType { get; set; }
-    public Guid BaseUnitId { get; set; }
+    public Guid? BaseUnitId { get; set; }
     public string? BaseUnitName { get; set; }
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
+    public string? VolumeUnitName { get; set; }
     public string? PackagingSpec { get; set; }
     public string? CASNumber { get; set; }
     public string? Manufacturer { get; set; }
@@ -40,20 +46,22 @@ public class ProductDto : FullAuditedEntityDto<Guid>
 /// </summary>
 public class CreateUpdateProductDto
 {
-    [Required(ErrorMessage = "Vui lòng nhập tên hàng hóa")]
     [StringLength(500, ErrorMessage = "Tên hàng hóa không được vượt quá 500 ký tự")]
-    public string Name { get; set; }
+    public string? Name { get; set; }
 
     public string? FormattedName { get; set; }
 
     [StringLength(256)]
     public string? IdentificationCode { get; set; }
 
-    [Required(ErrorMessage = "Vui lòng chọn loại sản phẩm")]
     public ProductType ProductType { get; set; }
 
-    [Required(ErrorMessage = "Vui lòng chọn đơn vị tính")]
-    public Guid BaseUnitId { get; set; }
+    public Guid? BaseUnitId { get; set; }
+
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
 
     [StringLength(256)]
     public string? PackagingSpec { get; set; }

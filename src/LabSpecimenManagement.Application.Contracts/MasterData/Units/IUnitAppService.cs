@@ -16,9 +16,9 @@ public interface IUnitAppService : ICrudAppService<
     CreateUpdateUnitDto>
 {
     /// <summary>
-    /// Lấy danh sách đơn vị đang hoạt động
+    /// Lấy danh sách đơn vị đang hoạt động, kèm các đơn vị inactive theo ID nếu cần
     /// </summary>
-    Task<ListResultDto<UnitDto>> GetActiveUnitsAsync();
+    Task<ListResultDto<UnitDto>> GetActiveUnitsAsync(List<Guid>? includeIds = null);
 
     /// <summary>
     /// Bật/tắt trạng thái hoạt động

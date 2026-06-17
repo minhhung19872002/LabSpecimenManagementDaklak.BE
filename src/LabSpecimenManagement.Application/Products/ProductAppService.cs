@@ -131,12 +131,16 @@ public class ProductAppService : ApplicationService, IProductAppService
         var product = new Product(
             GuidGenerator.Create(),
             code,
-            input.Name,
+            input.Name ?? "",
             input.ProductType,
             input.BaseUnitId)
         {
             FormattedName = input.FormattedName,
             IdentificationCode = input.IdentificationCode,
+            PackagingQuantity = input.PackagingQuantity,
+            PackagingUnitId = input.PackagingUnitId,
+            VolumePerUnit = input.VolumePerUnit,
+            VolumeUnitId = input.VolumeUnitId,
             PackagingSpec = input.PackagingSpec,
             CASNumber = input.CASNumber,
             Manufacturer = input.Manufacturer,
@@ -196,11 +200,15 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         var product = await _productRepository.GetAsync(id);
 
-        product.Name = input.Name;
+        product.Name = input.Name ?? "";
         product.FormattedName = input.FormattedName;
         product.IdentificationCode = input.IdentificationCode;
         product.ProductType = input.ProductType;
         product.BaseUnitId = input.BaseUnitId;
+        product.PackagingQuantity = input.PackagingQuantity;
+        product.PackagingUnitId = input.PackagingUnitId;
+        product.VolumePerUnit = input.VolumePerUnit;
+        product.VolumeUnitId = input.VolumeUnitId;
         product.PackagingSpec = input.PackagingSpec;
         product.CASNumber = input.CASNumber;
         product.Manufacturer = input.Manufacturer;
@@ -432,8 +440,10 @@ public class ProductAppService : ApplicationService, IProductAppService
         }
     }
 
-    private async Task ValidateDuplicateNameAsync(string name, ProductType productType, Guid? excludeId = null)
+    private async Task ValidateDuplicateNameAsync(string? name, ProductType productType, Guid? excludeId = null)
     {
+        if (string.IsNullOrWhiteSpace(name)) return;
+
         var query = await _productRepository.GetQueryableAsync();
         var normalizedName = name.Trim().ToLower();
 
@@ -472,7 +482,12 @@ public class ProductAppService : ApplicationService, IProductAppService
         if (!products.Any()) return new List<ProductDto>();
 
         var productIds = products.Select(x => x.Id).ToList();
-        var unitIds = products.Select(x => x.BaseUnitId).Distinct().ToList();
+        var unitIds = products
+            .SelectMany(x => new[] { x.BaseUnitId, x.PackagingUnitId, x.VolumeUnitId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
 
         // Load units
         var unitsQuery = await _unitRepository.GetQueryableAsync();
@@ -507,7 +522,9 @@ public class ProductAppService : ApplicationService, IProductAppService
         return products.Select(product =>
         {
             var dto = ObjectMapper.Map<Product, ProductDto>(product);
-            dto.BaseUnitName = unitMap.GetValueOrDefault(product.BaseUnitId);
+            dto.BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null;
+            dto.PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null;
+            dto.VolumeUnitName = product.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value) : null;
 
             // Map attachments
             if (attachmentMap.TryGetValue(product.Id, out var productAttachments))

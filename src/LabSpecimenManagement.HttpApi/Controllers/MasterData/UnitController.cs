@@ -64,9 +64,9 @@ public class UnitController : LabSpecimenManagementController
 
     [HttpGet("active")]
     [AllowAnonymous]
-    public virtual Task<ListResultDto<UnitDto>> GetActiveUnitsAsync()
+    public virtual Task<ListResultDto<UnitDto>> GetActiveUnitsAsync([FromQuery] List<Guid>? includeIds = null)
     {
-        return _unitAppService.GetActiveUnitsAsync();
+        return _unitAppService.GetActiveUnitsAsync(includeIds);
     }
 
     [HttpPost("{id}/toggle-active")]

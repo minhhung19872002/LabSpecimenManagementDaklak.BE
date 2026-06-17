@@ -498,6 +498,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(500);
             b.Property(x => x.FormattedName);
             b.Property(x => x.IdentificationCode).HasMaxLength(256);
+            b.Property(x => x.PackagingQuantity);
+            b.Property(x => x.PackagingUnitId);
+            b.Property(x => x.VolumePerUnit);
+            b.Property(x => x.VolumeUnitId);
             b.Property(x => x.PackagingSpec).HasMaxLength(256);
             b.Property(x => x.CASNumber).HasMaxLength(100);
             b.Property(x => x.Manufacturer).HasMaxLength(256);

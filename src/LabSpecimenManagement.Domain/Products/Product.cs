@@ -37,10 +37,15 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     /// <summary>
     /// ID đơn vị tính cơ bản (FK → Unit)
     /// </summary>
-    public Guid BaseUnitId { get; set; }
+    public Guid? BaseUnitId { get; set; }
+
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
 
     /// <summary>
-    /// Quy cách đóng gói (Size)
+    /// Quy cách đóng gói (auto-computed)
     /// </summary>
     public string? PackagingSpec { get; set; }
 
@@ -108,7 +113,7 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     {
     }
 
-    public Product(Guid id, string code, string name, ProductType productType, Guid baseUnitId) : base(id)
+    public Product(Guid id, string code, string name, ProductType productType, Guid? baseUnitId) : base(id)
     {
         Code = code;
         Name = name;

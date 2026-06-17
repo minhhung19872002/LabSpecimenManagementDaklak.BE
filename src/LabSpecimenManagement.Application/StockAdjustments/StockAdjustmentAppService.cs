@@ -132,7 +132,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 adjustment.Id,
                 product.Id,
                 product.Name,
-                product.BaseUnitId,
+                product.BaseUnitId ?? Guid.Empty,
                 unitName,
                 product.AvailableQuantity,
                 itemInput.ActualQuantity);
@@ -180,7 +180,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 adjustment.Id,
                 product.Id,
                 product.Name,
-                product.BaseUnitId,
+                product.BaseUnitId ?? Guid.Empty,
                 unitName,
                 product.AvailableQuantity,
                 itemInput.ActualQuantity);
