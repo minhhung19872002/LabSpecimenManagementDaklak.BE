@@ -148,6 +148,8 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.TestResultValues.Default, "Quản lý kết quả"),
             (LabSpecimenManagementPermissions.Notes.Default, "Quản lý ghi chú"),
             (LabSpecimenManagementPermissions.Units.Default, "Đơn vị hàng hóa"),
+            (LabSpecimenManagementPermissions.Manufacturers.Default, "Danh mục hãng sản xuất"),
+            (LabSpecimenManagementPermissions.Warehouses.Default, "Danh mục kho"),
         }),
 
         // ==================== QUẢN TRỊ HỆ THỐNG ====================

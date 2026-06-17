@@ -41,6 +41,8 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
         LabSpecimenManagementPermissions.TestResultValues.Default,
         LabSpecimenManagementPermissions.Notes.Default,
         LabSpecimenManagementPermissions.Units.Default,
+        LabSpecimenManagementPermissions.Manufacturers.Default,
+        LabSpecimenManagementPermissions.Warehouses.Default,
     };
 
     public RolePermissionsDataSeedContributor(
@@ -134,6 +136,14 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.Units.Create,
             LabSpecimenManagementPermissions.Units.Edit,
             LabSpecimenManagementPermissions.Units.Delete,
+            LabSpecimenManagementPermissions.Manufacturers.Default,
+            LabSpecimenManagementPermissions.Manufacturers.Create,
+            LabSpecimenManagementPermissions.Manufacturers.Edit,
+            LabSpecimenManagementPermissions.Manufacturers.Delete,
+            LabSpecimenManagementPermissions.Warehouses.Default,
+            LabSpecimenManagementPermissions.Warehouses.Create,
+            LabSpecimenManagementPermissions.Warehouses.Edit,
+            LabSpecimenManagementPermissions.Warehouses.Delete,
         };
 
         var roles = await _roleRepository.GetListAsync();
@@ -387,6 +397,18 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             LabSpecimenManagementPermissions.Units.Create,
             LabSpecimenManagementPermissions.Units.Edit,
             LabSpecimenManagementPermissions.Units.Delete,
+
+            // Master Data - Manufacturers
+            LabSpecimenManagementPermissions.Manufacturers.Default,
+            LabSpecimenManagementPermissions.Manufacturers.Create,
+            LabSpecimenManagementPermissions.Manufacturers.Edit,
+            LabSpecimenManagementPermissions.Manufacturers.Delete,
+
+            // Master Data - Warehouses
+            LabSpecimenManagementPermissions.Warehouses.Default,
+            LabSpecimenManagementPermissions.Warehouses.Create,
+            LabSpecimenManagementPermissions.Warehouses.Edit,
+            LabSpecimenManagementPermissions.Warehouses.Delete,
 
             // Suppliers (Quản lý nhà cung cấp)
             LabSpecimenManagementPermissions.Suppliers.Default,
