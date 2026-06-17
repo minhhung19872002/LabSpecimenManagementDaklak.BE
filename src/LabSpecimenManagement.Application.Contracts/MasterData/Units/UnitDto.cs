@@ -11,6 +11,7 @@ public class UnitDto : FullAuditedEntityDto<Guid>
 {
     public string Code { get; set; }
     public string Name { get; set; }
+    public UnitCategory? Category { get; set; }
     public bool IsActive { get; set; }
 }
 
@@ -26,6 +27,9 @@ public class CreateUpdateUnitDto
     [Required(ErrorMessage = "Vui lòng nhập tên đơn vị hàng hóa")]
     [StringLength(256, ErrorMessage = "Tên đơn vị không được vượt quá 256 ký tự")]
     public string Name { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng chọn phân loại đơn vị")]
+    public UnitCategory? Category { get; set; }
 
     public bool IsActive { get; set; } = true;
 }

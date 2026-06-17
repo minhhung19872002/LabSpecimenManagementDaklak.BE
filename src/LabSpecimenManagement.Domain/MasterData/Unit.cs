@@ -20,6 +20,11 @@ public class Unit : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Name { get; set; }
 
     /// <summary>
+    /// Phân loại đơn vị
+    /// </summary>
+    public UnitCategory? Category { get; set; }
+
+    /// <summary>
     /// Trạng thái hoạt động
     /// </summary>
     public bool IsActive { get; set; }

@@ -126,6 +126,7 @@ public class UnitAppService :
     {
         return Task.FromResult(new Unit(GuidGenerator.Create(), createInput.Code, createInput.Name)
         {
+            Category = createInput.Category,
             IsActive = createInput.IsActive
         });
     }
@@ -134,6 +135,7 @@ public class UnitAppService :
     {
         entity.Code = updateInput.Code;
         entity.Name = updateInput.Name;
+        entity.Category = updateInput.Category;
         entity.IsActive = updateInput.IsActive;
         return Task.CompletedTask;
     }
