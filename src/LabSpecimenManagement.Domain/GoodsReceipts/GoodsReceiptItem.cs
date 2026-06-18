@@ -25,6 +25,9 @@ public class GoodsReceiptItem : Entity<Guid>
     public Guid? ManufacturerId { get; set; }
     public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
+    public DateTime? ReceivedDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public Guid? WarehouseId { get; set; }
 
     protected GoodsReceiptItem()
     {

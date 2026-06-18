@@ -59,6 +59,7 @@ public class GoodsReceiptItemDto : EntityDto<Guid>
     public Guid GoodsReceiptId { get; set; }
     public Guid ProductId { get; set; }
     public string ProductName { get; set; }
+    public string? IdentificationCode { get; set; }
     public Guid UnitId { get; set; }
     public string UnitName { get; set; }
     public decimal Quantity { get; set; }
@@ -76,6 +77,10 @@ public class GoodsReceiptItemDto : EntityDto<Guid>
     public Guid? ManufacturerId { get; set; }
     public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
+    public DateTime? ReceivedDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
 }
 
 public class GoodsReceiptPaymentDto : EntityDto<Guid>
@@ -161,6 +166,10 @@ public class CreateUpdateGoodsReceiptItemDto
     public string? ManufacturerName { get; set; }
 
     public Guid? SupplierId { get; set; }
+
+    public DateTime? ReceivedDate { get; set; }
+    public DateTime? ExpiryDate { get; set; }
+    public Guid? WarehouseId { get; set; }
 }
 
 public class GetGoodsReceiptListInput : PagedRequestDto

@@ -368,6 +368,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid>("GoodsReceiptId")
                         .HasColumnType("uuid");
 
@@ -406,6 +409,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<DateTime?>("ReceivedDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("SerialNumber")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
@@ -435,6 +441,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<decimal>("VatPercent")
                         .HasPrecision(5, 2)
                         .HasColumnType("numeric(5,2)");
+
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
 
                     b.HasKey("Id");
 

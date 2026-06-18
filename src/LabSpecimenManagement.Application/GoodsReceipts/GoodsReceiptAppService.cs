@@ -32,6 +32,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -46,6 +47,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<Unit, Guid> unitRepository,
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
+        IRepository<Warehouse, Guid> warehouseRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -59,6 +61,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _unitRepository = unitRepository;
         _equipmentRepository = equipmentRepository;
         _manufacturerRepository = manufacturerRepository;
+        _warehouseRepository = warehouseRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -661,6 +664,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                     existing.ManufacturerId = resolvedManufacturerId;
                     existing.SupplierId = resolvedItemSupplierId;
                     existing.SupplierName = resolvedItemSupplierName;
+                    existing.ReceivedDate = itemDto.ReceivedDate;
+                    existing.ExpiryDate = itemDto.ExpiryDate;
+                    existing.WarehouseId = itemDto.WarehouseId;
                     existing.Calculate();
                     await _itemRepository.UpdateAsync(existing, autoSave: true);
                     continue;
@@ -687,6 +693,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 ManufacturerId = resolvedManufacturerId,
                 SupplierId = resolvedItemSupplierId,
                 SupplierName = resolvedItemSupplierName,
+                ReceivedDate = itemDto.ReceivedDate,
+                ExpiryDate = itemDto.ExpiryDate,
+                WarehouseId = itemDto.WarehouseId,
             };
             item.Calculate();
             await _itemRepository.InsertAsync(item, autoSave: true);
@@ -703,6 +712,30 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             .OrderBy(x => x.Id)
             .ToList();
         dto.Items = items.Select(x => ObjectMapper.Map<GoodsReceiptItem, GoodsReceiptItemDto>(x)).ToList();
+
+        var productIds = items.Select(x => x.ProductId).Distinct().ToList();
+        if (productIds.Count > 0)
+        {
+            var productQuery = await _productRepository.GetQueryableAsync();
+            var productMap = productQuery.Where(p => productIds.Contains(p.Id)).ToDictionary(p => p.Id, p => p.IdentificationCode);
+            foreach (var itemDto in dto.Items)
+            {
+                if (productMap.TryGetValue(itemDto.ProductId, out var code))
+                    itemDto.IdentificationCode = code;
+            }
+        }
+
+        var warehouseIds = items.Where(x => x.WarehouseId.HasValue).Select(x => x.WarehouseId!.Value).Distinct().ToList();
+        if (warehouseIds.Count > 0)
+        {
+            var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+            var warehouseMap = warehouseQuery.Where(w => warehouseIds.Contains(w.Id)).ToDictionary(w => w.Id, w => w.Name);
+            foreach (var itemDto in dto.Items)
+            {
+                if (itemDto.WarehouseId.HasValue && warehouseMap.TryGetValue(itemDto.WarehouseId.Value, out var name))
+                    itemDto.WarehouseName = name;
+            }
+        }
 
         var payments = (await _paymentRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == receipt.Id)

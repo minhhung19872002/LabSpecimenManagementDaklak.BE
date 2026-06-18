@@ -591,6 +591,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Manufacturer).HasMaxLength(500);
             b.Property(x => x.SupplierName).HasMaxLength(500);
 
+            b.Property(x => x.ReceivedDate).IsRequired(false);
+            b.Property(x => x.ExpiryDate).IsRequired(false);
+            b.Property(x => x.WarehouseId).IsRequired(false);
+
             b.HasIndex(x => x.GoodsReceiptId);
             b.HasIndex(x => x.ProductId);
         });
