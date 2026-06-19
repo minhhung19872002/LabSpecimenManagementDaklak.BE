@@ -94,6 +94,11 @@ public class NotificationDto : EntityDto<Guid>
     /// Số ngày còn lại đến deadline (computed)
     /// </summary>
     public int? DaysRemaining { get; set; }
+
+    /// <summary>
+    /// KTV đã hoàn thành tất cả chỉ tiêu được giao (computed, chỉ có ý nghĩa với loại thông báo gán KTV)
+    /// </summary>
+    public bool IsTaskCompleted { get; set; }
 }
 
 /// <summary>
