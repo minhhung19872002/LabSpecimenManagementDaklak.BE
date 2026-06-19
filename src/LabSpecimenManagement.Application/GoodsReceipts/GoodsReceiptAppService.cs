@@ -363,9 +363,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             var product = await _productRepository.GetAsync(item.ProductId!.Value);
             decimal baseQty;
 
-            if (item.UnitId == product.BaseUnitId)
+            if (product.BaseUnitId == null)
             {
                 baseQty = item.Quantity;
+            }
+            else if (item.UnitId == product.BaseUnitId)
+            {
+                baseQty = item.Quantity;
+            }
+            else if (item.UnitId == product.PackagingUnitId && product.PackagingQuantity > 0)
+            {
+                baseQty = item.Quantity / product.PackagingQuantity.Value;
             }
             else
             {
