@@ -35,6 +35,7 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public decimal? MinStockLevel { get; set; }
     public decimal? MaxStockLevel { get; set; }
     public decimal AvailableQuantity { get; set; }
+    public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();

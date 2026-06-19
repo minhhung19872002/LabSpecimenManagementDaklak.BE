@@ -95,6 +95,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 "producttype desc" => query.OrderByDescending(x => x.ProductType),
                 "availablequantity asc" => query.OrderBy(x => x.AvailableQuantity),
                 "availablequantity desc" => query.OrderByDescending(x => x.AvailableQuantity),
+                "storageavailablequantity asc" => query.OrderBy(x => x.AvailableQuantity * (x.PackagingQuantity ?? 1)),
+                "storageavailablequantity desc" => query.OrderByDescending(x => x.AvailableQuantity * (x.PackagingQuantity ?? 1)),
                 "creationtime asc" => query.OrderBy(x => x.CreationTime),
                 _ => query.OrderByDescending(x => x.CreationTime),
             };
@@ -525,6 +527,9 @@ public class ProductAppService : ApplicationService, IProductAppService
             dto.BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null;
             dto.PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null;
             dto.VolumeUnitName = product.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value) : null;
+            dto.StorageAvailableQuantity = product.PackagingQuantity > 0
+                ? product.AvailableQuantity * product.PackagingQuantity.Value
+                : product.AvailableQuantity;
 
             // Map attachments
             if (attachmentMap.TryGetValue(product.Id, out var productAttachments))

@@ -156,6 +156,7 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         // Product mappings
         CreateMap<Product, ProductDto>()
             .ForMember(dest => dest.BaseUnitName, opt => opt.Ignore())
+            .ForMember(dest => dest.StorageAvailableQuantity, opt => opt.Ignore())
             .ForMember(dest => dest.Attachments, opt => opt.Ignore())
             .ForMember(dest => dest.UnitConversions, opt => opt.Ignore());
 
