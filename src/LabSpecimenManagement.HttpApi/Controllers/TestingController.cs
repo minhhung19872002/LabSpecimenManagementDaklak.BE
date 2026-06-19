@@ -60,6 +60,15 @@ public class TestingController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get distinct result values for dropdown filter
+    /// </summary>
+    [HttpGet("sample-assignment-log/distinct-results")]
+    public virtual async Task<ListResultDto<string>> GetDistinctResultsAsync([FromQuery] GetSampleAssignmentLogInput input)
+    {
+        return await _testingAppService.GetDistinctResultsAsync(input);
+    }
+
+    /// <summary>
     /// Get statistics for sample assignment log (by QLKTDisplayStatus)
     /// </summary>
     [HttpGet("sample-assignment-log/statistics")]
