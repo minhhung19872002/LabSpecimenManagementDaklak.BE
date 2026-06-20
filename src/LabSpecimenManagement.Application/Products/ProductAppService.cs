@@ -127,6 +127,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     public async Task<ProductDto> CreateAsync(CreateUpdateProductDto input)
     {
         await ValidateDuplicateNameAsync(input.Name, input.ProductType);
+        await ValidateDuplicateIdentificationCodeAsync(input.IdentificationCode);
 
         var code = await GenerateProductCodeAsync(input.ProductType);
 
@@ -199,6 +200,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     public async Task<ProductDto> UpdateAsync(Guid id, CreateUpdateProductDto input)
     {
         await ValidateDuplicateNameAsync(input.Name, input.ProductType, id);
+        await ValidateDuplicateIdentificationCodeAsync(input.IdentificationCode, id);
 
         var product = await _productRepository.GetAsync(id);
 
@@ -457,6 +459,24 @@ public class ProductAppService : ApplicationService, IProductAppService
         if (exists)
         {
             throw new UserFriendlyException("Tên sản phẩm đã tồn tại trong cùng loại sản phẩm. Vui lòng chọn tên khác.");
+        }
+    }
+
+    private async Task ValidateDuplicateIdentificationCodeAsync(string? identificationCode, Guid? excludeId = null)
+    {
+        if (string.IsNullOrWhiteSpace(identificationCode)) return;
+
+        var query = await _productRepository.GetQueryableAsync();
+        var normalized = identificationCode.Trim().ToLower();
+
+        var exists = await AsyncExecuter.AnyAsync(query.Where(x =>
+            x.IdentificationCode != null &&
+            x.IdentificationCode.ToLower() == normalized &&
+            (excludeId == null || x.Id != excludeId)));
+
+        if (exists)
+        {
+            throw new UserFriendlyException("Vật tư đã tồn tại trong kho");
         }
     }
 
