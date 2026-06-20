@@ -4,6 +4,7 @@ using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common.Exceptions;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.Notifications;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -14,16 +15,25 @@ namespace LabSpecimenManagement.Notifications;
 
 public class NotificationAppService : ApplicationService, INotificationAppService
 {
+    private static readonly HashSet<NotificationType> KtvAssignmentTypes = new()
+    {
+        NotificationType.SingleIndicatorAssignedToTechnician,
+        NotificationType.MultipleIndicatorsAssignedToTechnician,
+    };
+
     private readonly IRepository<Notification, Guid> _notificationRepository;
+    private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly ICurrentUser _currentUser;
     private readonly INotificationHubService? _notificationHubService;
 
     public NotificationAppService(
         IRepository<Notification, Guid> notificationRepository,
+        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         ICurrentUser currentUser,
         INotificationHubService? notificationHubService = null)
     {
         _notificationRepository = notificationRepository;
+        _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _currentUser = currentUser;
         _notificationHubService = notificationHubService;
     }
@@ -78,6 +88,45 @@ public class NotificationAppService : ApplicationService, INotificationAppServic
                 ? (int?)(n.DeadlineDate.Value.Date - DateTime.UtcNow.Date).Days
                 : null
         }).ToList();
+
+        // Compute IsTaskCompleted for KTV assignment notifications
+        var ktvDtos = dtos
+            .Where(d => KtvAssignmentTypes.Contains(d.Type) && !string.IsNullOrEmpty(d.ReferenceId))
+            .ToList();
+
+        if (ktvDtos.Count > 0)
+        {
+            var taskIds = ktvDtos
+                .Select(d => Guid.TryParse(d.ReferenceId, out var g) ? g : (Guid?)null)
+                .Where(g => g.HasValue)
+                .Select(g => g!.Value)
+                .Distinct()
+                .ToArray();
+
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(ti =>
+                taskIds.Contains(ti.LaboratoryTaskId) &&
+                ti.TechnicianId == currentUserId &&
+                ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+                ti.ApprovalStatus != IndicatorApprovalStatus.CannotTest);
+
+            var indicatorsByTaskId = taskIndicators
+                .GroupBy(ti => ti.LaboratoryTaskId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+
+            foreach (var dto in ktvDtos)
+            {
+                if (Guid.TryParse(dto.ReferenceId, out var taskId) &&
+                    indicatorsByTaskId.TryGetValue(taskId, out var indicators) &&
+                    indicators.Count > 0)
+                {
+                    dto.IsTaskCompleted = indicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
+                }
+                else
+                {
+                    dto.IsTaskCompleted = false;
+                }
+            }
+        }
 
         return new PagedResultDto<NotificationDto>(totalCount, dtos);
     }

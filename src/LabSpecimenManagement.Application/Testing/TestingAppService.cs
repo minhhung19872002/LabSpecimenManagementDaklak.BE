@@ -2673,6 +2673,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             query = query.Where(x => x.TechnicianId.HasValue && technicianIdSet.Contains(x.TechnicianId.Value));
         }
 
+        if (input.Results != null && input.Results.Any())
+        {
+            var resultSet = input.Results.ToHashSet();
+            query = query.Where(x => x.Result != null && resultSet.Contains(x.Result));
+        }
+
         // Apply sorting
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
 
@@ -2776,6 +2782,153 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }).ToList();
 
         return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalContractCount, dtos);
+    }
+
+    /// <summary>
+    /// Lấy danh sách kết quả distinct cho dropdown filter
+    /// </summary>
+    public async Task<ListResultDto<string>> GetDistinctResultsAsync(QualityManagement.GetSampleAssignmentLogInput input)
+    {
+        var currentUserId = CurrentUser.Id;
+        var isAdmin = CurrentUser.IsInRole(AppConstants.RoleAdmin);
+
+        var labIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var labTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var masterIndicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var query = from li in labIndicatorQuery
+                    join lt in labTaskQuery on li.LaboratoryTaskId equals lt.Id
+                    join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
+                    join s in sampleQuery on si.TestRequestSampleId equals s.Id
+                    join tr in testRequestQuery on lt.TestRequestId equals tr.Id
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    where li.Result != null && li.Result != ""
+                    select new
+                    {
+                        Result = li.Result,
+                        LaboratoryTaskId = lt.Id,
+                        LaboratoryId = lt.LaboratoryId,
+                        ContractNumber = tr.ContractNumber,
+                        SampleCode = s.SampleCode,
+                        SampleName = s.SampleName,
+                        IndicatorName = mi.Name,
+                        TransferDate = tr.UnderReviewDate,
+                        TestRequestSampleIndicatorId = si.Id,
+                        TechnicianId = li.TechnicianId,
+                        IndicatorApprovalStatus = li.ApprovalStatus,
+                        MethodId = li.MethodId,
+                        TestDate = li.TestDate,
+                        TestRequestStatus = tr.Status
+                    };
+
+        // Access control
+        if (currentUserId.HasValue && !isAdmin)
+        {
+            var managedLaboratoryIds = (await _laboratoryRepository.GetListAsync(
+                lab => lab.TechnicalManagerId == currentUserId.Value))
+                .Select(lab => lab.Id)
+                .ToHashSet();
+
+            var supporterTaskIds = (await _supporterRepository.GetListAsync(
+                s => s.UserId == currentUserId.Value))
+                .Select(s => s.LaboratoryTaskId)
+                .ToHashSet();
+
+            var currentUser = await _identityUserRepository.FindAsync(currentUserId.Value);
+            var userDepartmentId = currentUser?.GetProperty<Guid?>(AppConstants.PropertyDepartmentId);
+
+            var userLabIds = new HashSet<Guid>();
+            if (userDepartmentId.HasValue)
+            {
+                userLabIds = (await _laboratoryRepository.GetListAsync(
+                    lab => lab.DepartmentId == userDepartmentId.Value))
+                    .Select(lab => lab.Id)
+                    .ToHashSet();
+            }
+
+            query = query.Where(x =>
+                managedLaboratoryIds.Contains(x.LaboratoryId) ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId) ||
+                userLabIds.Contains(x.LaboratoryId));
+        }
+
+        // Apply same filters as GetSampleAssignmentLogAsync (except Results)
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var searchLower = input.Search.ToLower();
+            query = query.Where(x =>
+                (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
+                (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
+                (x.SampleName != null && x.SampleName.ToLower().Contains(searchLower)) ||
+                (x.IndicatorName != null && x.IndicatorName.ToLower().Contains(searchLower)));
+        }
+
+        if (input.FromDate.HasValue)
+        {
+            query = query.Where(x => x.TransferDate >= input.FromDate.Value);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            var toDateEnd = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.TransferDate < toDateEnd);
+        }
+
+        if (input.LaboratoryIds != null && input.LaboratoryIds.Count > 0)
+        {
+            query = query.Where(x => input.LaboratoryIds.Contains(x.LaboratoryId));
+        }
+
+        if (input.IndicatorIds != null && input.IndicatorIds.Any())
+        {
+            var indicatorIdSet = input.IndicatorIds.ToHashSet();
+            var matchingSampleIndicatorIds = sampleIndicatorQuery
+                .Where(si => indicatorIdSet.Contains(si.IndicatorId))
+                .Select(si => si.Id)
+                .ToHashSet();
+
+            query = query.Where(x => matchingSampleIndicatorIds.Contains(x.TestRequestSampleIndicatorId));
+        }
+
+        if (input.TechnicianIds != null && input.TechnicianIds.Any())
+        {
+            var technicianIdSet = input.TechnicianIds.ToHashSet();
+            query = query.Where(x => x.TechnicianId.HasValue && technicianIdSet.Contains(x.TechnicianId.Value));
+        }
+
+        var allItems = query.ToList();
+
+        // Apply QlktDisplayStatuses in-memory filter
+        if (input.QlktDisplayStatuses != null && input.QlktDisplayStatuses.Count > 0)
+        {
+            var qualityIndicatorQuery = await _qualityIndicatorRepository.GetQueryableAsync();
+            var labIndicatorIds = allItems.Select(x => x.LaboratoryTaskId).Distinct().ToList();
+
+            var statusSet = new HashSet<int>(input.QlktDisplayStatuses);
+            allItems = allItems.Where(x =>
+            {
+                var status = MapQLKTDisplayStatus(
+                    x.IndicatorApprovalStatus,
+                    x.MethodId,
+                    x.TechnicianId,
+                    x.TestDate,
+                    x.Result,
+                    null,
+                    x.TestRequestStatus);
+                return statusSet.Contains((int)status);
+            }).ToList();
+        }
+
+        var distinctResults = allItems
+            .Select(x => x.Result!)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+
+        return new ListResultDto<string>(distinctResults);
     }
 
     /// <summary>

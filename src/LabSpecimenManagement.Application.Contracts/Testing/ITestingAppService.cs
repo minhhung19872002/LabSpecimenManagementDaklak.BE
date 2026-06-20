@@ -121,6 +121,11 @@ public interface ITestingAppService : IApplicationService
     Task<PagedResultDto<SampleAssignmentLogDto>> GetSampleAssignmentLogAsync(GetSampleAssignmentLogInput input);
 
     /// <summary>
+    /// Lấy danh sách kết quả distinct cho dropdown filter
+    /// </summary>
+    Task<ListResultDto<string>> GetDistinctResultsAsync(GetSampleAssignmentLogInput input);
+
+    /// <summary>
     /// Lấy thống kê Sổ nhận mẫu giao việc theo QLKTDisplayStatus
     /// </summary>
     Task<SampleAssignmentLogStatisticsDto> GetSampleAssignmentLogStatisticsAsync();

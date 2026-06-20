@@ -54,6 +54,11 @@ public class GetSampleAssignmentLogInput : PagedAndSortedResultRequestDto
     /// </summary>
     public List<int>? QlktDisplayStatuses { get; set; }
 
+    /// <summary>
+    /// Lọc theo kết quả - Result values (multi-select, free-text match)
+    /// </summary>
+    public List<string>? Results { get; set; }
+
     public GetSampleAssignmentLogInput()
     {
         // Default sorting: RequestCompletionDate ascending
