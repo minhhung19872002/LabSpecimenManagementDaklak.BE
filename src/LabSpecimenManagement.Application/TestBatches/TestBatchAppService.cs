@@ -921,6 +921,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 RequestCompletionDate = task?.RequestCompletionDate,
                 SampleSentDate = task?.SampleSentDate,
                 IsAlreadyInBatch = existingSet.Contains(ti.Id),
+                TestingStatus = MapTestingStatus(ti.ApprovalStatus, ti.TestDate, ti.Result),
             };
         }).OrderBy(x => x.TechnicianName).ToList();
 
@@ -928,6 +929,18 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     }
 
     #region Private Methods
+
+    private static int MapTestingStatus(IndicatorApprovalStatus approvalStatus, DateTime? testDate, string? result)
+    {
+        if (approvalStatus == IndicatorApprovalStatus.Rejected) return (int)TestingStatus.Rejected;
+        if (approvalStatus == IndicatorApprovalStatus.CannotTest) return (int)TestingStatus.CannotTest;
+        if (!string.IsNullOrWhiteSpace(result))
+            return approvalStatus == IndicatorApprovalStatus.Approved
+                ? (int)TestingStatus.Completed
+                : (int)TestingStatus.PendingApproval;
+        if (testDate.HasValue) return (int)TestingStatus.InProgress;
+        return (int)TestingStatus.NotStarted;
+    }
 
     private async Task<string> GenerateBatchCodeAsync()
     {

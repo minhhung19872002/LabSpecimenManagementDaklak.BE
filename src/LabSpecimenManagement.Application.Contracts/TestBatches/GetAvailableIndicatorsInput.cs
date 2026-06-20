@@ -47,4 +47,6 @@ public class AvailableIndicatorDto : EntityDto<Guid>
     public DateTime? SampleSentDate { get; set; }
 
     public bool IsAlreadyInBatch { get; set; }
+
+    public int TestingStatus { get; set; }
 }
