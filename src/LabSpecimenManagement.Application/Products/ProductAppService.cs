@@ -342,6 +342,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         var query = await _productRepository.GetQueryableAsync();
         var items = query
             .WhereActive()
+            .Where(x => !x.IsDraft)
             .OrderBy(x => x.Name)
             .ToList();
 
