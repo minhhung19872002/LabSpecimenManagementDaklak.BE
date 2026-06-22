@@ -49,6 +49,19 @@ public static class HtmlToOpenXmlConverter
         var context = new FormattingContext();
         ParseHtml(trimmedHtml, runs, context, baseProperties);
 
+        // Remove trailing break-only runs (e.g., from </p> at end of content)
+        // A trailing break adds empty space in table cells and breaks vertical alignment
+        while (runs.Count > 0)
+        {
+            var lastRun = runs[runs.Count - 1];
+            var hasBreak = lastRun.GetFirstChild<Break>() != null;
+            var hasText = lastRun.GetFirstChild<Text>() != null;
+            if (hasBreak && !hasText)
+                runs.RemoveAt(runs.Count - 1);
+            else
+                break;
+        }
+
         return runs;
     }
 
