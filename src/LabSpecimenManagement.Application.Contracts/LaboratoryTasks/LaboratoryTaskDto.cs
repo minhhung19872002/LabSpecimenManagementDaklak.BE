@@ -209,6 +209,16 @@ public class LaboratoryTaskIndicatorDto
     public string? SampleName { get; set; }
 
     /// <summary>
+    /// Lượng mẫu gửi - Sample Quantity
+    /// </summary>
+    public string? SampleQuantity { get; set; }
+
+    /// <summary>
+    /// Tình trạng mẫu - Sample Status Text
+    /// </summary>
+    public string? SampleStatusText { get; set; }
+
+    /// <summary>
     /// ID nền mẫu (loại mẫu) - Specimen Type ID
     /// </summary>
     public Guid? SpecimenTypeId { get; set; }
