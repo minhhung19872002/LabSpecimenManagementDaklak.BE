@@ -1544,7 +1544,10 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
+                        var tmi = await _testMethodIndicatorRepository.FirstOrDefaultAsync(x =>
+                            x.TestMethodId == testMethod.Id && x.IndicatorId == indicator.IndicatorId);
+                        taskIndicator.Unit = tmi?.FormattedUnit ?? tmi?.Unit
+                            ?? testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 
@@ -2795,7 +2798,10 @@ public partial class TestRequestAppService :
                     var testMethod = await _testMethodRepository.FindAsync(indicator.TestMethodId.Value);
                     if (testMethod != null)
                     {
-                        taskIndicator.Unit = testMethod.FormattedUnit ?? testMethod.Unit ?? "";
+                        var tmi = await _testMethodIndicatorRepository.FirstOrDefaultAsync(x =>
+                            x.TestMethodId == testMethod.Id && x.IndicatorId == indicator.IndicatorId);
+                        taskIndicator.Unit = tmi?.FormattedUnit ?? tmi?.Unit
+                            ?? testMethod.FormattedUnit ?? testMethod.Unit ?? "";
                     }
                 }
 

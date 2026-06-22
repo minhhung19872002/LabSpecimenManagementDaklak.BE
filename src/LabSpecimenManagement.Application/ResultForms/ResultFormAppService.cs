@@ -50,6 +50,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<ResultFormAppService> _logger;
     private readonly IIdentityUserRepository _userRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
 
     // Template constants are defined in TemplateConstants class
     // Use TemplateConstants.StandardBasedTemplates for single indicator templates
@@ -73,7 +74,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         ICurrentUser currentUser,
         IPdfConversionService pdfConversionService,
         ILogger<ResultFormAppService> logger,
-        IIdentityUserRepository userRepository)
+        IIdentityUserRepository userRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -94,6 +96,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _pdfConversionService = pdfConversionService;
         _logger = logger;
         _userRepository = userRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -136,6 +139,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
+
+        // Load TestMethodIndicator for per-indicator formatted unit
+        var methodIndicators = methodIds.Any() && indicatorIds.Any()
+            ? await _testMethodIndicatorRepository.GetListAsync(x =>
+                methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<TestMethodIndicator>();
 
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
@@ -181,7 +190,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             indicators,
             indicatorDict,
             taskIndicators,
-            methodDict);
+            methodDict,
+            methodIndicators);
 
         // 4. Generate document
         var templatePath = Path.Combine(_environment.WebRootPath ?? "", "templates", TemplateConstants.TemplateBM03);
@@ -316,17 +326,38 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         Dictionary<Guid, Indicator> indicatorDict,
         List<LaboratoryTaskIndicator> taskIndicators,
         Dictionary<Guid, TestMethod> methodDict,
+        List<TestMethodIndicator> methodIndicators,
         bool skipCustomerCancelled = false,
         bool useHyphenForEmptyUnit = false)
     {
         var tableData = new List<ResultFormTableRow>();
         int rowIndex = 1;
 
-        // Helper to get unit value
-        string GetUnit(LaboratoryTaskIndicator? ti) =>
-            useHyphenForEmptyUnit
-                ? (string.IsNullOrWhiteSpace(ti?.Unit) ? "-" : ti.Unit)
-                : (ti?.Unit ?? "");
+        var sampleIndicatorToIndicatorId = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        string GetUnit(LaboratoryTaskIndicator? ti)
+        {
+            var unit = ti?.Unit;
+
+            if (!string.IsNullOrWhiteSpace(unit) && HtmlToOpenXmlConverter.ContainsHtmlTags(unit))
+            {
+                return unit;
+            }
+
+            if (ti?.MethodId != null && sampleIndicatorToIndicatorId.TryGetValue(ti.TestRequestSampleIndicatorId, out var indicatorId))
+            {
+                var tmi = methodIndicators.FirstOrDefault(x =>
+                    x.TestMethodId == ti.MethodId && x.IndicatorId == indicatorId);
+                if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
+                {
+                    return tmi.FormattedUnit;
+                }
+            }
+
+            return useHyphenForEmptyUnit
+                ? (string.IsNullOrWhiteSpace(unit) ? "-" : unit!)
+                : (unit ?? "");
+        }
 
         // For subcontract flow, ưu tiên tên phương pháp phụ nhập tại popup.
         (string Name, string? FormattedName) GetDisplayMethod(LaboratoryTaskIndicator? ti, TestMethod? method)
@@ -2269,6 +2300,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
+        // Load TestMethodIndicator for per-indicator formatted unit
+        var methodIndicators = methodIds.Any() && indicatorIds.Any()
+            ? await _testMethodIndicatorRepository.GetListAsync(x =>
+                methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<TestMethodIndicator>();
+
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
         // - Ngày gửi kết quả cuối cùng: Ngày gửi kết quả (SubmitDate) muộn nhất của mẫu được chọn
@@ -2316,6 +2353,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             indicatorDict,
             taskIndicators,
             methodDict,
+            methodIndicators,
             skipCustomerCancelled: true,
             useHyphenForEmptyUnit: true);
 
@@ -4729,6 +4767,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // 4. Build table data - single indicator
+        // Resolve unit with TestMethodIndicator fallback
+        var resolvedUnit = labTaskIndicator.Unit;
+        if (string.IsNullOrWhiteSpace(resolvedUnit) || !HtmlToOpenXmlConverter.ContainsHtmlTags(resolvedUnit))
+        {
+            if (labTaskIndicator.MethodId.HasValue)
+            {
+                var tmi = await _testMethodIndicatorRepository.FirstOrDefaultAsync(x =>
+                    x.TestMethodId == labTaskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId);
+                if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
+                {
+                    resolvedUnit = tmi.FormattedUnit;
+                }
+            }
+        }
+
         var tableData = new List<ResultFormTableRow>
         {
             new ResultFormTableRow
@@ -4736,7 +4789,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 No = 1,
                 Parameters = indicator.Name ?? "",
                 ParametersFormattedName = indicator.FormattedName,
-                Unit = string.IsNullOrWhiteSpace(labTaskIndicator.Unit) ? "-" : labTaskIndicator.Unit,
+                Unit = string.IsNullOrWhiteSpace(resolvedUnit) ? "-" : resolvedUnit,
                 TestMethod = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
                     ? labTaskIndicator.SubContractMethodName
                     : method?.Name ?? "",
@@ -4879,6 +4932,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
+
+        var methodIndicatorsQm = methodIds.Any() && indicatorIds.Any()
+            ? await _testMethodIndicatorRepository.GetListAsync(x =>
+                methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<TestMethodIndicator>();
+        var sampleIndicatorToIndicatorIdQm = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+
+        string ResolveUnitQm(LaboratoryTaskIndicator lti)
+        {
+            var unit = lti.Unit;
+            if (!string.IsNullOrWhiteSpace(unit) && HtmlToOpenXmlConverter.ContainsHtmlTags(unit))
+                return unit;
+            if (lti.MethodId != null && sampleIndicatorToIndicatorIdQm.TryGetValue(lti.TestRequestSampleIndicatorId, out var indicatorId))
+            {
+                var tmi = methodIndicatorsQm.FirstOrDefault(x =>
+                    x.TestMethodId == lti.MethodId && x.IndicatorId == indicatorId);
+                if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
+                    return tmi.FormattedUnit;
+            }
+            return string.IsNullOrWhiteSpace(unit) ? "-" : unit;
+        }
 
         // Get StandardIndicator data for BM05-QLNN template (ComparisonOperator, AllowedLimit)
         // Query all StandardIndicators that match any combination of (StandardId, IndicatorId) used
@@ -5152,7 +5226,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     {
                         Parameter = paramPlainBuilder.ToString(),
                         ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
-                        Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
+                        Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
                         TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                             ? firstChild.Item.LabTaskIndicator.SubContractMethodName
                             : method?.Name ?? "",
@@ -5212,7 +5286,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     {
                         Parameter = indicator.Name ?? "",
                         ParameterFormattedName = indicator.FormattedName,
-                        Unit = string.IsNullOrWhiteSpace(item.LabTaskIndicator.Unit) ? "-" : item.LabTaskIndicator.Unit,
+                        Unit = ResolveUnitQm(item.LabTaskIndicator),
                         TestMethod = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
                             ? item.LabTaskIndicator.SubContractMethodName
                             : method?.Name ?? "",
@@ -5308,7 +5382,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 {
                     Parameter = paramPlainBuilder.ToString(),
                     ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
-                    Unit = string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.Unit) ? "-" : firstChild.Item.LabTaskIndicator.Unit,
+                    Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
                     TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                         ? firstChild.Item.LabTaskIndicator.SubContractMethodName
                         : method?.Name ?? "",
@@ -5525,6 +5599,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
+        // Load TestMethodIndicator for per-indicator formatted unit
+        var methodIndicators = methodIds.Any() && indicatorIds.Any()
+            ? await _testMethodIndicatorRepository.GetListAsync(x =>
+                methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId))
+            : new List<TestMethodIndicator>();
+
         // Calculate TimeOfTesting: Min(TestDate) - Max(SubmitDate) of selected sample's indicators only
         // - Ngày chỉ tiêu đầu tiên thử nghiệm: Ngày KTV check-in chỉ tiêu đầu tiên của mẫu được chọn
         // - Ngày gửi kết quả cuối cùng: Ngày gửi kết quả (SubmitDate) muộn nhất của mẫu được chọn
@@ -5585,12 +5665,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
             }
 
+            // Resolve unit with TestMethodIndicator fallback
+            var resolvedUnit = taskIndicator?.Unit;
+            if (taskIndicator != null && (string.IsNullOrWhiteSpace(resolvedUnit) || !HtmlToOpenXmlConverter.ContainsHtmlTags(resolvedUnit)))
+            {
+                if (taskIndicator.MethodId != null && sampleIndicator != null)
+                {
+                    var tmi = methodIndicators.FirstOrDefault(x =>
+                        x.TestMethodId == taskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId);
+                    if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
+                    {
+                        resolvedUnit = tmi.FormattedUnit;
+                    }
+                }
+            }
+
             tableData.Add(new ResultFormTableRow
             {
                 No = rowIndex++,
                 Parameters = indicator?.Name ?? "",
                 ParametersFormattedName = indicator?.FormattedName,
-                Unit = string.IsNullOrWhiteSpace(taskIndicator?.Unit) ? "-" : taskIndicator.Unit,
+                Unit = string.IsNullOrWhiteSpace(resolvedUnit) ? "-" : resolvedUnit,
                 TestMethod = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
                     ? taskIndicator?.SubContractMethodName ?? ""
                     : method?.Name ?? "",
