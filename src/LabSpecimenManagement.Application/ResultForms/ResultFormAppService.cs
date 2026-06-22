@@ -704,6 +704,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
     private void ReplacePlaceholdersInBody(Body body, Dictionary<string, string> placeholders)
     {
+        placeholders = TrimPlaceholderValues(placeholders);
+
         // First, merge split placeholders in all paragraphs
         foreach (var para in body.Descendants<Paragraph>())
         {
@@ -1633,6 +1635,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
     private TableRow CloneAndFillRow(TableRow template, ResultFormTableRow data)
     {
+        data.Parameters = data.Parameters?.Trim() ?? "";
+        data.ParametersFormattedName = data.ParametersFormattedName?.Trim();
+        data.Unit = data.Unit?.Trim() ?? "";
+        data.TestMethod = data.TestMethod?.Trim() ?? "";
+        data.TestMethodFormattedName = data.TestMethodFormattedName?.Trim();
+        data.Result = data.Result?.Trim() ?? "";
+        data.NameOfSample = data.NameOfSample?.Trim() ?? "";
+        data.CodeOfNumber = data.CodeOfNumber?.Trim() ?? "";
+        data.Standards = data.Standards?.Trim() ?? "";
+        data.CompareWithStandard = data.CompareWithStandard?.Trim() ?? "";
+        data.Allowlimit = data.Allowlimit?.Trim() ?? "";
+        data.Uncertainty = data.Uncertainty?.Trim() ?? "";
+        data.Proclaim = data.Proclaim?.Trim() ?? "";
+        data.FootnoteNumber = data.FootnoteNumber?.Trim() ?? "";
+
         // Clone the template row
         var newRow = (TableRow)template.CloneNode(true);
 
@@ -3049,6 +3066,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private void ReplacePlaceholdersInDocument(MainDocumentPart mainPart, Dictionary<string, string> placeholders)
     {
+        placeholders = TrimPlaceholderValues(placeholders);
+
         // Process main body
         if (mainPart.Document?.Body != null)
         {
@@ -3242,6 +3261,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     // ． (fullwidth period), ⋯ (midline ellipsis), ᠁ (mongolian ellipsis), ︙ (vertical ellipsis)
     // _ (underscore), - (dash), ─ (box drawing), ━ (heavy box drawing)
     private static readonly char[] DotCharacters = new[] { '.', '…', '．', '·', '•', '․', '‥', '⋯', '᠁', '︙', '_', '-', '─', '━' };
+
+    private static Dictionary<string, string> TrimPlaceholderValues(Dictionary<string, string> placeholders)
+    {
+        return placeholders.ToDictionary(p => p.Key, p => p.Value?.Trim() ?? "");
+    }
 
     /// <summary>
     /// Normalize placeholders by removing extra spaces inside {{ }}
@@ -3566,6 +3590,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private TableRow CloneAndFillSampleRow(TableRow template, TestRequestSampleTableRow data)
     {
+        data.SampleName = data.SampleName?.Trim() ?? "";
+        data.Quantity = data.Quantity?.Trim() ?? "";
+        data.SampleInfo = data.SampleInfo?.Trim() ?? "";
+        data.Indicators = data.Indicators?.Trim() ?? "";
+
         var newRow = (TableRow)template.CloneNode(true);
 
         // Remove fixed row height to allow row to auto-expand with content
@@ -3674,6 +3703,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Create and insert data rows for each indicator
         foreach (var indicator in indicatorDetails)
         {
+            indicator.IndicatorName = indicator.IndicatorName?.Trim() ?? "";
+            indicator.IndicatorFormattedName = indicator.IndicatorFormattedName?.Trim();
+            indicator.UnitPrice = indicator.UnitPrice?.Trim() ?? "";
+
             var newRow = (TableRow)templateClone.CloneNode(true);
 
             // Note: Don't apply dashed borders for sub-table - keep original solid borders from template
@@ -3775,7 +3808,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Handle bold placeholders separately before standard replacement
         if (placeholders.TryGetValue("{{CustomerName}}", out var customerNameValue))
         {
-            ReplacePlaceholderWithBold(mainPart, "{{CustomerName}}", customerNameValue);
+            ReplacePlaceholderWithBold(mainPart, "{{CustomerName}}", customerNameValue?.Trim() ?? "");
             placeholders.Remove("{{CustomerName}}");
         }
 
@@ -3895,6 +3928,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         bool isFirstIndicator,
         int totalIndicators)
     {
+        sampleData.SampleName = sampleData.SampleName?.Trim() ?? "";
+        sampleData.SampleCode = sampleData.SampleCode?.Trim() ?? "";
+        sampleData.Quantity = sampleData.Quantity?.Trim() ?? "";
+        sampleData.SampleDescription = sampleData.SampleDescription?.Trim() ?? "";
+        indicatorData.Parameter = indicatorData.Parameter?.Trim() ?? "";
+        indicatorData.ParameterFormattedName = indicatorData.ParameterFormattedName?.Trim();
+        indicatorData.Unit = indicatorData.Unit?.Trim() ?? "";
+        indicatorData.TestMethod = indicatorData.TestMethod?.Trim() ?? "";
+        indicatorData.TestMethodFormattedName = indicatorData.TestMethodFormattedName?.Trim();
+        indicatorData.Result = indicatorData.Result?.Trim() ?? "";
+        indicatorData.AllowedLimit = indicatorData.AllowedLimit?.Trim() ?? "";
+        indicatorData.ReferenceLimit = indicatorData.ReferenceLimit?.Trim() ?? "";
+        indicatorData.ComparisonOperator = indicatorData.ComparisonOperator?.Trim() ?? "";
+        indicatorData.LowerOperator = indicatorData.LowerOperator?.Trim() ?? "";
+        indicatorData.LowerLimit = indicatorData.LowerLimit?.Trim() ?? "";
+        indicatorData.UpperOperator = indicatorData.UpperOperator?.Trim() ?? "";
+        indicatorData.UpperLimit = indicatorData.UpperLimit?.Trim() ?? "";
+
         var newRow = (TableRow)template.CloneNode(true);
 
         // Remove row height constraints
@@ -5920,7 +5971,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
                     foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
-                        labNote.Add(note.Content);
+                        labNote.Add(note.Content?.Trim() ?? "");
                     }
                 }
             }
@@ -5995,7 +6046,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
-                    .Select(x => x.Content)
+                    .Select(x => x.Content?.Trim() ?? "")
                     .ToList();
 
                 if (masterNoteLines.Any())
