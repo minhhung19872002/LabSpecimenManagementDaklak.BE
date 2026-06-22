@@ -1175,11 +1175,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new ForbiddenAccessException("Bạn không có quyền cập nhật đơn vị tính");
         }
 
-        // Validate: Cannot update when indicator is Approved or CustomerCancelled
-        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
-        {
-            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã duyệt", "indicator");
-        }
+        // Validate: Cannot update when indicator is CustomerCancelled
         if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
         {
             throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã bị hủy", "indicator");
