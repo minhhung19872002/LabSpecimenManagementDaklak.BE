@@ -17,6 +17,8 @@ public static class SortingFields
     public const string CreationTimeDesc = "creationtime desc";
     public const string ContractDate = "contractdate";
     public const string ContractDateDesc = "contractdate desc";
+    public const string LatestApprovalDate = "latestapprovaldate";
+    public const string LatestApprovalDateDesc = "latestapprovaldate desc";
     public const string ExpectedCompletionDate = "expectedcompletiondate";
     public const string ExpectedCompletionDateDesc = "expectedcompletiondate desc";
     public const string ResultDeliveryDate = "resultdeliverydate";

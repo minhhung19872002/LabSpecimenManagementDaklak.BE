@@ -185,6 +185,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         // Sorting
         var sortingKey = string.IsNullOrWhiteSpace(input.Sorting) ? SortingFields.ContractDateDesc : input.Sorting.ToLower();
+        var indicatorQueryable = await _indicatorRepository.GetQueryableAsync();
         var sortedQuery = sortingKey switch
         {
             SortingFields.ContractNumber => joinedQuery.OrderBy(x => x.Task.ContractNumber),
@@ -197,6 +198,16 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             SortingFields.StatusDesc => joinedQuery.OrderByDescending(x => x.Task.Status),
             SortingFields.ContractDate => joinedQuery.OrderBy(x => x.ContractDate),
             SortingFields.ContractDateDesc => joinedQuery.OrderByDescending(x => x.ContractDate),
+            SortingFields.LatestApprovalDate => joinedQuery
+                .OrderByDescending(x => indicatorQueryable.Any(i => i.QualityManagementTaskId == x.Task.Id && i.IsPrinted))
+                .ThenBy(x => indicatorQueryable
+                    .Where(i => i.QualityManagementTaskId == x.Task.Id && i.IsPrinted && i.PrintedDate.HasValue)
+                    .Max(i => (DateTime?)i.PrintedDate)),
+            SortingFields.LatestApprovalDateDesc => joinedQuery
+                .OrderByDescending(x => indicatorQueryable.Any(i => i.QualityManagementTaskId == x.Task.Id && i.IsPrinted))
+                .ThenByDescending(x => indicatorQueryable
+                    .Where(i => i.QualityManagementTaskId == x.Task.Id && i.IsPrinted && i.PrintedDate.HasValue)
+                    .Max(i => (DateTime?)i.PrintedDate)),
             _ => joinedQuery.OrderByDescending(x => x.ContractDate)
         };
 
