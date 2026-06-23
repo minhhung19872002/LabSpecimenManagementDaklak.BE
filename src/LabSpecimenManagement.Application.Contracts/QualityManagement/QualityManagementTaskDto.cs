@@ -106,6 +106,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public TestRequestStatus? TestRequestStatus { get; set; }
 
     /// <summary>
+    /// Ngày phát hành BC - Latest approval date of approved indicators
+    /// </summary>
+    public DateTime? LatestApprovalDate { get; set; }
+
+    /// <summary>
     /// Danh sách chỉ tiêu - Indicators
     /// </summary>
     public List<QualityManagementIndicatorDto> Indicators { get; set; } = new();

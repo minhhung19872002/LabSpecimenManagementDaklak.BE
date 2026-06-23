@@ -975,21 +975,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
             await CreateQualityManagementTaskAsync(task, indicatorsToSendToQuality);
 
-            // Update task status to SentToQuality nếu tất cả đã được gửi
-            var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-            var hasUnsentApproved = allTaskIndicators.Any(ti =>
-                ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
-
-            if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
-            {
-                task.Status = LaboratoryTaskStatus.SentToQuality;
-                await _laboratoryTaskRepository.UpdateAsync(task);
-            }
-            else
-            {
-                // Update task status bình thường
-                await UpdateTaskStatusAsync(task);
-            }
+            // Update task status
+            await UpdateTaskStatusAsync(task);
 
             // Update TestRequest status
             await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
@@ -2364,21 +2351,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         {
             await CreateQualityManagementTaskAsync(task, approvedIndicators);
 
-            // Update task status to SentToQuality nếu tất cả đã được gửi
-            var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
-            var hasUnsentApproved = allTaskIndicators.Any(ti =>
-                ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
-
-            if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
-            {
-                task.Status = LaboratoryTaskStatus.SentToQuality;
-                await _laboratoryTaskRepository.UpdateAsync(task);
-            }
-            else
-            {
-                // Update task status bình thường
-                await UpdateTaskStatusAsync(task);
-            }
+            // Update task status
+            await UpdateTaskStatusAsync(task);
 
             // Update TestRequest status
             await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
@@ -2544,17 +2518,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Create or update QualityManagementTask with assigned quality manager
         await CreateQualityManagementTaskAsync(task, selectedIndicators, input.QualityManagerId);
 
-        // Update task status to SentToQuality only when ALL approved indicators have been sent
-        // Re-fetch all indicators to check if there are any remaining approved but not sent
-        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == taskId);
-        var hasUnsentApproved = allTaskIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && !ti.IsSentToQuality);
-
-        if (!hasUnsentApproved && task.Status != LaboratoryTaskStatus.SentToQuality)
-        {
-            task.Status = LaboratoryTaskStatus.SentToQuality;
-            await _laboratoryTaskRepository.UpdateAsync(task);
-        }
+        // Update task status using priority chain
+        await UpdateTaskStatusAsync(task);
 
         // Update TestRequest status if all tasks sent
         await TryUpdateTestRequestToPendingApprovalAsync(task.TestRequestId);
