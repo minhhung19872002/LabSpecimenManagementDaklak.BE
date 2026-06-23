@@ -1316,6 +1316,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             return string.IsNullOrWhiteSpace(fullName) ? m.UserName : fullName;
         }));
 
+        // Get latest printed date from published indicators
+        var indicators = await _indicatorRepository.GetListAsync(i => i.QualityManagementTaskId == task.Id);
+        var latestPrintedDate = indicators
+            .Where(i => i.IsPrinted && i.PrintedDate.HasValue)
+            .Select(i => i.PrintedDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
         return new QualityManagementTaskDto
         {
             Id = task.Id,
@@ -1335,6 +1343,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TestRequestStatus = testRequest?.Status,
             TechnicalManagerNames = managerNames,
             ChangeHistoryId = task.ChangeHistoryId,
+            LatestApprovalDate = latestPrintedDate == default ? null : latestPrintedDate,
             CreationTime = task.CreationTime,
             CreatorId = task.CreatorId,
             LastModificationTime = task.LastModificationTime,
