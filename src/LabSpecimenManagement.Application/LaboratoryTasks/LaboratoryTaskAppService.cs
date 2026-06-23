@@ -573,6 +573,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 SampleId = sampleIndicator.TestRequestSampleId,
                 SampleCode = sample?.SampleCode,
                 SampleName = sample?.SampleName,
+                SampleQuantity = sample?.SampleQuantity,
+                SampleStatusText = sample?.StatusText,
+                SpecimenTypeId = sampleIndicator.SpecimenTypeId,
                 SpecimenTypeName = await ResolveSpecimenTypeNameAsync(sample?.SpecimenTypeId, specimenTypeNameCache),
                 IndicatorId = sampleIndicator.IndicatorId,
                 IndicatorCode = indicator?.Code,
@@ -659,8 +662,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     })
                     .ToList(),
                 // Shared Sample - waiting flag
-                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample,
-                SpecimenTypeId = sampleIndicator.SpecimenTypeId
+                IsWaitingForSharedSample = taskIndicator.IsWaitingForSharedSample
             });
         }
 
@@ -1182,11 +1184,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             throw new ForbiddenAccessException("Bạn không có quyền cập nhật đơn vị tính");
         }
 
-        // Validate: Cannot update when indicator is Approved or CustomerCancelled
-        if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
-        {
-            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã duyệt", "indicator");
-        }
+        // Validate: Cannot update when indicator is CustomerCancelled
         if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
         {
             throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã bị hủy", "indicator");
@@ -1980,6 +1978,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             SampleId = sampleIndicator.TestRequestSampleId,
             SampleCode = sample?.SampleCode,
             SampleName = sample?.SampleName,
+            SampleQuantity = sample?.SampleQuantity,
+            SampleStatusText = sample?.StatusText,
             IndicatorId = sampleIndicator.IndicatorId,
             IndicatorCode = indicator?.Code,
             IndicatorName = indicator?.Name,
