@@ -170,7 +170,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             supplierName = supplier.Name;
         }
 
-        var code = await GenerateCodeAsync(input.ReceiptType);
+        var code = await GenerateCodeAsync();
 
         var receipt = new GoodsReceipt(
             GuidGenerator.Create(),
@@ -187,6 +187,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             DocumentDate = input.DocumentDate,
             DocumentExpiryDate = input.DocumentExpiryDate,
             SupplierRepresentativePhone = input.SupplierRepresentativePhone,
+            ExpectedDeliveryDate = input.ExpectedDeliveryDate,
+            PurchaserId = input.PurchaserId,
             VatPercent = input.VatPercent,
             Notes = input.Notes,
         };
@@ -235,6 +237,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.DocumentDate = input.DocumentDate;
         receipt.DocumentExpiryDate = input.DocumentExpiryDate;
         receipt.SupplierRepresentativePhone = input.SupplierRepresentativePhone;
+        receipt.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
+        receipt.PurchaserId = input.PurchaserId;
         receipt.VatPercent = input.VatPercent;
         receipt.Notes = input.Notes;
 
@@ -312,10 +316,14 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var receipt = await _goodsReceiptRepository.GetAsync(id);
 
-        if (receipt.OrderStatus == GoodsReceiptOrderStatus.Approved)
-            throw new UserFriendlyException("Phiếu đã được duyệt.");
+        if (receipt.OrderStatus != GoodsReceiptOrderStatus.PendingApproval)
+            throw new UserFriendlyException("Chỉ có thể duyệt phiếu đang chờ phê duyệt.");
 
-        receipt.OrderStatus = GoodsReceiptOrderStatus.Approved;
+        if (receipt.ExpectedDeliveryDate.HasValue && receipt.ExpectedDeliveryDate.Value.Date <= DateTime.Today)
+            receipt.OrderStatus = GoodsReceiptOrderStatus.WaitingReceipt;
+        else
+            receipt.OrderStatus = GoodsReceiptOrderStatus.Ordering;
+
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
 
         return await GetAsync(id);
@@ -326,7 +334,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var receipt = await _goodsReceiptRepository.GetAsync(id);
 
-        if (receipt.OrderStatus != GoodsReceiptOrderStatus.Approved)
+        if (receipt.OrderStatus != GoodsReceiptOrderStatus.Ordering && receipt.OrderStatus != GoodsReceiptOrderStatus.WaitingReceipt)
             throw new UserFriendlyException("Chỉ có thể nhập kho phiếu đã được duyệt.");
 
         if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
@@ -456,6 +464,44 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         return await GetAsync(id);
     }
 
+    [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Approve)]
+    public async Task<GoodsReceiptDto> RejectAsync(Guid id)
+    {
+        var receipt = await _goodsReceiptRepository.GetAsync(id);
+
+        if (receipt.OrderStatus != GoodsReceiptOrderStatus.PendingApproval)
+            throw new UserFriendlyException("Chỉ có thể từ chối phiếu đang chờ phê duyệt.");
+
+        receipt.OrderStatus = GoodsReceiptOrderStatus.Rejected;
+        await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        return await GetAsync(id);
+    }
+
+    public async Task<GoodsReceiptStatisticsDto> GetStatisticsAsync()
+    {
+        var query = await _goodsReceiptRepository.GetQueryableAsync();
+        return new GoodsReceiptStatisticsDto
+        {
+            PendingApproval = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.PendingApproval),
+            Ordering = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.Ordering),
+            WaitingReceipt = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.WaitingReceipt),
+            Rejected = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.Rejected),
+        };
+    }
+
+    public async Task<LatestSupplierInfoDto> GetLatestSupplierInfoAsync(Guid supplierId)
+    {
+        var query = await _goodsReceiptRepository.GetQueryableAsync();
+        var latest = query
+            .Where(x => x.SupplierId == supplierId && x.SupplierRepresentativePhone != null)
+            .OrderByDescending(x => x.CreationTime)
+            .Select(x => x.SupplierRepresentativePhone)
+            .FirstOrDefault();
+
+        return new LatestSupplierInfoDto { SupplierRepresentativePhone = latest };
+    }
+
     public async Task<List<RecentLotDto>> GetRecentLotNumbersAsync(Guid productId)
     {
         var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
@@ -486,15 +532,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
     #region Private Methods
 
-    private async Task<string> GenerateCodeAsync(GoodsReceiptType receiptType)
+    private async Task<string> GenerateCodeAsync()
     {
-        var prefix = receiptType == GoodsReceiptType.Equipment ? "PNTB" : "PNH";
+        var prefix = "PR";
+        const string dateFormat = "ddMMyyyy";
+        const int sequencePadding = 2;
         using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
         {
-            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix);
+            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix, dateFormat);
             var query = await _goodsReceiptRepository.GetQueryableAsync();
             var count = query.Count(x => x.Code.StartsWith(todayPrefix));
-            return _codeGenerator.GenerateCodeWithDate(prefix, count);
+            return _codeGenerator.GenerateCodeWithDate(prefix, count, dateFormat, sequencePadding);
         }
     }
 
@@ -714,6 +762,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var dto = ObjectMapper.Map<GoodsReceipt, GoodsReceiptDto>(receipt);
         dto.CreatorName = await _userNameProvider.GetUserNameAsync(receipt.CreatorId) ?? "Admin";
+
+        if (receipt.PurchaserId.HasValue)
+            dto.PurchaserFullName = await _userNameProvider.GetUserNameAsync(receipt.PurchaserId);
 
         var items = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == receipt.Id)

@@ -88,4 +88,23 @@ public class GoodsReceiptController : LabSpecimenManagementController
     {
         return _goodsReceiptAppService.GetRecentLotNumbersAsync(productId);
     }
+
+    [HttpPost("{id}/reject")]
+    [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Approve)]
+    public virtual Task<GoodsReceiptDto> RejectAsync(Guid id)
+    {
+        return _goodsReceiptAppService.RejectAsync(id);
+    }
+
+    [HttpGet("statistics")]
+    public virtual Task<GoodsReceiptStatisticsDto> GetStatisticsAsync()
+    {
+        return _goodsReceiptAppService.GetStatisticsAsync();
+    }
+
+    [HttpGet("latest-supplier-info/{supplierId}")]
+    public virtual Task<LatestSupplierInfoDto> GetLatestSupplierInfoAsync(Guid supplierId)
+    {
+        return _goodsReceiptAppService.GetLatestSupplierInfoAsync(supplierId);
+    }
 }

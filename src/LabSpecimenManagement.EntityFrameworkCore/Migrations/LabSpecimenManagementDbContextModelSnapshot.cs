@@ -250,6 +250,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<DateTime?>("DocumentExpiryDate")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("ExpectedDeliveryDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")
@@ -282,6 +285,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("PreparedByName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
+
+                    b.Property<Guid?>("PurchaserId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("PurchaserName")
                         .HasMaxLength(200)

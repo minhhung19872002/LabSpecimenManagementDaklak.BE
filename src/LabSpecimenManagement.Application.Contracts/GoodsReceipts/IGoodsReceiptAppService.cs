@@ -18,4 +18,7 @@ public interface IGoodsReceiptAppService : IApplicationService
     Task<GoodsReceiptDto> ImportToWarehouseAsync(Guid id);
     Task<GoodsReceiptDto> AddPaymentAsync(Guid id, CreateGoodsReceiptPaymentDto input);
     Task<List<RecentLotDto>> GetRecentLotNumbersAsync(Guid productId);
+    Task<GoodsReceiptDto> RejectAsync(Guid id);
+    Task<GoodsReceiptStatisticsDto> GetStatisticsAsync();
+    Task<LatestSupplierInfoDto> GetLatestSupplierInfoAsync(Guid supplierId);
 }

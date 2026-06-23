@@ -19,6 +19,7 @@ public class GoodsReceiptListDto : EntityDto<Guid>
     public GoodsReceiptOrderStatus OrderStatus { get; set; }
     public GoodsReceiptPaymentStatus PaymentStatus { get; set; }
     public decimal TotalAmountAfterVat { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
     public string? CreatorName { get; set; }
     public string? Notes { get; set; }
     public DateTime CreationTime { get; set; }
@@ -38,6 +39,9 @@ public class GoodsReceiptDto : EntityDto<Guid>
     public DateTime? DocumentDate { get; set; }
     public DateTime? DocumentExpiryDate { get; set; }
     public string? SupplierRepresentativePhone { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
+    public Guid? PurchaserId { get; set; }
+    public string? PurchaserFullName { get; set; }
     public decimal VatPercent { get; set; }
     public decimal TotalAmountBeforeVat { get; set; }
     public decimal TotalVatAmount { get; set; }
@@ -121,6 +125,9 @@ public class CreateUpdateGoodsReceiptDto
     [StringLength(20)]
     public string? SupplierRepresentativePhone { get; set; }
 
+    public DateTime? ExpectedDeliveryDate { get; set; }
+    public Guid? PurchaserId { get; set; }
+
     public decimal VatPercent { get; set; } = 8;
 
     [StringLength(2000)]
@@ -189,6 +196,19 @@ public class RecentLotDto
 {
     public string LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }
+}
+
+public class GoodsReceiptStatisticsDto
+{
+    public int PendingApproval { get; set; }
+    public int Ordering { get; set; }
+    public int WaitingReceipt { get; set; }
+    public int Rejected { get; set; }
+}
+
+public class LatestSupplierInfoDto
+{
+    public string? SupplierRepresentativePhone { get; set; }
 }
 
 public class CreateGoodsReceiptPaymentDto

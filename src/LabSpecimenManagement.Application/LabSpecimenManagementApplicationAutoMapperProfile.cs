@@ -169,7 +169,8 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<GoodsReceipt, GoodsReceiptDto>()
             .ForMember(dest => dest.Items, opt => opt.Ignore())
             .ForMember(dest => dest.Payments, opt => opt.Ignore())
-            .ForMember(dest => dest.CreatorName, opt => opt.Ignore());
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
+            .ForMember(dest => dest.PurchaserFullName, opt => opt.Ignore());
         CreateMap<GoodsReceiptItem, GoodsReceiptItemDto>();
         CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>();
 

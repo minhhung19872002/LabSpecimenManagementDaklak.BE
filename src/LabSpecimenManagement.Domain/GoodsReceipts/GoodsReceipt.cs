@@ -18,6 +18,8 @@ public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
     public DateTime? DocumentDate { get; set; }
     public DateTime? DocumentExpiryDate { get; set; }
     public string? SupplierRepresentativePhone { get; set; }
+    public DateTime? ExpectedDeliveryDate { get; set; }
+    public Guid? PurchaserId { get; set; }
     public decimal VatPercent { get; set; }
     public decimal TotalAmountBeforeVat { get; set; }
     public decimal TotalVatAmount { get; set; }
@@ -45,7 +47,7 @@ public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
         SupplierName = supplierName;
         VatPercent = 8;
         WarehouseStatus = GoodsReceiptWarehouseStatus.NotImported;
-        OrderStatus = GoodsReceiptOrderStatus.Draft;
+        OrderStatus = GoodsReceiptOrderStatus.PendingApproval;
         PaymentStatus = GoodsReceiptPaymentStatus.Unpaid;
         Items = new List<GoodsReceiptItem>();
         Payments = new List<GoodsReceiptPayment>();
