@@ -28,6 +28,7 @@ using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Equipments;
+using LabSpecimenManagement.ApprovalProcesses;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
@@ -150,6 +151,12 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TestBatch> TestBatches { get; set; }
     public DbSet<TestBatchItem> TestBatchItems { get; set; }
     public DbSet<TestBatchConsumption> TestBatchConsumptions { get; set; }
+
+    // Approval Process Entities
+    public DbSet<ApprovalProcess> ApprovalProcesses { get; set; }
+    public DbSet<ApprovalProcessStep> ApprovalProcessSteps { get; set; }
+    public DbSet<ApprovalSnapshot> ApprovalSnapshots { get; set; }
+    public DbSet<ApprovalSnapshotStep> ApprovalSnapshotSteps { get; set; }
 
     #region Entities from the modules
 
@@ -1661,6 +1668,64 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.TestBatchId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
+        });
+
+        builder.Entity<ApprovalProcess>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ApprovalProcesses", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.IsActive).HasDefaultValue(true);
+
+            b.HasIndex(x => x.ProcessType).IsUnique().HasFilter("\"IsDeleted\" = false AND \"IsActive\" = true");
+
+            b.HasMany(x => x.Steps)
+                .WithOne()
+                .HasForeignKey(x => x.ApprovalProcessId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ApprovalProcessStep>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ApprovalProcessSteps", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.ApproverName).HasMaxLength(256).IsRequired();
+
+            b.HasIndex(x => x.ApprovalProcessId);
+        });
+
+        builder.Entity<ApprovalSnapshot>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ApprovalSnapshots", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.ReferenceType).HasMaxLength(100).IsRequired();
+            b.Property(x => x.ReferenceCode).HasMaxLength(100).IsRequired();
+
+            b.HasIndex(x => x.ReferenceId);
+            b.HasIndex(x => x.ReferenceType);
+
+            b.HasMany(x => x.Steps)
+                .WithOne()
+                .HasForeignKey(x => x.ApprovalSnapshotId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ApprovalSnapshotStep>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ApprovalSnapshotSteps", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.ApproverName).HasMaxLength(256).IsRequired();
+            b.Property(x => x.ActorName).HasMaxLength(256);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.ApprovalSnapshotId);
         });
     }
 }

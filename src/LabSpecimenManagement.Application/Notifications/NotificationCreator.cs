@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Volo.Abp.DependencyInjection;
@@ -1002,6 +1003,128 @@ public class NotificationCreator : INotificationCreator, ITransientDependency
         );
 
         await InsertNotificationAndPushAsync(notification);
+    }
+
+    #endregion
+
+    #region GoodsReceipt Approval Notifications
+
+    public async Task NotifyGoodsReceiptPendingApprovalAsync(
+        Guid approverId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode,
+        string creatorName)
+    {
+        var title = $"Đơn mua hàng {goodsReceiptCode} cần phê duyệt";
+        var message = $"Đơn yêu cầu mua hàng của {creatorName}";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["goodsReceiptCode"] = goodsReceiptCode,
+            ["creatorName"] = creatorName,
+            ["status"] = "Chờ phê duyệt"
+        };
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            approverId,
+            title,
+            message,
+            NotificationType.GoodsReceiptPendingApproval,
+            goodsReceiptId.ToString(),
+            "GoodsReceipt",
+            null,
+            creatorName,
+            null,
+            SerializeAdditionalData(additionalData)
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    public async Task NotifyGoodsReceiptApprovedAsync(
+        Guid creatorId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode)
+    {
+        var title = $"Đơn mua hàng {goodsReceiptCode}";
+        var message = "Đơn mua hàng của bạn đã được duyệt.\nTheo dõi đơn hàng của bạn tại đây.";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["goodsReceiptCode"] = goodsReceiptCode,
+            ["status"] = "Đã duyệt"
+        };
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.GoodsReceiptApproved,
+            goodsReceiptId.ToString(),
+            "GoodsReceipt",
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    public async Task NotifyGoodsReceiptRejectedAsync(
+        Guid creatorId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode)
+    {
+        var title = $"Đơn mua hàng {goodsReceiptCode}";
+        var message = "Đơn mua hàng của bạn đã bị từ chối.\nTheo dõi đơn hàng của bạn tại đây.";
+        var additionalData = new Dictionary<string, object?>
+        {
+            ["goodsReceiptCode"] = goodsReceiptCode,
+            ["status"] = "Từ chối"
+        };
+
+        var notification = new Notification(
+            _guidGenerator.Create(),
+            creatorId,
+            title,
+            message,
+            NotificationType.GoodsReceiptRejected,
+            goodsReceiptId.ToString(),
+            "GoodsReceipt",
+            null,
+            null,
+            null,
+            SerializeAdditionalData(additionalData)
+        );
+
+        await InsertNotificationAndPushAsync(notification);
+    }
+
+    public async Task UpdateGoodsReceiptNotificationStatusAsync(
+        Guid goodsReceiptId,
+        Guid approverId,
+        string newStatus)
+    {
+        var referenceId = goodsReceiptId.ToString();
+        var queryable = await _notificationRepository.GetQueryableAsync();
+        var notification = queryable.FirstOrDefault(x =>
+            x.ReferenceId == referenceId &&
+            x.ReferenceType == "GoodsReceipt" &&
+            x.UserId == approverId &&
+            x.Type == NotificationType.GoodsReceiptPendingApproval);
+
+        if (notification == null) return;
+
+        var additionalData = string.IsNullOrEmpty(notification.AdditionalData)
+            ? new Dictionary<string, object>()
+            : JsonSerializer.Deserialize<Dictionary<string, object>>(notification.AdditionalData, JsonOptions)
+              ?? new Dictionary<string, object>();
+
+        additionalData["status"] = newStatus;
+        notification.AdditionalData = JsonSerializer.Serialize(additionalData, JsonOptions);
+
+        await _notificationRepository.UpdateAsync(notification, autoSave: true);
     }
 
     #endregion

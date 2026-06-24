@@ -58,6 +58,11 @@ public class GoodsReceiptDto : EntityDto<Guid>
     public List<GoodsReceiptPaymentDto> Payments { get; set; } = new();
 }
 
+public class RejectGoodsReceiptDto
+{
+    public string? Notes { get; set; }
+}
+
 public class GoodsReceiptItemDto : EntityDto<Guid>
 {
     public Guid GoodsReceiptId { get; set; }

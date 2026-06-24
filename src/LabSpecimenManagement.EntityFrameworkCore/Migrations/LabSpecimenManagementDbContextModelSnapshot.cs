@@ -24,6 +24,189 @@ namespace LabSpecimenManagement.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalProcess", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<int>("ProcessType")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("Scope")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProcessType")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false AND \"IsActive\" = true");
+
+                    b.ToTable("AppApprovalProcesses", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalProcessStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApprovalProcessId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApproverId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApproverName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("StepOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalProcessId");
+
+                    b.ToTable("AppApprovalProcessSteps", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalSnapshot", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<int>("CurrentStepOrder")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ProcessType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ReferenceCode")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ReferenceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReferenceType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("TotalSteps")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReferenceId");
+
+                    b.HasIndex("ReferenceType");
+
+                    b.ToTable("AppApprovalSnapshots", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalSnapshotStep", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ActionDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("ActorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActorName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid>("ApprovalSnapshotId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ApproverId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ApproverName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("StepOrder")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApprovalSnapshotId");
+
+                    b.ToTable("AppApprovalSnapshotSteps", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Equipments.Equipment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7557,6 +7740,24 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AbpTenantConnectionStrings", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalProcessStep", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.ApprovalProcesses.ApprovalProcess", null)
+                        .WithMany("Steps")
+                        .HasForeignKey("ApprovalProcessId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalSnapshotStep", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.ApprovalProcesses.ApprovalSnapshot", null)
+                        .WithMany("Steps")
+                        .HasForeignKey("ApprovalSnapshotId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.GoodsReceipts.GoodsReceiptItem", b =>
                 {
                     b.HasOne("LabSpecimenManagement.GoodsReceipts.GoodsReceipt", null)
@@ -8183,6 +8384,16 @@ namespace LabSpecimenManagement.Migrations
                         .HasForeignKey("TenantId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalProcess", b =>
+                {
+                    b.Navigation("Steps");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalSnapshot", b =>
+                {
+                    b.Navigation("Steps");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.GoodsReceipts.GoodsReceipt", b =>

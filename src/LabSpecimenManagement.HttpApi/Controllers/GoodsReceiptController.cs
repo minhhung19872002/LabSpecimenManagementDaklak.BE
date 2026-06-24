@@ -91,9 +91,9 @@ public class GoodsReceiptController : LabSpecimenManagementController
 
     [HttpPost("{id}/reject")]
     [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Approve)]
-    public virtual Task<GoodsReceiptDto> RejectAsync(Guid id)
+    public virtual Task<GoodsReceiptDto> RejectAsync(Guid id, [FromBody] RejectGoodsReceiptDto? input = null)
     {
-        return _goodsReceiptAppService.RejectAsync(id);
+        return _goodsReceiptAppService.RejectAsync(id, input?.Notes);
     }
 
     [HttpGet("statistics")]

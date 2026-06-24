@@ -414,4 +414,13 @@ public static class LabSpecimenManagementPermissions
         public const string Preview = Default + ".Preview";
         public const string Import = Default + ".Import";
     }
+
+    // Approval Process Permissions (Quy trình phê duyệt)
+    public static class ApprovalProcesses
+    {
+        public const string Default = GroupName + ".ApprovalProcesses";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Delete = Default + ".Delete";
+    }
 }

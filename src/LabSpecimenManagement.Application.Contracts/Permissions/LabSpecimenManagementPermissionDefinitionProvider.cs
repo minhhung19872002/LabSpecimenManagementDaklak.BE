@@ -285,6 +285,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var migrationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Migration.Default, L("Permission:Migration"));
         migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Preview, L("Permission:Migration.Preview"));
         migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Import, L("Permission:Migration.Import"));
+
+        // Approval Process Permissions (Quy trình phê duyệt)
+        var approvalProcessPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.ApprovalProcesses.Default, L("Permission:ApprovalProcesses"));
+        approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Create, L("Permission:ApprovalProcesses.Create"));
+        approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Edit, L("Permission:ApprovalProcesses.Edit"));
+        approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Delete, L("Permission:ApprovalProcesses.Delete"));
     }
 
     private static LocalizableString L(string name)

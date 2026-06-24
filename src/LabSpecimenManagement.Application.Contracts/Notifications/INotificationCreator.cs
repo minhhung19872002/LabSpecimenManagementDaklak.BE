@@ -262,4 +262,29 @@ public interface INotificationCreator
         string indicatorName);
 
     #endregion
+
+    #region Notifications for GoodsReceipt Approval (Phê duyệt phiếu đặt hàng)
+
+    Task NotifyGoodsReceiptPendingApprovalAsync(
+        Guid approverId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode,
+        string creatorName);
+
+    Task NotifyGoodsReceiptApprovedAsync(
+        Guid creatorId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode);
+
+    Task NotifyGoodsReceiptRejectedAsync(
+        Guid creatorId,
+        Guid goodsReceiptId,
+        string goodsReceiptCode);
+
+    Task UpdateGoodsReceiptNotificationStatusAsync(
+        Guid goodsReceiptId,
+        Guid approverId,
+        string newStatus);
+
+    #endregion
 }

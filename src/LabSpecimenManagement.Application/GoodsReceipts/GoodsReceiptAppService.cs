@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.ApprovalProcesses;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Receipts;
@@ -33,6 +35,11 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
+    private readonly IRepository<ApprovalProcess, Guid> _approvalProcessRepository;
+    private readonly IRepository<ApprovalProcessStep, Guid> _approvalProcessStepRepository;
+    private readonly IRepository<ApprovalSnapshot, Guid> _approvalSnapshotRepository;
+    private readonly IRepository<ApprovalSnapshotStep, Guid> _approvalSnapshotStepRepository;
+    private readonly INotificationCreator _notificationCreator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -48,6 +55,11 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
+        IRepository<ApprovalProcess, Guid> approvalProcessRepository,
+        IRepository<ApprovalProcessStep, Guid> approvalProcessStepRepository,
+        IRepository<ApprovalSnapshot, Guid> approvalSnapshotRepository,
+        IRepository<ApprovalSnapshotStep, Guid> approvalSnapshotStepRepository,
+        INotificationCreator notificationCreator,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -62,6 +74,11 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _equipmentRepository = equipmentRepository;
         _manufacturerRepository = manufacturerRepository;
         _warehouseRepository = warehouseRepository;
+        _approvalProcessRepository = approvalProcessRepository;
+        _approvalProcessStepRepository = approvalProcessStepRepository;
+        _approvalSnapshotRepository = approvalSnapshotRepository;
+        _approvalSnapshotStepRepository = approvalSnapshotStepRepository;
+        _notificationCreator = notificationCreator;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -193,6 +210,31 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             Notes = input.Notes,
         };
 
+        var approvalQuery = await _approvalProcessRepository.GetQueryableAsync();
+        var workflow = approvalQuery.FirstOrDefault(x =>
+            x.ProcessType == ApprovalProcessType.PurchaseOrder && x.IsActive);
+
+        List<ApprovalProcessStep> workflowSteps = new();
+        if (workflow != null)
+        {
+            workflowSteps = (await _approvalProcessStepRepository.GetQueryableAsync())
+                .Where(s => s.ApprovalProcessId == workflow.Id)
+                .OrderBy(s => s.StepOrder)
+                .ToList();
+        }
+
+        if (workflow != null && workflowSteps.Count > 0)
+        {
+            receipt.OrderStatus = GoodsReceiptOrderStatus.PendingApproval;
+        }
+        else
+        {
+            if (receipt.ExpectedDeliveryDate.HasValue && receipt.ExpectedDeliveryDate.Value.Date <= Clock.Now.Date)
+                receipt.OrderStatus = GoodsReceiptOrderStatus.WaitingReceipt;
+            else
+                receipt.OrderStatus = GoodsReceiptOrderStatus.Ordering;
+        }
+
         await _goodsReceiptRepository.InsertAsync(receipt, autoSave: true);
 
         await SaveItemsAsync(receipt.Id, input.Items, input.VatPercent, receipt.ReceiptType);
@@ -202,6 +244,37 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.Items = savedItems;
         receipt.RecalculateTotals();
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        if (workflow != null && workflowSteps.Count > 0)
+        {
+            var snapshot = new ApprovalSnapshot(
+                GuidGenerator.Create(),
+                receipt.Id,
+                "GoodsReceipt",
+                receipt.Code,
+                ApprovalProcessType.PurchaseOrder,
+                workflowSteps.Count);
+
+            await _approvalSnapshotRepository.InsertAsync(snapshot, autoSave: true);
+
+            foreach (var ws in workflowSteps)
+            {
+                var snapshotStep = new ApprovalSnapshotStep(
+                    GuidGenerator.Create(),
+                    snapshot.Id,
+                    ws.StepOrder,
+                    ws.ApproverId,
+                    ws.ApproverName);
+                await _approvalSnapshotStepRepository.InsertAsync(snapshotStep, autoSave: true);
+            }
+
+            var firstStep = workflowSteps.First();
+            await _notificationCreator.NotifyGoodsReceiptPendingApprovalAsync(
+                firstStep.ApproverId,
+                receipt.Id,
+                receipt.Code,
+                CurrentUser.Name ?? CurrentUser.UserName ?? "");
+        }
 
         return await GetAsync(receipt.Id);
     }
@@ -213,6 +286,12 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
             throw new UserFriendlyException("Không thể sửa phiếu đã nhập kho.");
+
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.PendingApproval)
+            throw new UserFriendlyException("Không thể sửa phiếu đang chờ phê duyệt.");
+
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.Rejected)
+            throw new UserFriendlyException("Không thể sửa phiếu đã bị từ chối.");
 
         if (input.ReceiptType != receipt.ReceiptType)
             throw new UserFriendlyException("Không thể thay đổi loại phiếu nhập hàng.");
@@ -277,6 +356,9 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
             throw new UserFriendlyException("Không thể xóa phiếu đã nhập kho.");
 
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.PendingApproval)
+            throw new UserFriendlyException("Không thể xóa phiếu đang chờ phê duyệt.");
+
         var items = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == id).ToList();
         foreach (var item in items)
@@ -286,6 +368,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             .Where(x => x.GoodsReceiptId == id).ToList();
         foreach (var payment in payments)
             await _paymentRepository.DeleteAsync(payment, autoSave: true);
+
+        var snapshotQuery = await _approvalSnapshotRepository.GetQueryableAsync();
+        var snapshots = snapshotQuery.Where(x => x.ReferenceId == id).ToList();
+        foreach (var snapshot in snapshots)
+        {
+            var snapshotSteps = (await _approvalSnapshotStepRepository.GetQueryableAsync())
+                .Where(x => x.ApprovalSnapshotId == snapshot.Id).ToList();
+            foreach (var step in snapshotSteps)
+                await _approvalSnapshotStepRepository.DeleteAsync(step, autoSave: true);
+            await _approvalSnapshotRepository.DeleteAsync(snapshot, autoSave: true);
+        }
 
         await _goodsReceiptRepository.DeleteAsync(id);
     }
@@ -319,12 +412,77 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         if (receipt.OrderStatus != GoodsReceiptOrderStatus.PendingApproval)
             throw new UserFriendlyException("Chỉ có thể duyệt phiếu đang chờ phê duyệt.");
 
-        if (receipt.ExpectedDeliveryDate.HasValue && receipt.ExpectedDeliveryDate.Value.Date <= DateTime.Today)
+        var snapshotQuery = await _approvalSnapshotRepository.GetQueryableAsync();
+        var snapshot = snapshotQuery
+            .Where(x => x.ReferenceId == id)
+            .OrderByDescending(x => x.CreationTime)
+            .FirstOrDefault();
+        if (snapshot == null)
+            throw new UserFriendlyException("Phiếu không có quy trình phê duyệt.");
+
+        var stepsQuery = await _approvalSnapshotStepRepository.GetQueryableAsync();
+        var steps = stepsQuery
+            .Where(x => x.ApprovalSnapshotId == snapshot.Id)
+            .OrderBy(x => x.StepOrder)
+            .ToList();
+
+        var currentStep = steps.FirstOrDefault(s => s.StepOrder == snapshot.CurrentStepOrder);
+        if (currentStep == null)
+            throw new UserFriendlyException("Không tìm thấy bước phê duyệt hiện tại.");
+
+        if (currentStep.Status != ApprovalStepStatus.Pending)
+            throw new UserFriendlyException("Bước phê duyệt này đã được xử lý.");
+
+        if (CurrentUser.Id != currentStep.ApproverId)
+            throw new UserFriendlyException($"Bạn không có quyền phê duyệt cấp {snapshot.CurrentStepOrder + 1} cho phiếu này.");
+
+        currentStep.Status = ApprovalStepStatus.Approved;
+        currentStep.ActionDate = Clock.Now;
+        currentStep.ActorId = CurrentUser.Id;
+        currentStep.ActorName = CurrentUser.Name ?? CurrentUser.UserName;
+        await _approvalSnapshotStepRepository.UpdateAsync(currentStep, autoSave: true);
+
+        if (CurrentUser.Id.HasValue)
+        {
+            await _notificationCreator.UpdateGoodsReceiptNotificationStatusAsync(
+                receipt.Id, CurrentUser.Id.Value, "Đã duyệt");
+        }
+
+        if (snapshot.CurrentStepOrder < snapshot.TotalSteps - 1)
+        {
+            snapshot.CurrentStepOrder++;
+            await _approvalSnapshotRepository.UpdateAsync(snapshot, autoSave: true);
+
+            var nextStep = steps.FirstOrDefault(s => s.StepOrder == snapshot.CurrentStepOrder);
+            if (nextStep == null)
+                throw new UserFriendlyException("Không tìm thấy bước phê duyệt tiếp theo.");
+
+            await _notificationCreator.NotifyGoodsReceiptPendingApprovalAsync(
+                nextStep.ApproverId,
+                receipt.Id,
+                receipt.Code,
+                receipt.PreparedByName ?? "");
+
+            return await GetAsync(id);
+        }
+
+        snapshot.Status = ApprovalSnapshotStatus.Approved;
+        await _approvalSnapshotRepository.UpdateAsync(snapshot, autoSave: true);
+
+        if (receipt.ExpectedDeliveryDate.HasValue && receipt.ExpectedDeliveryDate.Value.Date <= Clock.Now.Date)
             receipt.OrderStatus = GoodsReceiptOrderStatus.WaitingReceipt;
         else
             receipt.OrderStatus = GoodsReceiptOrderStatus.Ordering;
 
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        if (receipt.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifyGoodsReceiptApprovedAsync(
+                receipt.CreatorId.Value,
+                receipt.Id,
+                receipt.Code);
+        }
 
         return await GetAsync(id);
     }
@@ -422,6 +580,11 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     public async Task<GoodsReceiptDto> AddPaymentAsync(Guid id, CreateGoodsReceiptPaymentDto input)
     {
         var receipt = await _goodsReceiptRepository.GetAsync(id);
+
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.PendingApproval ||
+            receipt.OrderStatus == GoodsReceiptOrderStatus.Rejected)
+            throw new UserFriendlyException("Không thể thanh toán phiếu chưa được phê duyệt.");
+
         var remaining = receipt.TotalAmountAfterVat - receipt.TotalPaid;
 
         if (input.Amount <= 0)
@@ -465,15 +628,61 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     }
 
     [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Approve)]
-    public async Task<GoodsReceiptDto> RejectAsync(Guid id)
+    public async Task<GoodsReceiptDto> RejectAsync(Guid id, string? notes = null)
     {
         var receipt = await _goodsReceiptRepository.GetAsync(id);
 
         if (receipt.OrderStatus != GoodsReceiptOrderStatus.PendingApproval)
             throw new UserFriendlyException("Chỉ có thể từ chối phiếu đang chờ phê duyệt.");
 
+        var snapshotQuery = await _approvalSnapshotRepository.GetQueryableAsync();
+        var snapshot = snapshotQuery
+            .Where(x => x.ReferenceId == id)
+            .OrderByDescending(x => x.CreationTime)
+            .FirstOrDefault();
+
+        if (snapshot == null)
+            throw new UserFriendlyException("Phiếu không có quy trình phê duyệt.");
+
+        var stepsQuery = await _approvalSnapshotStepRepository.GetQueryableAsync();
+        var currentStep = stepsQuery.FirstOrDefault(x =>
+            x.ApprovalSnapshotId == snapshot.Id && x.StepOrder == snapshot.CurrentStepOrder);
+
+        if (currentStep == null)
+            throw new UserFriendlyException("Không tìm thấy bước phê duyệt hiện tại.");
+
+        if (currentStep.Status != ApprovalStepStatus.Pending)
+            throw new UserFriendlyException("Bước phê duyệt này đã được xử lý.");
+
+        if (CurrentUser.Id != currentStep.ApproverId)
+            throw new UserFriendlyException("Bạn không có quyền từ chối phiếu này.");
+
+        currentStep.Status = ApprovalStepStatus.Rejected;
+        currentStep.ActionDate = Clock.Now;
+        currentStep.ActorId = CurrentUser.Id;
+        currentStep.ActorName = CurrentUser.Name ?? CurrentUser.UserName;
+        currentStep.Notes = notes;
+        await _approvalSnapshotStepRepository.UpdateAsync(currentStep, autoSave: true);
+
+        snapshot.Status = ApprovalSnapshotStatus.Rejected;
+        await _approvalSnapshotRepository.UpdateAsync(snapshot, autoSave: true);
+
         receipt.OrderStatus = GoodsReceiptOrderStatus.Rejected;
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        if (CurrentUser.Id.HasValue)
+        {
+            await _notificationCreator.UpdateGoodsReceiptNotificationStatusAsync(
+                receipt.Id, CurrentUser.Id.Value, "Từ chối");
+        }
+
+        if (receipt.CreatorId.HasValue)
+        {
+            await _notificationCreator.NotifyGoodsReceiptRejectedAsync(
+                receipt.CreatorId.Value,
+                receipt.Id,
+                receipt.Code);
+        }
 
         return await GetAsync(id);
     }
@@ -504,7 +713,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
     public async Task<List<RecentLotDto>> GetRecentLotNumbersAsync(Guid productId)
     {
-        var sevenDaysAgo = DateTime.UtcNow.AddDays(-7);
+        var sevenDaysAgo = Clock.Now.AddDays(-7);
         var itemQuery = await _itemRepository.GetQueryableAsync();
         var receiptQuery = await _goodsReceiptRepository.GetQueryableAsync();
 
@@ -514,7 +723,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                         && item.LotNumber != null
                         && item.LotNumber != ""
                         && receipt.CreationTime >= sevenDaysAgo
-                        && (item.LotExpiryDate == null || item.LotExpiryDate > DateTime.UtcNow)
+                        && (item.LotExpiryDate == null || item.LotExpiryDate > Clock.Now)
                     orderby receipt.CreationTime descending
                     select new RecentLotDto
                     {
@@ -646,7 +855,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         foreach (var itemDto in items)
         {
-            if (itemDto.LotExpiryDate.HasValue && itemDto.LotExpiryDate.Value.Date < DateTime.UtcNow.Date)
+            if (itemDto.LotExpiryDate.HasValue && itemDto.LotExpiryDate.Value.Date < Clock.Now.Date)
                 throw new UserFriendlyException($"Lô hàng đã hết hạn (HSD: {itemDto.LotExpiryDate.Value:dd/MM/yyyy}). Không thể sử dụng lô đã hết hạn.");
 
             if (itemDto.IsEquipment)

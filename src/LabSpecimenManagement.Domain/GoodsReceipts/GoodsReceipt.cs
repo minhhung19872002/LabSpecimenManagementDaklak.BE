@@ -47,7 +47,7 @@ public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
         SupplierName = supplierName;
         VatPercent = 8;
         WarehouseStatus = GoodsReceiptWarehouseStatus.NotImported;
-        OrderStatus = GoodsReceiptOrderStatus.PendingApproval;
+        OrderStatus = GoodsReceiptOrderStatus.Ordering;
         PaymentStatus = GoodsReceiptPaymentStatus.Unpaid;
         Items = new List<GoodsReceiptItem>();
         Payments = new List<GoodsReceiptPayment>();

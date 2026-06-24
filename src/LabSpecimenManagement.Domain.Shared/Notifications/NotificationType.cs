@@ -151,7 +151,26 @@ public enum NotificationType
     /// <summary>
     /// KTV báo không thể thử nghiệm chỉ tiêu (gửi cho QLKT)
     /// </summary>
-    CannotTest = 35
+    CannotTest = 35,
+
+    #endregion
+
+    #region Notification Types for GoodsReceipt Approval (Phê duyệt phiếu đặt hàng)
+
+    /// <summary>
+    /// Phiếu đặt hàng cần phê duyệt (gửi cho người duyệt)
+    /// </summary>
+    GoodsReceiptPendingApproval = 40,
+
+    /// <summary>
+    /// Phiếu đặt hàng đã được duyệt (gửi cho người tạo phiếu)
+    /// </summary>
+    GoodsReceiptApproved = 41,
+
+    /// <summary>
+    /// Phiếu đặt hàng bị từ chối (gửi cho người tạo phiếu)
+    /// </summary>
+    GoodsReceiptRejected = 42
 
     #endregion
 }

@@ -11,6 +11,7 @@ using LabSpecimenManagement.Products;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Reports;
+using LabSpecimenManagement.ApprovalProcesses;
 using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
@@ -190,5 +191,11 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.Name, opt => opt.Ignore())
             .ForMember(dest => dest.TechnicalManagerName, opt => opt.Ignore());
         CreateMap<CreateUpdateLaboratoryDto, Laboratory>();
+
+        // ApprovalProcess mappings
+        CreateMap<ApprovalProcess, ApprovalProcessDto>();
+        CreateMap<ApprovalProcessStep, ApprovalProcessStepDto>();
+        CreateMap<ApprovalSnapshot, ApprovalSnapshotDto>();
+        CreateMap<ApprovalSnapshotStep, ApprovalSnapshotStepDto>();
     }
 }
