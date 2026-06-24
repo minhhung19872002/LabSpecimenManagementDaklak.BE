@@ -9,5 +9,6 @@ public class WarehouseDto : FullAuditedEntityDto<Guid>
     public string Name { get; set; }
     public string? PhysicalLocation { get; set; }
     public bool IsActive { get; set; }
+    public bool IsDefault { get; set; }
     public int SortOrder { get; set; }
 }

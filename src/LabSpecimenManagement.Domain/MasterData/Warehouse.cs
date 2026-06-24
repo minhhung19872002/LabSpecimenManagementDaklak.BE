@@ -14,6 +14,8 @@ public class Warehouse : FullAuditedAggregateRoot<Guid>, IHasActive
 
     public bool IsActive { get; set; }
 
+    public bool IsDefault { get; set; }
+
     public int SortOrder { get; set; }
 
     protected Warehouse()

@@ -63,6 +63,15 @@ public class WarehouseAppService :
 
     public override async Task<WarehouseDto> UpdateAsync(Guid id, CreateUpdateWarehouseDto input)
     {
+        var entity = await Repository.GetAsync(id);
+        if (entity.IsDefault)
+        {
+            entity.Name = input.Name;
+            entity.PhysicalLocation = input.PhysicalLocation;
+            await Repository.UpdateAsync(entity);
+            return ObjectMapper.Map<Warehouse, WarehouseDto>(entity);
+        }
+
         await ValidateDuplicateCodeAsync(input.Code, id);
 
         return await base.UpdateAsync(id, input);
@@ -86,9 +95,23 @@ public class WarehouseAppService :
         return await GenerateCodeAsync();
     }
 
+    public override async Task DeleteAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+        if (entity.IsDefault)
+        {
+            throw new UserFriendlyException("Không thể xóa kho mặc định.");
+        }
+        await base.DeleteAsync(id);
+    }
+
     public async Task ToggleActiveAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
+        if (entity.IsDefault)
+        {
+            throw new UserFriendlyException("Không thể thay đổi trạng thái kho mặc định.");
+        }
         entity.IsActive = !entity.IsActive;
         await Repository.UpdateAsync(entity);
     }
@@ -100,6 +123,8 @@ public class WarehouseAppService :
         {
             try
             {
+                var entity = await Repository.GetAsync(id);
+                if (entity.IsDefault) continue;
                 await Repository.DeleteAsync(id);
                 count++;
             }
@@ -118,6 +143,7 @@ public class WarehouseAppService :
             try
             {
                 var entity = await Repository.GetAsync(id);
+                if (entity.IsDefault) continue;
                 entity.IsActive = isActive;
                 await Repository.UpdateAsync(entity);
                 count++;
