@@ -74,6 +74,12 @@ public class WarehouseController : LabSpecimenManagementController
         return _warehouseAppService.GetNextCodeAsync();
     }
 
+    [HttpGet("default")]
+    public virtual Task<WarehouseDto?> GetDefaultAsync()
+    {
+        return _warehouseAppService.GetDefaultAsync();
+    }
+
     [HttpPost("{id}/toggle-active")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task ToggleActiveAsync(Guid id)

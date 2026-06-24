@@ -16,6 +16,8 @@ public interface IWarehouseAppService : ICrudAppService<
 
     Task<string> GetNextCodeAsync();
 
+    Task<WarehouseDto?> GetDefaultAsync();
+
     Task ToggleActiveAsync(Guid id);
 
     Task<int> BatchDeleteAsync(List<Guid> ids);

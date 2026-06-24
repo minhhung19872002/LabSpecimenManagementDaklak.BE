@@ -95,6 +95,13 @@ public class WarehouseAppService :
         return await GenerateCodeAsync();
     }
 
+    public async Task<WarehouseDto?> GetDefaultAsync()
+    {
+        var query = await Repository.GetQueryableAsync();
+        var warehouse = query.FirstOrDefault(x => x.IsDefault);
+        return warehouse == null ? null : ObjectMapper.Map<Warehouse, WarehouseDto>(warehouse);
+    }
+
     public override async Task DeleteAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
