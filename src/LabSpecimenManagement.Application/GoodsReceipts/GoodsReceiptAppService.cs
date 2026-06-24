@@ -532,6 +532,16 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
     #region Private Methods
 
+    public async Task<string> GetNextCodeAsync()
+    {
+        return await GenerateCodeAsync();
+    }
+
+    public async Task<string> GetNextEquipmentCodeAsync()
+    {
+        return await GenerateEquipmentCodeAsync();
+    }
+
     private async Task<string> GenerateCodeAsync()
     {
         var prefix = "PR";
