@@ -2997,6 +2997,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 userLabIds.Contains(x.LaboratoryId));
         }
 
+        // Statistics reflect the current user's own assigned indicators only
+        if (currentUserId.HasValue)
+        {
+            query = query.Where(x => x.TechnicianId == currentUserId.Value);
+        }
+
         // Materialize and compute display status
         var allItems = query.ToList();
         var statusCounts = allItems
