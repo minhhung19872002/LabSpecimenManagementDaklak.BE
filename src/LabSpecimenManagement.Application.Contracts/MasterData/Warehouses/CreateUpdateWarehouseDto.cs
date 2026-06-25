@@ -1,3 +1,4 @@
+using System;
 using System.ComponentModel.DataAnnotations;
 
 namespace LabSpecimenManagement.MasterData;
@@ -16,4 +17,6 @@ public class CreateUpdateWarehouseDto
     public string? PhysicalLocation { get; set; }
 
     public bool IsActive { get; set; } = true;
+
+    public Guid? ParentWarehouseId { get; set; }
 }

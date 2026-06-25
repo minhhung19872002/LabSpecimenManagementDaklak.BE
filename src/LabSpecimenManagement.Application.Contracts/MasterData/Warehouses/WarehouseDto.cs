@@ -11,4 +11,7 @@ public class WarehouseDto : FullAuditedEntityDto<Guid>
     public bool IsActive { get; set; }
     public bool IsDefault { get; set; }
     public int SortOrder { get; set; }
+    public Guid? ParentWarehouseId { get; set; }
+    public string? ParentWarehouseName { get; set; }
+    public int Level { get; set; }
 }

@@ -2882,10 +2882,18 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<int>("Level")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("ParentWarehouseId")
+                        .HasColumnType("uuid");
 
                     b.Property<string>("PhysicalLocation")
                         .HasMaxLength(500)
@@ -2899,6 +2907,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Code")
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("ParentWarehouseId");
 
                     b.ToTable("AppWarehouses", (string)null);
                 });
@@ -7904,6 +7914,14 @@ namespace LabSpecimenManagement.Migrations
                     b.HasOne("LabSpecimenManagement.MasterData.SampleTypeCategory", null)
                         .WithMany()
                         .HasForeignKey("SampleTypeCategoryId");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.Warehouse", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.Warehouse", null)
+                        .WithMany()
+                        .HasForeignKey("ParentWarehouseId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>

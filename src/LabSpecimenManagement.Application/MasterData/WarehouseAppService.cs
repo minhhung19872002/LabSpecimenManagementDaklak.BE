@@ -50,6 +50,7 @@ public class WarehouseAppService :
             query.OrderByDescending(x => x.CreationTime).ApplyPaging(input));
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
+        await FillParentWarehouseNamesAsync(dtos);
 
         return new PagedResultDto<WarehouseDto>(totalCount, dtos);
     }
@@ -57,6 +58,7 @@ public class WarehouseAppService :
     public override async Task<WarehouseDto> CreateAsync(CreateUpdateWarehouseDto input)
     {
         await ValidateDuplicateCodeAsync(input.Code);
+        await ValidateParentWarehouseAsync(null, input.ParentWarehouseId);
 
         return await base.CreateAsync(input);
     }
@@ -73,6 +75,7 @@ public class WarehouseAppService :
         }
 
         await ValidateDuplicateCodeAsync(input.Code, id);
+        await ValidateParentWarehouseAsync(id, input.ParentWarehouseId);
 
         return await base.UpdateAsync(id, input);
     }
@@ -86,6 +89,7 @@ public class WarehouseAppService :
             .ToList();
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
+        await FillParentWarehouseNamesAsync(dtos);
 
         return new ListResultDto<WarehouseDto>(dtos);
     }
@@ -109,6 +113,7 @@ public class WarehouseAppService :
         {
             throw new UserFriendlyException("Không thể xóa kho mặc định.");
         }
+        await EnsureNoChildrenAsync(id);
         await base.DeleteAsync(id);
     }
 
@@ -132,6 +137,7 @@ public class WarehouseAppService :
             {
                 var entity = await Repository.GetAsync(id);
                 if (entity.IsDefault) continue;
+                await EnsureNoChildrenAsync(id);
                 await Repository.DeleteAsync(id);
                 count++;
             }
@@ -162,22 +168,25 @@ public class WarehouseAppService :
         return count;
     }
 
-    protected override Task<Warehouse> MapToEntityAsync(CreateUpdateWarehouseDto createInput)
+    protected override async Task<Warehouse> MapToEntityAsync(CreateUpdateWarehouseDto createInput)
     {
-        return Task.FromResult(new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name)
+        return new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name)
         {
             PhysicalLocation = createInput.PhysicalLocation,
-            IsActive = createInput.IsActive
-        });
+            IsActive = createInput.IsActive,
+            ParentWarehouseId = createInput.ParentWarehouseId,
+            Level = await ComputeLevelAsync(createInput.ParentWarehouseId)
+        };
     }
 
-    protected override Task MapToEntityAsync(CreateUpdateWarehouseDto updateInput, Warehouse entity)
+    protected override async Task MapToEntityAsync(CreateUpdateWarehouseDto updateInput, Warehouse entity)
     {
         entity.Code = updateInput.Code;
         entity.Name = updateInput.Name;
         entity.PhysicalLocation = updateInput.PhysicalLocation;
         entity.IsActive = updateInput.IsActive;
-        return Task.CompletedTask;
+        entity.ParentWarehouseId = updateInput.ParentWarehouseId;
+        entity.Level = await ComputeLevelAsync(updateInput.ParentWarehouseId);
     }
 
     public async Task<string> GenerateCodeAsync()
@@ -217,6 +226,91 @@ public class WarehouseAppService :
         if (exists)
         {
             throw new UserFriendlyException("Mã kho đã tồn tại. Vui lòng chọn mã khác.");
+        }
+    }
+
+    private async Task<int> ComputeLevelAsync(Guid? parentWarehouseId)
+    {
+        if (parentWarehouseId == null)
+        {
+            return 0;
+        }
+
+        var parent = await Repository.GetAsync(parentWarehouseId.Value);
+        return parent.Level + 1;
+    }
+
+    private async Task ValidateParentWarehouseAsync(Guid? id, Guid? parentWarehouseId)
+    {
+        if (parentWarehouseId == null)
+        {
+            return;
+        }
+
+        if (id != null && parentWarehouseId == id)
+        {
+            throw new UserFriendlyException("Kho cha không thể là chính kho này.");
+        }
+
+        var query = await Repository.GetQueryableAsync();
+        var allWarehouses = query.ToList();
+
+        if (!allWarehouses.Any(x => x.Id == parentWarehouseId.Value))
+        {
+            throw new UserFriendlyException("Kho cha không tồn tại.");
+        }
+
+        if (id == null)
+        {
+            return;
+        }
+
+        // Walk up the ancestor chain from the chosen parent to detect a cycle back to `id`.
+        var currentId = (Guid?)parentWarehouseId.Value;
+        while (currentId != null)
+        {
+            if (currentId == id)
+            {
+                throw new UserFriendlyException("Không thể chọn kho con của chính kho này làm kho cha.");
+            }
+
+            currentId = allWarehouses.FirstOrDefault(x => x.Id == currentId)?.ParentWarehouseId;
+        }
+    }
+
+    private async Task EnsureNoChildrenAsync(Guid id)
+    {
+        var query = await Repository.GetQueryableAsync();
+        var hasChildren = query.Any(x => x.ParentWarehouseId == id);
+        if (hasChildren)
+        {
+            throw new UserFriendlyException("Không thể xóa kho cha. Vui lòng xóa hoặc chuyển kho con sang kho cha khác trước.");
+        }
+    }
+
+    private async Task FillParentWarehouseNamesAsync(List<WarehouseDto> dtos)
+    {
+        var parentIds = dtos.Where(x => x.ParentWarehouseId != null)
+            .Select(x => x.ParentWarehouseId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (parentIds.Count == 0)
+        {
+            return;
+        }
+
+        var query = await Repository.GetQueryableAsync();
+        var parents = query.Where(x => parentIds.Contains(x.Id))
+            .ToList()
+            .ToDictionary(x => x.Id, x => x.Name);
+
+        foreach (var dto in dtos)
+        {
+            if (dto.ParentWarehouseId != null && parents.TryGetValue(dto.ParentWarehouseId.Value, out var name))
+            {
+                dto.ParentWarehouseName = name;
+            }
         }
     }
 }
