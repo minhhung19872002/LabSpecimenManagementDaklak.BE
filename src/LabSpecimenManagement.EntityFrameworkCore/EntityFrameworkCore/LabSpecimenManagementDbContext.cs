@@ -735,8 +735,15 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Name).IsRequired().HasMaxLength(256);
             b.Property(x => x.PhysicalLocation).HasMaxLength(500);
             b.Property(x => x.IsDefault).HasDefaultValue(false);
+            b.Property(x => x.Level).HasDefaultValue(0);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.ParentWarehouseId);
+
+            b.HasOne<Warehouse>()
+                .WithMany()
+                .HasForeignKey(x => x.ParentWarehouseId)
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         // Customer configuration

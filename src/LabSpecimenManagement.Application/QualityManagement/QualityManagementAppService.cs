@@ -344,9 +344,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         var indicator = await _indicatorRepository.GetAsync(indicatorId);
 
-        if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
+        if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval &&
+            indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
         {
-            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu này không ở trạng thái chờ phê duyệt.", "indicator");
+            throw new Common.Exceptions.InvalidOperationException("Chỉ tiêu này không ở trạng thái chờ phê duyệt hoặc đã phê duyệt.", "indicator");
         }
 
         var oldStatus = indicator.ApprovalStatus;

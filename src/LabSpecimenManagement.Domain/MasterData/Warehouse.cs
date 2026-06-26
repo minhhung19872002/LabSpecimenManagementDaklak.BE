@@ -18,6 +18,10 @@ public class Warehouse : FullAuditedAggregateRoot<Guid>, IHasActive
 
     public int SortOrder { get; set; }
 
+    public Guid? ParentWarehouseId { get; set; }
+
+    public int Level { get; set; }
+
     protected Warehouse()
     {
     }
