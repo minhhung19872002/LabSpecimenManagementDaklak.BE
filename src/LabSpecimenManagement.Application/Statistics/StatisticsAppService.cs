@@ -610,7 +610,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Mẫu = m.Specimens,
                 Phép_thử = m.Tests,
                 Báo_cáo = m.Reports
-            }),
+            }).ToList(),
             ["Theo loại mẫu"] = data.SampleMatrix.Select(s => new
             {
                 Loại_mẫu = s.SpecimenType,
@@ -618,7 +618,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đã_nhận = s.ReceivedCount,
                 Đang_thử = s.TestingCount,
                 Hoàn_thành = s.CompletedCount
-            }),
+            }).ToList(),
             ["Theo phòng ban"] = data.WorkloadByDepartment.Select(w => new
             {
                 Phòng_ban = w.Department,
@@ -627,7 +627,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đang_thực_hiện = w.InProgressTasks,
                 Hoàn_thành = w.CompletedTasks,
                 Hiệu_suất = $"{w.CompletionRate:F1}%"
-            }),
+            }).ToList(),
             ["TAT Compliance"] = data.TATCompliance.Select(t => new
             {
                 Kỳ = t.Period,
@@ -635,7 +635,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đúng_hạn = t.OnTimeRequests,
                 Trễ_hạn = t.DelayedRequests,
                 Tỷ_lệ = $"{t.ComplianceRate:F1}%"
-            })
+            }).ToList()
         };
 
         await memoryStream.SaveAsAsync(sheets);

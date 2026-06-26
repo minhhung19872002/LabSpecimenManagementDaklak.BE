@@ -36,6 +36,13 @@ public class ApiResponseWrapperFilter : IAsyncResultFilter
                 return;
             }
 
+            // Skip wrapping for file download responses (IRemoteStreamContent)
+            if (value is Volo.Abp.Content.IRemoteStreamContent)
+            {
+                await next();
+                return;
+            }
+
             // Handle PagedResultDto - convert to our format
             if (value != null && IsPagedResultDto(value.GetType()))
             {
