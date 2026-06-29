@@ -159,6 +159,14 @@ public static class LabSpecimenManagementPermissions
         public const string AddPayment = Default + ".AddPayment";
     }
 
+    // WarehouseImportReceipts (Phiếu nhập kho)
+    public static class WarehouseImportReceipts
+    {
+        public const string Default = GroupName + ".WarehouseImportReceipts";
+        public const string Create = Default + ".Create";
+        public const string Confirm = Default + ".Confirm";
+    }
+
     public static class StockAdjustments
     {
         public const string Default = GroupName + ".StockAdjustments";

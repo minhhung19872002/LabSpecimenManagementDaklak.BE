@@ -29,7 +29,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<GoodsReceiptItem, Guid> _itemRepository;
     private readonly IRepository<GoodsReceiptPayment, Guid> _paymentRepository;
     private readonly IRepository<Product, Guid> _productRepository;
-    private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
+    private readonly IUnitConversionResolver _unitConversionResolver;
     private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
@@ -49,7 +49,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<GoodsReceiptItem, Guid> itemRepository,
         IRepository<GoodsReceiptPayment, Guid> paymentRepository,
         IRepository<Product, Guid> productRepository,
-        IRepository<ProductUnitConversion, Guid> conversionRepository,
+        IUnitConversionResolver unitConversionResolver,
         IRepository<Supplier, Guid> supplierRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<Equipment, Guid> equipmentRepository,
@@ -68,7 +68,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _itemRepository = itemRepository;
         _paymentRepository = paymentRepository;
         _productRepository = productRepository;
-        _conversionRepository = conversionRepository;
+        _unitConversionResolver = unitConversionResolver;
         _supplierRepository = supplierRepository;
         _unitRepository = unitRepository;
         _equipmentRepository = equipmentRepository;
@@ -501,8 +501,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         var items = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == id).ToList();
 
-        var conversionsQuery = await _conversionRepository.GetQueryableAsync();
-
         foreach (var item in items)
         {
             if (item.IsEquipment)
@@ -527,34 +525,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             }
 
             var product = await _productRepository.GetAsync(item.ProductId!.Value);
-            decimal baseQty;
-
-            if (product.BaseUnitId == null)
-            {
-                baseQty = item.Quantity;
-            }
-            else if (item.UnitId == product.BaseUnitId)
-            {
-                baseQty = item.Quantity;
-            }
-            else if (item.UnitId == product.PackagingUnitId && product.PackagingQuantity > 0)
-            {
-                baseQty = item.Quantity / product.PackagingQuantity.Value;
-            }
-            else
-            {
-                var conversion = conversionsQuery.FirstOrDefault(c =>
-                    c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId);
-
-                if (conversion == null)
-                    throw new UserFriendlyException($"Không tìm thấy quy đổi đơn vị cho \"{item.ProductName}\". Vui lòng kiểm tra lại.");
-
-                if (conversion.ConvertedQuantity == 0)
-                    throw new UserFriendlyException($"Quy đổi đơn vị cho \"{item.ProductName}\" có số lượng quy đổi = 0. Vui lòng kiểm tra lại.");
-
-                decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
-                baseQty = item.Quantity * ratio;
-            }
+            var baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(product, item.UnitId, item.Quantity, item.ProductName);
 
             product.AvailableQuantity += baseQty;
             await _productRepository.UpdateAsync(product, autoSave: true);

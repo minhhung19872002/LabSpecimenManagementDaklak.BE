@@ -9,6 +9,7 @@ using LabSpecimenManagement.MasterData.Units;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.GoodsReceipts;
+using LabSpecimenManagement.WarehouseImports;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.ApprovalProcesses;
@@ -174,6 +175,16 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.PurchaserFullName, opt => opt.Ignore());
         CreateMap<GoodsReceiptItem, GoodsReceiptItemDto>();
         CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>();
+
+        // WarehouseImportReceipt mappings
+        CreateMap<WarehouseImportReceipt, WarehouseImportReceiptListDto>()
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
+            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore());
+        CreateMap<WarehouseImportReceipt, WarehouseImportReceiptDto>()
+            .ForMember(dest => dest.Items, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
+            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore());
+        CreateMap<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>();
 
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()

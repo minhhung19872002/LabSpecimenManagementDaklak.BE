@@ -68,6 +68,12 @@ public class WarehouseController : LabSpecimenManagementController
         return _warehouseAppService.GetActiveWarehousesAsync();
     }
 
+    [HttpGet("root")]
+    public virtual Task<ListResultDto<WarehouseDto>> GetRootWarehousesAsync()
+    {
+        return _warehouseAppService.GetRootWarehousesAsync();
+    }
+
     [HttpGet("next-code")]
     public virtual Task<string> GetNextCodeAsync()
     {

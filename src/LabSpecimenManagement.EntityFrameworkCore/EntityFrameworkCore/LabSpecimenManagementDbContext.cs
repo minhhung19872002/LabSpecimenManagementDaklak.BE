@@ -33,6 +33,7 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.WarehouseImports;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -80,6 +81,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
     public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
     public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
+    public DbSet<WarehouseImportReceipt> WarehouseImportReceipts { get; set; }
+    public DbSet<WarehouseImportReceiptItem> WarehouseImportReceiptItems { get; set; }
     public DbSet<Manufacturer> Manufacturers { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
@@ -633,6 +636,47 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Notes).HasMaxLength(1000);
 
             b.HasIndex(x => x.GoodsReceiptId);
+        });
+
+        // WarehouseImportReceipt configuration
+        builder.Entity<WarehouseImportReceipt>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "WarehouseImportReceipts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.GoodsReceiptCode).IsRequired().HasMaxLength(50);
+            b.Property(x => x.WarehouseKeeperName).HasMaxLength(200);
+            b.Property(x => x.WarehouseName).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFileId).HasMaxLength(50);
+            b.Property(x => x.DeliveryDocumentFileName).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFilePath).HasMaxLength(500);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.GoodsReceiptId);
+            b.HasIndex(x => x.WarehouseId);
+            b.HasIndex(x => x.Status);
+        });
+
+        builder.Entity<WarehouseImportReceiptItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "WarehouseImportReceiptItems", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.OrderedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ActualReceivedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.UnitName).HasMaxLength(100);
+            b.Property(x => x.LotNumber).HasMaxLength(100);
+            b.Property(x => x.QualityDocumentFileId).HasMaxLength(50);
+            b.Property(x => x.QualityDocumentFileName).HasMaxLength(500);
+            b.Property(x => x.QualityDocumentFilePath).HasMaxLength(500);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.WarehouseImportReceiptId);
+            b.HasIndex(x => x.GoodsReceiptItemId);
+            b.HasIndex(x => x.ProductId);
         });
 
         // SpecimenType configuration

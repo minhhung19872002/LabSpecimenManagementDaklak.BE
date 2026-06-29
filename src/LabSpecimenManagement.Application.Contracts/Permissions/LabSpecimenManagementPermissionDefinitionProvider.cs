@@ -109,6 +109,11 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.ImportToWarehouse, L("Permission:GoodsReceipts.ImportToWarehouse"));
         goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.AddPayment, L("Permission:GoodsReceipts.AddPayment"));
 
+        // Warehouse Import Receipts (Phiếu nhập kho)
+        var warehouseImportReceiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.WarehouseImportReceipts.Default, L("Permission:WarehouseImportReceipts"));
+        warehouseImportReceiptPermission.AddChild(LabSpecimenManagementPermissions.WarehouseImportReceipts.Create, L("Permission:WarehouseImportReceipts.Create"));
+        warehouseImportReceiptPermission.AddChild(LabSpecimenManagementPermissions.WarehouseImportReceipts.Confirm, L("Permission:WarehouseImportReceipts.Confirm"));
+
         var stockAdjustmentPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.StockAdjustments.Default, L("Permission:StockAdjustments"));
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Create, L("Permission:StockAdjustments.Create"));
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Edit, L("Permission:StockAdjustments.Edit"));
