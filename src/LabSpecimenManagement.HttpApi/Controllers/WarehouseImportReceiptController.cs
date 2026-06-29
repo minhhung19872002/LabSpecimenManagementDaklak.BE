@@ -23,9 +23,15 @@ public class WarehouseImportReceiptController : LabSpecimenManagementController
     }
 
     [HttpGet]
-    public virtual Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync([FromQuery] PagedAndSortedResultRequestDto input)
+    public virtual Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync([FromQuery] GetWarehouseImportReceiptListInput input)
     {
         return _warehouseImportReceiptAppService.GetListAsync(input);
+    }
+
+    [HttpGet("statistics")]
+    public virtual Task<WarehouseImportReceiptStatisticsDto> GetStatisticsAsync([FromQuery] DateTime? fromDate, [FromQuery] DateTime? toDate)
+    {
+        return _warehouseImportReceiptAppService.GetStatisticsAsync(fromDate, toDate);
     }
 
     [HttpGet("{id}")]

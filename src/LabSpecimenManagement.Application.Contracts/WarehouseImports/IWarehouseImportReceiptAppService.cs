@@ -8,7 +8,8 @@ namespace LabSpecimenManagement.WarehouseImports;
 
 public interface IWarehouseImportReceiptAppService : IApplicationService
 {
-    Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync(PagedAndSortedResultRequestDto input);
+    Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync(GetWarehouseImportReceiptListInput input);
+    Task<WarehouseImportReceiptStatisticsDto> GetStatisticsAsync(DateTime? fromDate, DateTime? toDate);
     Task<WarehouseImportReceiptDto> GetAsync(Guid id);
     Task<WarehouseImportReceiptDto> CreateAsync(CreateUpdateWarehouseImportReceiptDto input);
     Task<WarehouseImportReceiptDto> UpdateAsync(Guid id, CreateUpdateWarehouseImportReceiptDto input);

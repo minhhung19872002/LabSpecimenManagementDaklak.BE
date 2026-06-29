@@ -64,9 +64,60 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         GoodsReceiptOrderStatus.WaitingReceipt
     };
 
-    public async Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync(PagedAndSortedResultRequestDto input)
+    public async Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync(GetWarehouseImportReceiptListInput input)
     {
         var query = await _receiptRepository.GetQueryableAsync();
+        var goodsReceiptQuery = await _goodsReceiptRepository.GetQueryableAsync();
+
+        if (input.FromDate.HasValue)
+        {
+            var from = input.FromDate.Value.Date;
+            query = query.Where(x => x.ActualImportDate >= from);
+        }
+
+        if (input.ToDate.HasValue)
+        {
+            var to = input.ToDate.Value.Date.AddDays(1);
+            query = query.Where(x => x.ActualImportDate < to);
+        }
+
+        var supplierNameByGoodsReceiptId = goodsReceiptQuery.ToDictionary(x => x.Id, x => x.SupplierName);
+
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.Trim().ToLower();
+            var matchingGoodsReceiptIds = supplierNameByGoodsReceiptId
+                .Where(x => x.Value != null && x.Value.ToLower().Contains(search))
+                .Select(x => x.Key)
+                .ToList();
+
+            query = query.Where(x =>
+                x.Code.ToLower().Contains(search) ||
+                x.GoodsReceiptCode.ToLower().Contains(search) ||
+                matchingGoodsReceiptIds.Contains(x.GoodsReceiptId));
+        }
+
+        if (input.DisplayStatus.HasValue && input.DisplayStatus.Value != WarehouseImportReceiptDisplayStatusFilter.All)
+        {
+            var allReceiptIds = query.Select(x => x.Id).ToList();
+            var itemsQuery = await _itemRepository.GetQueryableAsync();
+            var defectiveReceiptIds = itemsQuery
+                .Where(x => allReceiptIds.Contains(x.WarehouseImportReceiptId) && x.Status == WarehouseImportLineStatus.Defective)
+                .Select(x => x.WarehouseImportReceiptId)
+                .Distinct()
+                .ToList();
+
+            query = input.DisplayStatus.Value switch
+            {
+                WarehouseImportReceiptDisplayStatusFilter.InProgress =>
+                    query.Where(x => x.Status == WarehouseImportReceiptStatus.InProgress),
+                WarehouseImportReceiptDisplayStatusFilter.Completed =>
+                    query.Where(x => x.Status == WarehouseImportReceiptStatus.Completed && !defectiveReceiptIds.Contains(x.Id)),
+                WarehouseImportReceiptDisplayStatusFilter.Defective =>
+                    query.Where(x => x.Status == WarehouseImportReceiptStatus.Completed && defectiveReceiptIds.Contains(x.Id)),
+                _ => query
+            };
+        }
 
         var totalCount = await AsyncExecuter.CountAsync(query);
 
@@ -74,9 +125,38 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             query.OrderByDescending(x => x.CreationTime).ApplyPaging(input));
 
         var dtos = ObjectMapper.Map<List<WarehouseImportReceipt>, List<WarehouseImportReceiptListDto>>(items);
+        foreach (var dto in dtos)
+        {
+            dto.SupplierName = supplierNameByGoodsReceiptId.TryGetValue(dto.GoodsReceiptId, out var supplierName) ? supplierName : null;
+        }
         await EnrichListDtosAsync(items, dtos);
 
         return new PagedResultDto<WarehouseImportReceiptListDto>(totalCount, dtos);
+    }
+
+    public async Task<WarehouseImportReceiptStatisticsDto> GetStatisticsAsync(DateTime? fromDate, DateTime? toDate)
+    {
+        var today = Clock.Now.Date;
+        var from = (fromDate ?? new DateTime(today.Year, today.Month, 1)).Date;
+        var to = (toDate ?? today).Date.AddDays(1);
+
+        var receiptQuery = await _receiptRepository.GetQueryableAsync();
+        var receiptsInRange = receiptQuery
+            .Where(x => x.ActualImportDate >= from && x.ActualImportDate < to)
+            .ToList();
+
+        var totalReceipts = receiptsInRange.Count;
+
+        var receiptIdsInRange = receiptsInRange.Select(x => x.Id).ToList();
+        var itemsQuery = await _itemRepository.GetQueryableAsync();
+        var defectiveLots = itemsQuery
+            .Count(x => receiptIdsInRange.Contains(x.WarehouseImportReceiptId) && x.Status == WarehouseImportLineStatus.Defective);
+
+        return new WarehouseImportReceiptStatisticsDto
+        {
+            TotalReceipts = totalReceipts,
+            DefectiveLots = defectiveLots
+        };
     }
 
     public async Task<WarehouseImportReceiptDto> GetAsync(Guid id)

@@ -13,10 +13,33 @@ public class WarehouseImportReceiptListDto : EntityDto<Guid>
     public DateTime ActualImportDate { get; set; }
     public string? WarehouseKeeperName { get; set; }
     public string? WarehouseName { get; set; }
+    public string? SupplierName { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
     public bool HasDefectiveItem { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
+}
+
+public enum WarehouseImportReceiptDisplayStatusFilter
+{
+    All = 0,
+    InProgress = 1,
+    Completed = 2,
+    Defective = 3
+}
+
+public class GetWarehouseImportReceiptListInput : PagedAndSortedResultRequestDto
+{
+    public string? Search { get; set; }
+    public WarehouseImportReceiptDisplayStatusFilter? DisplayStatus { get; set; }
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+}
+
+public class WarehouseImportReceiptStatisticsDto
+{
+    public int TotalReceipts { get; set; }
+    public int DefectiveLots { get; set; }
 }
 
 public class WarehouseImportReceiptDto : EntityDto<Guid>
