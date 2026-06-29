@@ -38,6 +38,7 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
+    public string? WarehouseName { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
 }

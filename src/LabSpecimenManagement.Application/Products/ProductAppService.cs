@@ -7,6 +7,7 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Suppliers;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -28,6 +29,8 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<GoodsReceiptItem, Guid> _goodsReceiptItemRepository;
     private readonly IRepository<GoodsReceipt, Guid> _goodsReceiptRepository;
     private readonly IRepository<Supplier, Guid> _supplierRepository;
+    private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
+    private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
@@ -39,6 +42,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<GoodsReceiptItem, Guid> goodsReceiptItemRepository,
         IRepository<GoodsReceipt, Guid> goodsReceiptRepository,
         IRepository<Supplier, Guid> supplierRepository,
+        IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
+        IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
@@ -49,6 +54,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         _goodsReceiptItemRepository = goodsReceiptItemRepository;
         _goodsReceiptRepository = goodsReceiptRepository;
         _supplierRepository = supplierRepository;
+        _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
+        _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -81,6 +88,9 @@ public class ProductAppService : ApplicationService, IProductAppService
         var totalCount = query.Count();
 
         // Apply sorting
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
         IQueryable<Product> sortedQuery;
         if (!string.IsNullOrWhiteSpace(input.Sorting))
         {
@@ -98,6 +108,24 @@ public class ProductAppService : ApplicationService, IProductAppService
                 "storageavailablequantity asc" => query.OrderBy(x => x.BaseUnitId.HasValue && x.PackagingQuantity > 0 ? x.AvailableQuantity * x.PackagingQuantity.Value : x.AvailableQuantity),
                 "storageavailablequantity desc" => query.OrderByDescending(x => x.BaseUnitId.HasValue && x.PackagingQuantity > 0 ? x.AvailableQuantity * x.PackagingQuantity.Value : x.AvailableQuantity),
                 "creationtime asc" => query.OrderBy(x => x.CreationTime),
+                "warehousename asc" => query.OrderBy(x =>
+                    importReceiptQuery
+                        .Where(r => r.Id == importItemQuery
+                            .Where(i => i.ProductId == x.Id)
+                            .OrderByDescending(i => i.Id)
+                            .Select(i => i.WarehouseImportReceiptId)
+                            .FirstOrDefault())
+                        .Select(r => r.WarehouseName)
+                        .FirstOrDefault()),
+                "warehousename desc" => query.OrderByDescending(x =>
+                    importReceiptQuery
+                        .Where(r => r.Id == importItemQuery
+                            .Where(i => i.ProductId == x.Id)
+                            .OrderByDescending(i => i.Id)
+                            .Select(i => i.WarehouseImportReceiptId)
+                            .FirstOrDefault())
+                        .Select(r => r.WarehouseName)
+                        .FirstOrDefault()),
                 _ => query.OrderByDescending(x => x.CreationTime),
             };
         }
@@ -527,6 +555,30 @@ public class ProductAppService : ApplicationService, IProductAppService
         var conversions = conversionsQuery.Where(c => productIds.Contains(c.ProductId)).ToList();
         var conversionMap = conversions.GroupBy(c => c.ProductId).ToDictionary(g => g.Key, g => g.ToList());
 
+        // Load warehouse names from latest WarehouseImportReceipt per product
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+        var latestReceiptIds = importItemQuery
+            .Where(i => productIds.Contains(i.ProductId))
+            .GroupBy(i => i.ProductId)
+            .Select(g => new
+            {
+                ProductId = g.Key,
+                ReceiptId = g.OrderByDescending(i => i.Id).Select(i => i.WarehouseImportReceiptId).FirstOrDefault()
+            })
+            .ToList();
+        var receiptIds = latestReceiptIds.Select(x => x.ReceiptId).Distinct().ToList();
+        var receiptWarehouseMap = receiptIds.Any()
+            ? importReceiptQuery
+                .Where(r => receiptIds.Contains(r.Id))
+                .Select(r => new { r.Id, r.WarehouseName })
+                .ToList()
+                .ToDictionary(r => r.Id, r => r.WarehouseName)
+            : new Dictionary<Guid, string?>();
+        var productWarehouseMap = latestReceiptIds.ToDictionary(
+            x => x.ProductId,
+            x => receiptWarehouseMap.GetValueOrDefault(x.ReceiptId));
+
         // Load all unit names for conversions
         var allConversionUnitIds = conversions
             .SelectMany(c => new[] { c.BaseUnitId, c.ConvertedUnitId })
@@ -551,6 +603,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             dto.StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
+            dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
 
             // Map attachments
             if (attachmentMap.TryGetValue(product.Id, out var productAttachments))
