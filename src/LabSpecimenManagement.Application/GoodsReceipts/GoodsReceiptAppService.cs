@@ -204,6 +204,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             DocumentDate = input.DocumentDate,
             DocumentExpiryDate = input.DocumentExpiryDate,
             SupplierRepresentativePhone = input.SupplierRepresentativePhone,
+            SupplierRepresentativeName = input.SupplierRepresentativeName,
             ExpectedDeliveryDate = input.ExpectedDeliveryDate,
             PurchaserId = input.PurchaserId,
             VatPercent = input.VatPercent,
@@ -316,6 +317,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.DocumentDate = input.DocumentDate;
         receipt.DocumentExpiryDate = input.DocumentExpiryDate;
         receipt.SupplierRepresentativePhone = input.SupplierRepresentativePhone;
+        receipt.SupplierRepresentativeName = input.SupplierRepresentativeName;
         receipt.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
         receipt.PurchaserId = input.PurchaserId;
         receipt.VatPercent = input.VatPercent;
@@ -674,12 +676,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
         var latest = query
-            .Where(x => x.SupplierId == supplierId && x.SupplierRepresentativePhone != null)
+            .Where(x => x.SupplierId == supplierId
+                && (x.SupplierRepresentativePhone != null || x.SupplierRepresentativeName != null))
             .OrderByDescending(x => x.CreationTime)
-            .Select(x => x.SupplierRepresentativePhone)
+            .Select(x => new { x.SupplierRepresentativePhone, x.SupplierRepresentativeName })
             .FirstOrDefault();
 
-        return new LatestSupplierInfoDto { SupplierRepresentativePhone = latest };
+        return new LatestSupplierInfoDto
+        {
+            SupplierRepresentativePhone = latest?.SupplierRepresentativePhone,
+            SupplierRepresentativeName = latest?.SupplierRepresentativeName
+        };
     }
 
     public async Task<List<RecentLotDto>> GetRecentLotNumbersAsync(Guid productId)

@@ -18,6 +18,7 @@ public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
     public DateTime? DocumentDate { get; set; }
     public DateTime? DocumentExpiryDate { get; set; }
     public string? SupplierRepresentativePhone { get; set; }
+    public string? SupplierRepresentativeName { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public Guid? PurchaserId { get; set; }
     public decimal VatPercent { get; set; }

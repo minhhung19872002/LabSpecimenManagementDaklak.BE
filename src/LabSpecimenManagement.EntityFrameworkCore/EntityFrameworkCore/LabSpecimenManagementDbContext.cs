@@ -565,6 +565,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.DeliveryNoteNumber).HasMaxLength(100);
             b.Property(x => x.PreparedByName).HasMaxLength(200);
             b.Property(x => x.SupplierRepresentativePhone).HasMaxLength(20);
+            b.Property(x => x.SupplierRepresentativeName).HasMaxLength(200);
             b.Property(x => x.ExpectedDeliveryDate);
             b.Property(x => x.PurchaserId);
             b.Property(x => x.Notes).HasMaxLength(2000);

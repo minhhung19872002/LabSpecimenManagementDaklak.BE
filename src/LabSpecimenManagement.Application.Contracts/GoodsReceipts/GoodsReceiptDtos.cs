@@ -39,6 +39,7 @@ public class GoodsReceiptDto : EntityDto<Guid>
     public DateTime? DocumentDate { get; set; }
     public DateTime? DocumentExpiryDate { get; set; }
     public string? SupplierRepresentativePhone { get; set; }
+    public string? SupplierRepresentativeName { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public Guid? PurchaserId { get; set; }
     public string? PurchaserFullName { get; set; }
@@ -130,6 +131,9 @@ public class CreateUpdateGoodsReceiptDto
     [StringLength(20)]
     public string? SupplierRepresentativePhone { get; set; }
 
+    [StringLength(200)]
+    public string? SupplierRepresentativeName { get; set; }
+
     public DateTime? ExpectedDeliveryDate { get; set; }
     public Guid? PurchaserId { get; set; }
 
@@ -214,6 +218,7 @@ public class GoodsReceiptStatisticsDto
 public class LatestSupplierInfoDto
 {
     public string? SupplierRepresentativePhone { get; set; }
+    public string? SupplierRepresentativeName { get; set; }
 }
 
 public class CreateGoodsReceiptPaymentDto
