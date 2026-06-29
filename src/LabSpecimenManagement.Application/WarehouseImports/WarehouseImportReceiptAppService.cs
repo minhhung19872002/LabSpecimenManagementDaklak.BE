@@ -567,6 +567,13 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Select(x => ObjectMapper.Map<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>(x))
             .ToList();
 
+        var goodsReceipt = await _goodsReceiptRepository.FindAsync(receipt.GoodsReceiptId);
+        if (goodsReceipt != null)
+        {
+            dto.SupplierName = goodsReceipt.SupplierName;
+            dto.ContactPersonName = goodsReceipt.SupplierRepresentativeName;
+        }
+
         return dto;
     }
 
