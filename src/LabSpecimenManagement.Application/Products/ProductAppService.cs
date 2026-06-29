@@ -31,6 +31,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
@@ -44,6 +45,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<Supplier, Guid> supplierRepository,
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
         IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
+        IRepository<Warehouse, Guid> warehouseRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
@@ -56,6 +58,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _supplierRepository = supplierRepository;
         _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
         _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
+        _warehouseRepository = warehouseRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -85,11 +88,41 @@ public class ProductAppService : ApplicationService, IProductAppService
             query = query.Where(x => x.IsDraft == input.IsDraft.Value);
         }
 
-        var totalCount = query.Count();
-
-        // Apply sorting
+        // Filter by Warehouse (includes child warehouses)
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        if (input.WarehouseId.HasValue)
+        {
+            var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+            var allWarehouses = warehouseQuery.Where(w => w.IsActive)
+                .Select(w => new { w.Id, w.ParentWarehouseId }).ToList();
+
+            var warehouseIds = new HashSet<Guid> { input.WarehouseId.Value };
+            var queue = new Queue<Guid>();
+            queue.Enqueue(input.WarehouseId.Value);
+            while (queue.Count > 0)
+            {
+                var parentId = queue.Dequeue();
+                foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
+                {
+                    if (warehouseIds.Add(child.Id))
+                        queue.Enqueue(child.Id);
+                }
+            }
+
+            var productIdsInWarehouse = importItemQuery
+                .Where(i => importReceiptQuery
+                    .Where(r => warehouseIds.Contains(r.WarehouseId!.Value))
+                    .Select(r => r.Id)
+                    .Contains(i.WarehouseImportReceiptId))
+                .Select(i => i.ProductId)
+                .Distinct();
+
+            query = query.Where(x => productIdsInWarehouse.Contains(x.Id));
+        }
+
+        var totalCount = query.Count();
 
         IQueryable<Product> sortedQuery;
         if (!string.IsNullOrWhiteSpace(input.Sorting))
