@@ -81,7 +81,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             query = query.Where(x => x.ActualImportDate < to);
         }
 
-        var supplierNameByGoodsReceiptId = goodsReceiptQuery.ToDictionary(x => x.Id, x => x.SupplierName);
+        var goodsReceiptInfoById = goodsReceiptQuery.ToDictionary(x => x.Id, x => new { x.SupplierName, x.SupplierRepresentativeName });
+        var supplierNameByGoodsReceiptId = goodsReceiptInfoById.ToDictionary(x => x.Key, x => x.Value.SupplierName);
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
@@ -127,7 +128,11 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var dtos = ObjectMapper.Map<List<WarehouseImportReceipt>, List<WarehouseImportReceiptListDto>>(items);
         foreach (var dto in dtos)
         {
-            dto.SupplierName = supplierNameByGoodsReceiptId.TryGetValue(dto.GoodsReceiptId, out var supplierName) ? supplierName : null;
+            if (goodsReceiptInfoById.TryGetValue(dto.GoodsReceiptId, out var grInfo))
+            {
+                dto.SupplierName = grInfo.SupplierName;
+                dto.ContactPersonName = grInfo.SupplierRepresentativeName;
+            }
         }
         await EnrichListDtosAsync(items, dtos);
 

@@ -14,6 +14,7 @@ public class WarehouseImportReceiptListDto : EntityDto<Guid>
     public string? WarehouseKeeperName { get; set; }
     public string? WarehouseName { get; set; }
     public string? SupplierName { get; set; }
+    public string? ContactPersonName { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
     public bool HasDefectiveItem { get; set; }
     public string? CreatorName { get; set; }
