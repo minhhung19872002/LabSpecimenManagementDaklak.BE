@@ -85,16 +85,6 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? Categories { get; set; }
 
     /// <summary>
-    /// Mức tồn kho tối thiểu
-    /// </summary>
-    public decimal? MinStockLevel { get; set; }
-
-    /// <summary>
-    /// Mức tồn kho tối đa
-    /// </summary>
-    public decimal? MaxStockLevel { get; set; }
-
-    /// <summary>
     /// Số lượng khả dụng (mới tạo = 0, tăng khi nhập hàng)
     /// </summary>
     public decimal AvailableQuantity { get; set; }

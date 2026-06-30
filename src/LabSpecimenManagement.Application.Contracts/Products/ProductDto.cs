@@ -32,13 +32,19 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
-    public decimal? MinStockLevel { get; set; }
-    public decimal? MaxStockLevel { get; set; }
     public decimal AvailableQuantity { get; set; }
     public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
     public string? WarehouseName { get; set; }
+
+    public DateTime? EarliestReceivedDate { get; set; }
+    public string? EarliestLotNumber { get; set; }
+    public DateTime? EarliestLotExpiryDate { get; set; }
+    public string? EarliestLotNotes { get; set; }
+
+    public decimal TotalConsumedQuantity { get; set; }
+    public decimal StorageTotalConsumedQuantity { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
 }
@@ -86,8 +92,6 @@ public class CreateUpdateProductDto
 
     public string? Categories { get; set; }
 
-    public decimal? MinStockLevel { get; set; }
-    public decimal? MaxStockLevel { get; set; }
     public bool IsActive { get; set; } = true;
     public bool IsDraft { get; set; } = false;
 

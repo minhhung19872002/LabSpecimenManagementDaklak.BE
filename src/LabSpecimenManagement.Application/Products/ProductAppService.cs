@@ -32,6 +32,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
+    private readonly IRepository<StockMovementLog, Guid> _stockMovementLogRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
 
@@ -46,6 +47,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
         IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
+        IRepository<StockMovementLog, Guid> stockMovementLogRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter)
     {
@@ -59,6 +61,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
         _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
         _warehouseRepository = warehouseRepository;
+        _stockMovementLogRepository = stockMovementLogRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
     }
@@ -213,8 +216,6 @@ public class ProductAppService : ApplicationService, IProductAppService
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
-            MinStockLevel = input.MinStockLevel,
-            MaxStockLevel = input.MaxStockLevel,
             IsActive = input.IsActive,
             IsDraft = input.IsDraft,
         };
@@ -282,8 +283,6 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;
-        product.MinStockLevel = input.MinStockLevel;
-        product.MaxStockLevel = input.MaxStockLevel;
         product.IsActive = input.IsActive;
         product.IsDraft = input.IsDraft;
 
@@ -612,6 +611,32 @@ public class ProductAppService : ApplicationService, IProductAppService
             x => x.ProductId,
             x => receiptWarehouseMap.GetValueOrDefault(x.ReceiptId));
 
+        // FIFO batch data: earliest import per product (by ActualImportDate)
+        var allImportItems = (from item in importItemQuery
+                              join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                              where productIds.Contains(item.ProductId)
+                              select new
+                              {
+                                  item.ProductId,
+                                  item.LotNumber,
+                                  item.LotExpiryDate,
+                                  item.Notes,
+                                  receipt.ActualImportDate
+                              })
+                              .ToList();
+        var earliestBatchMap = allImportItems
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.ActualImportDate).First());
+
+        // Usage aggregation: sum consumed quantity per product
+        var movementQuery = await _stockMovementLogRepository.GetQueryableAsync();
+        var usageByProduct = movementQuery
+            .Where(l => productIds.Contains(l.ProductId) && l.MovementType == StockMovementType.MaterialConsumption)
+            .GroupBy(l => l.ProductId)
+            .Select(g => new { ProductId = g.Key, Total = g.Sum(l => Math.Abs(l.ChangeQuantity)) })
+            .ToList()
+            .ToDictionary(x => x.ProductId, x => x.Total);
+
         // Load all unit names for conversions
         var allConversionUnitIds = conversions
             .SelectMany(c => new[] { c.BaseUnitId, c.ConvertedUnitId })
@@ -637,6 +662,22 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
             dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
+
+            // FIFO batch data
+            if (earliestBatchMap.TryGetValue(product.Id, out var batch))
+            {
+                dto.EarliestReceivedDate = batch.ActualImportDate;
+                dto.EarliestLotNumber = batch.LotNumber;
+                dto.EarliestLotExpiryDate = batch.LotExpiryDate;
+                dto.EarliestLotNotes = batch.Notes;
+            }
+
+            // Usage
+            var consumed = usageByProduct.GetValueOrDefault(product.Id);
+            dto.TotalConsumedQuantity = consumed;
+            dto.StorageTotalConsumedQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
+                ? consumed * product.PackagingQuantity.Value
+                : consumed;
 
             // Map attachments
             if (attachmentMap.TryGetValue(product.Id, out var productAttachments))
