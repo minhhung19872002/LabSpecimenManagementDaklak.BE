@@ -105,9 +105,10 @@ public class ReportController : LabSpecimenManagementController
 
     [HttpGet("{id}/pdf")]
     [Authorize(LabSpecimenManagementPermissions.Reports.Export)]
-    public virtual Task<IRemoteStreamContent> ExportPdfAsync(Guid id)
+    public virtual async Task<IActionResult> ExportPdfAsync(Guid id)
     {
-        return _reportAppService.ExportPdfAsync(id);
+        var result = await _reportAppService.ExportPdfAsync(id);
+        return File(result.GetStream(), result.ContentType, result.FileName);
     }
 
     [HttpGet("verify/{reportNumber}")]

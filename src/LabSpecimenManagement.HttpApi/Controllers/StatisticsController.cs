@@ -34,8 +34,9 @@ public class StatisticsController : LabSpecimenManagementController
     }
 
     [HttpGet("export")]
-    public virtual Task<IRemoteStreamContent> ExportToExcelAsync([FromQuery] DateTime? fromDate = null, [FromQuery] DateTime? toDate = null)
+    public virtual async Task<IActionResult> ExportToExcelAsync([FromQuery] DateTime? fromDate = null, [FromQuery] DateTime? toDate = null)
     {
-        return _statisticsAppService.ExportToExcelAsync(fromDate, toDate);
+        var result = await _statisticsAppService.ExportToExcelAsync(fromDate, toDate);
+        return File(result.GetStream(), result.ContentType, result.FileName);
     }
 }

@@ -1049,6 +1049,7 @@ public partial class TestRequestAppService :
                         {
                             // Update existing indicator
                             var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
+                            var oldLaboratoryId = indicator.LaboratoryId;
                             indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                             indicator.Notes = indicatorDto.Notes;
@@ -1059,6 +1060,45 @@ public partial class TestRequestAppService :
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
+
+                            // Move LaboratoryTaskIndicator when lab changes and status is Pending
+                            if (oldLaboratoryId != indicatorDto.LaboratoryId
+                                && oldLaboratoryId.HasValue && indicatorDto.LaboratoryId.HasValue)
+                            {
+                                var labTaskIndicator = await _laboratoryTaskIndicatorRepository.FirstOrDefaultAsync(
+                                    lti => lti.TestRequestSampleIndicatorId == indicator.Id);
+
+                                if (labTaskIndicator != null
+                                    && labTaskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending)
+                                {
+                                    var newLabId = indicatorDto.LaboratoryId.Value;
+
+                                    // Find or create LaboratoryTask for the new lab
+                                    var newLabTask = await _laboratoryTaskRepository.FirstOrDefaultAsync(
+                                        t => t.TestRequestId == entity.Id && t.LaboratoryId == newLabId);
+
+                                    if (newLabTask == null)
+                                    {
+                                        var laboratory = await _laboratoryRepository.GetAsync(newLabId);
+                                        newLabTask = new LaboratoryTask(
+                                            GuidGenerator.Create(),
+                                            entity.Id,
+                                            newLabId,
+                                            entity.ContractNumber,
+                                            1,
+                                            laboratory.TechnicalManagerId,
+                                            indicator.TransferDate,
+                                            indicator.RequestDate
+                                        );
+                                        newLabTask.SampleSentDate = entity.SampleSentDate;
+                                        await _laboratoryTaskRepository.InsertAsync(newLabTask, autoSave: true);
+                                    }
+
+                                    // Move indicator to new task
+                                    labTaskIndicator.LaboratoryTaskId = newLabTask.Id;
+                                    await _laboratoryTaskIndicatorRepository.UpdateAsync(labTaskIndicator, autoSave: true);
+                                }
+                            }
                         }
                         else
                         {
