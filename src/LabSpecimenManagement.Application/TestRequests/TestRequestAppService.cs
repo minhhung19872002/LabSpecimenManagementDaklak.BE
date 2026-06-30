@@ -1180,6 +1180,82 @@ public partial class TestRequestAppService :
             }
         }
 
+        // Migrate mismatched LaboratoryTaskIndicator (SampleIndicator.LaboratoryId != Task.LaboratoryId)
+        // Handles edge case: updateIndicatorsLaboratory saved but sendToQLKT didn't run
+        var allLabTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        var hasMigration = false;
+
+        foreach (var labTask in allLabTasks.ToList())
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == labTask.Id);
+
+            foreach (var ti in taskIndicators)
+            {
+                if (ti.ApprovalStatus != IndicatorApprovalStatus.Pending
+                    && ti.ApprovalStatus != IndicatorApprovalStatus.AcceptedForTesting)
+                    continue;
+
+                var si = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                if (si == null || !si.LaboratoryId.HasValue || si.LaboratoryId.Value == labTask.LaboratoryId)
+                    continue;
+
+                var targetLabId = si.LaboratoryId.Value;
+                var targetTask = allLabTasks.FirstOrDefault(t => t.LaboratoryId == targetLabId);
+
+                if (targetTask == null)
+                {
+                    var laboratory = await _laboratoryRepository.GetAsync(targetLabId);
+                    targetTask = new LaboratoryTask(
+                        GuidGenerator.Create(),
+                        id,
+                        targetLabId,
+                        entity.ContractNumber,
+                        1,
+                        laboratory.TechnicalManagerId,
+                        si.TransferDate,
+                        si.RequestDate
+                    );
+                    targetTask.SampleSentDate = entity.SampleSentDate;
+                    await _laboratoryTaskRepository.InsertAsync(targetTask, autoSave: true);
+                    allLabTasks.Add(targetTask);
+                }
+
+                ti.LaboratoryTaskId = targetTask.Id;
+                await _laboratoryTaskIndicatorRepository.UpdateAsync(ti, autoSave: true);
+                hasMigration = true;
+            }
+        }
+
+        // Recalculate TotalSampleCount + delete empty tasks
+        if (hasMigration)
+        {
+            allLabTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == id);
+        }
+        foreach (var labTask in allLabTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == labTask.Id);
+
+            if (taskIndicators.Count == 0)
+            {
+                await _laboratoryTaskRepository.DeleteAsync(labTask, autoSave: true);
+                continue;
+            }
+
+            var distinctSampleIds = new HashSet<Guid>();
+            foreach (var ti in taskIndicators)
+            {
+                var si = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                if (si != null) distinctSampleIds.Add(si.TestRequestSampleId);
+            }
+            if (labTask.TotalSampleCount != distinctSampleIds.Count)
+            {
+                labTask.TotalSampleCount = distinctSampleIds.Count;
+                await _laboratoryTaskRepository.UpdateAsync(labTask, autoSave: true);
+            }
+        }
+
         return await GetAsync(id);
     }
 
@@ -1416,6 +1492,56 @@ public partial class TestRequestAppService :
             }
         }
 
+        // Detect and move LaboratoryTaskIndicator records whose SampleIndicator.LaboratoryId has changed
+        var tasksNeedingRecalculation = new HashSet<Guid>();
+        foreach (var existingTask in existingTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == existingTask.Id);
+
+            foreach (var ti in taskIndicators)
+            {
+                var sampleIndicator = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                if (sampleIndicator == null || !sampleIndicator.LaboratoryId.HasValue ||
+                    sampleIndicator.LaboratoryId.Value == existingTask.LaboratoryId)
+                    continue;
+
+                // Lab has changed - move this LaboratoryTaskIndicator to the correct task
+                var targetLabId = sampleIndicator.LaboratoryId.Value;
+                var targetTask = existingTasks.FirstOrDefault(t => t.LaboratoryId == targetLabId);
+
+                if (targetTask != null)
+                {
+                    ti.LaboratoryTaskId = targetTask.Id;
+                    await _laboratoryTaskIndicatorRepository.UpdateAsync(ti, autoSave: true);
+                    tasksNeedingRecalculation.Add(targetTask.Id);
+                }
+                else
+                {
+                    // Target task doesn't exist yet - remove from current task and let it be recreated below
+                    await _laboratoryTaskIndicatorRepository.DeleteAsync(ti, autoSave: true);
+                    alreadySentIndicatorIds.Remove(ti.TestRequestSampleIndicatorId);
+                }
+                tasksNeedingRecalculation.Add(existingTask.Id);
+            }
+        }
+
+        // Recalculate TotalSampleCount for affected tasks
+        foreach (var taskId in tasksNeedingRecalculation)
+        {
+            var affectedTask = existingTasks.First(t => t.Id == taskId);
+            var currentIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == taskId);
+            var sampleIds = new HashSet<Guid>();
+            foreach (var ti in currentIndicators)
+            {
+                var si = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                if (si != null) sampleIds.Add(si.TestRequestSampleId);
+            }
+            affectedTask.TotalSampleCount = sampleIds.Count;
+            await _laboratoryTaskRepository.UpdateAsync(affectedTask, autoSave: true);
+        }
+
         // Group indicators by LaboratoryId
         var indicatorsByLab = new Dictionary<Guid, List<(Guid SampleIndicatorId, Guid SampleId, DateTime? TransferDate, DateTime? RequestDate, Guid? TestMethodId, bool IsSharedSample, Guid IndicatorId, Guid? SpecimenTypeId)>>();
 
@@ -1618,6 +1744,33 @@ public partial class TestRequestAppService :
                     task.PriorLabTaskId = microbiologyTask.Id;
                     await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
                 }
+            }
+        }
+
+        // Final safety net: recalculate TotalSampleCount for ALL tasks of this test request
+        // Delete tasks that have no indicators left (all moved to another lab)
+        var allTasks = await _laboratoryTaskRepository.GetListAsync(t => t.TestRequestId == testRequest.Id);
+        foreach (var t in allTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                ti => ti.LaboratoryTaskId == t.Id);
+
+            if (taskIndicators.Count == 0)
+            {
+                await _laboratoryTaskRepository.DeleteAsync(t, autoSave: true);
+                continue;
+            }
+
+            var distinctSampleIds = new HashSet<Guid>();
+            foreach (var ti in taskIndicators)
+            {
+                var si = await _sampleIndicatorRepository.FindAsync(ti.TestRequestSampleIndicatorId);
+                if (si != null) distinctSampleIds.Add(si.TestRequestSampleId);
+            }
+            if (t.TotalSampleCount != distinctSampleIds.Count)
+            {
+                t.TotalSampleCount = distinctSampleIds.Count;
+                await _laboratoryTaskRepository.UpdateAsync(t, autoSave: true);
             }
         }
     }
