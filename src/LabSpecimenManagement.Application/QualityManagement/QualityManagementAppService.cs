@@ -125,21 +125,69 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             query = query.Where(t => t.TaskType == input.TaskType.Value);
         }
 
-        // Filter by date range (Ngày chuyển = UnderReviewDate từ TestRequest)
+        // Filter by date range (dynamic based on DateFilterField)
         if (input.FromDate.HasValue || input.ToDate.HasValue)
         {
-            var trDateQuery = await _testRequestRepository.GetQueryableAsync();
-            if (input.FromDate.HasValue)
+            var dateFilterField = input.DateFilterField?.ToLower();
+            var fromDate = input.FromDate;
+            var toDate = input.ToDate;
+            var toDateEnd = toDate.HasValue ? toDate.Value.Date.AddDays(1) : (DateTime?)null;
+
+            if (dateFilterField == "requestcompletiondate")
             {
-                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate >= input.FromDate.Value);
+                if (fromDate.HasValue)
+                    query = query.Where(t => t.RequestCompletionDate >= fromDate.Value);
+                if (toDateEnd.HasValue)
+                    query = query.Where(t => t.RequestCompletionDate < toDateEnd.Value);
             }
-            if (input.ToDate.HasValue)
+            else if (dateFilterField == "contractdate")
             {
-                var toDateEnd = input.ToDate.Value.Date.AddDays(1);
-                trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate < toDateEnd);
+                var trDateQuery = await _testRequestRepository.GetQueryableAsync();
+                if (fromDate.HasValue)
+                    trDateQuery = trDateQuery.Where(tr => tr.ContractDate >= fromDate.Value);
+                if (toDateEnd.HasValue)
+                    trDateQuery = trDateQuery.Where(tr => tr.ContractDate < toDateEnd.Value);
+                var matchingIds = trDateQuery.Select(tr => tr.Id);
+                query = query.Where(t => matchingIds.Contains(t.TestRequestId));
             }
-            var matchingIds = trDateQuery.Select(tr => tr.Id);
-            query = query.Where(t => matchingIds.Contains(t.TestRequestId));
+            else if (dateFilterField == "latestapprovaldate")
+            {
+                var indQuery = await _indicatorRepository.GetQueryableAsync();
+                if (fromDate.HasValue)
+                    query = query.Where(t => indQuery
+                        .Where(i => i.QualityManagementTaskId == t.Id && i.IsPrinted && i.PrintedDate.HasValue)
+                        .Max(i => (DateTime?)i.PrintedDate) >= fromDate.Value);
+                if (toDateEnd.HasValue)
+                    query = query.Where(t => indQuery
+                        .Where(i => i.QualityManagementTaskId == t.Id && i.IsPrinted && i.PrintedDate.HasValue)
+                        .Max(i => (DateTime?)i.PrintedDate) < toDateEnd.Value);
+            }
+            else if (dateFilterField == "latestindicatorapprovaldate")
+            {
+                var indQuery = await _indicatorRepository.GetQueryableAsync();
+                if (fromDate.HasValue)
+                    query = query.Where(t => indQuery
+                        .Where(i => i.QualityManagementTaskId == t.Id
+                            && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved
+                            && i.ApprovalDate.HasValue)
+                        .Max(i => (DateTime?)i.ApprovalDate) >= fromDate.Value);
+                if (toDateEnd.HasValue)
+                    query = query.Where(t => indQuery
+                        .Where(i => i.QualityManagementTaskId == t.Id
+                            && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved
+                            && i.ApprovalDate.HasValue)
+                        .Max(i => (DateTime?)i.ApprovalDate) < toDateEnd.Value);
+            }
+            else
+            {
+                var trDateQuery = await _testRequestRepository.GetQueryableAsync();
+                if (fromDate.HasValue)
+                    trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate >= fromDate.Value);
+                if (toDateEnd.HasValue)
+                    trDateQuery = trDateQuery.Where(tr => tr.UnderReviewDate < toDateEnd.Value);
+                var matchingIds = trDateQuery.Select(tr => tr.Id);
+                query = query.Where(t => matchingIds.Contains(t.TestRequestId));
+            }
         }
 
         // Filter overdue: RequestCompletionDate - Now <= 2 days and not HandedOver
@@ -208,6 +256,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 .ThenByDescending(x => indicatorQueryable
                     .Where(i => i.QualityManagementTaskId == x.Task.Id && i.IsPrinted && i.PrintedDate.HasValue)
                     .Max(i => (DateTime?)i.PrintedDate)),
+            SortingFields.LatestIndicatorApprovalDate => joinedQuery
+                .OrderByDescending(x => indicatorQueryable.Any(i => i.QualityManagementTaskId == x.Task.Id
+                    && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved))
+                .ThenBy(x => indicatorQueryable
+                    .Where(i => i.QualityManagementTaskId == x.Task.Id
+                        && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved
+                        && i.ApprovalDate.HasValue)
+                    .Max(i => (DateTime?)i.ApprovalDate)),
+            SortingFields.LatestIndicatorApprovalDateDesc => joinedQuery
+                .OrderByDescending(x => indicatorQueryable.Any(i => i.QualityManagementTaskId == x.Task.Id
+                    && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved))
+                .ThenByDescending(x => indicatorQueryable
+                    .Where(i => i.QualityManagementTaskId == x.Task.Id
+                        && i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved
+                        && i.ApprovalDate.HasValue)
+                    .Max(i => (DateTime?)i.ApprovalDate)),
             _ => joinedQuery.OrderByDescending(x => x.ContractDate)
         };
 
@@ -1336,6 +1400,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             .DefaultIfEmpty()
             .Max();
 
+        var latestIndicatorApprovalDate = indicators
+            .Where(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved && i.ApprovalDate.HasValue)
+            .Select(i => i.ApprovalDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
         return new QualityManagementTaskDto
         {
             Id = task.Id,
@@ -1356,6 +1426,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             TechnicalManagerNames = managerNames,
             ChangeHistoryId = task.ChangeHistoryId,
             LatestApprovalDate = latestPrintedDate == default ? null : latestPrintedDate,
+            LatestIndicatorApprovalDate = latestIndicatorApprovalDate == default ? null : latestIndicatorApprovalDate,
             CreationTime = task.CreationTime,
             CreatorId = task.CreatorId,
             LastModificationTime = task.LastModificationTime,
