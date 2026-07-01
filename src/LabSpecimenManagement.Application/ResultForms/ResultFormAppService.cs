@@ -163,6 +163,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
+            { "{{SamplingAddress}}", sample.SamplingAddress ?? "" },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
@@ -5059,6 +5060,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
+            { "{{SamplingAddress}}", firstSample?.SamplingAddress ?? "" },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
