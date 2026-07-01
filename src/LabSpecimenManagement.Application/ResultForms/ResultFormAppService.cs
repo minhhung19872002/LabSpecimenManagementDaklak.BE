@@ -3159,6 +3159,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
         }
 
+        // Remove entire paragraph when SamplingAddress is empty (avoid blank line)
+        if (placeholders.TryGetValue("{{SamplingAddress}}", out var samplingAddr) && string.IsNullOrEmpty(samplingAddr))
+        {
+            foreach (var para in element.Descendants<Paragraph>().ToList())
+            {
+                var paraText = string.Concat(para.Descendants<Text>().Select(t => t.Text ?? ""));
+                if (paraText.Trim() == "{{SamplingAddress}}")
+                {
+                    para.Remove();
+                }
+            }
+        }
+
         // Process each paragraph to handle dots across multiple text runs
         foreach (var para in element.Descendants<Paragraph>())
         {
