@@ -40,7 +40,6 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task<PagedResultDto<TestMethodDto>> GetListAsync(PagedAndSortedResultRequestDto input)
     {
         var query = await _testMethodRepository.GetQueryableAsync();
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
 
         var totalCount = await AsyncExecuter.CountAsync(query);
 
@@ -52,10 +51,12 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 .Take(input.MaxResultCount)
         );
 
+        var countByMethod = await GetIndicatorCountByMethodAsync();
+
         var dtos = items.Select(item =>
         {
             var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(item);
-            dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == item.Id);
+            dto.IndicatorCount = countByMethod.GetValueOrDefault(item.Id);
             return dto;
         }).ToList();
 
@@ -132,7 +133,6 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task<ListResultDto<TestMethodDto>> GetActiveAsync()
     {
         var query = await _testMethodRepository.GetQueryableAsync();
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
 
         var items = await AsyncExecuter.ToListAsync(
             query
@@ -140,10 +140,12 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 .OrderByThenBy(x => x.SortOrder, x => x.Name)
         );
 
+        var countByMethod = await GetIndicatorCountByMethodAsync();
+
         var dtos = items.Select(item =>
         {
             var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(item);
-            dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == item.Id);
+            dto.IndicatorCount = countByMethod.GetValueOrDefault(item.Id);
             return dto;
         }).ToList();
 
@@ -153,21 +155,34 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task<ListResultDto<TestMethodDto>> GetAllAsync()
     {
         var query = await _testMethodRepository.GetQueryableAsync();
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
 
         var items = await AsyncExecuter.ToListAsync(
             query
                 .OrderByThenBy(x => x.SortOrder, x => x.Name)
         );
 
+        var countByMethod = await GetIndicatorCountByMethodAsync();
+
         var dtos = items.Select(item =>
         {
             var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(item);
-            dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == item.Id);
+            dto.IndicatorCount = countByMethod.GetValueOrDefault(item.Id);
             return dto;
         }).ToList();
 
         return new ListResultDto<TestMethodDto>(dtos);
+    }
+
+    // 1 câu GroupBy thay cho N câu COUNT chạy đồng bộ trong vòng lặp map DTO
+    private async Task<Dictionary<Guid, int>> GetIndicatorCountByMethodAsync()
+    {
+        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var counts = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .GroupBy(i => i.TestMethodId)
+                .Select(g => new { g.Key, Count = g.Count() })
+        );
+        return counts.ToDictionary(x => x.Key, x => x.Count);
     }
 
     public async Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync()
@@ -178,6 +193,14 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var specimenTypes = await _specimenTypeRepository.GetListAsync();
         var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id);
 
+        // Index 1 lần thay cho quét tuyến tính trong vòng lặp (O(N*M) -> O(N));
+        // ToLookup giữ nguyên thứ tự nguồn nên kết quả sort không đổi
+        var indicatorById = indicators.ToDictionary(i => i.Id);
+        var tmIndicatorsByMethod = testMethodIndicators.ToLookup(tmi => tmi.TestMethodId);
+        var activeSubIndicatorsByParent = indicators
+            .Where(i => i.ParentIndicatorId.HasValue && i.IsActive)
+            .ToLookup(i => i.ParentIndicatorId!.Value);
+
         var result = testMethods
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Name)
@@ -187,14 +210,13 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
                 var tmIndicatorList = new List<TestMethodIndicatorDto>();
 
-                var parentIndicators = testMethodIndicators
-                    .Where(tmi => tmi.TestMethodId == tm.Id)
+                var parentIndicators = tmIndicatorsByMethod[tm.Id]
                     .OrderBy(tmi => tmi.SortOrder)
                     .ToList();
 
                 foreach (var tmi in parentIndicators)
                 {
-                    var indicator = indicators.FirstOrDefault(i => i.Id == tmi.IndicatorId);
+                    var indicator = indicatorById.GetValueOrDefault(tmi.IndicatorId);
                     var specimenType = tmi.SpecimenTypeId.HasValue && specimenTypeDict.TryGetValue(tmi.SpecimenTypeId.Value, out var st) ? st : null;
 
                     var effectiveUnit = tmi.Unit ?? tm.Unit;
@@ -221,8 +243,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     });
 
                     // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
-                    var subIndicators = indicators
-                        .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                    var subIndicators = activeSubIndicatorsByParent[tmi.IndicatorId]
                         .OrderBy(i => i.SortOrder)
                         .ToList();
 
