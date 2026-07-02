@@ -45,6 +45,7 @@ using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
 using Volo.Abp.Timing;
 using LabSpecimenManagement.Hubs;
+using LabSpecimenManagement.Middlewares;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Services;
 using Microsoft.AspNetCore.SignalR;
@@ -404,6 +405,10 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
 
         // Phải đứng trước mọi middleware ghi response body thì mới nén được
         app.UseResponseCompression();
+
+        // ETag/304 cho master data — nằm TRONG compression để hash body chưa nén
+        // (ETag ổn định bất kể client hỗ trợ br hay gzip)
+        app.UseMiddleware<MasterDataEtagMiddleware>();
 
         if (env.IsDevelopment())
         {
