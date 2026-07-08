@@ -3179,6 +3179,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         TestRequestId = tr.Id,
                         LaboratoryTaskId = lt.Id,
                         ContractNumber = tr.ContractNumber,
+                        CustomerName = tr.CustomerName,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
@@ -3193,7 +3194,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         // Indicator info
                         TestRequestSampleIndicatorId = si.Id,
                         LaboratoryTaskIndicatorId = li.Id,
-                        IndicatorId = li.Id,
+                        IndicatorId = si.IndicatorId,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodId = li.MethodId,
@@ -3219,6 +3220,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     };
 
         // Apply access control for QLKT: Show all tasks of Labs that user manages
+        var supporterTaskIds = new HashSet<Guid>();
         if (currentUserId.HasValue && !isAdmin)
         {
             // Get labs where current user is Technical Manager
@@ -3228,7 +3230,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .ToHashSet();
 
             // Get task IDs where current user is a supporter
-            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+            supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
@@ -3357,9 +3359,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var dtos = items.Select(x => new SampleAssignmentLogDto
         {
             TestRequestId = x.TestRequestId,
-            QualityTaskId = Guid.Empty,
+            QualityTaskId = null,
             LaboratoryTaskId = x.LaboratoryTaskId,
             ContractNumber = x.ContractNumber,
+            CustomerName = x.CustomerName,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
             ContractDate = x.ContractDate,
@@ -3396,7 +3399,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 x.QualityApprovalStatus,
                 x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
-            IsReportPublished = false
+            IsReportPublished = false,
+            CanEdit = currentUserId.HasValue && (
+                isAdmin ||
+                x.TechnicianId == currentUserId ||
+                x.TechnicalManagerId == currentUserId ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId))
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);

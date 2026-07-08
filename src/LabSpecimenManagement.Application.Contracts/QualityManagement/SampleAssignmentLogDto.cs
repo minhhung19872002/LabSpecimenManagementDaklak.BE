@@ -35,6 +35,11 @@ public class SampleAssignmentLogDto
     public string? ContractNumber { get; set; }
 
     /// <summary>
+    /// Tên khách hàng - Customer Name
+    /// </summary>
+    public string? CustomerName { get; set; }
+
+    /// <summary>
     /// Trạng thái phiếu TN - TestRequest Status
     /// </summary>
     public TestRequestStatus TestRequestStatus { get; set; }
@@ -196,6 +201,11 @@ public class SampleAssignmentLogDto
     /// Đã phát hành báo cáo cho chỉ tiêu này - Is Report Published
     /// </summary>
     public bool IsReportPublished { get; set; }
+
+    /// <summary>
+    /// Current user is the assigned technician for this indicator (can input/submit result)
+    /// </summary>
+    public bool CanEdit { get; set; }
 
     #endregion
 }
