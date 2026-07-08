@@ -163,6 +163,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },  // Typo in template
             { "{{Address}}", address },  // Correct spelling
+            { "{{SamplingAddress}}", sample.SamplingAddress ?? "" },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
@@ -2340,6 +2341,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
+            { "{{SamplingAddress}}", sample.SamplingAddress ?? "" },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
@@ -3153,6 +3155,19 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         ReplaceTextWithLineBreaks(text, "{{Note}}", noteValue);
                     }
                     // else: plain text without newlines, will be handled by standard replacement below
+                }
+            }
+        }
+
+        // Remove entire paragraph when SamplingAddress is empty (avoid blank line)
+        if (placeholders.TryGetValue("{{SamplingAddress}}", out var samplingAddr) && string.IsNullOrEmpty(samplingAddr))
+        {
+            foreach (var para in element.Descendants<Paragraph>().ToList())
+            {
+                var paraText = string.Concat(para.Descendants<Text>().Select(t => t.Text ?? ""));
+                if (paraText.Trim() == "{{SamplingAddress}}")
+                {
+                    para.Remove();
                 }
             }
         }
@@ -4755,6 +4770,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
+            { "{{SamplingAddress}}", sample.SamplingAddress ?? "" },
             { "{{NameOfSample}}", sample.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
@@ -5057,6 +5073,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
+            { "{{SamplingAddress}}", firstSample?.SamplingAddress ?? "" },
             { "{{NameOfSample}}", firstSample?.SampleName ?? "" },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },
@@ -5678,6 +5695,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
             { "{{Address}}", address },
+            { "{{SamplingAddress}}", firstSample?.SamplingAddress ?? "" },
             { "{{NameOfSample}}", sampleNames },
             { "{{DateOfReceiving}}", contractDateText },
             { "{{TimeOfTesting}}", timeOfTesting },

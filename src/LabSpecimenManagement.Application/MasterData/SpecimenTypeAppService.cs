@@ -238,6 +238,12 @@ public class SpecimenTypeAppService :
             .Where(c => categoryIds.Contains(c.Id))
             .ToDictionary(c => c.Id, c => c.Name);
 
+        // Index 1 lần thay cho quét tuyến tính trong vòng lặp (O(N*M) -> O(N));
+        // ToLookup giữ nguyên thứ tự nguồn nên kết quả sort không đổi
+        var indicatorById = indicators.ToDictionary(i => i.Id);
+        var groupById = indicatorGroups.ToDictionary(g => g.Id);
+        var stiBySpecimenType = specimenTypeIndicators.ToLookup(sti => sti.SpecimenTypeId);
+
         var result = specimenTypes
             .OrderBy(x => x.SortOrder)
             .ThenBy(x => x.Name)
@@ -251,14 +257,13 @@ public class SpecimenTypeAppService :
                     dto.SampleTypeCategoryName = categoryName;
                 }
 
-                var stIndicators = specimenTypeIndicators
-                    .Where(sti => sti.SpecimenTypeId == st.Id)
+                var stIndicators = stiBySpecimenType[st.Id]
                     .OrderBy(sti => sti.SortOrder)
                     .Select(sti =>
                     {
-                        var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
+                        var indicator = indicatorById.GetValueOrDefault(sti.IndicatorId);
                         var indicatorGroup = indicator != null
-                            ? indicatorGroups.FirstOrDefault(g => g.Id == indicator.IndicatorGroupId)
+                            ? groupById.GetValueOrDefault(indicator.IndicatorGroupId)
                             : null;
 
                         return new SpecimenTypeIndicatorDto
