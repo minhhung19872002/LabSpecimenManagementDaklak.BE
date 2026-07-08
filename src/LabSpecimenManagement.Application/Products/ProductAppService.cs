@@ -25,10 +25,12 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<ProductAttachment, Guid> _attachmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
+    private readonly IRepository<ProductSku, Guid> _skuRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<GoodsReceiptItem, Guid> _goodsReceiptItemRepository;
     private readonly IRepository<GoodsReceipt, Guid> _goodsReceiptRepository;
     private readonly IRepository<Supplier, Guid> _supplierRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
@@ -40,10 +42,12 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<Product, Guid> productRepository,
         IRepository<ProductAttachment, Guid> attachmentRepository,
         IRepository<ProductUnitConversion, Guid> conversionRepository,
+        IRepository<ProductSku, Guid> skuRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<GoodsReceiptItem, Guid> goodsReceiptItemRepository,
         IRepository<GoodsReceipt, Guid> goodsReceiptRepository,
         IRepository<Supplier, Guid> supplierRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
         IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
@@ -54,10 +58,12 @@ public class ProductAppService : ApplicationService, IProductAppService
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
         _conversionRepository = conversionRepository;
+        _skuRepository = skuRepository;
         _unitRepository = unitRepository;
         _goodsReceiptItemRepository = goodsReceiptItemRepository;
         _goodsReceiptRepository = goodsReceiptRepository;
         _supplierRepository = supplierRepository;
+        _manufacturerRepository = manufacturerRepository;
         _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
         _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
         _warehouseRepository = warehouseRepository;
@@ -216,11 +222,32 @@ public class ProductAppService : ApplicationService, IProductAppService
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
+            ChemicalFormula = input.ChemicalFormula,
+            MinStockLevel = input.MinStockLevel,
             IsActive = input.IsActive,
             IsDraft = input.IsDraft,
         };
 
         await _productRepository.InsertAsync(product, autoSave: true);
+
+        // Save SKUs
+        if (input.Skus != null)
+        {
+            ValidateUniqueManufacturerIds(input.Skus);
+            foreach (var skuInput in input.Skus)
+            {
+                var sku = new ProductSku(
+                    GuidGenerator.Create(),
+                    product.Id,
+                    skuInput.ManufacturerId,
+                    skuInput.BaseUnitId,
+                    skuInput.PackagingQuantity,
+                    skuInput.PackagingUnitId,
+                    skuInput.VolumePerUnit,
+                    skuInput.VolumeUnitId);
+                await _skuRepository.InsertAsync(sku, autoSave: true);
+            }
+        }
 
         // Save attachments
         if (input.Attachments != null)
@@ -283,10 +310,64 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;
+        product.ChemicalFormula = input.ChemicalFormula;
+        product.MinStockLevel = input.MinStockLevel;
         product.IsActive = input.IsActive;
         product.IsDraft = input.IsDraft;
 
         await _productRepository.UpdateAsync(product, autoSave: true);
+
+        // Update SKUs — replace all (same pattern as UnitConversions)
+        if (input.Skus != null)
+        {
+            ValidateUniqueManufacturerIds(input.Skus);
+
+            var existingSkus = (await _skuRepository.GetQueryableAsync())
+                .Where(x => x.ProductId == id)
+                .ToList();
+
+            var inputIds = input.Skus
+                .Where(x => x.Id.HasValue)
+                .Select(x => x.Id!.Value)
+                .ToHashSet();
+
+            foreach (var existing in existingSkus)
+            {
+                if (!inputIds.Contains(existing.Id))
+                {
+                    await _skuRepository.DeleteAsync(existing, autoSave: true);
+                }
+            }
+
+            foreach (var skuInput in input.Skus)
+            {
+                if (skuInput.Id.HasValue)
+                {
+                    var existing = existingSkus.FirstOrDefault(x => x.Id == skuInput.Id.Value)
+                        ?? throw new Volo.Abp.Domain.Entities.EntityNotFoundException(typeof(ProductSku), skuInput.Id.Value);
+                    existing.ManufacturerId = skuInput.ManufacturerId;
+                    existing.BaseUnitId = skuInput.BaseUnitId;
+                    existing.PackagingQuantity = skuInput.PackagingQuantity;
+                    existing.PackagingUnitId = skuInput.PackagingUnitId;
+                    existing.VolumePerUnit = skuInput.VolumePerUnit;
+                    existing.VolumeUnitId = skuInput.VolumeUnitId;
+                    await _skuRepository.UpdateAsync(existing, autoSave: true);
+                }
+                else
+                {
+                    var sku = new ProductSku(
+                        GuidGenerator.Create(),
+                        id,
+                        skuInput.ManufacturerId,
+                        skuInput.BaseUnitId,
+                        skuInput.PackagingQuantity,
+                        skuInput.PackagingUnitId,
+                        skuInput.VolumePerUnit,
+                        skuInput.VolumeUnitId);
+                    await _skuRepository.InsertAsync(sku, autoSave: true);
+                }
+            }
+        }
 
         // Update attachments — add new ones (existing ones are managed via DeleteAttachment)
         if (input.Attachments != null)
@@ -386,6 +467,13 @@ public class ProductAppService : ApplicationService, IProductAppService
             await _conversionRepository.DeleteAsync(conv, autoSave: true);
         }
 
+        var skus = (await _skuRepository.GetQueryableAsync())
+            .Where(x => x.ProductId == id).ToList();
+        foreach (var sku in skus)
+        {
+            await _skuRepository.DeleteAsync(sku, autoSave: true);
+        }
+
         await _productRepository.DeleteAsync(id);
     }
 
@@ -419,6 +507,17 @@ public class ProductAppService : ApplicationService, IProductAppService
             throw new UserFriendlyException("Tài liệu không thuộc sản phẩm này.");
         }
         await _attachmentRepository.DeleteAsync(attachment);
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
+    public async Task DeleteSkuAsync(Guid productId, Guid skuId)
+    {
+        var sku = await _skuRepository.GetAsync(skuId);
+        if (sku.ProductId != productId)
+        {
+            throw new UserFriendlyException("SKU không thuộc sản phẩm này.");
+        }
+        await _skuRepository.DeleteAsync(sku);
     }
 
     public async Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input)
@@ -548,6 +647,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             ProductType.Chemical => "CHE",
             ProductType.Biological => "BIO",
             ProductType.Supply => "SUP",
+            ProductType.Equipment => "EQP",
             _ => "PRD"
         };
 
@@ -586,6 +686,36 @@ public class ProductAppService : ApplicationService, IProductAppService
         var conversionsQuery = await _conversionRepository.GetQueryableAsync();
         var conversions = conversionsQuery.Where(c => productIds.Contains(c.ProductId)).ToList();
         var conversionMap = conversions.GroupBy(c => c.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Load SKUs
+        var skuQuery = await _skuRepository.GetQueryableAsync();
+        var skus = skuQuery.Where(s => productIds.Contains(s.ProductId)).ToList();
+        var skuMap = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Load manufacturer names for SKUs
+        var manufacturerIds = skus.Select(s => s.ManufacturerId).Distinct().ToList();
+        var manufacturerQuery = await _manufacturerRepository.GetQueryableAsync();
+        var manufacturers = manufacturerIds.Any()
+            ? manufacturerQuery.Where(m => manufacturerIds.Contains(m.Id)).ToList()
+            : new List<Manufacturer>();
+        var manufacturerMap = manufacturers.ToDictionary(m => m.Id, m => new { m.Code, m.Name });
+
+        // Load SKU unit names into unitMap
+        var skuUnitIds = skus
+            .SelectMany(s => new[] { s.BaseUnitId, s.PackagingUnitId, s.VolumeUnitId })
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .Where(id => !unitMap.ContainsKey(id))
+            .ToList();
+        if (skuUnitIds.Any())
+        {
+            var skuUnits = unitsQuery.Where(u => skuUnitIds.Contains(u.Id)).ToList();
+            foreach (var u in skuUnits)
+            {
+                unitMap[u.Id] = u.Name;
+            }
+        }
 
         // Load warehouse names from latest WarehouseImportReceipt per product
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
@@ -709,8 +839,48 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }).ToList();
             }
 
+            // Map SKUs
+            if (skuMap.TryGetValue(product.Id, out var productSkus))
+            {
+                dto.SkuCount = productSkus.Count;
+                dto.Skus = productSkus.Select(s =>
+                {
+                    var mfr = manufacturerMap.GetValueOrDefault(s.ManufacturerId);
+                    return new ProductSkuDto
+                    {
+                        Id = s.Id,
+                        ManufacturerId = s.ManufacturerId,
+                        ManufacturerCode = mfr?.Code,
+                        ManufacturerName = mfr?.Name,
+                        BaseUnitId = s.BaseUnitId,
+                        BaseUnitName = s.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(s.BaseUnitId.Value) : null,
+                        PackagingQuantity = s.PackagingQuantity,
+                        PackagingUnitId = s.PackagingUnitId,
+                        PackagingUnitName = s.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(s.PackagingUnitId.Value) : null,
+                        VolumePerUnit = s.VolumePerUnit,
+                        VolumeUnitId = s.VolumeUnitId,
+                        VolumeUnitName = s.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(s.VolumeUnitId.Value) : null,
+                        CreationTime = s.CreationTime,
+                    };
+                }).ToList();
+            }
+
             return dto;
         }).ToList();
+    }
+
+    private static void ValidateUniqueManufacturerIds(List<CreateUpdateProductSkuDto> skus)
+    {
+        var duplicates = skus
+            .GroupBy(s => s.ManufacturerId)
+            .Where(g => g.Count() > 1)
+            .Select(g => g.Key)
+            .ToList();
+
+        if (duplicates.Any())
+        {
+            throw new UserFriendlyException("Mỗi hãng sản xuất chỉ được chọn một lần cho mỗi sản phẩm.");
+        }
     }
 
     #endregion

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
@@ -98,6 +99,18 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     /// Trạng thái nháp (chưa hoàn thiện)
     /// </summary>
     public bool IsDraft { get; set; }
+
+    /// <summary>
+    /// Công thức hóa học (chỉ dùng cho Hóa chất)
+    /// </summary>
+    public string? ChemicalFormula { get; set; }
+
+    /// <summary>
+    /// Định mức tồn kho tối thiểu
+    /// </summary>
+    public decimal? MinStockLevel { get; set; }
+
+    public virtual ICollection<ProductSku> Skus { get; set; } = new List<ProductSku>();
 
     protected Product()
     {

@@ -3138,6 +3138,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Categories")
                         .HasColumnType("text");
 
+                    b.Property<string>("ChemicalFormula")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -3209,11 +3213,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
-                    b.Property<decimal?>("MaxStockLevel")
-                        .HasColumnType("numeric");
-
                     b.Property<decimal?>("MinStockLevel")
-                        .HasColumnType("numeric");
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -3303,6 +3305,45 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("AppProductAttachments", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Products.ProductSku", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("BaseUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("ManufacturerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("PackagingQuantity")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("PackagingUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("VolumePerUnit")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("VolumeUnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("ProductId", "ManufacturerId")
+                        .IsUnique();
+
+                    b.ToTable("AppProductSkus", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Products.ProductUnitConversion", b =>
@@ -8116,6 +8157,15 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Products.ProductSku", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.Products.Product", null)
+                        .WithMany("Skus")
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.PublishedReports.PublishedReport", b =>
                 {
                     b.HasOne("LabSpecimenManagement.QualityManagement.QualityManagementTask", "QualityManagementTask")
@@ -8641,6 +8691,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("MethodChangeHistories");
 
                     b.Navigation("RejectionHistories");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Products.Product", b =>
+                {
+                    b.Navigation("Skus");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.QualityManagement.QualityManagementTask", b =>

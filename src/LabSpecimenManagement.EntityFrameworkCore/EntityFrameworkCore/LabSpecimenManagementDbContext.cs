@@ -78,6 +78,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Supplier> SupplierEntities { get; set; }
     public DbSet<ProductAttachment> ProductAttachments { get; set; }
     public DbSet<ProductUnitConversion> ProductUnitConversions { get; set; }
+    public DbSet<ProductSku> ProductSkus { get; set; }
     public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
     public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
     public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
@@ -518,12 +519,26 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Origin).HasMaxLength(256);
             b.Property(x => x.Concentration).HasMaxLength(256);
             b.Property(x => x.FormattedStorageConditions);
+            b.Property(x => x.ChemicalFormula).HasMaxLength(256);
+            b.Property(x => x.MinStockLevel).HasPrecision(18, 4);
+
+            b.HasMany(x => x.Skus).WithOne().HasForeignKey(x => x.ProductId);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
             b.HasIndex(x => x.ProductType);
             b.HasIndex(x => x.IsActive);
             b.HasIndex(x => x.BaseUnitId);
+        });
+
+        // ProductSku configuration
+        builder.Entity<ProductSku>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ProductSkus", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => new { x.ProductId, x.ManufacturerId }).IsUnique();
         });
 
         // ProductAttachment configuration

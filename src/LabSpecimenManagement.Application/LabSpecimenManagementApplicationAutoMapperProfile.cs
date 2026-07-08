@@ -160,7 +160,9 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.BaseUnitName, opt => opt.Ignore())
             .ForMember(dest => dest.StorageAvailableQuantity, opt => opt.Ignore())
             .ForMember(dest => dest.Attachments, opt => opt.Ignore())
-            .ForMember(dest => dest.UnitConversions, opt => opt.Ignore());
+            .ForMember(dest => dest.UnitConversions, opt => opt.Ignore())
+            .ForMember(dest => dest.Skus, opt => opt.Ignore())
+            .ForMember(dest => dest.SkuCount, opt => opt.Ignore());
 
         // Manufacturer mappings
         CreateMap<Manufacturer, ManufacturerDto>();

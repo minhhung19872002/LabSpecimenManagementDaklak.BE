@@ -32,10 +32,13 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
+    public string? ChemicalFormula { get; set; }
+    public decimal? MinStockLevel { get; set; }
     public decimal AvailableQuantity { get; set; }
     public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
+    public int SkuCount { get; set; }
     public string? WarehouseName { get; set; }
 
     public DateTime? EarliestReceivedDate { get; set; }
@@ -47,6 +50,41 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public decimal StorageTotalConsumedQuantity { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
+    public List<ProductSkuDto> Skus { get; set; } = new();
+}
+
+/// <summary>
+/// DTO cho SKU sản phẩm
+/// </summary>
+public class ProductSkuDto
+{
+    public Guid Id { get; set; }
+    public Guid ManufacturerId { get; set; }
+    public string? ManufacturerCode { get; set; }
+    public string? ManufacturerName { get; set; }
+    public Guid? BaseUnitId { get; set; }
+    public string? BaseUnitName { get; set; }
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+/// <summary>
+/// DTO tạo/cập nhật SKU
+/// </summary>
+public class CreateUpdateProductSkuDto
+{
+    public Guid? Id { get; set; }
+    public Guid ManufacturerId { get; set; }
+    public Guid? BaseUnitId { get; set; }
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
 }
 
 /// <summary>
@@ -92,11 +130,17 @@ public class CreateUpdateProductDto
 
     public string? Categories { get; set; }
 
+    [StringLength(256)]
+    public string? ChemicalFormula { get; set; }
+
+    public decimal? MinStockLevel { get; set; }
+
     public bool IsActive { get; set; } = true;
     public bool IsDraft { get; set; } = false;
 
     public List<CreateProductAttachmentDto>? Attachments { get; set; }
     public List<CreateUpdateProductUnitConversionDto>? UnitConversions { get; set; }
+    public List<CreateUpdateProductSkuDto>? Skus { get; set; }
 }
 
 /// <summary>
