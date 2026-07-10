@@ -105,6 +105,13 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.Statistics.Export, "Xuất báo cáo thống kê"),
         }),
 
+        // ==================== THỐNG KÊ PHÒNG LAB ====================
+        new PermissionGroupConfig("ThongKePhongLab", "Thống kê phòng lab", new[]
+        {
+            (LabSpecimenManagementPermissions.LabReport.Default, "Xem dashboard"),
+            (LabSpecimenManagementPermissions.LabReport.Export, "Xuất báo cáo thống kê"),
+        }),
+
         // ==================== NHÀ THẦU PHỤ ====================
         new PermissionGroupConfig("NhaThauPhu", "Nhà thầu phụ", new[]
         {
