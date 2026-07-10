@@ -40,6 +40,12 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? FormattedMeasurementUncertainty { get; set; }
     public string? StandardLink { get; set; }
     public string? AnalysisGrade { get; set; }
+    public string? FormattedPackagingSpec { get; set; }
+    public string? MaterialComposition { get; set; }
+    public string? FormattedMaterialComposition { get; set; }
+    public bool? IsReusable { get; set; }
+    public int? MaxReuseCount { get; set; }
+    public bool? IsSterile { get; set; }
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
@@ -120,7 +126,6 @@ public class CreateUpdateProductDto
     public int? VolumePerUnit { get; set; }
     public Guid? VolumeUnitId { get; set; }
 
-    [StringLength(256)]
     public string? PackagingSpec { get; set; }
 
     [StringLength(100)]
@@ -159,6 +164,18 @@ public class CreateUpdateProductDto
 
     [StringLength(256)]
     public string? AnalysisGrade { get; set; }
+
+    public string? FormattedPackagingSpec { get; set; }
+
+    public string? MaterialComposition { get; set; }
+
+    public string? FormattedMaterialComposition { get; set; }
+
+    public bool? IsReusable { get; set; }
+
+    public int? MaxReuseCount { get; set; }
+
+    public bool? IsSterile { get; set; }
 
     public string? StorageConditions { get; set; }
 

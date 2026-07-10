@@ -513,7 +513,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.PackagingUnitId);
             b.Property(x => x.VolumePerUnit);
             b.Property(x => x.VolumeUnitId);
-            b.Property(x => x.PackagingSpec).HasMaxLength(256);
+            b.Property(x => x.PackagingSpec);
             b.Property(x => x.CASNumber).HasMaxLength(100);
             b.Property(x => x.Manufacturer).HasMaxLength(256);
             b.Property(x => x.Origin).HasMaxLength(256);
@@ -529,6 +529,12 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.FormattedMeasurementUncertainty);
             b.Property(x => x.StandardLink).HasMaxLength(500);
             b.Property(x => x.AnalysisGrade).HasMaxLength(256);
+            b.Property(x => x.FormattedPackagingSpec);
+            b.Property(x => x.MaterialComposition);
+            b.Property(x => x.FormattedMaterialComposition);
+            b.Property(x => x.IsReusable);
+            b.Property(x => x.MaxReuseCount);
+            b.Property(x => x.IsSterile);
             b.Property(x => x.FormattedStorageConditions);
             b.Property(x => x.ChemicalFormula).HasMaxLength(256);
             b.Property(x => x.MinStockLevel).HasPrecision(18, 4);

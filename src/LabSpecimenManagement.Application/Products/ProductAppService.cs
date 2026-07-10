@@ -232,6 +232,12 @@ public class ProductAppService : ApplicationService, IProductAppService
             FormattedMeasurementUncertainty = input.FormattedMeasurementUncertainty,
             StandardLink = input.StandardLink,
             AnalysisGrade = input.AnalysisGrade,
+            FormattedPackagingSpec = input.FormattedPackagingSpec,
+            MaterialComposition = input.MaterialComposition,
+            FormattedMaterialComposition = input.FormattedMaterialComposition,
+            IsReusable = input.IsReusable,
+            MaxReuseCount = input.MaxReuseCount,
+            IsSterile = input.IsSterile,
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
@@ -333,6 +339,12 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.FormattedMeasurementUncertainty = input.FormattedMeasurementUncertainty;
         product.StandardLink = input.StandardLink;
         product.AnalysisGrade = input.AnalysisGrade;
+        product.FormattedPackagingSpec = input.FormattedPackagingSpec;
+        product.MaterialComposition = input.MaterialComposition;
+        product.FormattedMaterialComposition = input.FormattedMaterialComposition;
+        product.IsReusable = input.IsReusable;
+        product.MaxReuseCount = input.MaxReuseCount;
+        product.IsSterile = input.IsSterile;
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;

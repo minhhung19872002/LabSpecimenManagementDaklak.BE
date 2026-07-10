@@ -126,6 +126,36 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? AnalysisGrade { get; set; }
 
     /// <summary>
+    /// Thông số kích thước Dung tích có định dạng HTML (rich text, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? FormattedPackagingSpec { get; set; }
+
+    /// <summary>
+    /// Vật liệu cấu thành (plain text backup, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? MaterialComposition { get; set; }
+
+    /// <summary>
+    /// Vật liệu cấu thành có định dạng HTML (rich text, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? FormattedMaterialComposition { get; set; }
+
+    /// <summary>
+    /// Khả năng tái sử dụng (null=chưa chọn, true=Có, false=Không)
+    /// </summary>
+    public bool? IsReusable { get; set; }
+
+    /// <summary>
+    /// Số lần tái sử dụng (chỉ áp dụng khi IsReusable=true)
+    /// </summary>
+    public int? MaxReuseCount { get; set; }
+
+    /// <summary>
+    /// Trạng thái vô trùng (null=chưa chọn, true=Đã tiệt trùng, false=Chưa tiệt trùng)
+    /// </summary>
+    public bool? IsSterile { get; set; }
+
+    /// <summary>
     /// Điều kiện bảo quản (plain text)
     /// </summary>
     public string? StorageConditions { get; set; }
