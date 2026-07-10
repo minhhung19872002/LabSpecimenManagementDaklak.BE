@@ -125,6 +125,9 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Edit, L("Permission:Equipments.Edit"));
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Delete, L("Permission:Equipments.Delete"));
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.UpdateStatus, L("Permission:Equipments.UpdateStatus"));
+        // LabReport Permissions
+        var labReportPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.LabReport.Default, L("Permission:LabReport"));
+        labReportPermission.AddChild(LabSpecimenManagementPermissions.LabReport.Export, L("Permission:LabReport.Export"));
 
         // Master Data - Unified Permissions (for all master data features)
         var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));

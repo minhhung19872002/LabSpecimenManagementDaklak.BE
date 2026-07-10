@@ -408,15 +408,11 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             {
                 LabId = lab.Id,
                 LabName = deptDict.TryGetValue(lab.DepartmentId, out var name) ? name : lab.Code,
+                // Chưa hoàn thành = tất cả trừ Approved
                 InProgressCount = labInds.Count(x =>
-                    (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Entered
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Rejected
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Approved),
-                PendingCount = labInds.Count(x =>
-                    x.ApprovalStatus == IndicatorApprovalStatus.Pending
-                    || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
-                    || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                    x.ApprovalStatus != IndicatorApprovalStatus.Approved),
+                // Tổng số chỉ tiêu
+                PendingCount = labInds.Count,
                 TechnicianCount = techCountByDept.TryGetValue(lab.DepartmentId, out var count) ? count : 0,
             };
         })

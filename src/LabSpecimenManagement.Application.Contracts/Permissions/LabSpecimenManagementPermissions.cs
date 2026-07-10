@@ -117,6 +117,13 @@ public static class LabSpecimenManagementPermissions
         public const string Export = Default + ".Export";
     }
 
+    // LabReport Permissions
+    public static class LabReport
+    {
+        public const string Default = GroupName + ".LabReport";
+        public const string Export = Default + ".Export";
+    }
+
     // Master Data - Unified Permissions (for all master data features)
     public static class MasterData
     {

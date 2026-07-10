@@ -174,7 +174,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
             { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
             { "{{TimeToSaveSample}}", "" },
-            { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
+            // BA: DateOfSending = ngày lấy mẫu, dùng cùng giá trị với DateOfReceiving (ContractDate)
+            { "{{DateOfSending}}", contractDateText },
             { "{{PlaceToSendSample}}", testRequest.CustomerName ?? "" },
             { "{{AttachFile}}", "" },
             { "{{Conclude}}", "" }

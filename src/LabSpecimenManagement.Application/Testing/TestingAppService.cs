@@ -1492,16 +1492,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 continue;
             }
 
-            // Nếu indicator bị từ chối trước đó, testDate phải >= ngày hiện tại
-            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Rejected)
-            {
-                if (indicatorInput.TestDate.Date < DateTime.Today)
-                {
-                    errors.Add($"Ngày thử nghiệm không chính xác. Vui lòng chọn ngày thử nghiệm mới (>= ngày hiện tại)");
-                    continue;
-                }
-            }
-
             // Text values đã được tạo ở trên, không cần gọi GetOrCreateByNameAsync nữa
 
             // Set TestDate từ input
