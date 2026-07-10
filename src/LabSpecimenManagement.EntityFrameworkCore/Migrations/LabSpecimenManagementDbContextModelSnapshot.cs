@@ -3316,7 +3316,8 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreationTime")
-                        .HasColumnType("timestamp without time zone");
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
 
                     b.Property<Guid>("ManufacturerId")
                         .HasColumnType("uuid");

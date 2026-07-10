@@ -71,6 +71,21 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? Concentration { get; set; }
 
     /// <summary>
+    /// Nồng độ / Hàm lượng có định dạng HTML (rich text, dùng cho Sinh phẩm)
+    /// </summary>
+    public string? FormattedConcentration { get; set; }
+
+    /// <summary>
+    /// Xuất xứ có định dạng HTML (rich text, dùng cho Sinh phẩm)
+    /// </summary>
+    public string? FormattedOrigin { get; set; }
+
+    /// <summary>
+    /// Mã nguy hiểm GHS/MSDS (dùng cho Sinh phẩm)
+    /// </summary>
+    public string? GhsCode { get; set; }
+
+    /// <summary>
     /// Điều kiện bảo quản (plain text)
     /// </summary>
     public string? StorageConditions { get; set; }

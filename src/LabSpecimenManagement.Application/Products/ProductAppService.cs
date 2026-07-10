@@ -219,6 +219,9 @@ public class ProductAppService : ApplicationService, IProductAppService
             Manufacturer = input.Manufacturer,
             Origin = input.Origin,
             Concentration = input.Concentration,
+            FormattedConcentration = input.FormattedConcentration,
+            FormattedOrigin = input.FormattedOrigin,
+            GhsCode = input.GhsCode,
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
@@ -307,6 +310,9 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.Manufacturer = input.Manufacturer;
         product.Origin = input.Origin;
         product.Concentration = input.Concentration;
+        product.FormattedConcentration = input.FormattedConcentration;
+        product.FormattedOrigin = input.FormattedOrigin;
+        product.GhsCode = input.GhsCode;
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;

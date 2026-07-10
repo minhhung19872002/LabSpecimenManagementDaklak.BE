@@ -29,6 +29,9 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? Manufacturer { get; set; }
     public string? Origin { get; set; }
     public string? Concentration { get; set; }
+    public string? FormattedConcentration { get; set; }
+    public string? FormattedOrigin { get; set; }
+    public string? GhsCode { get; set; }
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
@@ -123,6 +126,13 @@ public class CreateUpdateProductDto
 
     [StringLength(256)]
     public string? Concentration { get; set; }
+
+    public string? FormattedConcentration { get; set; }
+
+    public string? FormattedOrigin { get; set; }
+
+    [StringLength(128)]
+    public string? GhsCode { get; set; }
 
     public string? StorageConditions { get; set; }
 
