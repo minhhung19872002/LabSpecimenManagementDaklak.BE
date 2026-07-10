@@ -222,6 +222,16 @@ public class ProductAppService : ApplicationService, IProductAppService
             FormattedConcentration = input.FormattedConcentration,
             FormattedOrigin = input.FormattedOrigin,
             GhsCode = input.GhsCode,
+            StandardCertificationType = input.StandardCertificationType.HasValue
+                ? (StandardCertificationType)input.StandardCertificationType.Value
+                : null,
+            FormattedChemicalFormula = input.FormattedChemicalFormula,
+            CertifiedValue = input.CertifiedValue,
+            FormattedCertifiedValue = input.FormattedCertifiedValue,
+            MeasurementUncertainty = input.MeasurementUncertainty,
+            FormattedMeasurementUncertainty = input.FormattedMeasurementUncertainty,
+            StandardLink = input.StandardLink,
+            AnalysisGrade = input.AnalysisGrade,
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
@@ -313,6 +323,16 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.FormattedConcentration = input.FormattedConcentration;
         product.FormattedOrigin = input.FormattedOrigin;
         product.GhsCode = input.GhsCode;
+        product.StandardCertificationType = input.StandardCertificationType.HasValue
+            ? (StandardCertificationType)input.StandardCertificationType.Value
+            : null;
+        product.FormattedChemicalFormula = input.FormattedChemicalFormula;
+        product.CertifiedValue = input.CertifiedValue;
+        product.FormattedCertifiedValue = input.FormattedCertifiedValue;
+        product.MeasurementUncertainty = input.MeasurementUncertainty;
+        product.FormattedMeasurementUncertainty = input.FormattedMeasurementUncertainty;
+        product.StandardLink = input.StandardLink;
+        product.AnalysisGrade = input.AnalysisGrade;
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;

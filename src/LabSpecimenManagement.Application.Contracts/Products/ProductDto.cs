@@ -32,6 +32,14 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? FormattedConcentration { get; set; }
     public string? FormattedOrigin { get; set; }
     public string? GhsCode { get; set; }
+    public int? StandardCertificationType { get; set; }
+    public string? FormattedChemicalFormula { get; set; }
+    public string? CertifiedValue { get; set; }
+    public string? FormattedCertifiedValue { get; set; }
+    public string? MeasurementUncertainty { get; set; }
+    public string? FormattedMeasurementUncertainty { get; set; }
+    public string? StandardLink { get; set; }
+    public string? AnalysisGrade { get; set; }
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
@@ -133,6 +141,24 @@ public class CreateUpdateProductDto
 
     [StringLength(128)]
     public string? GhsCode { get; set; }
+
+    public int? StandardCertificationType { get; set; }
+
+    public string? FormattedChemicalFormula { get; set; }
+
+    public string? CertifiedValue { get; set; }
+
+    public string? FormattedCertifiedValue { get; set; }
+
+    public string? MeasurementUncertainty { get; set; }
+
+    public string? FormattedMeasurementUncertainty { get; set; }
+
+    [StringLength(500)]
+    public string? StandardLink { get; set; }
+
+    [StringLength(256)]
+    public string? AnalysisGrade { get; set; }
 
     public string? StorageConditions { get; set; }
 

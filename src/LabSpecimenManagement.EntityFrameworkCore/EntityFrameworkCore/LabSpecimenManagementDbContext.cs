@@ -521,6 +521,14 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.FormattedConcentration);
             b.Property(x => x.FormattedOrigin);
             b.Property(x => x.GhsCode).HasMaxLength(128);
+            b.Property(x => x.StandardCertificationType);
+            b.Property(x => x.FormattedChemicalFormula);
+            b.Property(x => x.CertifiedValue);
+            b.Property(x => x.FormattedCertifiedValue);
+            b.Property(x => x.MeasurementUncertainty);
+            b.Property(x => x.FormattedMeasurementUncertainty);
+            b.Property(x => x.StandardLink).HasMaxLength(500);
+            b.Property(x => x.AnalysisGrade).HasMaxLength(256);
             b.Property(x => x.FormattedStorageConditions);
             b.Property(x => x.ChemicalFormula).HasMaxLength(256);
             b.Property(x => x.MinStockLevel).HasPrecision(18, 4);

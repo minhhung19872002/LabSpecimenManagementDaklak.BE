@@ -81,9 +81,49 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? FormattedOrigin { get; set; }
 
     /// <summary>
-    /// Mã nguy hiểm GHS/MSDS (dùng cho Sinh phẩm)
+    /// Mã nguy hiểm GHS/MSDS (dùng cho Sinh phẩm, Chất chuẩn)
     /// </summary>
     public string? GhsCode { get; set; }
+
+    /// <summary>
+    /// Loại chất chuẩn (Chuẩn chứng nhận, Chuẩn thường, Chuẩn làm việc)
+    /// </summary>
+    public StandardCertificationType? StandardCertificationType { get; set; }
+
+    /// <summary>
+    /// Công thức hóa học có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedChemicalFormula { get; set; }
+
+    /// <summary>
+    /// Giá trị chứng nhận (plain text backup)
+    /// </summary>
+    public string? CertifiedValue { get; set; }
+
+    /// <summary>
+    /// Giá trị chứng nhận có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedCertifiedValue { get; set; }
+
+    /// <summary>
+    /// Độ không đảm bảo đo (plain text backup)
+    /// </summary>
+    public string? MeasurementUncertainty { get; set; }
+
+    /// <summary>
+    /// Độ không đảm bảo đo có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedMeasurementUncertainty { get; set; }
+
+    /// <summary>
+    /// Liên kết chất chuẩn (URL)
+    /// </summary>
+    public string? StandardLink { get; set; }
+
+    /// <summary>
+    /// Cấp độ phân tích
+    /// </summary>
+    public string? AnalysisGrade { get; set; }
 
     /// <summary>
     /// Điều kiện bảo quản (plain text)
