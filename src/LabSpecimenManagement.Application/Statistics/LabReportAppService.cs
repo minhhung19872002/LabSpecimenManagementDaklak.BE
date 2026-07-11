@@ -72,6 +72,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            TrsSampleCode = trs.SampleCode,
                            TrId = tr.Id,
                            TrRequestNumber = tr.RequestNumber,
+                           TrContractNumber = tr.ContractNumber,
                            TrContractDate = tr.ContractDate,
                            TrCreationTime = tr.CreationTime
                        };
@@ -97,6 +98,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             {
                 x.TrId,
                 x.TrRequestNumber,
+                x.TrContractNumber,
                 x.TrContractDate,
                 TrCreationTime = x.TrCreationTime.Date,
                 Month = x.TrCreationTime.Month,
@@ -106,6 +108,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             {
                 TestRequestId = g.Key.TrId,
                 RequestNumber = g.Key.TrRequestNumber,
+                ContractNumber = g.Key.TrContractNumber,
                 ContractDate = g.Key.TrContractDate,
                 CreatedAt = g.Key.TrCreationTime,
                 Month = g.Key.Month,
@@ -118,11 +121,12 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         // Build Contracts (Section 3 left panel)
         var contracts = labData
-            .GroupBy(x => new { x.TrId, x.TrRequestNumber, x.TrContractDate })
+            .GroupBy(x => new { x.TrId, x.TrRequestNumber, x.TrContractNumber, x.TrContractDate })
             .Select(g => new LabContractSummaryDto
             {
                 TestRequestId = g.Key.TrId,
                 RequestNumber = g.Key.TrRequestNumber,
+                ContractNumber = g.Key.TrContractNumber,
                 ContractDate = g.Key.TrContractDate,
                 SampleCount = g.Select(x => x.TrsSampleId).Distinct().Count(),
                 IndicatorCount = g.Count(),
@@ -158,6 +162,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                     select new
                     {
                         tr.RequestNumber,
+                        tr.ContractNumber,
                         tr.ContractDate,
                         TrsSampleId = trs.Id,
                         TrsSampleCode = trs.SampleCode,
@@ -183,6 +188,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         return new LabContractDetailDto
         {
             RequestNumber = first.RequestNumber,
+            ContractNumber = first.ContractNumber,
             ContractDate = first.ContractDate,
             TotalSamples = data.Select(x => x.TrsSampleId).Distinct().Count(),
             TotalPrice = data.Sum(x => x.TrsiUnitPrice),
@@ -214,6 +220,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            TrsSampleId = trs.Id,
                            TrsSampleCode = trs.SampleCode,
                            TrRequestNumber = tr.RequestNumber,
+                           TrContractNumber = tr.ContractNumber,
                            TrContractDate = tr.ContractDate,
                            TrCreationTime = tr.CreationTime
                        };
@@ -237,28 +244,29 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .GroupBy(x => new
             {
                 x.TrRequestNumber,
+                x.TrContractNumber,
                 x.TrContractDate,
                 Month = x.TrCreationTime.Month,
                 Year = x.TrCreationTime.Year
             })
             .Select(g => new
             {
-                Số_phiếu = g.Key.TrRequestNumber,
+                Số_HĐ = g.Key.TrContractNumber ?? g.Key.TrRequestNumber,
                 Ngày_HĐ = g.Key.TrContractDate.HasValue ? g.Key.TrContractDate.Value.ToString("dd/MM/yyyy") : "",
                 Tháng = g.Key.Month,
                 Năm = g.Key.Year,
                 Số_chỉ_tiêu = g.Count()
             })
-            .OrderBy(x => x.Năm).ThenBy(x => x.Tháng).ThenBy(x => x.Số_phiếu)
+            .OrderBy(x => x.Năm).ThenBy(x => x.Tháng).ThenBy(x => x.Số_HĐ)
             .ToList();
 
         // Sheet 3: Danh sách hợp đồng — sort by raw DateTime before projecting to string
         var contracts = labData
-            .GroupBy(x => new { x.TrRequestNumber, x.TrContractDate })
+            .GroupBy(x => new { x.TrRequestNumber, x.TrContractNumber, x.TrContractDate })
             .OrderBy(g => g.Key.TrContractDate).ThenBy(g => g.Key.TrRequestNumber)
             .Select(g => new
             {
-                Số_phiếu = g.Key.TrRequestNumber,
+                Số_HĐ = g.Key.TrContractNumber ?? g.Key.TrRequestNumber,
                 Ngày_HĐ = g.Key.TrContractDate.HasValue ? g.Key.TrContractDate.Value.ToString("dd/MM/yyyy") : "",
                 Số_mẫu = g.Select(x => x.TrsSampleId).Distinct().Count(),
                 Số_chỉ_tiêu = g.Count(),
@@ -268,14 +276,14 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         // Sheet 4: Chi tiết đơn giá từng mẫu
         var sampleDetails = labData
-            .GroupBy(x => new { x.TrRequestNumber, x.TrsSampleCode })
+            .GroupBy(x => new { x.TrRequestNumber, x.TrContractNumber, x.TrsSampleCode })
             .Select(g => new
             {
-                Số_phiếu = g.Key.TrRequestNumber,
+                Số_HĐ = g.Key.TrContractNumber ?? g.Key.TrRequestNumber,
                 Mã_mẫu = g.Key.TrsSampleCode,
                 Đơn_giá_VND = g.Sum(x => x.TrsiUnitPrice)
             })
-            .OrderBy(x => x.Số_phiếu).ThenBy(x => x.Mã_mẫu)
+            .OrderBy(x => x.Số_HĐ).ThenBy(x => x.Mã_mẫu)
             .ToList();
 
         var memoryStream = new MemoryStream();
