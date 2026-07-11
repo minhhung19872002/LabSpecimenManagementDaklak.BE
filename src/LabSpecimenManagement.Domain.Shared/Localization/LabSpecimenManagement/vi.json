@@ -9,6 +9,10 @@
     "Permission:Organizations": "Cơ sở/Doanh nghiệp",
     "Permission:Organizations.Create": "Tạo cơ sở/doanh nghiệp",
     "Permission:Organizations.Edit": "Sửa cơ sở/doanh nghiệp",
-    "Permission:Organizations.Delete": "Xóa cơ sở/doanh nghiệp"
+    "Permission:Organizations.Delete": "Xóa cơ sở/doanh nghiệp",
+
+    "Permission:LabReport": "Thống kê phòng lab",
+    "Permission:LabReport.ViewStatistics": "Xem thống kê",
+    "Permission:LabReport.Export": "Xuất báo cáo thống kê"
   }
 }

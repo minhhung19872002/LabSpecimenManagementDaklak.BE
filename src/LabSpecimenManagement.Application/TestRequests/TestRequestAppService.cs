@@ -1687,6 +1687,8 @@ public partial class TestRequestAppService :
                 }
 
                 task.TotalSampleCount = allSampleIds.Count;
+                // New indicators require QLKT re-evaluation regardless of current task status
+                task.Status = LaboratoryTaskStatus.UnderEvaluation;
                 await _laboratoryTaskRepository.UpdateAsync(task, autoSave: true);
             }
             else
