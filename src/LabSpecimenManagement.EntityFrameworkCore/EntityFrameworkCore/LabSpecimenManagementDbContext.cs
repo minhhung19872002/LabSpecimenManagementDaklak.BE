@@ -535,6 +535,9 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.IsReusable);
             b.Property(x => x.MaxReuseCount);
             b.Property(x => x.IsSterile);
+            b.Property(x => x.UsagePurpose);
+            b.Property(x => x.ShelfLifeDays);
+            b.Property(x => x.BaseProductId);
             b.Property(x => x.FormattedStorageConditions);
             b.Property(x => x.ChemicalFormula).HasMaxLength(256);
             b.Property(x => x.MinStockLevel).HasPrecision(18, 4);
@@ -652,6 +655,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(500);
             b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.IsSystem).HasDefaultValue(false);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);

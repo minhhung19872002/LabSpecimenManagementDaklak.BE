@@ -238,6 +238,9 @@ public class ProductAppService : ApplicationService, IProductAppService
             IsReusable = input.IsReusable,
             MaxReuseCount = input.MaxReuseCount,
             IsSterile = input.IsSterile,
+            UsagePurpose = input.UsagePurpose,
+            ShelfLifeDays = input.ShelfLifeDays,
+            BaseProductId = input.BaseProductId,
             StorageConditions = input.StorageConditions,
             FormattedStorageConditions = input.FormattedStorageConditions,
             Categories = input.Categories,
@@ -345,6 +348,9 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.IsReusable = input.IsReusable;
         product.MaxReuseCount = input.MaxReuseCount;
         product.IsSterile = input.IsSterile;
+        product.UsagePurpose = input.UsagePurpose;
+        product.ShelfLifeDays = input.ShelfLifeDays;
+        product.BaseProductId = input.BaseProductId;
         product.StorageConditions = input.StorageConditions;
         product.FormattedStorageConditions = input.FormattedStorageConditions;
         product.Categories = input.Categories;

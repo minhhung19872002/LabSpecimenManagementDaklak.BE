@@ -46,6 +46,9 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public bool? IsReusable { get; set; }
     public int? MaxReuseCount { get; set; }
     public bool? IsSterile { get; set; }
+    public string? UsagePurpose { get; set; }
+    public int? ShelfLifeDays { get; set; }
+    public Guid? BaseProductId { get; set; }
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
@@ -176,6 +179,12 @@ public class CreateUpdateProductDto
     public int? MaxReuseCount { get; set; }
 
     public bool? IsSterile { get; set; }
+
+    public string? UsagePurpose { get; set; }
+
+    public int? ShelfLifeDays { get; set; }
+
+    public Guid? BaseProductId { get; set; }
 
     public string? StorageConditions { get; set; }
 

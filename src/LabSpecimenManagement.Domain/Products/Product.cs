@@ -156,6 +156,21 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public bool? IsSterile { get; set; }
 
     /// <summary>
+    /// Mục đích sử dụng (dùng cho Dung dịch pha)
+    /// </summary>
+    public string? UsagePurpose { get; set; }
+
+    /// <summary>
+    /// Hạn sử dụng tính theo ngày (dùng cho Dung dịch pha)
+    /// </summary>
+    public int? ShelfLifeDays { get; set; }
+
+    /// <summary>
+    /// ID chất nền (FK tự tham chiếu → Product, dùng cho Dung dịch pha)
+    /// </summary>
+    public Guid? BaseProductId { get; set; }
+
+    /// <summary>
     /// Điều kiện bảo quản (plain text)
     /// </summary>
     public string? StorageConditions { get; set; }

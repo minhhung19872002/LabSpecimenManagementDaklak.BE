@@ -10,6 +10,7 @@ public class Manufacturer : FullAuditedAggregateRoot<Guid>, IHasActive
     public string Name { get; set; }
     public string? Description { get; set; }
     public bool IsActive { get; set; }
+    public bool IsSystem { get; set; }
 
     protected Manufacturer()
     {
@@ -20,5 +21,6 @@ public class Manufacturer : FullAuditedAggregateRoot<Guid>, IHasActive
         Code = code;
         Name = name;
         IsActive = true;
+        IsSystem = false;
     }
 }
