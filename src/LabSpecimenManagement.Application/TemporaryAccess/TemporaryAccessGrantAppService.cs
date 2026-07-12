@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -24,17 +25,20 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
     private readonly IPermissionGrantRepository _permissionGrantRepository;
     private readonly IdentityUserManager _userManager;
     private readonly IIdentityUserRepository _identityUserRepository;
+    private readonly INotificationHubService _notificationHubService;
 
     public TemporaryAccessGrantAppService(
         IRepository<TemporaryAccessGrant, Guid> repository,
         IPermissionGrantRepository permissionGrantRepository,
         IdentityUserManager userManager,
-        IIdentityUserRepository identityUserRepository)
+        IIdentityUserRepository identityUserRepository,
+        INotificationHubService notificationHubService)
     {
         _repository = repository;
         _permissionGrantRepository = permissionGrantRepository;
         _userManager = userManager;
         _identityUserRepository = identityUserRepository;
+        _notificationHubService = notificationHubService;
     }
 
     public async Task<PagedResultDto<TemporaryAccessGrantDto>> GetListAsync(TemporaryAccessGrantPagedRequestDto input)
@@ -121,6 +125,10 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             // W2: Server-side password complexity validation
             ValidatePasswordComplexity(input.ExternalPassword);
 
+            // Check for duplicate username before CreateAsync — avoids ABP's English identity errors
+            if (await _userManager.FindByNameAsync(input.ExternalUsername) != null)
+                throw new UserFriendlyException($"Tên đăng nhập '{input.ExternalUsername}' đã được sử dụng. Vui lòng chọn tên đăng nhập khác.");
+
             // Create new external account — ABP requires a non-null email, use placeholder if none provided
             var accountEmail = !string.IsNullOrWhiteSpace(input.ExternalEmail)
                 ? input.ExternalEmail
@@ -146,7 +154,7 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             grant.EmployeePhone = input.ExternalPhone;
         }
 
-        var granted = await GrantPermissionsAsync(userId, input.SelectedModules);
+        var granted = await GrantPermissionsAsync(userId, input.SelectedModules, Guid.Empty);
         grant.GrantedPermissions = JsonSerializer.Serialize(granted);
 
         await _repository.InsertAsync(grant, autoSave: true);
@@ -164,24 +172,28 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
         var startDate = input.StartDate.Date;
         var expiryDate = input.ExpiryDate.Date.AddDays(1).AddTicks(-1);
 
-        // W3: Không cho phép ngày phân công trong quá khứ
-        if (startDate < DateTime.Today)
-            throw new UserFriendlyException("Ngày phân công không được nhỏ hơn ngày hôm nay");
-
+        // Grant may have already started — only enforce ordering
         if (expiryDate.Date < startDate)
             throw new UserFriendlyException("Ngày hết hiệu lực không được nhỏ hơn ngày phân công");
+        if (expiryDate.Date < DateTime.Today)
+            throw new UserFriendlyException("Ngày hết hạn không được nhỏ hơn ngày hôm nay");
 
         var userId = grant.EmployeeType == TemporaryEmployeeType.Internal
             ? grant.UserId!.Value
             : grant.ExternalUserId!.Value;
 
-        // C3: Compute new permissions BEFORE revoking — if compute fails, nothing is revoked
-        var newGranted = await GrantPermissionsAsync(userId, input.SelectedModules, grant.Id);
+        // Save old owned perms BEFORE modifying (for revocation after update)
+        var oldGrantedPermissionsJson = grant.GrantedPermissions ?? "[]";
 
-        // Revoke old permissions (safe: checks other active grants first)
-        await RevokeGrantedPermissionsAsync(userId, grant.GrantedPermissions, grant.Id);
+        var allNewPerms = TemporaryAccessPermissionMapper.GetPermissionsForModules(input.SelectedModules);
 
-        grant.GrantedPermissions = JsonSerializer.Serialize(newGranted);
+        // Insert missing perms and compute co-owned set for new selection
+        var newOwned = await GrantPermissionsAsync(userId, input.SelectedModules, grant.Id);
+
+        // Revoke previously owned perms no longer needed — protected by new selection and other active grants
+        await RevokeGrantedPermissionsAsync(userId, oldGrantedPermissionsJson, grant.Id, allNewPerms);
+
+        grant.GrantedPermissions = JsonSerializer.Serialize(newOwned);
         grant.SelectedModules = JsonSerializer.Serialize(input.SelectedModules);
         grant.StartDate = startDate;
         grant.ExpiryDate = expiryDate;
@@ -202,6 +214,7 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
     }
 
     [Authorize(LabSpecimenManagementPermissions.TemporaryAccess.Expire)]
+    [UnitOfWork]
     public async Task ExpireAsync(Guid id)
     {
         var grant = await _repository.GetAsync(id);
@@ -212,7 +225,7 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             ? grant.UserId!.Value
             : grant.ExternalUserId!.Value;
 
-        await RevokeGrantedPermissionsAsync(userId, grant.GrantedPermissions, grant.Id);
+        await RevokeGrantedPermissionsAsync(userId, grant.GrantedPermissions ?? "[]", grant.Id);
 
         if (grant.EmployeeType == TemporaryEmployeeType.External && grant.ExternalUserId.HasValue)
         {
@@ -222,6 +235,9 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
                 externalUser.SetIsActive(false);
                 await _userManager.UpdateAsync(externalUser);
             }
+
+            // Notify the external user's active session to force logout
+            await _notificationHubService.NotifyAccountExpiredAsync(grant.ExternalUserId.Value);
         }
 
         grant.Status = GrantStatus.Expired;
@@ -258,12 +274,9 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             throw new UserFriendlyException("Mật khẩu phải có ít nhất 1 ký tự đặc biệt");
     }
 
-    // C3 fix: acceptGrantId lets us compute new permissions before revoking old ones
-    // When called from UpdateAsync, we pass the grant's ID so GrantPermissionsAsync
-    // can exclude "this grant's existing permissions" from the already-existing check
-    private async Task<List<string>> GrantPermissionsAsync(Guid userId, List<string> selectedModules, Guid? currentGrantId = null)
+    private async Task<List<string>> GrantPermissionsAsync(Guid userId, List<string> selectedModules, Guid currentGrantId)
     {
-        var allPermissionNames = TemporaryAccessPermissionMapper.GetPermissionsForModules(selectedModules);
+        var allPermissionNames = TemporaryAccessPermissionMapper.GetPermissionsForModules(selectedModules).ToList();
         if (!allPermissionNames.Any())
             return new();
 
@@ -273,7 +286,6 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
 
         var toInsert = allPermissionNames.Where(p => !existingNames.Contains(p)).ToList();
 
-        // M1: batch inserts — collect all then save once instead of N round-trips
         foreach (var permName in toInsert)
         {
             await _permissionGrantRepository.InsertAsync(
@@ -285,13 +297,37 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
         if (toInsert.Any())
             await CurrentUnitOfWork.SaveChangesAsync();
 
-        return toInsert;
+        // Co-ownership: perms already in DB that are covered by another active (non-expired) temp grant
+        // also belong to this grant — so they get revoked when this grant eventually expires.
+        // Perms that exist only from admin/role grants are NOT included (they must survive expiry).
+        var allGrantsQuery = await _repository.GetQueryableAsync();
+        var otherActiveGrants = await AsyncExecuter.ToListAsync(
+            allGrantsQuery.Where(g =>
+                g.Id != currentGrantId &&
+                g.Status == GrantStatus.Active &&
+                g.ExpiryDate >= DateTime.Now &&
+                (g.UserId == userId || g.ExternalUserId == userId)));
+
+        var otherTempGrantPerms = new HashSet<string>();
+        foreach (var g in otherActiveGrants)
+        {
+            List<string> otherModules;
+            try { otherModules = JsonSerializer.Deserialize<List<string>>(g.SelectedModules) ?? new(); }
+            catch (JsonException) { otherModules = new(); }
+            foreach (var p in TemporaryAccessPermissionMapper.GetPermissionsForModules(otherModules))
+                otherTempGrantPerms.Add(p);
+        }
+
+        // owned = newly inserted by this call ∪ pre-existing perms shared with another active temp grant
+        return allPermissionNames
+            .Where(p => !existingNames.Contains(p) || otherTempGrantPerms.Contains(p))
+            .ToList();
     }
 
-    // C1 + C2 fix: check other active grants before revoking, handle malformed JSON
-    private async Task RevokeGrantedPermissionsAsync(Guid userId, string grantedPermissionsJson, Guid currentGrantId)
+    private async Task RevokeGrantedPermissionsAsync(
+        Guid userId, string grantedPermissionsJson, Guid currentGrantId,
+        IEnumerable<string>? currentGrantNewPerms = null)
     {
-        // C2: defensive JSON parse — malformed JSON must not crash ExpireAsync
         List<string> grantedPerms;
         try
         {
@@ -299,21 +335,20 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
         }
         catch (JsonException)
         {
-            return; // nothing to revoke if we can't parse the list
+            return;
         }
 
         if (!grantedPerms.Any()) return;
 
-        // C1: find other ACTIVE grants for this user (excluding current one being revoked/expired)
         var allGrantsQuery = await _repository.GetQueryableAsync();
         var otherActiveGrants = await AsyncExecuter.ToListAsync(
             allGrantsQuery.Where(g =>
                 g.Id != currentGrantId &&
                 g.Status == GrantStatus.Active &&
+                g.ExpiryDate >= DateTime.Now &&
                 (g.UserId == userId || g.ExternalUserId == userId)));
 
-        // Build the set of permissions still needed by other active grants
-        var stillNeededPerms = new HashSet<string>();
+        var stillNeededPerms = new HashSet<string>(currentGrantNewPerms ?? Enumerable.Empty<string>());
         foreach (var otherGrant in otherActiveGrants)
         {
             List<string> otherModules;
@@ -324,25 +359,30 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
                 stillNeededPerms.Add(p);
         }
 
-        // Only revoke permissions that no other active grant needs
         var toRevoke = grantedPerms.Where(p => !stillNeededPerms.Contains(p)).ToList();
         if (!toRevoke.Any()) return;
 
         var userGrants = await _permissionGrantRepository.GetListAsync(
             UserPermissionValueProvider.ProviderName, userId.ToString());
 
+        var deleted = false;
         foreach (var permName in toRevoke)
         {
             var match = userGrants.FirstOrDefault(g => g.Name == permName);
             if (match != null)
-                await _permissionGrantRepository.DeleteAsync(match, autoSave: true);
+            {
+                await _permissionGrantRepository.DeleteAsync(match, autoSave: false);
+                deleted = true;
+            }
         }
+        if (deleted)
+            await CurrentUnitOfWork.SaveChangesAsync();
     }
 
     private static TemporaryAccessGrantDto MapToDto(TemporaryAccessGrant grant)
     {
         var modules = new List<string>();
-        try { modules = JsonSerializer.Deserialize<List<string>>(grant.SelectedModules) ?? new(); } catch { }
+        try { modules = JsonSerializer.Deserialize<List<string>>(grant.SelectedModules) ?? new(); } catch (JsonException) { }
 
         return new TemporaryAccessGrantDto
         {

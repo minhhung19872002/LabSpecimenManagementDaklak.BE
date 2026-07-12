@@ -26,4 +26,12 @@ public class NotificationHubService : INotificationHubService, ITransientDepende
             .Group($"user_{userId}")
             .SendAsync("ReceiveNewNotification", notificationId);
     }
+
+    /// <inheritdoc />
+    public async Task NotifyAccountExpiredAsync(Guid userId)
+    {
+        await _hubContext.Clients
+            .Group($"user_{userId}")
+            .SendAsync("AccountExpired");
+    }
 }
