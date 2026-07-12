@@ -238,6 +238,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         var migrationPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Migration.Default, L("Permission:Migration"));
         migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Preview, L("Permission:Migration.Preview"));
         migrationPermission.AddChild(LabSpecimenManagementPermissions.Migration.Import, L("Permission:Migration.Import"));
+
+        // Temporary Access Permissions (Cấp quyền tạm thời / Quản lý lịch trực)
+        var temporaryAccessPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.TemporaryAccess.Default, L("Permission:TemporaryAccess"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Create, L("Permission:TemporaryAccess.Create"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Edit, L("Permission:TemporaryAccess.Edit"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Expire, L("Permission:TemporaryAccess.Expire"));
     }
 
     private static LocalizableString L(string name)

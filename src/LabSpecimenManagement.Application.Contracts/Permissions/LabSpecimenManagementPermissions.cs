@@ -345,4 +345,13 @@ public static class LabSpecimenManagementPermissions
         public const string Preview = Default + ".Preview";
         public const string Import = Default + ".Import";
     }
+
+    // Temporary Access Permissions (Cấp quyền tạm thời / Quản lý lịch trực)
+    public static class TemporaryAccess
+    {
+        public const string Default = GroupName + ".TemporaryAccess";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Expire = Default + ".Expire";
+    }
 }
