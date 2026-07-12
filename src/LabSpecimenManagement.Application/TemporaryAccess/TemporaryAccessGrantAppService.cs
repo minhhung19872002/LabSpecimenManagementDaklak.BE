@@ -157,6 +157,12 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
         var granted = await GrantPermissionsAsync(userId, input.SelectedModules, Guid.Empty);
         grant.GrantedPermissions = JsonSerializer.Serialize(granted);
 
+        // Denormalize granter's display name for audit tracing
+        var grantedByFullName = $"{CurrentUser.SurName} {CurrentUser.Name}".Trim();
+        grant.GrantedByName = string.IsNullOrWhiteSpace(grantedByFullName)
+            ? CurrentUser.UserName
+            : grantedByFullName;
+
         await _repository.InsertAsync(grant, autoSave: true);
         return MapToDto(grant);
     }
@@ -399,7 +405,9 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             Status = grant.Status,
             SelectedModules = modules,
             Reason = grant.Reason,
-            CreationTime = grant.CreationTime
+            CreationTime = grant.CreationTime,
+            GrantedById = grant.CreatorId,
+            GrantedByName = grant.GrantedByName
         };
     }
 }

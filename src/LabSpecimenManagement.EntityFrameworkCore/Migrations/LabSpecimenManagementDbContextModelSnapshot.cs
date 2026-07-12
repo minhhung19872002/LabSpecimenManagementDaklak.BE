@@ -3277,6 +3277,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<string>("GrantedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("GrantedPermissions")
                         .IsRequired()
                         .HasColumnType("text");

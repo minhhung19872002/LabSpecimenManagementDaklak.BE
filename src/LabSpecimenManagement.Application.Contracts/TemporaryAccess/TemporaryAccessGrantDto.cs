@@ -19,4 +19,6 @@ public class TemporaryAccessGrantDto : EntityDto<Guid>
     public List<string> SelectedModules { get; set; } = new();
     public string? Reason { get; set; }
     public DateTime CreationTime { get; set; }
+    public Guid? GrantedById { get; set; }
+    public string? GrantedByName { get; set; }
 }

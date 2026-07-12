@@ -1306,6 +1306,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.SelectedModules).IsRequired().HasColumnType("text");
             b.Property(x => x.GrantedPermissions).IsRequired().HasColumnType("text");
             b.Property(x => x.Reason).HasMaxLength(1000);
+            b.Property(x => x.GrantedByName).HasMaxLength(256);
 
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.ExpiryDate);

@@ -33,4 +33,7 @@ public class TemporaryAccessGrant : FullAuditedAggregateRoot<Guid>
 
     public GrantStatus Status { get; set; } = GrantStatus.Active;
     public string? Reason { get; set; }
+
+    // Denormalized audit: who granted (creator's display name at time of creation)
+    public string? GrantedByName { get; set; }
 }
