@@ -593,6 +593,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
 
+        // Temporary access grant expiration - expire overdue grants and revoke permissions
+        // CRON: "0 * * * *" = Every hour
+        RecurringJob.AddOrUpdate<TemporaryAccessGrantExpirationJob>(
+            "temporary-access-grant-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 * * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
         // Goods receipt status auto-update: Ordering -> WaitingReceipt when ExpectedDeliveryDate <= today
         // CRON: "0 0 * * *" = At 00:00 every day (midnight Vietnam time)
         // RecurringJob.AddOrUpdate<GoodsReceiptStatusUpdateJob>(

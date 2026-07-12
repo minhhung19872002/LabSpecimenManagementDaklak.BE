@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.TemporaryAccess;
 using LabSpecimenManagement.Users;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Configuration;
@@ -32,6 +33,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IIdentityRoleRepository _roleRepository;
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly IRepository<TemporaryAccessGrant, Guid> _temporaryAccessRepository;
 
     public AuthAppService(
         IdentityUserManager userManager,
@@ -41,7 +43,8 @@ public class AuthAppService : ApplicationService, IAuthAppService
         IPermissionGrantRepository permissionGrantRepository,
         IRepository<Department, Guid> departmentRepository,
         IIdentityRoleRepository roleRepository,
-        IHttpContextAccessor httpContextAccessor)
+        IHttpContextAccessor httpContextAccessor,
+        IRepository<TemporaryAccessGrant, Guid> temporaryAccessRepository)
     {
         _userManager = userManager;
         _configuration = configuration;
@@ -51,6 +54,7 @@ public class AuthAppService : ApplicationService, IAuthAppService
         _departmentRepository = departmentRepository;
         _roleRepository = roleRepository;
         _httpContextAccessor = httpContextAccessor;
+        _temporaryAccessRepository = temporaryAccessRepository;
     }
 
     public async Task<LoginResultDto> LoginAsync(LoginDto input)
@@ -111,6 +115,27 @@ public class AuthAppService : ApplicationService, IAuthAppService
                 Success = false,
                 ErrorMessage = "Tài khoản đã bị khóa do đăng nhập sai nhiều lần. Vui lòng thử lại sau."
             };
+        }
+
+        // Check login time window for external temporary accounts (after password verified)
+        var isTemporaryExternal = user.GetProperty<bool?>("IsTemporaryExternalAccount");
+        if (isTemporaryExternal == true)
+        {
+            var now = DateTime.Now;
+            var activeGrant = await _temporaryAccessRepository.FirstOrDefaultAsync(
+                g => g.ExternalUserId == user.Id &&
+                     g.Status == GrantStatus.Active &&
+                     g.StartDate <= now &&
+                     g.ExpiryDate >= now);
+
+            if (activeGrant == null)
+            {
+                return new LoginResultDto
+                {
+                    Success = false,
+                    ErrorMessage = "Tài khoản tạm thời không hoạt động ngoài cửa sổ thời gian được phân công."
+                };
+            }
         }
 
         // Get token from OpenIddict

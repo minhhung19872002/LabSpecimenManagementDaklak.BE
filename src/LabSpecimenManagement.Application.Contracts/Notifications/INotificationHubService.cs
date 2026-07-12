@@ -12,7 +12,10 @@ public interface INotificationHubService
     /// Notifies the user that a new notification has been created
     /// FE will increment the unread count by 1
     /// </summary>
-    /// <param name="userId">The target user ID</param>
-    /// <param name="notificationId">The ID of the new notification</param>
     Task NotifyNewNotificationAsync(Guid userId, Guid notificationId);
+
+    /// <summary>
+    /// Notifies an external temporary account that their access has expired — FE will force logout
+    /// </summary>
+    Task NotifyAccountExpiredAsync(Guid userId);
 }

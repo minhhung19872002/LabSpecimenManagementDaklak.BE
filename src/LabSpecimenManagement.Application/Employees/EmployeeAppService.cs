@@ -8,6 +8,7 @@ using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Shared;
+using LabSpecimenManagement.TemporaryAccess;
 using RolePermissionGroupDto = LabSpecimenManagement.RoleManagement.PermissionGroupDto;
 using RolePermissionDto = LabSpecimenManagement.RoleManagement.PermissionDto;
 using Microsoft.AspNetCore.Authorization;
@@ -35,6 +36,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
     private readonly IEmailService _emailService;
     private readonly IPermissionManager _permissionManager;
     private readonly IPermissionGrantRepository _permissionGrantRepository;
+    private readonly IRepository<TemporaryAccessGrant, Guid> _grantRepository;
 
     public EmployeeAppService(
         IIdentityUserRepository userRepository,
@@ -43,7 +45,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         IIdentityRoleRepository roleRepository,
         IEmailService emailService,
         IPermissionManager permissionManager,
-        IPermissionGrantRepository permissionGrantRepository)
+        IPermissionGrantRepository permissionGrantRepository,
+        IRepository<TemporaryAccessGrant, Guid> grantRepository)
     {
         _userRepository = userRepository;
         _userManager = userManager;
@@ -52,6 +55,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         _emailService = emailService;
         _permissionManager = permissionManager;
         _permissionGrantRepository = permissionGrantRepository;
+        _grantRepository = grantRepository;
     }
 
     public async Task<PagedResultDto<EmployeeDto>> GetListAsync(GetEmployeesInput input)
@@ -313,6 +317,21 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         }
 
         await _userManager.UpdateAsync(user);
+
+        // M4: sync denormalized employee fields on active temporary access grants
+        var grantsQuery = await _grantRepository.GetQueryableAsync();
+        var activeGrants = await AsyncExecuter.ToListAsync(
+            grantsQuery.Where(g => g.UserId == id && g.Status == GrantStatus.Active));
+        if (activeGrants.Count > 0)
+        {
+            var fullName = $"{user.Surname} {user.Name}".Trim();
+            foreach (var grant in activeGrants)
+            {
+                grant.EmployeeFullName = fullName;
+                grant.EmployeeEmail = user.Email;
+            }
+            await _grantRepository.UpdateManyAsync(activeGrants, autoSave: true);
+        }
 
         var departments = await _departmentRepository.GetListAsync();
         var departmentDict = departments.ToDictionary(d => d.Id, d => d.Name);

@@ -467,6 +467,12 @@ public class RolePermissionsDataSeedContributor : IDataSeedContributor, ITransie
             // Sync
             LabSpecimenManagementPermissions.Sync.Default,
             LabSpecimenManagementPermissions.Sync.TestRequests,
+
+            // Temporary Access (Cấp quyền tạm thời / Quản lý lịch trực)
+            LabSpecimenManagementPermissions.TemporaryAccess.Default,
+            LabSpecimenManagementPermissions.TemporaryAccess.Create,
+            LabSpecimenManagementPermissions.TemporaryAccess.Edit,
+            LabSpecimenManagementPermissions.TemporaryAccess.Expire,
         };
     }
 }

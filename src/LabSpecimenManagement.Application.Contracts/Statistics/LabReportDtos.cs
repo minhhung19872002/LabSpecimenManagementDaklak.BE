@@ -16,6 +16,7 @@ public class ContractMonthlyIndicatorDto
 {
     public Guid TestRequestId { get; set; }
     public string RequestNumber { get; set; } = string.Empty;
+    public string? ContractNumber { get; set; }
     public DateTime? ContractDate { get; set; }
     public DateTime CreatedAt { get; set; }
     public int Month { get; set; }
@@ -28,6 +29,7 @@ public class LabContractSummaryDto
 {
     public Guid TestRequestId { get; set; }
     public string RequestNumber { get; set; } = string.Empty;
+    public string? ContractNumber { get; set; }
     public DateTime? ContractDate { get; set; }
     public int SampleCount { get; set; }
     public int IndicatorCount { get; set; }
@@ -52,6 +54,7 @@ public class SamplePriceItemDto
 public class LabContractDetailDto
 {
     public string RequestNumber { get; set; } = string.Empty;
+    public string? ContractNumber { get; set; }
     public DateTime? ContractDate { get; set; }
     public int TotalSamples { get; set; }
     public decimal TotalPrice { get; set; }

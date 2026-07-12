@@ -159,6 +159,15 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.Warehouses.Default, "Danh mục kho"),
         }),
 
+        // ==================== CẤP QUYỀN TẠM THỜI ====================
+        new PermissionGroupConfig("CapQuyenTamThoi", "Cấp quyền tạm thời", new[]
+        {
+            (LabSpecimenManagementPermissions.TemporaryAccess.Default, "Xem lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Create, "Tạo lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Edit, "Sửa lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Expire, "Hết hạn ngay"),
+        }),
+
         // ==================== QUẢN TRỊ HỆ THỐNG ====================
         new PermissionGroupConfig("QuanTriHeThong", "Quản trị hệ thống", new[]
         {

@@ -34,6 +34,7 @@ using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.WarehouseImports;
+using LabSpecimenManagement.TemporaryAccess;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -161,6 +162,9 @@ public class LabSpecimenManagementDbContext :
     public DbSet<ApprovalProcessStep> ApprovalProcessSteps { get; set; }
     public DbSet<ApprovalSnapshot> ApprovalSnapshots { get; set; }
     public DbSet<ApprovalSnapshotStep> ApprovalSnapshotSteps { get; set; }
+
+    // Temporary Access (Cấp quyền tạm thời)
+    public DbSet<TemporaryAccessGrant> TemporaryAccessGrants { get; set; }
 
     #region Entities from the modules
 
@@ -1815,5 +1819,27 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.ApprovalSnapshotId);
         });
+
+        // ============ TEMPORARY ACCESS GRANT CONFIGURATION ============
+
+        builder.Entity<TemporaryAccessGrant>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TemporaryAccessGrants", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.EmployeeFullName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.EmployeeEmail).HasMaxLength(256);
+            b.Property(x => x.EmployeePhone).HasMaxLength(32);
+            b.Property(x => x.ExternalUsername).HasMaxLength(256);
+            b.Property(x => x.SelectedModules).IsRequired().HasColumnType("text");
+            b.Property(x => x.GrantedPermissions).IsRequired().HasColumnType("text");
+            b.Property(x => x.Reason).HasMaxLength(1000);
+            b.Property(x => x.GrantedByName).HasMaxLength(256);
+
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.ExpiryDate);
+            b.HasIndex(x => x.UserId);
+        });
+
     }
 }

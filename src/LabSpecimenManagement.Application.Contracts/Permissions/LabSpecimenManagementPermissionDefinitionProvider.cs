@@ -299,6 +299,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Create, L("Permission:ApprovalProcesses.Create"));
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Edit, L("Permission:ApprovalProcesses.Edit"));
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Delete, L("Permission:ApprovalProcesses.Delete"));
+
+        // Temporary Access Permissions (Cấp quyền tạm thời / Quản lý lịch trực)
+        var temporaryAccessPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.TemporaryAccess.Default, L("Permission:TemporaryAccess"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Create, L("Permission:TemporaryAccess.Create"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Edit, L("Permission:TemporaryAccess.Edit"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Expire, L("Permission:TemporaryAccess.Expire"));
     }
 
     private static LocalizableString L(string name)
