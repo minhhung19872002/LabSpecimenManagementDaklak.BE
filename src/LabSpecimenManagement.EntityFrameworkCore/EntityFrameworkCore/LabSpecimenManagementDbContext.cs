@@ -36,6 +36,7 @@ using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.WarehouseImports;
 using LabSpecimenManagement.TemporaryAccess;
 using LabSpecimenManagement.PreparedSolutions;
+using LabSpecimenManagement.SupplementaryTasks;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -168,6 +169,8 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TemporaryAccessGrant> TemporaryAccessGrants { get; set; }
     public DbSet<PreparedSolutionBatch> PreparedSolutionBatches { get; set; }
     public DbSet<PreparedSolutionIngredient> PreparedSolutionIngredients { get; set; }
+    public DbSet<SupplementaryTask> SupplementaryTasks { get; set; }
+    public DbSet<SupplementaryTaskLog> SupplementaryTaskLogs { get; set; }
 
     #region Entities from the modules
 
@@ -1883,6 +1886,33 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.PreparedSolutionBatchId);
             b.HasIndex(x => x.ProductId);
+        });
+
+        // ============ SUPPLEMENTARY TASK CONFIGURATION ============
+        builder.Entity<SupplementaryTask>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SupplementaryTasks", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(500);
+            b.Property(x => x.Description);
+            b.Property(x => x.AssignedToName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.ImageUrls);
+
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.AssignedToId);
+            b.HasIndex(x => x.DueDate);
+        });
+
+        builder.Entity<SupplementaryTaskLog>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SupplementaryTaskLogs", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ChangedByName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Note).HasMaxLength(512);
+
+            b.HasIndex(x => x.TaskId);
         });
 
     }

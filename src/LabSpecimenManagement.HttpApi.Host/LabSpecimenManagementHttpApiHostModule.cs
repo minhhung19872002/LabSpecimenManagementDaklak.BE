@@ -593,6 +593,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
 
+        // Overdue task checker - chuyển Pending task quá hạn sang Overdue
+        // CRON: "5 0 * * *" = 00:05 hàng ngày (Vietnam time)
+        RecurringJob.AddOrUpdate<OverdueTaskCheckerJob>(
+            "overdue-task-checker-job",
+            job => job.ExecuteAsync(),
+            "5 0 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
         // Temporary access grant expiration - expire overdue grants and revoke permissions
         // CRON: "0 * * * *" = Every hour
         RecurringJob.AddOrUpdate<TemporaryAccessGrantExpirationJob>(
