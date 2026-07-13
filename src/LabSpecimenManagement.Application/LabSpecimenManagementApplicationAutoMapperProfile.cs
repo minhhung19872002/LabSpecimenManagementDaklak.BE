@@ -11,6 +11,8 @@ using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.TestResults;
+using LabSpecimenManagement.SupplementaryTasks;
+using LabSpecimenManagement.SupplementaryTasks.Dtos;
 
 namespace LabSpecimenManagement;
 
@@ -153,5 +155,9 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.Name, opt => opt.Ignore())
             .ForMember(dest => dest.TechnicalManagerName, opt => opt.Ignore());
         CreateMap<CreateUpdateLaboratoryDto, Laboratory>();
+
+        // SupplementaryTask mappings
+        CreateMap<SupplementaryTask, SupplementaryTaskDto>()
+            .ForMember(dest => dest.ImageUrls, opt => opt.Ignore());
     }
 }
