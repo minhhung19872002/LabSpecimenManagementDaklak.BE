@@ -447,4 +447,13 @@ public static class LabSpecimenManagementPermissions
         public const string Edit = Default + ".Edit";
         public const string Expire = Default + ".Expire";
     }
+
+    // Prepared Solution Permissions (Dung dịch đã pha)
+    public static class PreparedSolutions
+    {
+        public const string Default = GroupName + ".PreparedSolutions";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Process = Default + ".Process";
+    }
 }

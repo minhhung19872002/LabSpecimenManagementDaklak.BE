@@ -305,6 +305,11 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Create, L("Permission:TemporaryAccess.Create"));
         temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Edit, L("Permission:TemporaryAccess.Edit"));
         temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Expire, L("Permission:TemporaryAccess.Expire"));
+
+        var preparedSolutionsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.PreparedSolutions.Default, L("Permission:PreparedSolutions"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Create, L("Permission:PreparedSolutions.Create"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Edit, L("Permission:PreparedSolutions.Edit"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Process, L("Permission:PreparedSolutions.Process"));
     }
 
     private static LocalizableString L(string name)

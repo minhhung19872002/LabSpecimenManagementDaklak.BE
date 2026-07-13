@@ -35,6 +35,7 @@ using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.WarehouseImports;
 using LabSpecimenManagement.TemporaryAccess;
+using LabSpecimenManagement.PreparedSolutions;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -165,6 +166,8 @@ public class LabSpecimenManagementDbContext :
 
     // Temporary Access (Cấp quyền tạm thời)
     public DbSet<TemporaryAccessGrant> TemporaryAccessGrants { get; set; }
+    public DbSet<PreparedSolutionBatch> PreparedSolutionBatches { get; set; }
+    public DbSet<PreparedSolutionIngredient> PreparedSolutionIngredients { get; set; }
 
     #region Entities from the modules
 
@@ -1839,6 +1842,47 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.ExpiryDate);
             b.HasIndex(x => x.UserId);
+        });
+
+        builder.Entity<PreparedSolutionBatch>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PreparedSolutionBatches", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.SolutionProductName).IsRequired().HasMaxLength(512);
+            b.Property(x => x.IdentificationCode).HasMaxLength(256);
+            b.Property(x => x.LotCode).IsRequired().HasMaxLength(256);
+            b.Property(x => x.VolumeUnitName).HasMaxLength(64);
+            b.Property(x => x.StorageWarehouseName).HasMaxLength(256);
+            b.Property(x => x.SourceWarehouseName).HasMaxLength(256);
+            b.Property(x => x.StorageConditions).HasColumnType("text");
+            b.Property(x => x.PreparationMethod).HasColumnType("text");
+            b.Property(x => x.ProcessingNote).HasMaxLength(1000);
+            b.Property(x => x.ProcessingImages).IsRequired().HasDefaultValue("[]").HasColumnType("text");
+            b.Property(x => x.Concentration).HasMaxLength(256);
+            b.Property(x => x.PreparedByName).HasMaxLength(256);
+
+            b.HasMany(x => x.Ingredients)
+             .WithOne()
+             .HasForeignKey(i => i.PreparedSolutionBatchId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => x.IsProcessed);
+            b.HasIndex(x => x.PreparationDate);
+            b.HasIndex(x => x.ExpiryDate);
+        });
+
+        builder.Entity<PreparedSolutionIngredient>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PreparedSolutionIngredients", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(512);
+            b.Property(x => x.ProductTypeName).HasMaxLength(64);
+            b.Property(x => x.UnitName).HasMaxLength(64);
+
+            b.HasIndex(x => x.PreparedSolutionBatchId);
+            b.HasIndex(x => x.ProductId);
         });
 
     }

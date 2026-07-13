@@ -1801,6 +1801,11 @@ namespace LabSpecimenManagement.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
 
+                    b.Property<bool>("IsSystem")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -3120,13 +3125,202 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppNotifications", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionBatch", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<DateTime?>("ExpiryDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<string>("IdentificationCode")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<bool>("IsProcessed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("LotCode")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("PreparationDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("PreparationMethod")
+                        .HasColumnType("text");
+
+                    b.Property<string>("PreparedByName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<Guid?>("PreparedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ProcessedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("ProcessingImages")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("text")
+                        .HasDefaultValue("[]");
+
+                    b.Property<string>("ProcessingNote")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
+                    b.Property<decimal>("RemainingVolume")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid>("SolutionProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SolutionProductName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<Guid?>("SourceWarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceWarehouseName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("StorageConditions")
+                        .HasColumnType("text");
+
+                    b.Property<Guid?>("StorageWarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StorageWarehouseName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<decimal>("TotalVolume")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid?>("VolumeUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("VolumeUnitName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ExpiryDate");
+
+                    b.HasIndex("IsProcessed");
+
+                    b.HasIndex("PreparationDate");
+
+                    b.ToTable("AppPreparedSolutionBatches", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionIngredient", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsEquipment")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("PreparedSolutionBatchId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)");
+
+                    b.Property<int>("ProductType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ProductTypeName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal>("QuantityUsed")
+                        .HasColumnType("numeric");
+
+                    b.Property<string>("UnitName")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.Property<decimal>("WarehouseQuantitySnapshot")
+                        .HasColumnType("numeric");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PreparedSolutionBatchId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("AppPreparedSolutionIngredients", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Products.Product", b =>
                 {
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AnalysisGrade")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<decimal>("AvailableQuantity")
                         .HasColumnType("numeric");
+
+                    b.Property<Guid?>("BaseProductId")
+                        .HasColumnType("uuid");
 
                     b.Property<Guid?>("BaseUnitId")
                         .HasColumnType("uuid");
@@ -3136,6 +3330,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<string>("Categories")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CertifiedValue")
                         .HasColumnType("text");
 
                     b.Property<string>("ChemicalFormula")
@@ -3179,11 +3376,36 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
 
+                    b.Property<string>("FormattedCertifiedValue")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedChemicalFormula")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedConcentration")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedMaterialComposition")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedMeasurementUncertainty")
+                        .HasColumnType("text");
+
                     b.Property<string>("FormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedOrigin")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedPackagingSpec")
                         .HasColumnType("text");
 
                     b.Property<string>("FormattedStorageConditions")
                         .HasColumnType("text");
+
+                    b.Property<string>("GhsCode")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
 
                     b.Property<string>("IdentificationCode")
                         .HasMaxLength(256)
@@ -3201,6 +3423,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("IsDraft")
                         .HasColumnType("boolean");
 
+                    b.Property<bool?>("IsReusable")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool?>("IsSterile")
+                        .HasColumnType("boolean");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -3212,6 +3440,15 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Manufacturer")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("MaterialComposition")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("MaxReuseCount")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("MeasurementUncertainty")
+                        .HasColumnType("text");
 
                     b.Property<decimal?>("MinStockLevel")
                         .HasPrecision(18, 4)
@@ -3230,8 +3467,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("integer");
 
                     b.Property<string>("PackagingSpec")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("PackagingUnitId")
                         .HasColumnType("uuid");
@@ -3239,7 +3475,20 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("ProductType")
                         .HasColumnType("integer");
 
+                    b.Property<int?>("ShelfLifeDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("StandardCertificationType")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StandardLink")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("StorageConditions")
+                        .HasColumnType("text");
+
+                    b.Property<string>("UsagePurpose")
                         .HasColumnType("text");
 
                     b.Property<int?>("VolumePerUnit")
@@ -8267,6 +8516,15 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionIngredient", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.PreparedSolutions.PreparedSolutionBatch", null)
+                        .WithMany("Ingredients")
+                        .HasForeignKey("PreparedSolutionBatchId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Products.ProductSku", b =>
                 {
                     b.HasOne("LabSpecimenManagement.Products.Product", null)
@@ -8801,6 +9059,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("MethodChangeHistories");
 
                     b.Navigation("RejectionHistories");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionBatch", b =>
+                {
+                    b.Navigation("Ingredients");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Products.Product", b =>
