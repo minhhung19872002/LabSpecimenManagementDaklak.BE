@@ -36,12 +36,22 @@ public class LabContractSummaryDto
     public decimal TotalPrice { get; set; }
 }
 
+// Chart 3: Số hợp đồng theo chỉ tiêu / tháng
+public class IndicatorContractCountDto
+{
+    public string IndicatorName { get; set; } = string.Empty;
+    public int Month { get; set; }
+    public int Year { get; set; }
+    public int ContractCount { get; set; }
+}
+
 // Wrapper cho main API call
 public class LabReportDataDto
 {
     public List<LabDailyStatDto> DailyStats { get; set; } = new();
     public List<ContractMonthlyIndicatorDto> ContractIndicators { get; set; } = new();
     public List<LabContractSummaryDto> Contracts { get; set; } = new();
+    public List<IndicatorContractCountDto> IndicatorContractCounts { get; set; } = new();
 }
 
 // Section 3 right panel: Chi tiết hợp đồng

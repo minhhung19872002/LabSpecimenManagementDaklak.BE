@@ -4,6 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
+using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
 using Volo.Abp.Application.Services;
@@ -19,19 +20,22 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
 
     public LabReportAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
-        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository)
+        IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
+        IRepository<Indicator, Guid> indicatorRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
+        _indicatorRepository = indicatorRepository;
     }
 
     public async Task<LabReportDataDto> GetLabReportDataAsync(Guid labId, DateTime fromDate, DateTime toDate)
@@ -135,11 +139,46 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .OrderBy(x => x.ContractDate)
             .ToList();
 
+        // Build IndicatorContractCounts (Chart 3: số HĐ theo chỉ tiêu / tháng)
+        var indQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var indicatorContractQuery = from lti in ltiQuery
+                                     join lt in ltQuery on lti.LaboratoryTaskId equals lt.Id
+                                     join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+                                     join trs in trsQuery on trsi.TestRequestSampleId equals trs.Id
+                                     join tr in trQuery on trs.TestRequestId equals tr.Id
+                                     join ind in indQuery on trsi.IndicatorId equals ind.Id
+                                     where lt.LaboratoryId == labId
+                                         && tr.CreationTime >= fromDate && tr.CreationTime < toDateExclusive
+                                         && lti.ApprovalStatus != IndicatorApprovalStatus.Rejected
+                                     select new
+                                     {
+                                         IndicatorName = ind.Name,
+                                         Month = tr.CreationTime.Month,
+                                         Year = tr.CreationTime.Year,
+                                         TrId = tr.Id
+                                     };
+
+        var indicatorContractRaw = await AsyncExecuter.ToListAsync(indicatorContractQuery);
+
+        var indicatorContractCounts = indicatorContractRaw
+            .GroupBy(x => new { x.IndicatorName, x.Month, x.Year })
+            .Select(g => new IndicatorContractCountDto
+            {
+                IndicatorName = g.Key.IndicatorName,
+                Month = g.Key.Month,
+                Year = g.Key.Year,
+                ContractCount = g.Select(x => x.TrId).Distinct().Count()
+            })
+            .OrderBy(x => x.IndicatorName)
+            .ToList();
+
         return new LabReportDataDto
         {
             DailyStats = dailyStats,
             ContractIndicators = contractIndicators,
-            Contracts = contracts
+            Contracts = contracts,
+            IndicatorContractCounts = indicatorContractCounts
         };
     }
 
