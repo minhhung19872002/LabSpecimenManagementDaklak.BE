@@ -158,6 +158,7 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
 
         // SupplementaryTask mappings
         CreateMap<SupplementaryTask, SupplementaryTaskDto>()
-            .ForMember(dest => dest.ImageUrls, opt => opt.Ignore());
+            .ForMember(dest => dest.ImageUrls, opt => opt.Ignore())
+            .ForMember(dest => dest.CompletionImageUrls, opt => opt.Ignore());
     }
 }

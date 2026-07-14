@@ -14,5 +14,7 @@ public class SupplementaryTaskDto
     public SupplementaryTaskPriority Priority { get; set; }
     public SupplementaryTaskStatus Status { get; set; }
     public List<string> ImageUrls { get; set; } = new();
+    public string? CompletionNote { get; set; }
+    public List<string> CompletionImageUrls { get; set; } = new();
     public DateTime CreationTime { get; set; }
 }

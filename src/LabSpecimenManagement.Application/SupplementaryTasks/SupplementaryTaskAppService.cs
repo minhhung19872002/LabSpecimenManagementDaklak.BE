@@ -62,11 +62,13 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
         var totalCount = await AsyncExecuter.CountAsync(query);
 
-        // Sort: DueDate ASC (null last), then CreationTime DESC
-        query = query
-            .OrderBy(t => t.DueDate == null ? 1 : 0)
-            .ThenBy(t => t.DueDate)
-            .ThenByDescending(t => t.CreationTime);
+        query = input.SortField == "creationTime"
+            ? (input.SortDescending
+                ? query.OrderByDescending(t => t.CreationTime)
+                : query.OrderBy(t => t.CreationTime))
+            : (input.SortDescending
+                ? query.OrderBy(t => t.DueDate == null ? 0 : 1).ThenByDescending(t => t.DueDate).ThenByDescending(t => t.CreationTime)
+                : query.OrderBy(t => t.DueDate == null ? 1 : 0).ThenBy(t => t.DueDate).ThenByDescending(t => t.CreationTime));
 
         var tasks = await AsyncExecuter.ToListAsync(query.Skip(input.SkipCount).Take(input.MaxResultCount));
         return new PagedResultDto<SupplementaryTaskDto>(totalCount, tasks.Select(MapToDto).ToList());
@@ -96,7 +98,8 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
             throw new UserFriendlyException("Chỉ Ban giám đốc mới có thể tạo công việc bổ sung.");
 
         var assignedUser = await _identityUserRepository.GetAsync(input.AssignedToId);
-        var assignedName = assignedUser.Name ?? assignedUser.UserName;
+        var assignedName = $"{assignedUser.Surname} {assignedUser.Name}".Trim();
+        if (string.IsNullOrWhiteSpace(assignedName)) assignedName = assignedUser.UserName ?? string.Empty;
 
         var task = new SupplementaryTask(
             GuidGenerator.Create(),
@@ -140,7 +143,8 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
         {
             var newUser = await _identityUserRepository.GetAsync(input.AssignedToId);
             task.AssignedToId = input.AssignedToId;
-            task.AssignedToName = newUser.Name ?? newUser.UserName;
+            var newName = $"{newUser.Surname} {newUser.Name}".Trim();
+            task.AssignedToName = string.IsNullOrWhiteSpace(newName) ? newUser.UserName ?? string.Empty : newName;
         }
 
         // Handle status change
@@ -181,7 +185,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
             CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? ""), autoSave: true);
     }
 
-    public async Task CompleteAsync(Guid id)
+    public async Task CompleteAsync(Guid id, CompleteSupplementaryTaskDto input)
     {
         var task = await _repository.GetAsync(id);
         var isDirector = await IsDirectorAsync();
@@ -194,11 +198,15 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
         var oldStatus = task.Status;
         task.Status = SupplementaryTaskStatus.Completed;
+        task.CompletionNote = input.Note;
+        task.CompletionImageUrls = input.ImageUrls?.Count > 0
+            ? JsonSerializer.Serialize(input.ImageUrls)
+            : null;
         await _repository.UpdateAsync(task, autoSave: true);
 
         await _logRepository.InsertAsync(new SupplementaryTaskLog(
             GuidGenerator.Create(), task.Id, oldStatus, SupplementaryTaskStatus.Completed,
-            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? ""), autoSave: true);
+            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? "", input.Note), autoSave: true);
     }
 
     private SupplementaryTaskDto MapToDto(SupplementaryTask task)
@@ -206,6 +214,9 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
         var dto = ObjectMapper.Map<SupplementaryTask, SupplementaryTaskDto>(task);
         dto.ImageUrls = !string.IsNullOrEmpty(task.ImageUrls)
             ? JsonSerializer.Deserialize<List<string>>(task.ImageUrls) ?? new()
+            : new();
+        dto.CompletionImageUrls = !string.IsNullOrEmpty(task.CompletionImageUrls)
+            ? JsonSerializer.Deserialize<List<string>>(task.CompletionImageUrls) ?? new()
             : new();
         return dto;
     }

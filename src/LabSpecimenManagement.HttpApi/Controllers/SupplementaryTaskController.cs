@@ -52,8 +52,8 @@ public class SupplementaryTaskController : LabSpecimenManagementController
     }
 
     [HttpPost("{id}/complete")]
-    public virtual Task CompleteAsync(Guid id)
+    public virtual Task CompleteAsync(Guid id, [FromBody] CompleteSupplementaryTaskDto input)
     {
-        return _appService.CompleteAsync(id);
+        return _appService.CompleteAsync(id, input);
     }
 }
