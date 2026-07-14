@@ -52,6 +52,9 @@ public class LabReportDataDto
     public List<ContractMonthlyIndicatorDto> ContractIndicators { get; set; } = new();
     public List<LabContractSummaryDto> Contracts { get; set; } = new();
     public List<IndicatorContractCountDto> IndicatorContractCounts { get; set; } = new();
+    // Chart: Kết quả thử nghiệm
+    public int PassCount { get; set; }
+    public int FailCount { get; set; }
 }
 
 // Section 3 right panel: Chi tiết hợp đồng

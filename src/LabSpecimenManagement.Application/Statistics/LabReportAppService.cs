@@ -173,12 +173,30 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .OrderBy(x => x.IndicatorName)
             .ToList();
 
+        // Kết quả thử nghiệm: Đạt (Approved) / Không đạt (Rejected)
+        var testResultQuery = from lti in ltiQuery
+                              join lt in ltQuery on lti.LaboratoryTaskId equals lt.Id
+                              join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+                              join trs in trsQuery on trsi.TestRequestSampleId equals trs.Id
+                              join tr in trQuery on trs.TestRequestId equals tr.Id
+                              where lt.LaboratoryId == labId
+                                  && tr.CreationTime >= fromDate && tr.CreationTime < toDateExclusive
+                                  && (lti.ApprovalStatus == IndicatorApprovalStatus.Approved
+                                      || lti.ApprovalStatus == IndicatorApprovalStatus.Rejected)
+                              select lti.ApprovalStatus;
+
+        var testResultStatuses = await AsyncExecuter.ToListAsync(testResultQuery);
+        var passCount = testResultStatuses.Count(s => s == IndicatorApprovalStatus.Approved);
+        var failCount = testResultStatuses.Count(s => s == IndicatorApprovalStatus.Rejected);
+
         return new LabReportDataDto
         {
             DailyStats = dailyStats,
             ContractIndicators = contractIndicators,
             Contracts = contracts,
-            IndicatorContractCounts = indicatorContractCounts
+            IndicatorContractCounts = indicatorContractCounts,
+            PassCount = passCount,
+            FailCount = failCount
         };
     }
 
