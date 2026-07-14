@@ -54,6 +54,12 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? Categories { get; set; }
     public string? ChemicalFormula { get; set; }
     public decimal? MinStockLevel { get; set; }
+    public string? FormattedIdentificationCode { get; set; }
+    public string? EquipmentModel { get; set; }
+    public string? SerialNumber { get; set; }
+    public int? ManufactureYear { get; set; }
+    public string? MainTechnicalSpecs { get; set; }
+    public string? InstallationLocation { get; set; }
     public decimal AvailableQuantity { get; set; }
     public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
@@ -196,6 +202,21 @@ public class CreateUpdateProductDto
     public string? ChemicalFormula { get; set; }
 
     public decimal? MinStockLevel { get; set; }
+
+    public string? FormattedIdentificationCode { get; set; }
+
+    [StringLength(256)]
+    public string? EquipmentModel { get; set; }
+
+    [StringLength(256)]
+    public string? SerialNumber { get; set; }
+
+    public int? ManufactureYear { get; set; }
+
+    public string? MainTechnicalSpecs { get; set; }
+
+    [StringLength(256)]
+    public string? InstallationLocation { get; set; }
 
     public bool IsActive { get; set; } = true;
     public bool IsDraft { get; set; } = false;

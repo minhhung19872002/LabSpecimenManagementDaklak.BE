@@ -551,6 +551,12 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.FormattedStorageConditions);
             b.Property(x => x.ChemicalFormula).HasMaxLength(256);
             b.Property(x => x.MinStockLevel).HasPrecision(18, 4);
+            b.Property(x => x.FormattedIdentificationCode);
+            b.Property(x => x.EquipmentModel).HasMaxLength(256);
+            b.Property(x => x.SerialNumber).HasMaxLength(256);
+            b.Property(x => x.ManufactureYear);
+            b.Property(x => x.MainTechnicalSpecs);
+            b.Property(x => x.InstallationLocation).HasMaxLength(256);
 
             b.HasMany(x => x.Skus).WithOne().HasForeignKey(x => x.ProductId);
 
