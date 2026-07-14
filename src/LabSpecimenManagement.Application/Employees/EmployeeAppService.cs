@@ -63,6 +63,12 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         // Get all users first for filtering (ABP Identity doesn't support advanced filters)
         var allUsers = await _userRepository.GetListAsync();
 
+        // Exclude accounts auto-created by "Lịch trực" (TemporaryAccessGrant with External employees)
+        var externalUserIds = (await _grantRepository.GetListAsync(g => g.ExternalUserId.HasValue))
+            .Select(g => g.ExternalUserId!.Value)
+            .ToHashSet();
+        allUsers = allUsers.Where(u => !externalUserIds.Contains(u.Id)).ToList();
+
         var departments = await _departmentRepository.GetListAsync();
         var departmentDict = departments.ToDictionary(d => d.Id, d => d.Name);
 
