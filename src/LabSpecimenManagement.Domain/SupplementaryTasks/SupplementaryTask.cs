@@ -13,6 +13,8 @@ public class SupplementaryTask : FullAuditedAggregateRoot<Guid>
     public SupplementaryTaskPriority Priority { get; set; }
     public SupplementaryTaskStatus Status { get; set; }
     public string? ImageUrls { get; set; }
+    public string? CompletionNote { get; set; }
+    public string? CompletionImageUrls { get; set; }
 
     protected SupplementaryTask() { }
 

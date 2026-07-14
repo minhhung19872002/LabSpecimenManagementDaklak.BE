@@ -10,4 +10,6 @@ public class GetSupplementaryTaskListInput
     public Guid? AssignedToId { get; set; }
     public int SkipCount { get; set; } = 0;
     public int MaxResultCount { get; set; } = 50;
+    public string? SortField { get; set; }
+    public bool SortDescending { get; set; } = false;
 }

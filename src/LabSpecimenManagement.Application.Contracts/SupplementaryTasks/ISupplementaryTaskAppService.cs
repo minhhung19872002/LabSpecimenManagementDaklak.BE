@@ -13,5 +13,5 @@ public interface ISupplementaryTaskAppService : IApplicationService
     Task<SupplementaryTaskDto> CreateAsync(CreateSupplementaryTaskDto input);
     Task<SupplementaryTaskDto> UpdateAsync(Guid id, UpdateSupplementaryTaskDto input);
     Task CancelAsync(Guid id);
-    Task CompleteAsync(Guid id);
+    Task CompleteAsync(Guid id, CompleteSupplementaryTaskDto input);
 }
