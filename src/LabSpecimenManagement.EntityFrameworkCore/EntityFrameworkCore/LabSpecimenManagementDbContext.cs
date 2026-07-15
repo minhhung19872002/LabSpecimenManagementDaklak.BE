@@ -704,6 +704,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.DeliveryDocumentFileId).HasMaxLength(50);
             b.Property(x => x.DeliveryDocumentFileName).HasMaxLength(500);
             b.Property(x => x.DeliveryDocumentFilePath).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFiles).HasColumnType("text");
             b.Property(x => x.Notes).HasMaxLength(2000);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");

@@ -192,7 +192,15 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<WarehouseImportReceipt, WarehouseImportReceiptDto>()
             .ForMember(dest => dest.Items, opt => opt.Ignore())
             .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
-            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore());
+            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore())
+            .ForMember(dest => dest.DeliveryDocumentFiles, opt => opt.MapFrom((src, dest) =>
+            {
+                if (!string.IsNullOrEmpty(src.DeliveryDocumentFiles))
+                    return System.Text.Json.JsonSerializer.Deserialize<List<DeliveryDocumentFileDto>>(src.DeliveryDocumentFiles) ?? new List<DeliveryDocumentFileDto>();
+                if (!string.IsNullOrEmpty(src.DeliveryDocumentFileId))
+                    return new List<DeliveryDocumentFileDto> { new DeliveryDocumentFileDto { FileId = src.DeliveryDocumentFileId, FileName = src.DeliveryDocumentFileName ?? "", FileSize = src.DeliveryDocumentFileSize } };
+                return new List<DeliveryDocumentFileDto>();
+            }));
         CreateMap<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>();
 
         // Indicator mappings

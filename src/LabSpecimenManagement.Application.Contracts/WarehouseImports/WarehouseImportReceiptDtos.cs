@@ -5,6 +5,13 @@ using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.WarehouseImports;
 
+public class DeliveryDocumentFileDto
+{
+    public string FileId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long? FileSize { get; set; }
+}
+
 public class WarehouseImportReceiptListDto : EntityDto<Guid>
 {
     public string Code { get; set; }
@@ -57,6 +64,7 @@ public class WarehouseImportReceiptDto : EntityDto<Guid>
     public string? DeliveryDocumentFileName { get; set; }
     public string? DeliveryDocumentFilePath { get; set; }
     public long? DeliveryDocumentFileSize { get; set; }
+    public List<DeliveryDocumentFileDto> DeliveryDocumentFiles { get; set; } = new();
     public string? Notes { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
     public bool HasDefectiveItem { get; set; }
@@ -103,19 +111,10 @@ public class CreateUpdateWarehouseImportReceiptDto
 
     public Guid? WarehouseId { get; set; }
 
-    [StringLength(50)]
-    public string? DeliveryDocumentFileId { get; set; }
-
-    [StringLength(500)]
-    public string? DeliveryDocumentFileName { get; set; }
-
-    [StringLength(500)]
-    public string? DeliveryDocumentFilePath { get; set; }
-
-    public long? DeliveryDocumentFileSize { get; set; }
-
     [StringLength(2000)]
     public string? Notes { get; set; }
+
+    public List<DeliveryDocumentFileDto> DeliveryDocumentFiles { get; set; } = new();
 
     public List<CreateUpdateWarehouseImportReceiptItemDto> Items { get; set; } = new();
 }

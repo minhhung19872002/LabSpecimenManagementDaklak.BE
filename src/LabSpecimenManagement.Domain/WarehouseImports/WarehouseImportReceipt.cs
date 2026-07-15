@@ -18,6 +18,8 @@ public class WarehouseImportReceipt : FullAuditedAggregateRoot<Guid>
     public string? DeliveryDocumentFileName { get; set; }
     public string? DeliveryDocumentFilePath { get; set; }
     public long? DeliveryDocumentFileSize { get; set; }
+    // JSON array of DeliveryDocumentFileDto (max 5 files)
+    public string? DeliveryDocumentFiles { get; set; }
     public string? Notes { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
 

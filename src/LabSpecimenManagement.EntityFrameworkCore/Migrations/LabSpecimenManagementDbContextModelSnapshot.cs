@@ -6625,6 +6625,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<long?>("DeliveryDocumentFileSize")
                         .HasColumnType("bigint");
 
+                    b.Property<string>("DeliveryDocumentFiles")
+                        .HasColumnType("text");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")

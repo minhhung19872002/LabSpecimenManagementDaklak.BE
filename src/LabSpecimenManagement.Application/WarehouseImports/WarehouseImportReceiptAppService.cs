@@ -404,10 +404,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         receipt.WarehouseKeeperId = input.WarehouseKeeperId;
         receipt.WarehouseKeeperName = input.WarehouseKeeperName;
         receipt.WarehouseId = input.WarehouseId;
-        receipt.DeliveryDocumentFileId = input.DeliveryDocumentFileId;
-        receipt.DeliveryDocumentFileName = input.DeliveryDocumentFileName;
-        receipt.DeliveryDocumentFilePath = input.DeliveryDocumentFilePath;
-        receipt.DeliveryDocumentFileSize = input.DeliveryDocumentFileSize;
+        receipt.DeliveryDocumentFiles = input.DeliveryDocumentFiles.Count > 0
+            ? System.Text.Json.JsonSerializer.Serialize(input.DeliveryDocumentFiles)
+            : null;
         receipt.Notes = input.Notes;
 
         if (input.WarehouseId.HasValue)
