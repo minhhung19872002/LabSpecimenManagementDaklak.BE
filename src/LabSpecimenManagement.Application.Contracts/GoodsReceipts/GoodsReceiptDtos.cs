@@ -105,6 +105,14 @@ public class GoodsReceiptPaymentDto : EntityDto<Guid>
     public string? RepresentativeName { get; set; }
     public string? Notes { get; set; }
     public DateTime CreationTime { get; set; }
+    public List<InvoiceFileInfoDto> InvoiceFiles { get; set; } = new();
+}
+
+public class InvoiceFileInfoDto
+{
+    public string FileId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long? FileSize { get; set; }
 }
 
 public class CreateUpdateGoodsReceiptDto
@@ -240,4 +248,6 @@ public class CreateGoodsReceiptPaymentDto
 
     [StringLength(1000)]
     public string? Notes { get; set; }
+
+    public List<InvoiceFileInfoDto> InvoiceFiles { get; set; } = new();
 }

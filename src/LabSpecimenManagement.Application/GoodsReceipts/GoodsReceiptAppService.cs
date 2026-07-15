@@ -560,14 +560,18 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         var remaining = receipt.TotalAmountAfterVat - receipt.TotalPaid;
 
-        if (input.Amount <= 0)
+        if (receipt.TotalAmountAfterVat > 0 && input.Amount <= 0)
             throw new UserFriendlyException("Số tiền thanh toán phải lớn hơn 0.");
 
-        if (input.Amount > remaining)
+        if (receipt.TotalAmountAfterVat > 0 && input.Amount > remaining)
             throw new UserFriendlyException("Số tiền thanh toán không được lớn hơn số tiền còn lại.");
 
         var paymentsQuery = await _paymentRepository.GetQueryableAsync();
         var paymentCount = paymentsQuery.Count(x => x.GoodsReceiptId == id);
+
+        var invoiceFileIdsJson = input.InvoiceFiles.Count > 0
+            ? System.Text.Json.JsonSerializer.Serialize(input.InvoiceFiles)
+            : null;
 
         var payment = new GoodsReceiptPayment(
             GuidGenerator.Create(),
@@ -579,7 +583,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             input.PaymentDate,
             input.Phone,
             input.RepresentativeName,
-            input.Notes);
+            input.Notes,
+            invoiceFileIdsJson);
 
         await _paymentRepository.InsertAsync(payment, autoSave: true);
 

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AutoMapper;
 using LabSpecimenManagement.Files;
 using LabSpecimenManagement.MasterData;
@@ -178,7 +179,11 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
             .ForMember(dest => dest.PurchaserFullName, opt => opt.Ignore());
         CreateMap<GoodsReceiptItem, GoodsReceiptItemDto>();
-        CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>();
+        CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>()
+            .ForMember(dest => dest.InvoiceFiles, opt => opt.MapFrom((src, dest) =>
+                string.IsNullOrEmpty(src.InvoiceFileIds)
+                    ? new List<InvoiceFileInfoDto>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<InvoiceFileInfoDto>>(src.InvoiceFileIds) ?? new List<InvoiceFileInfoDto>()));
 
         // WarehouseImportReceipt mappings
         CreateMap<WarehouseImportReceipt, WarehouseImportReceiptListDto>()

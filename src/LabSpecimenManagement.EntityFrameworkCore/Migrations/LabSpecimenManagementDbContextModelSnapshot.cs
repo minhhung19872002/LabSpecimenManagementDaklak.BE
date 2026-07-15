@@ -675,6 +675,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("GoodsReceiptId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("InvoiceFileIds")
+                        .HasColumnType("text");
+
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
@@ -3130,6 +3133,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Concentration")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
                         .IsRequired()
@@ -3371,6 +3378,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<string>("EquipmentModel")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")
@@ -3383,6 +3394,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text");
 
                     b.Property<string>("FormattedConcentration")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FormattedIdentificationCode")
                         .HasColumnType("text");
 
                     b.Property<string>("FormattedMaterialComposition")
@@ -3411,6 +3425,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("InstallationLocation")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean");
 
@@ -3436,6 +3454,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("LastModifierId")
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
+
+                    b.Property<string>("MainTechnicalSpecs")
+                        .HasColumnType("text");
+
+                    b.Property<int?>("ManufactureYear")
+                        .HasColumnType("integer");
 
                     b.Property<string>("Manufacturer")
                         .HasMaxLength(256)
@@ -3474,6 +3498,10 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<int>("ProductType")
                         .HasColumnType("integer");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<int?>("ShelfLifeDays")
                         .HasColumnType("integer");
@@ -4758,6 +4786,12 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("CompletionImageUrls")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CompletionNote")
+                        .HasColumnType("text");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
