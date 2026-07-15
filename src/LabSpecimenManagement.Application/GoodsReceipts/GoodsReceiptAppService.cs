@@ -884,10 +884,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             // Resolve supplier for equipment items
             Guid? resolvedItemSupplierId = null;
             string? resolvedItemSupplierName = null;
-            if (itemDto.IsEquipment)
+            if (itemDto.IsEquipment && itemDto.SupplierId.HasValue)
             {
-                if (!itemDto.SupplierId.HasValue)
-                    throw new UserFriendlyException("Thiết bị phải có nhà cung cấp.");
                 var itemSupplier = await _supplierRepository.GetAsync(itemDto.SupplierId.Value);
                 resolvedItemSupplierId = itemSupplier.Id;
                 resolvedItemSupplierName = itemSupplier.Name;
