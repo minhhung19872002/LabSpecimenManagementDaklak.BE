@@ -22,6 +22,9 @@ public class WarehouseImportReceipt : FullAuditedAggregateRoot<Guid>
     public string? DeliveryDocumentFiles { get; set; }
     public string? Notes { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
+    public Guid? SupplierId { get; set; }
+    public string? SupplierName { get; set; }
+    public decimal? TotalAmount { get; set; }
 
     public ICollection<WarehouseImportReceiptItem> Items { get; set; }
 

@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.GoodsReceipts;
+using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
@@ -27,6 +28,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -40,6 +42,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         IRepository<Product, Guid> productRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<Supplier, Guid> supplierRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider,
@@ -52,6 +55,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         _productRepository = productRepository;
         _warehouseRepository = warehouseRepository;
         _unitRepository = unitRepository;
+        _supplierRepository = supplierRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -278,6 +282,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         {
             Id = x.Id,
             Code = x.Code,
+            SupplierId = x.SupplierId,
             SupplierName = x.SupplierName,
             ExpectedDeliveryDate = x.ExpectedDeliveryDate
         }).ToList();
@@ -408,12 +413,57 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             ? System.Text.Json.JsonSerializer.Serialize(input.DeliveryDocumentFiles)
             : null;
         receipt.Notes = input.Notes;
+        receipt.TotalAmount = input.TotalAmount;
+        await ResolveAndApplySupplierAsync(receipt, input.SupplierId, input.SupplierName);
 
         if (input.WarehouseId.HasValue)
         {
             var warehouse = await _warehouseRepository.FindAsync(input.WarehouseId.Value);
             receipt.WarehouseName = warehouse?.Name;
         }
+    }
+
+    private async Task ResolveAndApplySupplierAsync(WarehouseImportReceipt receipt, Guid? inputSupplierId, string? inputSupplierName)
+    {
+        if (string.IsNullOrWhiteSpace(inputSupplierName))
+        {
+            receipt.SupplierId = null;
+            receipt.SupplierName = null;
+            return;
+        }
+
+        var supplierQuery = await _supplierRepository.GetQueryableAsync();
+
+        // 1. Try by provided ID
+        if (inputSupplierId.HasValue)
+        {
+            var byId = supplierQuery.FirstOrDefault(x => x.Id == inputSupplierId.Value);
+            if (byId != null)
+            {
+                receipt.SupplierId = byId.Id;
+                receipt.SupplierName = byId.Name;
+                return;
+            }
+        }
+
+        // 2. Try by name (case-insensitive)
+        var name = inputSupplierName.Trim();
+        var byName = supplierQuery.FirstOrDefault(x => x.Name.ToLower() == name.ToLower());
+        if (byName != null)
+        {
+            receipt.SupplierId = byName.Id;
+            receipt.SupplierName = byName.Name;
+            return;
+        }
+
+        // 3. Create new supplier
+        var todayPrefix = _codeGenerator.GetTodayPrefix("SUP");
+        var count = supplierQuery.Count(x => x.Code.StartsWith(todayPrefix));
+        var code = _codeGenerator.GenerateCodeWithDate("SUP", count);
+        var newSupplier = new Supplier(GuidGenerator.Create(), code, name) { IsActive = true };
+        await _supplierRepository.InsertAsync(newSupplier, autoSave: true);
+        receipt.SupplierId = newSupplier.Id;
+        receipt.SupplierName = newSupplier.Name;
     }
 
     private async Task ReplaceItemsAsync(WarehouseImportReceipt receipt, List<CreateUpdateWarehouseImportReceiptItemDto> inputItems)
@@ -569,9 +619,11 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var goodsReceipt = await _goodsReceiptRepository.FindAsync(receipt.GoodsReceiptId);
         if (goodsReceipt != null)
         {
-            dto.SupplierName = goodsReceipt.SupplierName;
+            dto.SupplierName = receipt.SupplierName ?? goodsReceipt.SupplierName;
             dto.ContactPersonName = goodsReceipt.SupplierRepresentativeName;
         }
+        dto.SupplierId = receipt.SupplierId;
+        dto.TotalAmount = receipt.TotalAmount;
 
         return dto;
     }

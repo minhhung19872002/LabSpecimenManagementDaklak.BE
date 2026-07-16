@@ -68,8 +68,10 @@ public class WarehouseImportReceiptDto : EntityDto<Guid>
     public string? Notes { get; set; }
     public WarehouseImportReceiptStatus Status { get; set; }
     public bool HasDefectiveItem { get; set; }
+    public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public string? ContactPersonName { get; set; }
+    public decimal? TotalAmount { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
 
@@ -114,6 +116,13 @@ public class CreateUpdateWarehouseImportReceiptDto
     [StringLength(2000)]
     public string? Notes { get; set; }
 
+    public Guid? SupplierId { get; set; }
+
+    [StringLength(500)]
+    public string? SupplierName { get; set; }
+
+    public decimal? TotalAmount { get; set; }
+
     public List<DeliveryDocumentFileDto> DeliveryDocumentFiles { get; set; } = new();
 
     public List<CreateUpdateWarehouseImportReceiptItemDto> Items { get; set; } = new();
@@ -155,6 +164,7 @@ public class EligibleGoodsReceiptForImportDto
 {
     public Guid Id { get; set; }
     public string Code { get; set; }
+    public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
 }
