@@ -119,6 +119,11 @@ public class TestingSampleDto
     public string? SampleName { get; set; }
 
     /// <summary>
+    /// Lượng mẫu gửi - Sample Quantity
+    /// </summary>
+    public string? SampleQuantity { get; set; }
+
+    /// <summary>
     /// Tình trạng mẫu - Status Text
     /// </summary>
     public string? StatusText { get; set; }

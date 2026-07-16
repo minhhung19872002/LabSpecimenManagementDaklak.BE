@@ -4774,6 +4774,7 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppSubcontractorCertifications", (string)null);
                 });
 
+
             modelBuilder.Entity("LabSpecimenManagement.SupplementaryTasks.SupplementaryTask", b =>
                 {
                     b.Property<Guid>("Id")
