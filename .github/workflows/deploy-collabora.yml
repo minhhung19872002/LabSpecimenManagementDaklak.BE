@@ -1,13 +1,6 @@
 name: Deploy Collabora to AKS
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - 'Dockerfile.Collabora'
-      - 'fonts/**'
-      - 'collabora-config/**'
   workflow_dispatch:
 
 env:
