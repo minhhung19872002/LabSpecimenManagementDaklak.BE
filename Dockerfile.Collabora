@@ -2,11 +2,8 @@ FROM collabora/code:23.05.9.4.1
 
 USER root
 
-# Copy custom fonts (Times New Roman, etc.) into the container
-COPY fonts/ /usr/share/fonts/truetype/custom/
-
-# Set correct permissions and rebuild font cache
-RUN chmod 644 /usr/share/fonts/truetype/custom/*.ttf 2>/dev/null || true \
-    && fc-cache -f -v
+# Copy Times New Roman directly into LibreOffice font directory (no fc-cache needed)
+COPY fonts/ /opt/collaboraoffice/share/fonts/truetype/
+RUN chmod 644 /opt/collaboraoffice/share/fonts/truetype/*.ttf 2>/dev/null || true
 
 USER cool
