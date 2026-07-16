@@ -2,6 +2,36 @@
 
 Trạng thái deployment tại thời điểm 2026-04-21. Đọc file này để biết app đang host ở đâu và còn gì chưa làm.
 
+---
+
+## 🔵 OFFLINE-FIRST — In phiếu offline (cập nhật 2026-06-24) — ĐANG LÀM, MAI TIẾP
+
+Mục tiêu: KTV in phiếu (Yêu cầu + Kết quả) khi MẤT MẠNG. Thay Collabora (server, không offline được) bằng editor client-side **eigenpal** (Apache-2.0). Tất cả ở **FE, nhánh `develop`** (đã push origin/develop, UAT auto-deploy). `main` KHÔNG đụng.
+
+### Đã làm (FE develop, commit d24f57d → 53aa342)
+- **Engine fill client-side**: `src/services/offline/` — `htmlToOoxml.ts` (HTML→OOXML: đậm/nghiêng/sub-sup/xuống dòng), `docxFill.ts` (docxtemplater: loop `{{#rows}}` + raw-xml `{{@field}}`), `resultFormBuilder.ts` (bảng kết quả cha/con), `resultTemplatePrep.ts` / `requestTemplatePrep.ts` (transform template→loop), `requestFormBuilder.ts` (bảng mẫu PHẲNG cho phiếu yêu cầu), `offlineResultService.ts` (cache approved indicators theo testRequestId + generateResultDraft), `connectivity.ts` (isServerReachable — ping api-uat).
+- **Editor offline**: `src/components/OfflineDocxEditor/` (eigenpal). `DocumentEditor` thêm mode `?offlineDraft=<id>` (load từ IndexedDB `resultDrafts` store, db v5) + nút Lưu nháp / Tải xuống .docx.
+- **Phát hiện offline tin cậy**: `navigator.onLine` KHÔNG đáng tin (Docker/VPN adapter, wifi-no-internet → true). `isServerReachable()` ping `${API}/health` cross-origin mode:'no-cors' (SW không cache cross-origin). Dùng ở handlePrintTestRequest + PrintIndicatorModal.
+- **Auto-cache**: `useTestRequestList` khi online tự cache approved indicators các phiếu in-được (khỏi phải mở từng phiếu trước khi offline).
+- **In phiếu KẾT QUẢ offline**: PrintIndicatorModal (nút "In KQ"/"In KQ Hỗn hợp") → offline → generateResultDraft → editor offline. Builder đầy đủ (cha/con/sub-sup), data từ getApprovedIndicators (QualityManagementIndicatorDto).
+- **In phiếu YÊU CẦU offline**: TestRequestDetail "In phiếu TN" → offline → bảng mẫu PHẲNG (mỗi mẫu 1 dòng, chỉ tiêu+đơn giá dạng text) → editor offline. (Bảng nested gốc + split-run quá fragile nên dùng phẳng.)
+
+### Đã FIX hạ tầng UAT (in ONLINE)
+- BE UAT chạy `ASPNETCORE_ENVIRONMENT=Production` → đọc appsettings.Production → Collabora `collabora.tihelab.vn` (CSP `frame-ancestors` chặn subdomain `uat.tihelab.vn`) → editor trắng. **FIX**: thêm env backend trong `/home/ubuntu/starlab/docker-compose.yml` trên VM: `Collabora__ServerUrl=https://collabora-uat.tihelab.vn` + `Collabora__WopiBaseUrl=https://api-uat.tihelab.vn` → recreate backend. (collabora-uat frame-ancestors=* → cho uat nhúng.) Backup: `docker-compose.yml.bak-20260624-133730`. Đã đồng bộ vào `.deploy-uat/docker-compose.yml`. ⚠️ compose trên VM KHÔNG nằm trong CI/CD (gh-deploy chỉ reset source + rebuild) nên env này bền qua deploy code, nhưng nếu overwrite compose phải thêm lại.
+
+### Đã verify
+- In ONLINE UAT: OK (user xác nhận). File .docx offline mở Word: watermark/layout ĐÚNG.
+- Engine fill + builder + transform: verify e2e bằng POC node tại `C:/Source/StarLab/poc-fill-offline/` (template BM01 kết quả + BM05 yêu cầu thật) — bảng/sub-sup/viền nét đứt giữ, không undefined.
+
+### TODO — mai làm tiếp
+- **User test lại OFFLINE trên UAT** sau bundle 53aa342 (nhớ update Service Worker: đóng hết tab/Update mới lấy bundle mới): In phiếu TN + In KQ offline → ra data đúng không.
+- Phiếu KẾT QUẢ offline: cột "Phương pháp" hiện trống ({{TestMethod}} chưa map); header tối thiểu; offline mỗi chỉ tiêu 1 dòng (QualityManagementIndicatorDto thiếu parentIndicatorId → chưa gộp cha/con).
+- Cân nhắc tối ưu auto-cache (đang gọi getApprovedIndicators cho từng phiếu in-được khi xem danh sách — có thể nặng nếu danh sách lớn; cân nhắc BE batch endpoint).
+- Sau khi UAT OK → bàn merge develop→main (deploy prod Azure). Lưu ý prod Azure dùng appsettings.Production (collabora.tihelab.vn) — KHÔNG đụng (env override chỉ ở VM UAT).
+- Chi tiết đầy đủ: memory `~/.claude/projects/C--Source-StarLab/memory/offline-docx-editor-decision.md`.
+
+---
+
 ## Deployed Environment: Google Cloud VM
 
 **Project ID**: `project-2dda251d-635d-4007-90c` (tên: StarLabUAT)
@@ -110,7 +140,7 @@ Local backup: `C:/Source/StarLab/.deploy-uat/gh-deploy.sh`.
   - Xóa các `ports:` mapping của FE/BE/Collabora trong `docker-compose.yml` (giữ nội bộ qua Caddy)
   - Xóa tcp:5002/8080/8089 khỏi firewall rule `starlab-allow-http-https` (chỉ giữ 80/443)
   - Xóa origin `http://136.110.9.243:*` khỏi `App__CorsOrigins`/`App__RedirectAllowedUrls`
-- **Collabora trong ABP**: nếu BE có config hardcode Collabora URL (endpoint WOPI discovery) thì phải check đã đổi sang `https://collabora-uat.tihelab.vn` chưa. Chưa verify lần deploy này — nếu editor document không load, grep source BE cho `8089` hoặc `collabora`.
+- ~~**Collabora trong ABP**: check Collabora URL đã đổi sang `https://collabora-uat.tihelab.vn` chưa.~~ ✅ **ĐÃ FIX 2026-06-24** — xem section "OFFLINE-FIRST" ở đầu file (thêm env `Collabora__ServerUrl`/`Collabora__WopiBaseUrl` vào backend trong docker-compose VM). In online UAT đã chạy.
 
 ## DONE — các mốc đã hoàn thành
 

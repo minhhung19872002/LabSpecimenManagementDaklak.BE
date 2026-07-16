@@ -148,6 +148,10 @@ services:
             - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
             # Gotenberg PDF Service
             - Gotenberg__Url=http://lab-specimen-gotenberg:3000
+            # Collabora (UAT): trỏ về Collabora trên chính VM (frame-ancestors=*),
+            # KHÔNG dùng collabora.tihelab.vn của prod (CSP chặn subdomain uat).
+            - Collabora__ServerUrl=https://collabora-uat.tihelab.vn
+            - Collabora__WopiBaseUrl=https://api-uat.tihelab.vn
         ports:
             - "5002:5002"
         volumes:
