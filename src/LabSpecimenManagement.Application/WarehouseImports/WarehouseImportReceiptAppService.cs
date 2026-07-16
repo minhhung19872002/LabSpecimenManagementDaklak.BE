@@ -33,6 +33,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IUnitConversionResolver _unitConversionResolver;
+    private readonly IRepository<ProductSku, Guid> _productSkuRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
 
     public WarehouseImportReceiptAppService(
         IRepository<WarehouseImportReceipt, Guid> receiptRepository,
@@ -46,7 +48,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider,
-        IUnitConversionResolver unitConversionResolver)
+        IUnitConversionResolver unitConversionResolver,
+        IRepository<ProductSku, Guid> productSkuRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository)
     {
         _receiptRepository = receiptRepository;
         _itemRepository = itemRepository;
@@ -60,6 +64,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
         _unitConversionResolver = unitConversionResolver;
+        _productSkuRepository = productSkuRepository;
+        _manufacturerRepository = manufacturerRepository;
     }
 
     private static readonly GoodsReceiptOrderStatus[] EligibleOrderStatuses =
@@ -241,7 +247,16 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         foreach (var item in receipt.Items.Where(x => x.Status == WarehouseImportLineStatus.Checked))
         {
             var product = await _productRepository.GetAsync(item.ProductId);
-            var baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(product, item.UnitId, item.ActualReceivedQuantity, item.ProductName);
+            decimal baseQty;
+            if (item.SkuId.HasValue)
+            {
+                var sku = await _productSkuRepository.GetAsync(item.SkuId.Value);
+                baseQty = ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+            }
+            else
+            {
+                baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(product, item.UnitId, item.ActualReceivedQuantity, item.ProductName);
+            }
             product.AvailableQuantity += baseQty;
             await _productRepository.UpdateAsync(product, autoSave: true);
         }
@@ -336,12 +351,51 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             };
 
             var product = await _productRepository.FindAsync(line.ProductId.Value);
-            if (product != null && product.BaseUnitId.HasValue && product.BaseUnitId != line.UnitId)
+            if (product != null)
             {
-                var baseUnit = await _unitRepository.FindAsync(product.BaseUnitId.Value);
-                dto.BaseUnitName = baseUnit?.Name;
-                dto.BaseOrderedQuantity = await _unitConversionResolver.ResolveBaseQuantityAsync(
-                    product, line.UnitId, line.Quantity, line.ProductName);
+                if (product.BaseUnitId.HasValue && product.BaseUnitId != line.UnitId)
+                {
+                    var baseUnit = await _unitRepository.FindAsync(product.BaseUnitId.Value);
+                    dto.BaseUnitName = baseUnit?.Name;
+                    dto.BaseOrderedQuantity = await _unitConversionResolver.ResolveBaseQuantityAsync(
+                        product, line.UnitId, line.Quantity, line.ProductName);
+                }
+
+                // Populate product info
+                dto.CASNumber = product.CASNumber;
+                dto.PackagingSpec = product.FormattedConcentration ?? product.Concentration;
+
+                var skus = (await _productSkuRepository.GetQueryableAsync())
+                    .Where(s => s.ProductId == product.Id)
+                    .ToList();
+
+                if (skus.Any())
+                {
+                    var manufacturerIds = skus.Select(s => s.ManufacturerId).Distinct().ToList();
+                    var unitIds = skus
+                        .SelectMany(s => new[] { s.BaseUnitId, s.PackagingUnitId, s.VolumeUnitId })
+                        .Where(u => u.HasValue).Select(u => u!.Value).Distinct().ToList();
+
+                    var manufacturers = (await _manufacturerRepository.GetQueryableAsync())
+                        .Where(m => manufacturerIds.Contains(m.Id)).ToList();
+                    var units = (await _unitRepository.GetQueryableAsync())
+                        .Where(u => unitIds.Contains(u.Id)).ToList();
+
+                    dto.Skus = skus.Select(s => new ProductSkuForImportDto
+                    {
+                        SkuId = s.Id,
+                        ManufacturerId = s.ManufacturerId,
+                        ManufacturerName = manufacturers.FirstOrDefault(m => m.Id == s.ManufacturerId)?.Name ?? "",
+                        PurchaseUnitId = s.BaseUnitId,
+                        PurchaseUnitName = s.BaseUnitId.HasValue ? units.FirstOrDefault(u => u.Id == s.BaseUnitId.Value)?.Name : null,
+                        PackagingQuantity = s.PackagingQuantity,
+                        StorageUnitId = s.PackagingUnitId,
+                        StorageUnitName = s.PackagingUnitId.HasValue ? units.FirstOrDefault(u => u.Id == s.PackagingUnitId.Value)?.Name : null,
+                        VolumePerUnit = s.VolumePerUnit,
+                        ConsumableUnitId = s.VolumeUnitId,
+                        ConsumableUnitName = s.VolumeUnitId.HasValue ? units.FirstOrDefault(u => u.Id == s.VolumeUnitId.Value)?.Name : null,
+                    }).ToList();
+                }
             }
 
             result.Add(dto);
@@ -495,8 +549,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 poLine.Quantity)
             {
                 ActualReceivedQuantity = input.ActualReceivedQuantity,
-                UnitId = poLine.UnitId,
-                UnitName = poLine.UnitName,
+                UnitId = input.SkuId.HasValue && input.SelectedUnitId.HasValue ? input.SelectedUnitId : poLine.UnitId,
+                UnitName = input.SkuId.HasValue && input.SelectedUnitId.HasValue ? input.SelectedUnitName : poLine.UnitName,
                 LotNumber = input.LotNumber,
                 LotExpiryDate = input.LotExpiryDate,
                 Status = input.Status,
@@ -504,7 +558,10 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 QualityDocumentFileName = input.QualityDocumentFileName,
                 QualityDocumentFilePath = input.QualityDocumentFilePath,
                 QualityDocumentFileSize = input.QualityDocumentFileSize,
-                Notes = input.Notes
+                Notes = input.Notes,
+                SkuId = input.SkuId,
+                StorageWarehouseId = input.StorageWarehouseId,
+                StorageWarehouseName = input.StorageWarehouseName
             };
 
             await _itemRepository.InsertAsync(item, autoSave: true);
@@ -640,5 +697,29 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             var count = query.Count(x => x.Code.StartsWith(todayPrefix));
             return _codeGenerator.GenerateCodeWithDate(prefix, count, dateFormat, sequencePadding);
         }
+    }
+
+    private static decimal ResolveSkuQuantity(ProductSku sku, Guid? selectedUnitId, decimal quantity)
+    {
+        // Storage unit (PackagingUnitId) → as-is
+        if (selectedUnitId == sku.PackagingUnitId || sku.PackagingUnitId == null)
+            return quantity;
+
+        // Purchase unit (BaseUnitId) → multiply by PackagingQuantity
+        if (selectedUnitId == sku.BaseUnitId)
+        {
+            if (sku.BaseUnitId == sku.PackagingUnitId)
+                return quantity;
+            return quantity * (sku.PackagingQuantity ?? 1);
+        }
+
+        // Consumable unit (VolumeUnitId) → divide by VolumePerUnit, round up 2dp
+        if (selectedUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0)
+        {
+            var ratio = quantity / sku.VolumePerUnit.Value;
+            return Math.Round(Math.Ceiling(ratio * 100m) / 100m, 2);
+        }
+
+        return quantity;
     }
 }

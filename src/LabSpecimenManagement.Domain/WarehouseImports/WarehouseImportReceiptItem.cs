@@ -21,6 +21,9 @@ public class WarehouseImportReceiptItem : Entity<Guid>
     public string? QualityDocumentFilePath { get; set; }
     public long? QualityDocumentFileSize { get; set; }
     public string? Notes { get; set; }
+    public Guid? SkuId { get; set; }
+    public Guid? StorageWarehouseId { get; set; }
+    public string? StorageWarehouseName { get; set; }
 
     protected WarehouseImportReceiptItem()
     {

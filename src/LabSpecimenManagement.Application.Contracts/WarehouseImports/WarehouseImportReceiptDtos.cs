@@ -96,6 +96,9 @@ public class WarehouseImportReceiptItemDto : EntityDto<Guid>
     public string? QualityDocumentFilePath { get; set; }
     public long? QualityDocumentFileSize { get; set; }
     public string? Notes { get; set; }
+    public Guid? SkuId { get; set; }
+    public Guid? StorageWarehouseId { get; set; }
+    public string? StorageWarehouseName { get; set; }
 }
 
 public class CreateUpdateWarehouseImportReceiptDto
@@ -158,6 +161,31 @@ public class CreateUpdateWarehouseImportReceiptItemDto
 
     [StringLength(1000)]
     public string? Notes { get; set; }
+    public Guid? SkuId { get; set; }
+    public Guid? SelectedUnitId { get; set; }
+    [StringLength(100)]
+    public string? SelectedUnitName { get; set; }
+    public Guid? StorageWarehouseId { get; set; }
+    [StringLength(500)]
+    public string? StorageWarehouseName { get; set; }
+}
+
+public class ProductSkuForImportDto
+{
+    public Guid SkuId { get; set; }
+    public Guid ManufacturerId { get; set; }
+    public string ManufacturerName { get; set; } = string.Empty;
+    /// <summary>SKU.BaseUnitId = Đơn vị mua hàng</summary>
+    public Guid? PurchaseUnitId { get; set; }
+    public string? PurchaseUnitName { get; set; }
+    public int? PackagingQuantity { get; set; }
+    /// <summary>SKU.PackagingUnitId = Đơn vị lưu kho</summary>
+    public Guid? StorageUnitId { get; set; }
+    public string? StorageUnitName { get; set; }
+    public int? VolumePerUnit { get; set; }
+    /// <summary>SKU.VolumeUnitId = Đơn vị tiêu hao</summary>
+    public Guid? ConsumableUnitId { get; set; }
+    public string? ConsumableUnitName { get; set; }
 }
 
 public class EligibleGoodsReceiptForImportDto
@@ -184,6 +212,9 @@ public class GoodsReceiptItemForImportDto
     public decimal? BaseOrderedQuantity { get; set; }
     /// <summary>Các dòng đã nhập ở những phiếu nhập kho Hoàn thành trước đó, hiển thị read-only.</summary>
     public List<PreviousReceivedLotDto> PreviousLots { get; set; } = new();
+    public List<ProductSkuForImportDto> Skus { get; set; } = new();
+    public string? CASNumber { get; set; }
+    public string? PackagingSpec { get; set; }
 }
 
 public class DefectiveHistoryItemDto

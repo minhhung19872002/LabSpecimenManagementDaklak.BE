@@ -729,6 +729,9 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.QualityDocumentFileName).HasMaxLength(500);
             b.Property(x => x.QualityDocumentFilePath).HasMaxLength(500);
             b.Property(x => x.Notes).HasMaxLength(1000);
+            b.Property(x => x.SkuId);
+            b.Property(x => x.StorageWarehouseId);
+            b.Property(x => x.StorageWarehouseName).HasMaxLength(500);
 
             b.HasIndex(x => x.WarehouseImportReceiptId);
             b.HasIndex(x => x.GoodsReceiptItemId);
