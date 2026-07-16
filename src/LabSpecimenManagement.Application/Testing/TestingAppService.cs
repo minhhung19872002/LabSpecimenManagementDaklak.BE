@@ -1026,6 +1026,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     SampleId = sampleId,
                     SampleCode = sample?.SampleCode,
                     SampleName = sample?.SampleName,
+                    SampleQuantity = sample?.SampleQuantity,
                     StatusText = sample?.StatusText
                 };
 
