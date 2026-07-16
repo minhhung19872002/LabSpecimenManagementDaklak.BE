@@ -63,6 +63,10 @@ public class ManufacturerAppService :
 
     public override async Task<ManufacturerDto> UpdateAsync(Guid id, CreateUpdateManufacturerDto input)
     {
+        var entity = await Repository.GetAsync(id);
+        if (entity.IsSystem)
+            throw new UserFriendlyException("Không thể chỉnh sửa hãng sản xuất hệ thống.");
+
         await ValidateDuplicateNameAsync(input.Name, id);
 
         return await base.UpdateAsync(id, input);
@@ -91,6 +95,15 @@ public class ManufacturerAppService :
         await Repository.UpdateAsync(entity);
     }
 
+    public override async Task DeleteAsync(Guid id)
+    {
+        var entity = await Repository.GetAsync(id);
+        if (entity.IsSystem)
+            throw new UserFriendlyException("Không thể xóa hãng sản xuất hệ thống.");
+
+        await base.DeleteAsync(id);
+    }
+
     public async Task<int> BatchDeleteAsync(List<Guid> ids)
     {
         var count = 0;
@@ -98,6 +111,8 @@ public class ManufacturerAppService :
         {
             try
             {
+                var entity = await Repository.GetAsync(id);
+                if (entity.IsSystem) continue;
                 await Repository.DeleteAsync(id);
                 count++;
             }

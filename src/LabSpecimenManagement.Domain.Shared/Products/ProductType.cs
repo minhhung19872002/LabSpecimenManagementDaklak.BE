@@ -28,5 +28,15 @@ public enum ProductType
     /// <summary>
     /// Dung môi
     /// </summary>
-    Solvent = 4
+    Solvent = 4,
+
+    /// <summary>
+    /// Thiết bị phòng Lab
+    /// </summary>
+    Equipment = 5,
+
+    /// <summary>
+    /// Dung dịch pha
+    /// </summary>
+    PreparedSolution = 6
 }

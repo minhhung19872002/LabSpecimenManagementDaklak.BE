@@ -14,6 +14,8 @@ public interface IWarehouseAppService : ICrudAppService<
 {
     Task<ListResultDto<WarehouseDto>> GetActiveWarehousesAsync();
 
+    Task<ListResultDto<WarehouseDto>> GetRootWarehousesAsync();
+
     Task<string> GetNextCodeAsync();
 
     Task<WarehouseDto?> GetDefaultAsync();

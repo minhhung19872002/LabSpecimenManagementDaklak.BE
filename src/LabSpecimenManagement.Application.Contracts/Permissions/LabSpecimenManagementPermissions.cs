@@ -117,6 +117,13 @@ public static class LabSpecimenManagementPermissions
         public const string Export = Default + ".Export";
     }
 
+    // LabReport Permissions
+    public static class LabReport
+    {
+        public const string Default = GroupName + ".LabReport";
+        public const string Export = Default + ".Export";
+    }
+
     // Master Data - Unified Permissions (for all master data features)
     public static class MasterData
     {
@@ -157,6 +164,14 @@ public static class LabSpecimenManagementPermissions
         public const string Approve = Default + ".Approve";
         public const string ImportToWarehouse = Default + ".ImportToWarehouse";
         public const string AddPayment = Default + ".AddPayment";
+    }
+
+    // WarehouseImportReceipts (Phiếu nhập kho)
+    public static class WarehouseImportReceipts
+    {
+        public const string Default = GroupName + ".WarehouseImportReceipts";
+        public const string Create = Default + ".Create";
+        public const string Confirm = Default + ".Confirm";
     }
 
     public static class StockAdjustments
@@ -422,5 +437,23 @@ public static class LabSpecimenManagementPermissions
         public const string Create = Default + ".Create";
         public const string Edit = Default + ".Edit";
         public const string Delete = Default + ".Delete";
+    }
+    
+    // Temporary Access Permissions (Cấp quyền tạm thời / Quản lý lịch trực)
+    public static class TemporaryAccess
+    {
+        public const string Default = GroupName + ".TemporaryAccess";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Expire = Default + ".Expire";
+    }
+
+    // Prepared Solution Permissions (Dung dịch đã pha)
+    public static class PreparedSolutions
+    {
+        public const string Default = GroupName + ".PreparedSolutions";
+        public const string Create = Default + ".Create";
+        public const string Edit = Default + ".Edit";
+        public const string Process = Default + ".Process";
     }
 }

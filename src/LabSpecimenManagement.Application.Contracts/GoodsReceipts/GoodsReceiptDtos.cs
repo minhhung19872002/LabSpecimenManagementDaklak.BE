@@ -39,6 +39,7 @@ public class GoodsReceiptDto : EntityDto<Guid>
     public DateTime? DocumentDate { get; set; }
     public DateTime? DocumentExpiryDate { get; set; }
     public string? SupplierRepresentativePhone { get; set; }
+    public string? SupplierRepresentativeName { get; set; }
     public DateTime? ExpectedDeliveryDate { get; set; }
     public Guid? PurchaserId { get; set; }
     public string? PurchaserFullName { get; set; }
@@ -104,6 +105,14 @@ public class GoodsReceiptPaymentDto : EntityDto<Guid>
     public string? RepresentativeName { get; set; }
     public string? Notes { get; set; }
     public DateTime CreationTime { get; set; }
+    public List<InvoiceFileInfoDto> InvoiceFiles { get; set; } = new();
+}
+
+public class InvoiceFileInfoDto
+{
+    public string FileId { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public long? FileSize { get; set; }
 }
 
 public class CreateUpdateGoodsReceiptDto
@@ -129,6 +138,9 @@ public class CreateUpdateGoodsReceiptDto
 
     [StringLength(20)]
     public string? SupplierRepresentativePhone { get; set; }
+
+    [StringLength(200)]
+    public string? SupplierRepresentativeName { get; set; }
 
     public DateTime? ExpectedDeliveryDate { get; set; }
     public Guid? PurchaserId { get; set; }
@@ -214,6 +226,7 @@ public class GoodsReceiptStatisticsDto
 public class LatestSupplierInfoDto
 {
     public string? SupplierRepresentativePhone { get; set; }
+    public string? SupplierRepresentativeName { get; set; }
 }
 
 public class CreateGoodsReceiptPaymentDto
@@ -235,4 +248,6 @@ public class CreateGoodsReceiptPaymentDto
 
     [StringLength(1000)]
     public string? Notes { get; set; }
+
+    public List<InvoiceFileInfoDto> InvoiceFiles { get; set; } = new();
 }

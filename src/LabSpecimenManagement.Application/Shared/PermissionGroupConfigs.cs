@@ -105,6 +105,13 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.Statistics.Export, "Xuất báo cáo thống kê"),
         }),
 
+        // ==================== THỐNG KÊ PHÒNG LAB ====================
+        new PermissionGroupConfig("ThongKePhongLab", "Thống kê phòng lab", new[]
+        {
+            (LabSpecimenManagementPermissions.LabReport.Default, "Xem dashboard"),
+            (LabSpecimenManagementPermissions.LabReport.Export, "Xuất báo cáo thống kê"),
+        }),
+
         // ==================== NHÀ THẦU PHỤ ====================
         new PermissionGroupConfig("NhaThauPhu", "Nhà thầu phụ", new[]
         {
@@ -150,6 +157,15 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.Units.Default, "Đơn vị hàng hóa"),
             (LabSpecimenManagementPermissions.Manufacturers.Default, "Danh mục hãng sản xuất"),
             (LabSpecimenManagementPermissions.Warehouses.Default, "Danh mục kho"),
+        }),
+
+        // ==================== CẤP QUYỀN TẠM THỜI ====================
+        new PermissionGroupConfig("CapQuyenTamThoi", "Cấp quyền tạm thời", new[]
+        {
+            (LabSpecimenManagementPermissions.TemporaryAccess.Default, "Xem lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Create, "Tạo lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Edit, "Sửa lịch trực"),
+            (LabSpecimenManagementPermissions.TemporaryAccess.Expire, "Hết hạn ngay"),
         }),
 
         // ==================== QUẢN TRỊ HỆ THỐNG ====================

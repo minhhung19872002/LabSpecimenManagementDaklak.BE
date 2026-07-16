@@ -109,6 +109,11 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.ImportToWarehouse, L("Permission:GoodsReceipts.ImportToWarehouse"));
         goodsReceiptPermission.AddChild(LabSpecimenManagementPermissions.GoodsReceipts.AddPayment, L("Permission:GoodsReceipts.AddPayment"));
 
+        // Warehouse Import Receipts (Phiếu nhập kho)
+        var warehouseImportReceiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.WarehouseImportReceipts.Default, L("Permission:WarehouseImportReceipts"));
+        warehouseImportReceiptPermission.AddChild(LabSpecimenManagementPermissions.WarehouseImportReceipts.Create, L("Permission:WarehouseImportReceipts.Create"));
+        warehouseImportReceiptPermission.AddChild(LabSpecimenManagementPermissions.WarehouseImportReceipts.Confirm, L("Permission:WarehouseImportReceipts.Confirm"));
+
         var stockAdjustmentPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.StockAdjustments.Default, L("Permission:StockAdjustments"));
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Create, L("Permission:StockAdjustments.Create"));
         stockAdjustmentPermission.AddChild(LabSpecimenManagementPermissions.StockAdjustments.Edit, L("Permission:StockAdjustments.Edit"));
@@ -120,6 +125,9 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Edit, L("Permission:Equipments.Edit"));
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.Delete, L("Permission:Equipments.Delete"));
         equipmentPermission.AddChild(LabSpecimenManagementPermissions.Equipments.UpdateStatus, L("Permission:Equipments.UpdateStatus"));
+        // LabReport Permissions
+        var labReportPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.LabReport.Default, L("Permission:LabReport"));
+        labReportPermission.AddChild(LabSpecimenManagementPermissions.LabReport.Export, L("Permission:LabReport.Export"));
 
         // Master Data - Unified Permissions (for all master data features)
         var masterDataPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MasterData.Default, L("Permission:MasterData"));
@@ -291,6 +299,17 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Create, L("Permission:ApprovalProcesses.Create"));
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Edit, L("Permission:ApprovalProcesses.Edit"));
         approvalProcessPermission.AddChild(LabSpecimenManagementPermissions.ApprovalProcesses.Delete, L("Permission:ApprovalProcesses.Delete"));
+
+        // Temporary Access Permissions (Cấp quyền tạm thời / Quản lý lịch trực)
+        var temporaryAccessPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.TemporaryAccess.Default, L("Permission:TemporaryAccess"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Create, L("Permission:TemporaryAccess.Create"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Edit, L("Permission:TemporaryAccess.Edit"));
+        temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Expire, L("Permission:TemporaryAccess.Expire"));
+
+        var preparedSolutionsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.PreparedSolutions.Default, L("Permission:PreparedSolutions"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Create, L("Permission:PreparedSolutions.Create"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Edit, L("Permission:PreparedSolutions.Edit"));
+        preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Process, L("Permission:PreparedSolutions.Process"));
     }
 
     private static LocalizableString L(string name)

@@ -53,4 +53,11 @@ public class GetQualityManagementListInput : PagedAndSortedResultRequestDto
     /// Filter by Laboratory IDs (multi-select, task chứa ít nhất 1 indicator thuộc lab)
     /// </summary>
     public List<Guid>? LaboratoryIds { get; set; }
+
+    /// <summary>
+    /// Which date field FromDate/ToDate should filter on.
+    /// Values: "ContractDate", "RequestCompletionDate", "LatestApprovalDate", "LatestIndicatorApprovalDate".
+    /// Default (null): filters on TransferDate (UnderReviewDate).
+    /// </summary>
+    public string? DateFilterField { get; set; }
 }

@@ -67,12 +67,7 @@ public class WarehouseAppService :
     {
         var entity = await Repository.GetAsync(id);
         if (entity.IsDefault)
-        {
-            entity.Name = input.Name;
-            entity.PhysicalLocation = input.PhysicalLocation;
-            await Repository.UpdateAsync(entity);
-            return ObjectMapper.Map<Warehouse, WarehouseDto>(entity);
-        }
+            throw new UserFriendlyException("Không thể chỉnh sửa kho mặc định.");
 
         await ValidateDuplicateCodeAsync(input.Code, id);
         await ValidateParentWarehouseAsync(id, input.ParentWarehouseId);
@@ -85,6 +80,21 @@ public class WarehouseAppService :
         var query = await Repository.GetQueryableAsync();
         var items = query
             .WhereActive()
+            .OrderByDescending(x => x.CreationTime)
+            .ToList();
+
+        var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
+        await FillParentWarehouseNamesAsync(dtos);
+
+        return new ListResultDto<WarehouseDto>(dtos);
+    }
+
+    public async Task<ListResultDto<WarehouseDto>> GetRootWarehousesAsync()
+    {
+        var query = await Repository.GetQueryableAsync();
+        var items = query
+            .WhereActive()
+            .Where(x => x.Level == 0)
             .OrderByDescending(x => x.CreationTime)
             .ToList();
 

@@ -111,6 +111,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public DateTime? LatestApprovalDate { get; set; }
 
     /// <summary>
+    /// Ngày duyệt chỉ tiêu mới nhất - Latest indicator approval date (QLCL approved)
+    /// </summary>
+    public DateTime? LatestIndicatorApprovalDate { get; set; }
+
+    /// <summary>
     /// Danh sách chỉ tiêu - Indicators
     /// </summary>
     public List<QualityManagementIndicatorDto> Indicators { get; set; } = new();

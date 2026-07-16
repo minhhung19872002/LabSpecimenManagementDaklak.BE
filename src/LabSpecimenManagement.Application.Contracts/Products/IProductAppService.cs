@@ -18,5 +18,6 @@ public interface IProductAppService : IApplicationService
     Task ToggleActiveAsync(Guid id);
     Task<ListResultDto<ProductDto>> GetActiveProductsAsync();
     Task DeleteAttachmentAsync(Guid productId, Guid attachmentId);
+    Task DeleteSkuAsync(Guid productId, Guid skuId);
     Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input);
 }

@@ -29,17 +29,88 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? Manufacturer { get; set; }
     public string? Origin { get; set; }
     public string? Concentration { get; set; }
+    public string? FormattedConcentration { get; set; }
+    public string? FormattedOrigin { get; set; }
+    public string? GhsCode { get; set; }
+    public int? StandardCertificationType { get; set; }
+    public string? FormattedChemicalFormula { get; set; }
+    public string? CertifiedValue { get; set; }
+    public string? FormattedCertifiedValue { get; set; }
+    public string? MeasurementUncertainty { get; set; }
+    public string? FormattedMeasurementUncertainty { get; set; }
+    public string? StandardLink { get; set; }
+    public string? AnalysisGrade { get; set; }
+    public string? FormattedPackagingSpec { get; set; }
+    public string? MaterialComposition { get; set; }
+    public string? FormattedMaterialComposition { get; set; }
+    public bool? IsReusable { get; set; }
+    public int? MaxReuseCount { get; set; }
+    public bool? IsSterile { get; set; }
+    public string? UsagePurpose { get; set; }
+    public int? ShelfLifeDays { get; set; }
+    public Guid? BaseProductId { get; set; }
     public string? StorageConditions { get; set; }
     public string? FormattedStorageConditions { get; set; }
     public string? Categories { get; set; }
+    public string? ChemicalFormula { get; set; }
     public decimal? MinStockLevel { get; set; }
-    public decimal? MaxStockLevel { get; set; }
+    public string? FormattedIdentificationCode { get; set; }
+    public string? EquipmentModel { get; set; }
+    public string? SerialNumber { get; set; }
+    public int? ManufactureYear { get; set; }
+    public string? MainTechnicalSpecs { get; set; }
+    public string? InstallationLocation { get; set; }
     public decimal AvailableQuantity { get; set; }
     public decimal StorageAvailableQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
+    public int SkuCount { get; set; }
+    public string? WarehouseName { get; set; }
+
+    public DateTime? EarliestReceivedDate { get; set; }
+    public string? EarliestLotNumber { get; set; }
+    public DateTime? EarliestLotExpiryDate { get; set; }
+    public string? EarliestLotNotes { get; set; }
+
+    public decimal TotalConsumedQuantity { get; set; }
+    public decimal StorageTotalConsumedQuantity { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
+    public List<ProductSkuDto> Skus { get; set; } = new();
+}
+
+/// <summary>
+/// DTO cho SKU sản phẩm
+/// </summary>
+public class ProductSkuDto
+{
+    public Guid Id { get; set; }
+    public Guid ManufacturerId { get; set; }
+    public string? ManufacturerCode { get; set; }
+    public string? ManufacturerName { get; set; }
+    public Guid? BaseUnitId { get; set; }
+    public string? BaseUnitName { get; set; }
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public DateTime CreationTime { get; set; }
+}
+
+/// <summary>
+/// DTO tạo/cập nhật SKU
+/// </summary>
+public class CreateUpdateProductSkuDto
+{
+    public Guid? Id { get; set; }
+    public Guid ManufacturerId { get; set; }
+    public Guid? BaseUnitId { get; set; }
+    public int? PackagingQuantity { get; set; }
+    public Guid? PackagingUnitId { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
 }
 
 /// <summary>
@@ -64,7 +135,6 @@ public class CreateUpdateProductDto
     public int? VolumePerUnit { get; set; }
     public Guid? VolumeUnitId { get; set; }
 
-    [StringLength(256)]
     public string? PackagingSpec { get; set; }
 
     [StringLength(100)]
@@ -79,19 +149,81 @@ public class CreateUpdateProductDto
     [StringLength(256)]
     public string? Concentration { get; set; }
 
+    public string? FormattedConcentration { get; set; }
+
+    public string? FormattedOrigin { get; set; }
+
+    [StringLength(128)]
+    public string? GhsCode { get; set; }
+
+    public int? StandardCertificationType { get; set; }
+
+    public string? FormattedChemicalFormula { get; set; }
+
+    public string? CertifiedValue { get; set; }
+
+    public string? FormattedCertifiedValue { get; set; }
+
+    public string? MeasurementUncertainty { get; set; }
+
+    public string? FormattedMeasurementUncertainty { get; set; }
+
+    [StringLength(500)]
+    public string? StandardLink { get; set; }
+
+    [StringLength(256)]
+    public string? AnalysisGrade { get; set; }
+
+    public string? FormattedPackagingSpec { get; set; }
+
+    public string? MaterialComposition { get; set; }
+
+    public string? FormattedMaterialComposition { get; set; }
+
+    public bool? IsReusable { get; set; }
+
+    public int? MaxReuseCount { get; set; }
+
+    public bool? IsSterile { get; set; }
+
+    public string? UsagePurpose { get; set; }
+
+    public int? ShelfLifeDays { get; set; }
+
+    public Guid? BaseProductId { get; set; }
+
     public string? StorageConditions { get; set; }
 
     public string? FormattedStorageConditions { get; set; }
 
     public string? Categories { get; set; }
 
+    [StringLength(256)]
+    public string? ChemicalFormula { get; set; }
+
     public decimal? MinStockLevel { get; set; }
-    public decimal? MaxStockLevel { get; set; }
+
+    public string? FormattedIdentificationCode { get; set; }
+
+    [StringLength(256)]
+    public string? EquipmentModel { get; set; }
+
+    [StringLength(256)]
+    public string? SerialNumber { get; set; }
+
+    public int? ManufactureYear { get; set; }
+
+    public string? MainTechnicalSpecs { get; set; }
+
+    [StringLength(256)]
+    public string? InstallationLocation { get; set; }
+
     public bool IsActive { get; set; } = true;
     public bool IsDraft { get; set; } = false;
 
     public List<CreateProductAttachmentDto>? Attachments { get; set; }
     public List<CreateUpdateProductUnitConversionDto>? UnitConversions { get; set; }
+    public List<CreateUpdateProductSkuDto>? Skus { get; set; }
 }
 
 /// <summary>
@@ -151,6 +283,7 @@ public class ProductFilterDto : PagedRequestDto
     public string? Search { get; set; }
     public ProductType? ProductType { get; set; }
     public bool? IsDraft { get; set; }
+    public Guid? WarehouseId { get; set; }
 }
 
 /// <summary>

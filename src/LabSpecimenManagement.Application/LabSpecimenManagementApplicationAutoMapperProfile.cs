@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using AutoMapper;
 using LabSpecimenManagement.Files;
 using LabSpecimenManagement.MasterData;
@@ -9,6 +10,7 @@ using LabSpecimenManagement.MasterData.Units;
 using LabSpecimenManagement.NCRs;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.GoodsReceipts;
+using LabSpecimenManagement.WarehouseImports;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Reports;
 using LabSpecimenManagement.ApprovalProcesses;
@@ -16,6 +18,8 @@ using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.TestResults;
+using LabSpecimenManagement.SupplementaryTasks;
+using LabSpecimenManagement.SupplementaryTasks.Dtos;
 
 namespace LabSpecimenManagement;
 
@@ -159,7 +163,9 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.BaseUnitName, opt => opt.Ignore())
             .ForMember(dest => dest.StorageAvailableQuantity, opt => opt.Ignore())
             .ForMember(dest => dest.Attachments, opt => opt.Ignore())
-            .ForMember(dest => dest.UnitConversions, opt => opt.Ignore());
+            .ForMember(dest => dest.UnitConversions, opt => opt.Ignore())
+            .ForMember(dest => dest.Skus, opt => opt.Ignore())
+            .ForMember(dest => dest.SkuCount, opt => opt.Ignore());
 
         // Manufacturer mappings
         CreateMap<Manufacturer, ManufacturerDto>();
@@ -173,7 +179,29 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
             .ForMember(dest => dest.PurchaserFullName, opt => opt.Ignore());
         CreateMap<GoodsReceiptItem, GoodsReceiptItemDto>();
-        CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>();
+        CreateMap<GoodsReceiptPayment, GoodsReceiptPaymentDto>()
+            .ForMember(dest => dest.InvoiceFiles, opt => opt.MapFrom((src, dest) =>
+                string.IsNullOrEmpty(src.InvoiceFileIds)
+                    ? new List<InvoiceFileInfoDto>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<InvoiceFileInfoDto>>(src.InvoiceFileIds) ?? new List<InvoiceFileInfoDto>()));
+
+        // WarehouseImportReceipt mappings
+        CreateMap<WarehouseImportReceipt, WarehouseImportReceiptListDto>()
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
+            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore());
+        CreateMap<WarehouseImportReceipt, WarehouseImportReceiptDto>()
+            .ForMember(dest => dest.Items, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
+            .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore())
+            .ForMember(dest => dest.DeliveryDocumentFiles, opt => opt.MapFrom((src, dest) =>
+            {
+                if (!string.IsNullOrEmpty(src.DeliveryDocumentFiles))
+                    return System.Text.Json.JsonSerializer.Deserialize<List<DeliveryDocumentFileDto>>(src.DeliveryDocumentFiles) ?? new List<DeliveryDocumentFileDto>();
+                if (!string.IsNullOrEmpty(src.DeliveryDocumentFileId))
+                    return new List<DeliveryDocumentFileDto> { new DeliveryDocumentFileDto { FileId = src.DeliveryDocumentFileId, FileName = src.DeliveryDocumentFileName ?? "", FileSize = src.DeliveryDocumentFileSize } };
+                return new List<DeliveryDocumentFileDto>();
+            }));
+        CreateMap<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>();
 
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()
@@ -191,6 +219,11 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.Name, opt => opt.Ignore())
             .ForMember(dest => dest.TechnicalManagerName, opt => opt.Ignore());
         CreateMap<CreateUpdateLaboratoryDto, Laboratory>();
+
+        // SupplementaryTask mappings
+        CreateMap<SupplementaryTask, SupplementaryTaskDto>()
+            .ForMember(dest => dest.ImageUrls, opt => opt.Ignore())
+            .ForMember(dest => dest.CompletionImageUrls, opt => opt.Ignore());
 
         // ApprovalProcess mappings
         CreateMap<ApprovalProcess, ApprovalProcessDto>();

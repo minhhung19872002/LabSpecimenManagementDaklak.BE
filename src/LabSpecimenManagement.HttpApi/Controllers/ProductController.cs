@@ -74,6 +74,13 @@ public class ProductController : LabSpecimenManagementController
         return _productAppService.DeleteAttachmentAsync(productId, attachmentId);
     }
 
+    [HttpDelete("{productId}/skus/{skuId}")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Edit)]
+    public virtual Task DeleteSkuAsync(Guid productId, Guid skuId)
+    {
+        return _productAppService.DeleteSkuAsync(productId, skuId);
+    }
+
     [HttpGet("{productId}/sources")]
     public virtual Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, [FromQuery] GetProductSourcesInput input)
     {

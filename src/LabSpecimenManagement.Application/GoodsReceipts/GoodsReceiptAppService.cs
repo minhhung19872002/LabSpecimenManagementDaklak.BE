@@ -29,7 +29,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly IRepository<GoodsReceiptItem, Guid> _itemRepository;
     private readonly IRepository<GoodsReceiptPayment, Guid> _paymentRepository;
     private readonly IRepository<Product, Guid> _productRepository;
-    private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
+    private readonly IUnitConversionResolver _unitConversionResolver;
     private readonly IRepository<Supplier, Guid> _supplierRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
@@ -49,7 +49,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         IRepository<GoodsReceiptItem, Guid> itemRepository,
         IRepository<GoodsReceiptPayment, Guid> paymentRepository,
         IRepository<Product, Guid> productRepository,
-        IRepository<ProductUnitConversion, Guid> conversionRepository,
+        IUnitConversionResolver unitConversionResolver,
         IRepository<Supplier, Guid> supplierRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<Equipment, Guid> equipmentRepository,
@@ -68,7 +68,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _itemRepository = itemRepository;
         _paymentRepository = paymentRepository;
         _productRepository = productRepository;
-        _conversionRepository = conversionRepository;
+        _unitConversionResolver = unitConversionResolver;
         _supplierRepository = supplierRepository;
         _unitRepository = unitRepository;
         _equipmentRepository = equipmentRepository;
@@ -204,6 +204,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             DocumentDate = input.DocumentDate,
             DocumentExpiryDate = input.DocumentExpiryDate,
             SupplierRepresentativePhone = input.SupplierRepresentativePhone,
+            SupplierRepresentativeName = input.SupplierRepresentativeName,
             ExpectedDeliveryDate = input.ExpectedDeliveryDate,
             PurchaserId = input.PurchaserId,
             VatPercent = input.VatPercent,
@@ -316,6 +317,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.DocumentDate = input.DocumentDate;
         receipt.DocumentExpiryDate = input.DocumentExpiryDate;
         receipt.SupplierRepresentativePhone = input.SupplierRepresentativePhone;
+        receipt.SupplierRepresentativeName = input.SupplierRepresentativeName;
         receipt.ExpectedDeliveryDate = input.ExpectedDeliveryDate;
         receipt.PurchaserId = input.PurchaserId;
         receipt.VatPercent = input.VatPercent;
@@ -501,8 +503,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         var items = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == id).ToList();
 
-        var conversionsQuery = await _conversionRepository.GetQueryableAsync();
-
         foreach (var item in items)
         {
             if (item.IsEquipment)
@@ -527,34 +527,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             }
 
             var product = await _productRepository.GetAsync(item.ProductId!.Value);
-            decimal baseQty;
-
-            if (product.BaseUnitId == null)
-            {
-                baseQty = item.Quantity;
-            }
-            else if (item.UnitId == product.BaseUnitId)
-            {
-                baseQty = item.Quantity;
-            }
-            else if (item.UnitId == product.PackagingUnitId && product.PackagingQuantity > 0)
-            {
-                baseQty = item.Quantity / product.PackagingQuantity.Value;
-            }
-            else
-            {
-                var conversion = conversionsQuery.FirstOrDefault(c =>
-                    c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId);
-
-                if (conversion == null)
-                    throw new UserFriendlyException($"Không tìm thấy quy đổi đơn vị cho \"{item.ProductName}\". Vui lòng kiểm tra lại.");
-
-                if (conversion.ConvertedQuantity == 0)
-                    throw new UserFriendlyException($"Quy đổi đơn vị cho \"{item.ProductName}\" có số lượng quy đổi = 0. Vui lòng kiểm tra lại.");
-
-                decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
-                baseQty = item.Quantity * ratio;
-            }
+            var baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(product, item.UnitId, item.Quantity, item.ProductName);
 
             product.AvailableQuantity += baseQty;
             await _productRepository.UpdateAsync(product, autoSave: true);
@@ -587,14 +560,18 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         var remaining = receipt.TotalAmountAfterVat - receipt.TotalPaid;
 
-        if (input.Amount <= 0)
+        if (receipt.TotalAmountAfterVat > 0 && input.Amount <= 0)
             throw new UserFriendlyException("Số tiền thanh toán phải lớn hơn 0.");
 
-        if (input.Amount > remaining)
+        if (receipt.TotalAmountAfterVat > 0 && input.Amount > remaining)
             throw new UserFriendlyException("Số tiền thanh toán không được lớn hơn số tiền còn lại.");
 
         var paymentsQuery = await _paymentRepository.GetQueryableAsync();
         var paymentCount = paymentsQuery.Count(x => x.GoodsReceiptId == id);
+
+        var invoiceFileIdsJson = input.InvoiceFiles.Count > 0
+            ? System.Text.Json.JsonSerializer.Serialize(input.InvoiceFiles)
+            : null;
 
         var payment = new GoodsReceiptPayment(
             GuidGenerator.Create(),
@@ -606,7 +583,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             input.PaymentDate,
             input.Phone,
             input.RepresentativeName,
-            input.Notes);
+            input.Notes,
+            invoiceFileIdsJson);
 
         await _paymentRepository.InsertAsync(payment, autoSave: true);
 
@@ -703,12 +681,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
         var latest = query
-            .Where(x => x.SupplierId == supplierId && x.SupplierRepresentativePhone != null)
+            .Where(x => x.SupplierId == supplierId
+                && (x.SupplierRepresentativePhone != null || x.SupplierRepresentativeName != null))
             .OrderByDescending(x => x.CreationTime)
-            .Select(x => x.SupplierRepresentativePhone)
+            .Select(x => new { x.SupplierRepresentativePhone, x.SupplierRepresentativeName })
             .FirstOrDefault();
 
-        return new LatestSupplierInfoDto { SupplierRepresentativePhone = latest };
+        return new LatestSupplierInfoDto
+        {
+            SupplierRepresentativePhone = latest?.SupplierRepresentativePhone,
+            SupplierRepresentativeName = latest?.SupplierRepresentativeName
+        };
     }
 
     public async Task<List<RecentLotDto>> GetRecentLotNumbersAsync(Guid productId)
@@ -901,10 +884,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             // Resolve supplier for equipment items
             Guid? resolvedItemSupplierId = null;
             string? resolvedItemSupplierName = null;
-            if (itemDto.IsEquipment)
+            if (itemDto.IsEquipment && itemDto.SupplierId.HasValue)
             {
-                if (!itemDto.SupplierId.HasValue)
-                    throw new UserFriendlyException("Thiết bị phải có nhà cung cấp.");
                 var itemSupplier = await _supplierRepository.GetAsync(itemDto.SupplierId.Value);
                 resolvedItemSupplierId = itemSupplier.Id;
                 resolvedItemSupplierName = itemSupplier.Name;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using LabSpecimenManagement.Common;
 using Volo.Abp.Domain.Entities.Auditing;
 
@@ -70,6 +71,106 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? Concentration { get; set; }
 
     /// <summary>
+    /// Nồng độ / Hàm lượng có định dạng HTML (rich text, dùng cho Sinh phẩm)
+    /// </summary>
+    public string? FormattedConcentration { get; set; }
+
+    /// <summary>
+    /// Xuất xứ có định dạng HTML (rich text, dùng cho Sinh phẩm)
+    /// </summary>
+    public string? FormattedOrigin { get; set; }
+
+    /// <summary>
+    /// Mã nguy hiểm GHS/MSDS (dùng cho Sinh phẩm, Chất chuẩn)
+    /// </summary>
+    public string? GhsCode { get; set; }
+
+    /// <summary>
+    /// Loại chất chuẩn (Chuẩn chứng nhận, Chuẩn thường, Chuẩn làm việc)
+    /// </summary>
+    public StandardCertificationType? StandardCertificationType { get; set; }
+
+    /// <summary>
+    /// Công thức hóa học có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedChemicalFormula { get; set; }
+
+    /// <summary>
+    /// Giá trị chứng nhận (plain text backup)
+    /// </summary>
+    public string? CertifiedValue { get; set; }
+
+    /// <summary>
+    /// Giá trị chứng nhận có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedCertifiedValue { get; set; }
+
+    /// <summary>
+    /// Độ không đảm bảo đo (plain text backup)
+    /// </summary>
+    public string? MeasurementUncertainty { get; set; }
+
+    /// <summary>
+    /// Độ không đảm bảo đo có định dạng HTML (rich text, dùng cho Chất chuẩn)
+    /// </summary>
+    public string? FormattedMeasurementUncertainty { get; set; }
+
+    /// <summary>
+    /// Liên kết chất chuẩn (URL)
+    /// </summary>
+    public string? StandardLink { get; set; }
+
+    /// <summary>
+    /// Cấp độ phân tích
+    /// </summary>
+    public string? AnalysisGrade { get; set; }
+
+    /// <summary>
+    /// Thông số kích thước Dung tích có định dạng HTML (rich text, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? FormattedPackagingSpec { get; set; }
+
+    /// <summary>
+    /// Vật liệu cấu thành (plain text backup, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? MaterialComposition { get; set; }
+
+    /// <summary>
+    /// Vật liệu cấu thành có định dạng HTML (rich text, dùng cho Vật tư tiêu hao)
+    /// </summary>
+    public string? FormattedMaterialComposition { get; set; }
+
+    /// <summary>
+    /// Khả năng tái sử dụng (null=chưa chọn, true=Có, false=Không)
+    /// </summary>
+    public bool? IsReusable { get; set; }
+
+    /// <summary>
+    /// Số lần tái sử dụng (chỉ áp dụng khi IsReusable=true)
+    /// </summary>
+    public int? MaxReuseCount { get; set; }
+
+    /// <summary>
+    /// Trạng thái vô trùng (null=chưa chọn, true=Đã tiệt trùng, false=Chưa tiệt trùng)
+    /// </summary>
+    public bool? IsSterile { get; set; }
+
+    /// <summary>
+    /// Mục đích sử dụng (dùng cho Dung dịch pha)
+    /// </summary>
+    public string? UsagePurpose { get; set; }
+
+    /// <summary>
+    /// Hạn sử dụng tính theo ngày (dùng cho Dung dịch pha)
+    /// </summary>
+    public int? ShelfLifeDays { get; set; }
+
+    /// <summary>
+    /// ID chất nền (FK tự tham chiếu → Product, dùng cho Dung dịch pha)
+    /// </summary>
+    public Guid? BaseProductId { get; set; }
+
+    /// <summary>
     /// Điều kiện bảo quản (plain text)
     /// </summary>
     public string? StorageConditions { get; set; }
@@ -85,16 +186,6 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public string? Categories { get; set; }
 
     /// <summary>
-    /// Mức tồn kho tối thiểu
-    /// </summary>
-    public decimal? MinStockLevel { get; set; }
-
-    /// <summary>
-    /// Mức tồn kho tối đa
-    /// </summary>
-    public decimal? MaxStockLevel { get; set; }
-
-    /// <summary>
     /// Số lượng khả dụng (mới tạo = 0, tăng khi nhập hàng)
     /// </summary>
     public decimal AvailableQuantity { get; set; }
@@ -108,6 +199,48 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     /// Trạng thái nháp (chưa hoàn thiện)
     /// </summary>
     public bool IsDraft { get; set; }
+
+    /// <summary>
+    /// Công thức hóa học (chỉ dùng cho Hóa chất)
+    /// </summary>
+    public string? ChemicalFormula { get; set; }
+
+    /// <summary>
+    /// Định mức tồn kho tối thiểu
+    /// </summary>
+    public decimal? MinStockLevel { get; set; }
+
+    /// <summary>
+    /// Mã nhận dạng thiết bị có định dạng HTML (rich text, dùng cho Thiết bị phòng Lab)
+    /// </summary>
+    public string? FormattedIdentificationCode { get; set; }
+
+    /// <summary>
+    /// Model thiết bị
+    /// </summary>
+    public string? EquipmentModel { get; set; }
+
+    /// <summary>
+    /// Số serial thiết bị
+    /// </summary>
+    public string? SerialNumber { get; set; }
+
+    /// <summary>
+    /// Năm sản xuất thiết bị
+    /// </summary>
+    public int? ManufactureYear { get; set; }
+
+    /// <summary>
+    /// Thông số kỹ thuật chính (dùng cho Thiết bị phòng Lab)
+    /// </summary>
+    public string? MainTechnicalSpecs { get; set; }
+
+    /// <summary>
+    /// Vị trí lắp đặt thiết bị
+    /// </summary>
+    public string? InstallationLocation { get; set; }
+
+    public virtual ICollection<ProductSku> Skus { get; set; } = new List<ProductSku>();
 
     protected Product()
     {

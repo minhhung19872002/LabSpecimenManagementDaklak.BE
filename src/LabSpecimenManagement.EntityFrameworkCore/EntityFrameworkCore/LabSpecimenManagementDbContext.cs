@@ -33,6 +33,10 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.WarehouseImports;
+using LabSpecimenManagement.TemporaryAccess;
+using LabSpecimenManagement.PreparedSolutions;
+using LabSpecimenManagement.SupplementaryTasks;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -77,9 +81,12 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Supplier> SupplierEntities { get; set; }
     public DbSet<ProductAttachment> ProductAttachments { get; set; }
     public DbSet<ProductUnitConversion> ProductUnitConversions { get; set; }
+    public DbSet<ProductSku> ProductSkus { get; set; }
     public DbSet<GoodsReceipt> GoodsReceipts { get; set; }
     public DbSet<GoodsReceiptItem> GoodsReceiptItems { get; set; }
     public DbSet<GoodsReceiptPayment> GoodsReceiptPayments { get; set; }
+    public DbSet<WarehouseImportReceipt> WarehouseImportReceipts { get; set; }
+    public DbSet<WarehouseImportReceiptItem> WarehouseImportReceiptItems { get; set; }
     public DbSet<Manufacturer> Manufacturers { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
@@ -157,6 +164,13 @@ public class LabSpecimenManagementDbContext :
     public DbSet<ApprovalProcessStep> ApprovalProcessSteps { get; set; }
     public DbSet<ApprovalSnapshot> ApprovalSnapshots { get; set; }
     public DbSet<ApprovalSnapshotStep> ApprovalSnapshotSteps { get; set; }
+
+    // Temporary Access (Cấp quyền tạm thời)
+    public DbSet<TemporaryAccessGrant> TemporaryAccessGrants { get; set; }
+    public DbSet<PreparedSolutionBatch> PreparedSolutionBatches { get; set; }
+    public DbSet<PreparedSolutionIngredient> PreparedSolutionIngredients { get; set; }
+    public DbSet<SupplementaryTask> SupplementaryTasks { get; set; }
+    public DbSet<SupplementaryTaskLog> SupplementaryTaskLogs { get; set; }
 
     #region Entities from the modules
 
@@ -509,18 +523,58 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.PackagingUnitId);
             b.Property(x => x.VolumePerUnit);
             b.Property(x => x.VolumeUnitId);
-            b.Property(x => x.PackagingSpec).HasMaxLength(256);
+            b.Property(x => x.PackagingSpec);
             b.Property(x => x.CASNumber).HasMaxLength(100);
             b.Property(x => x.Manufacturer).HasMaxLength(256);
             b.Property(x => x.Origin).HasMaxLength(256);
             b.Property(x => x.Concentration).HasMaxLength(256);
+            b.Property(x => x.FormattedConcentration);
+            b.Property(x => x.FormattedOrigin);
+            b.Property(x => x.GhsCode).HasMaxLength(128);
+            b.Property(x => x.StandardCertificationType);
+            b.Property(x => x.FormattedChemicalFormula);
+            b.Property(x => x.CertifiedValue);
+            b.Property(x => x.FormattedCertifiedValue);
+            b.Property(x => x.MeasurementUncertainty);
+            b.Property(x => x.FormattedMeasurementUncertainty);
+            b.Property(x => x.StandardLink).HasMaxLength(500);
+            b.Property(x => x.AnalysisGrade).HasMaxLength(256);
+            b.Property(x => x.FormattedPackagingSpec);
+            b.Property(x => x.MaterialComposition);
+            b.Property(x => x.FormattedMaterialComposition);
+            b.Property(x => x.IsReusable);
+            b.Property(x => x.MaxReuseCount);
+            b.Property(x => x.IsSterile);
+            b.Property(x => x.UsagePurpose);
+            b.Property(x => x.ShelfLifeDays);
+            b.Property(x => x.BaseProductId);
             b.Property(x => x.FormattedStorageConditions);
+            b.Property(x => x.ChemicalFormula).HasMaxLength(256);
+            b.Property(x => x.MinStockLevel).HasPrecision(18, 4);
+            b.Property(x => x.FormattedIdentificationCode);
+            b.Property(x => x.EquipmentModel).HasMaxLength(256);
+            b.Property(x => x.SerialNumber).HasMaxLength(256);
+            b.Property(x => x.ManufactureYear);
+            b.Property(x => x.MainTechnicalSpecs);
+            b.Property(x => x.InstallationLocation).HasMaxLength(256);
+
+            b.HasMany(x => x.Skus).WithOne().HasForeignKey(x => x.ProductId);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
             b.HasIndex(x => x.ProductType);
             b.HasIndex(x => x.IsActive);
             b.HasIndex(x => x.BaseUnitId);
+        });
+
+        // ProductSku configuration
+        builder.Entity<ProductSku>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ProductSkus", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => new { x.ProductId, x.ManufacturerId }).IsUnique();
         });
 
         // ProductAttachment configuration
@@ -562,6 +616,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.DeliveryNoteNumber).HasMaxLength(100);
             b.Property(x => x.PreparedByName).HasMaxLength(200);
             b.Property(x => x.SupplierRepresentativePhone).HasMaxLength(20);
+            b.Property(x => x.SupplierRepresentativeName).HasMaxLength(200);
             b.Property(x => x.ExpectedDeliveryDate);
             b.Property(x => x.PurchaserId);
             b.Property(x => x.Notes).HasMaxLength(2000);
@@ -616,6 +671,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Name).IsRequired().HasMaxLength(500);
             b.Property(x => x.Description).HasMaxLength(1000);
+            b.Property(x => x.IsSystem).HasDefaultValue(false);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Name);
@@ -633,6 +689,48 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Notes).HasMaxLength(1000);
 
             b.HasIndex(x => x.GoodsReceiptId);
+        });
+
+        // WarehouseImportReceipt configuration
+        builder.Entity<WarehouseImportReceipt>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "WarehouseImportReceipts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.GoodsReceiptCode).IsRequired().HasMaxLength(50);
+            b.Property(x => x.WarehouseKeeperName).HasMaxLength(200);
+            b.Property(x => x.WarehouseName).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFileId).HasMaxLength(50);
+            b.Property(x => x.DeliveryDocumentFileName).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFilePath).HasMaxLength(500);
+            b.Property(x => x.DeliveryDocumentFiles).HasColumnType("text");
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.GoodsReceiptId);
+            b.HasIndex(x => x.WarehouseId);
+            b.HasIndex(x => x.Status);
+        });
+
+        builder.Entity<WarehouseImportReceiptItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "WarehouseImportReceiptItems", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.OrderedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ActualReceivedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.UnitName).HasMaxLength(100);
+            b.Property(x => x.LotNumber).HasMaxLength(100);
+            b.Property(x => x.QualityDocumentFileId).HasMaxLength(50);
+            b.Property(x => x.QualityDocumentFileName).HasMaxLength(500);
+            b.Property(x => x.QualityDocumentFilePath).HasMaxLength(500);
+            b.Property(x => x.Notes).HasMaxLength(1000);
+
+            b.HasIndex(x => x.WarehouseImportReceiptId);
+            b.HasIndex(x => x.GoodsReceiptItemId);
+            b.HasIndex(x => x.ProductId);
         });
 
         // SpecimenType configuration
@@ -1734,5 +1832,95 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.ApprovalSnapshotId);
         });
+
+        // ============ TEMPORARY ACCESS GRANT CONFIGURATION ============
+
+        builder.Entity<TemporaryAccessGrant>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TemporaryAccessGrants", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.EmployeeFullName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.EmployeeEmail).HasMaxLength(256);
+            b.Property(x => x.EmployeePhone).HasMaxLength(32);
+            b.Property(x => x.ExternalUsername).HasMaxLength(256);
+            b.Property(x => x.SelectedModules).IsRequired().HasColumnType("text");
+            b.Property(x => x.GrantedPermissions).IsRequired().HasColumnType("text");
+            b.Property(x => x.Reason).HasMaxLength(1000);
+            b.Property(x => x.GrantedByName).HasMaxLength(256);
+
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.ExpiryDate);
+            b.HasIndex(x => x.UserId);
+        });
+
+        builder.Entity<PreparedSolutionBatch>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PreparedSolutionBatches", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.SolutionProductName).IsRequired().HasMaxLength(512);
+            b.Property(x => x.IdentificationCode).HasMaxLength(256);
+            b.Property(x => x.LotCode).IsRequired().HasMaxLength(256);
+            b.Property(x => x.VolumeUnitName).HasMaxLength(64);
+            b.Property(x => x.StorageWarehouseName).HasMaxLength(256);
+            b.Property(x => x.SourceWarehouseName).HasMaxLength(256);
+            b.Property(x => x.StorageConditions).HasColumnType("text");
+            b.Property(x => x.PreparationMethod).HasColumnType("text");
+            b.Property(x => x.ProcessingNote).HasMaxLength(1000);
+            b.Property(x => x.ProcessingImages).IsRequired().HasDefaultValue("[]").HasColumnType("text");
+            b.Property(x => x.Concentration).HasMaxLength(256);
+            b.Property(x => x.PreparedByName).HasMaxLength(256);
+
+            b.HasMany(x => x.Ingredients)
+             .WithOne()
+             .HasForeignKey(i => i.PreparedSolutionBatchId)
+             .OnDelete(DeleteBehavior.Cascade);
+
+            b.HasIndex(x => x.IsProcessed);
+            b.HasIndex(x => x.PreparationDate);
+            b.HasIndex(x => x.ExpiryDate);
+        });
+
+        builder.Entity<PreparedSolutionIngredient>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "PreparedSolutionIngredients", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(512);
+            b.Property(x => x.ProductTypeName).HasMaxLength(64);
+            b.Property(x => x.UnitName).HasMaxLength(64);
+
+            b.HasIndex(x => x.PreparedSolutionBatchId);
+            b.HasIndex(x => x.ProductId);
+        });
+
+        // ============ SUPPLEMENTARY TASK CONFIGURATION ============
+        builder.Entity<SupplementaryTask>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SupplementaryTasks", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Title).IsRequired().HasMaxLength(500);
+            b.Property(x => x.Description);
+            b.Property(x => x.AssignedToName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.ImageUrls);
+
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.AssignedToId);
+            b.HasIndex(x => x.DueDate);
+        });
+
+        builder.Entity<SupplementaryTaskLog>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "SupplementaryTaskLogs", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ChangedByName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Note).HasMaxLength(512);
+
+            b.HasIndex(x => x.TaskId);
+        });
+
     }
 }

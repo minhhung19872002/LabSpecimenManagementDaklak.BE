@@ -408,15 +408,11 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
             {
                 LabId = lab.Id,
                 LabName = deptDict.TryGetValue(lab.DepartmentId, out var name) ? name : lab.Code,
+                // Chưa hoàn thành = tất cả trừ Approved
                 InProgressCount = labInds.Count(x =>
-                    (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate != null)
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Entered
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Rejected
-                    || x.ApprovalStatus == IndicatorApprovalStatus.Approved),
-                PendingCount = labInds.Count(x =>
-                    x.ApprovalStatus == IndicatorApprovalStatus.Pending
-                    || x.ApprovalStatus == IndicatorApprovalStatus.MethodChanged
-                    || (x.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting && x.TestDate == null)),
+                    x.ApprovalStatus != IndicatorApprovalStatus.Approved),
+                // Tổng số chỉ tiêu
+                PendingCount = labInds.Count,
                 TechnicianCount = techCountByDept.TryGetValue(lab.DepartmentId, out var count) ? count : 0,
             };
         })
@@ -610,7 +606,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Mẫu = m.Specimens,
                 Phép_thử = m.Tests,
                 Báo_cáo = m.Reports
-            }),
+            }).ToList(),
             ["Theo loại mẫu"] = data.SampleMatrix.Select(s => new
             {
                 Loại_mẫu = s.SpecimenType,
@@ -618,7 +614,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đã_nhận = s.ReceivedCount,
                 Đang_thử = s.TestingCount,
                 Hoàn_thành = s.CompletedCount
-            }),
+            }).ToList(),
             ["Theo phòng ban"] = data.WorkloadByDepartment.Select(w => new
             {
                 Phòng_ban = w.Department,
@@ -627,7 +623,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đang_thực_hiện = w.InProgressTasks,
                 Hoàn_thành = w.CompletedTasks,
                 Hiệu_suất = $"{w.CompletionRate:F1}%"
-            }),
+            }).ToList(),
             ["TAT Compliance"] = data.TATCompliance.Select(t => new
             {
                 Kỳ = t.Period,
@@ -635,7 +631,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 Đúng_hạn = t.OnTimeRequests,
                 Trễ_hạn = t.DelayedRequests,
                 Tỷ_lệ = $"{t.ComplianceRate:F1}%"
-            })
+            }).ToList()
         };
 
         await memoryStream.SaveAsAsync(sheets);

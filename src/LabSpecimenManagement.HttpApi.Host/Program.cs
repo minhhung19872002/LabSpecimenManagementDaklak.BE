@@ -1,7 +1,10 @@
 ﻿using System;
 using System.Threading.Tasks;
+using LabSpecimenManagement.EntityFrameworkCore;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using Volo.Abp.Data;
 using Microsoft.Extensions.Hosting;
 using Serilog;
 using Serilog.Events;
@@ -35,6 +38,16 @@ public class Program
             await builder.AddApplicationAsync<LabSpecimenManagementHttpApiHostModule>();
             var app = builder.Build();
             await app.InitializeApplicationAsync();
+
+            using (var scope = app.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<LabSpecimenManagementDbContext>();
+                await db.Database.MigrateAsync();
+
+                var seeder = scope.ServiceProvider.GetRequiredService<IDataSeeder>();
+                await seeder.SeedAsync(new DataSeedContext(null));
+            }
+
             await app.RunAsync();
             return 0;
         }

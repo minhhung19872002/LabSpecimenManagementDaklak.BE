@@ -270,12 +270,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .Take(input.MaxResultCount)
             .ToList();
 
-        // Map to DTOs
-        var dtos = new List<LaboratoryTaskDto>();
-        foreach (var task in tasks)
-        {
-            dtos.Add(await MapToListDtoAsync(task));
-        }
+        // Map to DTOs (batch)
+        var dtos = await MapToListDtosAsync(tasks);
 
         return new PagedResultDto<LaboratoryTaskDto>(totalCount, dtos);
     }
@@ -308,11 +304,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .OrderByDescending(x => x.CreationTime)
             .ToList();
 
-        var dtos = new List<LaboratoryTaskDto>();
-        foreach (var task in tasks)
-        {
-            dtos.Add(await MapToListDtoAsync(task));
-        }
+        var dtos = await MapToListDtosAsync(tasks);
 
         return new ListResultDto<LaboratoryTaskDto>(dtos);
     }
@@ -325,11 +317,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             .OrderByDescending(x => x.CreationTime)
             .ToList();
 
-        var dtos = new List<LaboratoryTaskDto>();
-        foreach (var task in tasks)
-        {
-            dtos.Add(await MapToListDtoAsync(task));
-        }
+        var dtos = await MapToListDtosAsync(tasks);
 
         return new ListResultDto<LaboratoryTaskDto>(dtos);
     }
@@ -356,107 +344,152 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
     private async Task<LaboratoryTaskDto> MapToListDtoAsync(LaboratoryTask task)
     {
-        // Lấy ngày thí nghiệm từ các indicators
-        var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
+        // Dùng chung logic với bản batch để không thể lệch nhau
+        var dtos = await MapToListDtosAsync(new List<LaboratoryTask> { task });
+        return dtos[0];
+    }
 
-        // Tính Min(TestDate) - Max(SubmitDate) giống báo cáo (ResultFormAppService.CalculateTimeOfTesting)
-        var earliestTestDate = taskIndicators
-            .Where(ti => ti.TestDate.HasValue)
-            .Select(ti => ti.TestDate!.Value)
-            .DefaultIfEmpty()
-            .Min();
-        var latestSubmitDate = taskIndicators
-            .Where(ti => ti.SubmitDate.HasValue)
-            .Select(ti => ti.SubmitDate!.Value)
-            .DefaultIfEmpty()
-            .Max();
-
-        // Calculate TestDateRange: "dd/MM/yyyy - dd/MM/yyyy"
-        var testDateRange = CalculateTestDateRange(
-            earliestTestDate == default ? null : earliestTestDate,
-            latestSubmitDate == default ? null : latestSubmitDate);
-
-        var dto = new LaboratoryTaskDto
+    // Batch toàn bộ dữ liệu liên quan cho cả trang trong ~7 query
+    // (thay vì 7-8 query cho MỖI task như trước)
+    private async Task<List<LaboratoryTaskDto>> MapToListDtosAsync(List<LaboratoryTask> tasks)
+    {
+        var dtos = new List<LaboratoryTaskDto>();
+        if (tasks.Count == 0)
         {
-            Id = task.Id,
-            TestRequestId = task.TestRequestId,
-            LaboratoryId = task.LaboratoryId,
-            ContractNumber = task.ContractNumber,
-            TotalSampleCount = task.TotalSampleCount,
-            TechnicalManagerId = task.TechnicalManagerId,
-            TransferDate = null,
-            RequestCompletionDate = task.RequestCompletionDate,
-            TestDate = earliestTestDate != default ? earliestTestDate : task.TestDate,
-            TestDateRange = testDateRange, // Khoảng ngày: Min - Max
-            Status = task.Status,
-            Notes = task.Notes,
-            ResultRejectionReason = task.ResultRejectionReason,
-            CreationTime = task.CreationTime,
-            LastModificationTime = task.LastModificationTime,
-            // Shared Sample Fields
-            IsSharedSampleTask = task.IsSharedSampleTask,
-            IsWaitingForPriorLab = task.IsWaitingForPriorLab,
-            SampleSentToNextLab = task.SampleSentToNextLab,
-            SampleSentDate = task.SampleSentDate,
-            SampleReceivedDate = task.SampleReceivedDate,
-            SampleReceivedNote = task.SampleReceivedNote,
-            PriorLabTaskId = task.PriorLabTaskId,
-            // Check if prior lab has sent sample (for Lab Hóa waiting for Vi Sinh)
-            PriorLabSentSample = false // Will be set below if applicable
-        };
+            return dtos;
+        }
 
-        // Check if prior lab has sent sample (for Lab Hóa to know when Vi Sinh sent)
-        if (task.PriorLabTaskId.HasValue)
+        var taskIds = tasks.Select(t => t.Id).ToList();
+
+        var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => taskIds.Contains(x.LaboratoryTaskId));
+        var indicatorsByTask = allTaskIndicators.ToLookup(x => x.LaboratoryTaskId);
+
+        var priorTaskIds = tasks.Where(t => t.PriorLabTaskId.HasValue).Select(t => t.PriorLabTaskId!.Value).Distinct().ToList();
+        var priorTaskById = priorTaskIds.Count == 0
+            ? new Dictionary<Guid, LaboratoryTask>()
+            : (await _laboratoryTaskRepository.GetListAsync(t => priorTaskIds.Contains(t.Id))).ToDictionary(t => t.Id);
+
+        var testRequestIds = tasks.Select(t => t.TestRequestId).Distinct().ToList();
+        var testRequestById = (await _testRequestRepository.GetListAsync(tr => testRequestIds.Contains(tr.Id))).ToDictionary(tr => tr.Id);
+
+        var laboratoryIds = tasks.Select(t => t.LaboratoryId).Distinct().ToList();
+        var laboratoryById = (await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id))).ToDictionary(l => l.Id);
+
+        var departmentIds = laboratoryById.Values.Select(l => l.DepartmentId).Distinct().ToList();
+        var departmentById = departmentIds.Count == 0
+            ? new Dictionary<Guid, Department>()
+            : (await _departmentRepository.GetListAsync(d => departmentIds.Contains(d.Id))).ToDictionary(d => d.Id);
+
+        var managerNames = await _userNameProvider.GetUserNamesAsync(tasks.Select(t => t.TechnicalManagerId));
+
+        var currentUserId = CurrentUser.Id;
+        var supportersByTask = Enumerable.Empty<LaboratoryTaskSupporter>().ToLookup(s => s.LaboratoryTaskId);
+        var supportedLaboratoryIds = new HashSet<Guid>();
+        if (currentUserId.HasValue)
         {
-            var priorTask = await _laboratoryTaskRepository.FindAsync(task.PriorLabTaskId.Value);
-            if (priorTask != null)
+            var allSupporters = await _supporterRepository.GetListAsync(s => taskIds.Contains(s.LaboratoryTaskId));
+            supportersByTask = allSupporters.ToLookup(s => s.LaboratoryTaskId);
+
+            supportedLaboratoryIds = (await _departmentSupporterRepository.GetListAsync(
+                ds => ds.UserId == currentUserId.Value &&
+                      laboratoryIds.Contains(ds.LaboratoryId) &&
+                      ds.ExpirationDate > DateTime.UtcNow))
+                .Select(ds => ds.LaboratoryId)
+                .ToHashSet();
+        }
+
+        foreach (var task in tasks)
+        {
+            // Tính Min(TestDate) - Max(SubmitDate) giống báo cáo (ResultFormAppService.CalculateTimeOfTesting)
+            var taskIndicators = indicatorsByTask[task.Id].ToList();
+            var earliestTestDate = taskIndicators
+                .Where(ti => ti.TestDate.HasValue)
+                .Select(ti => ti.TestDate!.Value)
+                .DefaultIfEmpty()
+                .Min();
+            var latestSubmitDate = taskIndicators
+                .Where(ti => ti.SubmitDate.HasValue)
+                .Select(ti => ti.SubmitDate!.Value)
+                .DefaultIfEmpty()
+                .Max();
+
+            // Calculate TestDateRange: "dd/MM/yyyy - dd/MM/yyyy"
+            var testDateRange = CalculateTestDateRange(
+                earliestTestDate == default ? null : earliestTestDate,
+                latestSubmitDate == default ? null : latestSubmitDate);
+
+            var dto = new LaboratoryTaskDto
+            {
+                Id = task.Id,
+                TestRequestId = task.TestRequestId,
+                LaboratoryId = task.LaboratoryId,
+                ContractNumber = task.ContractNumber,
+                TotalSampleCount = task.TotalSampleCount,
+                TechnicalManagerId = task.TechnicalManagerId,
+                TransferDate = null,
+                RequestCompletionDate = task.RequestCompletionDate,
+                TestDate = earliestTestDate != default ? earliestTestDate : task.TestDate,
+                TestDateRange = testDateRange, // Khoảng ngày: Min - Max
+                Status = task.Status,
+                Notes = task.Notes,
+                ResultRejectionReason = task.ResultRejectionReason,
+                CreationTime = task.CreationTime,
+                LastModificationTime = task.LastModificationTime,
+                // Shared Sample Fields
+                IsSharedSampleTask = task.IsSharedSampleTask,
+                IsWaitingForPriorLab = task.IsWaitingForPriorLab,
+                SampleSentToNextLab = task.SampleSentToNextLab,
+                SampleSentDate = task.SampleSentDate,
+                SampleReceivedDate = task.SampleReceivedDate,
+                SampleReceivedNote = task.SampleReceivedNote,
+                PriorLabTaskId = task.PriorLabTaskId,
+                // Check if prior lab has sent sample (for Lab Hóa waiting for Vi Sinh)
+                PriorLabSentSample = false // Will be set below if applicable
+            };
+
+            // Check if prior lab has sent sample (for Lab Hóa to know when Vi Sinh sent)
+            if (task.PriorLabTaskId.HasValue && priorTaskById.TryGetValue(task.PriorLabTaskId.Value, out var priorTask))
             {
                 dto.PriorLabSentSample = priorTask.SampleSentToNextLab;
             }
+
+            // Get TestRequest info
+            if (testRequestById.TryGetValue(task.TestRequestId, out var testRequest))
+            {
+                dto.TestRequestNumber = testRequest.RequestNumber;
+                dto.TestRequestStatus = testRequest.Status;
+                dto.CustomerName = testRequest.CustomerName;
+                dto.SampleSentDate = testRequest.SampleSentDate ?? task.SampleSentDate;
+                dto.UnderReviewDate = testRequest.UnderReviewDate;
+                dto.TransferDate = testRequest.UnderReviewDate;
+            }
+
+            // Get Laboratory info
+            if (laboratoryById.TryGetValue(task.LaboratoryId, out var laboratory))
+            {
+                dto.LaboratoryCode = laboratory.Code;
+                dto.LaboratoryName = departmentById.TryGetValue(laboratory.DepartmentId, out var department)
+                    ? department.Name ?? ""
+                    : "";
+            }
+
+            // Get Technical Manager name (null nếu không có manager hoặc user không tồn tại — giống GetUserNameAsync)
+            dto.TechnicalManagerName = task.TechnicalManagerId.HasValue && managerNames.TryGetValue(task.TechnicalManagerId.Value, out var managerName)
+                ? managerName
+                : null;
+
+            // Set current user role flags
+            if (currentUserId.HasValue)
+            {
+                dto.IsCurrentUserTechnicalManager = task.TechnicalManagerId == currentUserId.Value;
+                dto.IsCurrentUserSupporter = supportersByTask[task.Id].Any(s => s.UserId == currentUserId.Value);
+                dto.IsCurrentUserDepartmentSupporter = supportedLaboratoryIds.Contains(task.LaboratoryId);
+            }
+
+            dtos.Add(dto);
         }
 
-        // Get TestRequest info
-        var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
-        if (testRequest != null)
-        {
-            dto.TestRequestNumber = testRequest.RequestNumber;
-            dto.TestRequestStatus = testRequest.Status;
-            dto.CustomerName = testRequest.CustomerName;
-            dto.SampleSentDate = testRequest.SampleSentDate ?? task.SampleSentDate;
-            dto.UnderReviewDate = testRequest.UnderReviewDate;
-            dto.TransferDate = testRequest.UnderReviewDate;
-        }
-
-        // Get Laboratory info
-        var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        if (laboratory != null)
-        {
-            dto.LaboratoryCode = laboratory.Code;
-            var department = await _departmentRepository.FindAsync(laboratory.DepartmentId);
-            dto.LaboratoryName = department?.Name ?? "";
-        }
-
-        // Get Technical Manager name
-        dto.TechnicalManagerName = await _userNameProvider.GetUserNameAsync(task.TechnicalManagerId);
-
-        // Set current user role flags
-        var currentUserId = CurrentUser.Id;
-        if (currentUserId.HasValue)
-        {
-            dto.IsCurrentUserTechnicalManager = task.TechnicalManagerId == currentUserId.Value;
-
-            // Check if current user is a supporter
-            var supporters = await _supporterRepository.GetListAsync(s => s.LaboratoryTaskId == task.Id);
-            dto.IsCurrentUserSupporter = supporters.Any(s => s.UserId == currentUserId.Value);
-
-            // Check if current user is a department supporter (not expired)
-            dto.IsCurrentUserDepartmentSupporter = (await _departmentSupporterRepository.GetListAsync(
-                ds => ds.UserId == currentUserId.Value &&
-                      ds.LaboratoryId == task.LaboratoryId &&
-                      ds.ExpirationDate > DateTime.UtcNow)).Any();
-        }
-
-        return dto;
+        return dtos;
     }
 
     private async Task<LaboratoryTaskDto> MapToDetailDtoAsync(LaboratoryTask task)
@@ -485,19 +518,60 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         var specimenTypeNameCache = new Dictionary<Guid, string?>();
 
+        // Batch load dữ liệu liên quan cho toàn bộ indicators (thay vì ~9 query mỗi indicator)
+        var taskIndicatorIds = taskIndicators.Select(ti => ti.Id).ToList();
+        var sampleIndicatorIds = taskIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
+        var sampleIndicatorById = sampleIndicatorIds.Count == 0
+            ? new Dictionary<Guid, TestRequestSampleIndicator>()
+            : (await _sampleIndicatorRepository.GetListAsync(si => sampleIndicatorIds.Contains(si.Id))).ToDictionary(si => si.Id);
+
+        var sampleIds = sampleIndicatorById.Values.Select(si => si.TestRequestSampleId).Distinct().ToList();
+        var sampleById = sampleIds.Count == 0
+            ? new Dictionary<Guid, TestRequestSample>()
+            : (await _sampleRepository.GetListAsync(s => sampleIds.Contains(s.Id))).ToDictionary(s => s.Id);
+
+        var indicatorIds = sampleIndicatorById.Values.Select(si => si.IndicatorId).Distinct().ToList();
+        var indicatorById = indicatorIds.Count == 0
+            ? new Dictionary<Guid, Indicator>()
+            : (await _indicatorRepository.GetListAsync(i => indicatorIds.Contains(i.Id))).ToDictionary(i => i.Id);
+
+        var groupIds = indicatorById.Values.Select(i => i.IndicatorGroupId).Distinct().ToList();
+        var groupById = groupIds.Count == 0
+            ? new Dictionary<Guid, IndicatorGroup>()
+            : (await _indicatorGroupRepository.GetListAsync(g => groupIds.Contains(g.Id))).ToDictionary(g => g.Id);
+
+        var methodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
+        var methodById = methodIds.Count == 0
+            ? new Dictionary<Guid, TestMethod>()
+            : (await _testMethodRepository.GetListAsync(m => methodIds.Contains(m.Id))).ToDictionary(m => m.Id);
+
+        var standardIds = taskIndicators.Where(ti => ti.StandardId.HasValue).Select(ti => ti.StandardId!.Value).Distinct().ToList();
+        var standardById = standardIds.Count == 0
+            ? new Dictionary<Guid, Standard>()
+            : (await _standardRepository.GetListAsync(s => standardIds.Contains(s.Id))).ToDictionary(s => s.Id);
+        var standardIndicators = standardIds.Count == 0
+            ? new List<StandardIndicator>()
+            : await _standardIndicatorRepository.GetListAsync(si => standardIds.Contains(si.StandardId));
+
+        var imagesByIndicator = (await _indicatorImageRepository.GetListAsync(x => taskIndicatorIds.Contains(x.LaboratoryTaskIndicatorId)))
+            .ToLookup(x => x.LaboratoryTaskIndicatorId);
+        var historiesByIndicator = (await _methodChangeHistoryRepository.GetListAsync(h => taskIndicatorIds.Contains(h.IndicatorId)))
+            .ToLookup(h => h.IndicatorId);
+
         foreach (var taskIndicator in taskIndicators)
         {
-            var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
-            if (sampleIndicator == null) continue;
+            if (!sampleIndicatorById.TryGetValue(taskIndicator.TestRequestSampleIndicatorId, out var sampleIndicator))
+            {
+                continue;
+            }
 
-            var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
-            var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+            var sample = sampleById.GetValueOrDefault(sampleIndicator.TestRequestSampleId);
+            var indicator = indicatorById.GetValueOrDefault(sampleIndicator.IndicatorId);
 
             string? indicatorGroupName = null;
             if (indicator != null)
             {
-                var indicatorGroup = await _indicatorGroupRepository.FindAsync(indicator.IndicatorGroupId);
-                indicatorGroupName = indicatorGroup?.Name;
+                indicatorGroupName = groupById.GetValueOrDefault(indicator.IndicatorGroupId)?.Name;
             }
 
             // Get user names from batch-fetched dictionary
@@ -510,7 +584,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             var isSubContractMethod = !string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName);
             if (taskIndicator.MethodId.HasValue)
             {
-                var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
+                var method = methodById.GetValueOrDefault(taskIndicator.MethodId.Value);
                 if (!isSubContractMethod)
                 {
                     methodName = method?.Name;
@@ -540,11 +614,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string? upperLimit = null;
             if (taskIndicator.StandardId.HasValue)
             {
-                var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
-                standardName = standard?.Name;
+                standardName = standardById.GetValueOrDefault(taskIndicator.StandardId.Value)?.Name;
 
                 // Get StandardIndicator to get comparison operator and allowed limit
-                var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(
+                var standardIndicator = standardIndicators.FirstOrDefault(
                     si => si.StandardId == taskIndicator.StandardId.Value &&
                           si.IndicatorId == sampleIndicator.IndicatorId &&
                           si.TestMethodId == taskIndicator.MethodId);
@@ -560,11 +633,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             }
 
             // Get indicator images
-            var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
-                x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+            var indicatorImages = imagesByIndicator[taskIndicator.Id].ToList();
 
             // Get method change histories for this indicator
-            var methodChangeHistories = await _methodChangeHistoryRepository.GetListAsync(h => h.IndicatorId == taskIndicator.Id);
+            var methodChangeHistories = historiesByIndicator[taskIndicator.Id].ToList();
 
             dto.Indicators.Add(new LaboratoryTaskIndicatorDto
             {
@@ -3107,6 +3179,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         TestRequestId = tr.Id,
                         LaboratoryTaskId = lt.Id,
                         ContractNumber = tr.ContractNumber,
+                        CustomerName = tr.CustomerName,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
                         RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
@@ -3121,7 +3194,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         // Indicator info
                         TestRequestSampleIndicatorId = si.Id,
                         LaboratoryTaskIndicatorId = li.Id,
-                        IndicatorId = li.Id,
+                        IndicatorId = si.IndicatorId,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodId = li.MethodId,
@@ -3147,6 +3220,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                     };
 
         // Apply access control for QLKT: Show all tasks of Labs that user manages
+        var supporterTaskIds = new HashSet<Guid>();
         if (currentUserId.HasValue && !isAdmin)
         {
             // Get labs where current user is Technical Manager
@@ -3156,7 +3230,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 .ToHashSet();
 
             // Get task IDs where current user is a supporter
-            var supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
+            supporterTaskIds = (await _supporterRepository.GetListAsync(s => s.UserId == currentUserId.Value))
                 .Select(s => s.LaboratoryTaskId)
                 .ToHashSet();
 
@@ -3285,9 +3359,10 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         var dtos = items.Select(x => new SampleAssignmentLogDto
         {
             TestRequestId = x.TestRequestId,
-            QualityTaskId = Guid.Empty,
+            QualityTaskId = null,
             LaboratoryTaskId = x.LaboratoryTaskId,
             ContractNumber = x.ContractNumber,
+            CustomerName = x.CustomerName,
             TestRequestStatus = x.TestRequestStatus,
             RequestCompletionDate = x.RequestCompletionDate,
             ContractDate = x.ContractDate,
@@ -3324,7 +3399,12 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 x.QualityApprovalStatus,
                 x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
-            IsReportPublished = false
+            IsReportPublished = false,
+            CanEdit = currentUserId.HasValue && (
+                isAdmin ||
+                x.TechnicianId == currentUserId ||
+                x.TechnicalManagerId == currentUserId ||
+                supporterTaskIds.Contains(x.LaboratoryTaskId))
         }).ToList();
 
         return new PagedResultDto<SampleAssignmentLogDto>(totalContractCount, dtos);

@@ -46,9 +46,12 @@ using Volo.Abp.UI.Navigation.Urls;
 using Volo.Abp.VirtualFileSystem;
 using Volo.Abp.Timing;
 using LabSpecimenManagement.Hubs;
+using LabSpecimenManagement.Middlewares;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Services;
 using Microsoft.AspNetCore.SignalR;
+using Microsoft.AspNetCore.ResponseCompression;
+using System.IO.Compression;
 
 namespace LabSpecimenManagement;
 
@@ -162,12 +165,44 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         ConfigureSignalR(context);
         ConfigureClock();
         ConfigureForwardedHeaders(context);
+        ConfigureResponseCompression(context);
 
         // Register HttpClient for PDF conversion services
         context.Services.AddHttpClient();
 
         // Register PDF conversion service based on configuration (Gotenberg or OnlyOffice)
         context.Services.AddPdfConversionService(configuration);
+    }
+
+    /// <summary>
+    /// Nén response (Brotli/gzip) để giảm dung lượng JSON trên đường truyền yếu.
+    /// EnableForHttps bắt buộc vì nginx forward X-Forwarded-Proto=https nên middleware
+    /// coi request là HTTPS và sẽ bỏ qua nén nếu không bật cờ này.
+    /// CompressionLevel.Fastest để không tốn CPU server; SignalR (websocket/event-stream)
+    /// không bị ảnh hưởng vì mime type không nằm trong danh sách nén.
+    /// </summary>
+    private void ConfigureResponseCompression(ServiceConfigurationContext context)
+    {
+        context.Services.AddResponseCompression(options =>
+        {
+            options.EnableForHttps = true;
+            options.Providers.Add<BrotliCompressionProvider>();
+            options.Providers.Add<GzipCompressionProvider>();
+        });
+
+        // Optimal (quality ~4) nén tốt hơn hẳn Fastest (quality 1) mà CPU tăng không đáng kể;
+        // đo thực tế Fastest cho kết quả kém hơn cả gzip trên payload JSON danh mục
+        context.Services.Configure<BrotliCompressionProviderOptions>(options =>
+        {
+            options.Level = CompressionLevel.Optimal;
+        });
+
+        // Gzip chỉ là fallback cho client cũ không hỗ trợ Brotli;
+        // Optimal (level 6) nén tốt hơn Fastest ~9% với chi phí CPU không đáng kể
+        context.Services.Configure<GzipCompressionProviderOptions>(options =>
+        {
+            options.Level = CompressionLevel.Optimal;
+        });
     }
 
     /// <summary>
@@ -347,7 +382,10 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                     .SetIsOriginAllowedToAllowWildcardSubdomains()
                     .AllowAnyHeader()
                     .AllowAnyMethod()
-                    .AllowCredentials();
+                    .AllowCredentials()
+                    // Browser cache kết quả preflight 1h -> bớt 1 round-trip OPTIONS
+                    // cho mỗi API call, đáng kể với đường truyền yếu
+                    .SetPreflightMaxAge(TimeSpan.FromHours(1));
             });
         });
     }
@@ -366,11 +404,18 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         var app = context.GetApplicationBuilder();
         var env = context.GetEnvironment();
 
+        // Phải đứng trước mọi middleware ghi response body thì mới nén được
+        app.UseResponseCompression();
+
+        // ETag/304 cho master data — nằm TRONG compression để hash body chưa nén
+        // (ETag ổn định bất kể client hỗ trợ br hay gzip)
+        app.UseMiddleware<MasterDataEtagMiddleware>();
+
         if (env.IsDevelopment())
         {
             app.UseDeveloperExceptionPage();
         }
-
+        
         app.UseAbpRequestLocalization();
 
         if (!env.IsDevelopment())
@@ -385,7 +430,7 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         // This must be before authentication to ensure OpenIddict uses the correct scheme
         app.UseForwardedHeaders();
 
-        // Uploads are handled via Azure Blob Storage, no local file storage needed
+                // Uploads are handled via Azure Blob Storage, no local file storage needed
         // var webRootPath = env.WebRootPath ?? env.ContentRootPath;
         // var uploadsPath = Path.Combine(webRootPath, "uploads");
         // if (!Directory.Exists(uploadsPath))
@@ -547,5 +592,38 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             {
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
+
+        // Overdue task checker - chuyển Pending task quá hạn sang Overdue
+        // CRON: "5 0 * * *" = 00:05 hàng ngày (Vietnam time)
+        RecurringJob.AddOrUpdate<OverdueTaskCheckerJob>(
+            "overdue-task-checker-job",
+            job => job.ExecuteAsync(),
+            "5 0 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Temporary access grant expiration - expire overdue grants and revoke permissions
+        // CRON: "0 * * * *" = Every hour
+        RecurringJob.AddOrUpdate<TemporaryAccessGrantExpirationJob>(
+            "temporary-access-grant-expiration-job",
+            job => job.ExecuteAsync(),
+            "0 * * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
+        // Goods receipt status auto-update: Ordering -> WaitingReceipt when ExpectedDeliveryDate <= today
+        // CRON: "0 0 * * *" = At 00:00 every day (midnight Vietnam time)
+        // RecurringJob.AddOrUpdate<GoodsReceiptStatusUpdateJob>(
+        //     "goods-receipt-status-update-job",
+        //     job => job.ExecuteAsync(),
+        //     "0 0 * * *",
+        //     new RecurringJobOptions
+        //     {
+        //         TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+        //     });
     }
 }

@@ -15,6 +15,8 @@ public class GoodsReceiptPayment : FullAuditedEntity<Guid>
     public string? Phone { get; set; }
     public string? RepresentativeName { get; set; }
     public string? Notes { get; set; }
+    // JSON array of InvoiceFileInfoDto from /api/v1/files/upload
+    public string? InvoiceFileIds { get; set; }
 
     protected GoodsReceiptPayment()
     {
@@ -30,7 +32,8 @@ public class GoodsReceiptPayment : FullAuditedEntity<Guid>
         DateTime paymentDate,
         string? phone = null,
         string? representativeName = null,
-        string? notes = null) : base(id)
+        string? notes = null,
+        string? invoiceFileIds = null) : base(id)
     {
         GoodsReceiptId = goodsReceiptId;
         PaymentNumber = paymentNumber;
@@ -41,5 +44,6 @@ public class GoodsReceiptPayment : FullAuditedEntity<Guid>
         Phone = phone;
         RepresentativeName = representativeName;
         Notes = notes;
+        InvoiceFileIds = invoiceFileIds;
     }
 }
