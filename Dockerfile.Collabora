@@ -9,8 +9,4 @@ COPY fonts/ /usr/share/fonts/truetype/custom/
 RUN chmod 644 /usr/share/fonts/truetype/custom/*.ttf 2>/dev/null || true \
     && fc-cache -f -v
 
-# Copy custom coolwsd config (allows all WOPI hosts, disables SSL)
-COPY collabora-config/coolwsd.xml /etc/coolwsd/coolwsd.xml
-RUN chmod 644 /etc/coolwsd/coolwsd.xml
-
 USER cool
