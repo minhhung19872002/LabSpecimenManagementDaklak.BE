@@ -223,6 +223,7 @@ public class DefectiveHistoryItemDto
     public string ReceiptCode { get; set; }
     public string? ProductCode { get; set; }
     public string? CasNumber { get; set; }
+    public string? Manufacturer { get; set; }
     public string ProductName { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
     public string? UnitName { get; set; }

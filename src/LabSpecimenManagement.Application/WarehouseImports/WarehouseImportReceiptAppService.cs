@@ -430,7 +430,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var productById = (await _productRepository.GetQueryableAsync())
             .Where(x => productIds.Contains(x.Id))
             .ToList()
-            .ToDictionary(x => x.Id, x => new { x.Code, x.CASNumber });
+            .ToDictionary(x => x.Id, x => new { x.Code, x.CASNumber, x.Manufacturer });
 
         var creatorNameByReceiptId = new Dictionary<Guid, string?>();
         foreach (var receipt in completedReceipts)
@@ -447,6 +447,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 ReceiptCode = receipt.Code,
                 ProductCode = productById.TryGetValue(item.ProductId, out var p) ? p.Code : null,
                 CasNumber = p?.CASNumber,
+                Manufacturer = p?.Manufacturer,
                 ProductName = item.ProductName,
                 ActualReceivedQuantity = item.ActualReceivedQuantity,
                 UnitName = item.UnitName,
