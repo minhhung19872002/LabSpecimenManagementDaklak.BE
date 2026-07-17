@@ -238,6 +238,9 @@ public class PreviousReceivedLotDto
     public string? LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
+    public Guid? SkuId { get; set; }
+    public string? UnitName { get; set; }
+    public string? StorageWarehouseName { get; set; }
     public WarehouseImportLineStatus Status { get; set; }
     public string? QualityDocumentFileId { get; set; }
     public string? QualityDocumentFileName { get; set; }
