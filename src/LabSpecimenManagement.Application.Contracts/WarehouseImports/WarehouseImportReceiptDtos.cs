@@ -222,6 +222,7 @@ public class DefectiveHistoryItemDto
     public Guid ReceiptId { get; set; }
     public string ReceiptCode { get; set; }
     public string? ProductCode { get; set; }
+    public string? CasNumber { get; set; }
     public string ProductName { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
     public string? Notes { get; set; }
