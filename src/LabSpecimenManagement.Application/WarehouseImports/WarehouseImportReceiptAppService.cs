@@ -449,6 +449,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 CasNumber = p?.CASNumber,
                 ProductName = item.ProductName,
                 ActualReceivedQuantity = item.ActualReceivedQuantity,
+                UnitName = item.UnitName,
                 Notes = item.Notes,
                 CreatorName = creatorNameByReceiptId[item.WarehouseImportReceiptId],
                 ReceiptCreationTime = receipt.CreationTime
