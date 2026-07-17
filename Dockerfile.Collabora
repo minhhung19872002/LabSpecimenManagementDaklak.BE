@@ -1,0 +1,9 @@
+FROM collabora/code:23.05.9.4.1
+
+USER root
+
+# Copy Times New Roman directly into LibreOffice font directory (no fc-cache needed)
+COPY fonts/ /opt/collaboraoffice/share/fonts/truetype/
+RUN chmod 644 /opt/collaboraoffice/share/fonts/truetype/*.ttf 2>/dev/null || true
+
+USER cool

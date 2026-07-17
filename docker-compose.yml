@@ -102,7 +102,9 @@ services:
 
     # Collabora Online - LibreOffice Online with full formatting support (including dashed borders)
     collabora:
-        image: collabora/code:latest
+        build:
+            context: .
+            dockerfile: Dockerfile.Collabora
         container_name: lab-specimen-collabora
         ports:
             - "8089:9980"
