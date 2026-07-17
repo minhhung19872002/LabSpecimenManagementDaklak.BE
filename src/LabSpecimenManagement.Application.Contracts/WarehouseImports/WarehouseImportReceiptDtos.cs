@@ -85,6 +85,7 @@ public class WarehouseImportReceiptItemDto : EntityDto<Guid>
     public Guid ProductId { get; set; }
     public string ProductName { get; set; }
     public decimal OrderedQuantity { get; set; }
+    public string? PurchaseUnitName { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
     public Guid? UnitId { get; set; }
     public string? UnitName { get; set; }

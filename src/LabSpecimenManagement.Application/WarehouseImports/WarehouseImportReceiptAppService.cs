@@ -672,9 +672,18 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var dto = ObjectMapper.Map<WarehouseImportReceipt, WarehouseImportReceiptDto>(receipt);
         dto.CreatorName = await _userNameProvider.GetUserNameAsync(receipt.CreatorId) ?? "Admin";
         dto.HasDefectiveItem = receipt.Items.Any(x => x.Status == WarehouseImportLineStatus.Defective);
-        dto.Items = receipt.Items
-            .Select(x => ObjectMapper.Map<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>(x))
-            .ToList();
+
+        var goodsReceiptItemIds = receipt.Items.Select(x => x.GoodsReceiptItemId).Distinct().ToList();
+        var purchaseUnitByPoLineId = (await _goodsReceiptItemRepository.GetQueryableAsync())
+            .Where(x => goodsReceiptItemIds.Contains(x.Id))
+            .ToDictionary(x => x.Id, x => x.UnitName);
+
+        dto.Items = receipt.Items.Select(x =>
+        {
+            var itemDto = ObjectMapper.Map<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>(x);
+            itemDto.PurchaseUnitName = purchaseUnitByPoLineId.TryGetValue(x.GoodsReceiptItemId, out var u) ? u : null;
+            return itemDto;
+        }).ToList();
 
         var goodsReceipt = await _goodsReceiptRepository.FindAsync(receipt.GoodsReceiptId);
         if (goodsReceipt != null)
