@@ -120,11 +120,14 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }
             }
 
+            var receiptIdsInWarehouse = importReceiptQuery
+                .Where(r => r.WarehouseId.HasValue && warehouseIds.Contains(r.WarehouseId.Value))
+                .Select(r => r.Id);
+
             var productIdsInWarehouse = importItemQuery
-                .Where(i => importReceiptQuery
-                    .Where(r => warehouseIds.Contains(r.WarehouseId!.Value))
-                    .Select(r => r.Id)
-                    .Contains(i.WarehouseImportReceiptId))
+                .Where(i =>
+                    (i.StorageWarehouseId.HasValue && warehouseIds.Contains(i.StorageWarehouseId.Value)) ||
+                    receiptIdsInWarehouse.Contains(i.WarehouseImportReceiptId))
                 .Select(i => i.ProductId)
                 .Distinct();
 
