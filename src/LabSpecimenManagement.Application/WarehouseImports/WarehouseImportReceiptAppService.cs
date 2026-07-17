@@ -91,6 +91,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             query = query.Where(x => x.ActualImportDate < to);
         }
 
+        if (input.SupplierId.HasValue)
+            query = query.Where(x => x.SupplierId == input.SupplierId);
+
         var goodsReceiptInfoById = goodsReceiptQuery.ToDictionary(x => x.Id, x => new { x.SupplierName, x.SupplierRepresentativeName });
         var supplierNameByGoodsReceiptId = goodsReceiptInfoById.ToDictionary(x => x.Key, x => x.Value.SupplierName);
 
