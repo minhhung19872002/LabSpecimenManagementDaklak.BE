@@ -111,22 +111,7 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         if (input.WarehouseId.HasValue)
         {
-            var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-            var allWarehouses = warehouseQuery.Where(w => w.IsActive)
-                .Select(w => new { w.Id, w.ParentWarehouseId }).ToList();
-
-            var warehouseIds = new HashSet<Guid> { input.WarehouseId.Value };
-            var queue = new Queue<Guid>();
-            queue.Enqueue(input.WarehouseId.Value);
-            while (queue.Count > 0)
-            {
-                var parentId = queue.Dequeue();
-                foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
-                {
-                    if (warehouseIds.Add(child.Id))
-                        queue.Enqueue(child.Id);
-                }
-            }
+            var warehouseIds = await GetWarehouseSubtreeIdsAsync(input.WarehouseId.Value);
 
             var receiptIdsInWarehouse = importReceiptQuery
                 .Where(r => r.WarehouseId.HasValue && warehouseIds.Contains(r.WarehouseId.Value))
@@ -894,7 +879,242 @@ public class ProductAppService : ApplicationService, IProductAppService
         return new PagedResultDto<ProductSourceDto>(totalCount, dtos);
     }
 
+    public async Task<ProductDetailDto> GetDetailAsync(Guid id, Guid? warehouseId)
+    {
+        var product = await _productRepository.GetAsync(id);
+
+        var unitQuery = await _unitRepository.GetQueryableAsync();
+        var unitIds = new[] { product.BaseUnitId, product.PackagingUnitId }
+            .Where(uid => uid.HasValue).Select(uid => uid!.Value).Distinct().ToList();
+        var unitMap = unitQuery.Where(u => unitIds.Contains(u.Id))
+            .ToDictionary(u => u.Id, u => u.Name);
+
+        decimal warehouseQty = product.AvailableQuantity;
+
+        if (warehouseId.HasValue)
+        {
+            var warehouseIds = await GetWarehouseSubtreeIdsAsync(warehouseId.Value);
+
+            var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+            var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+            var importItems = (from item in importItemQuery
+                               join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                               where item.ProductId == id
+                                     && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                     && item.Status == WarehouseImportLineStatus.Checked
+                               where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                     || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                               select new { item.ActualReceivedQuantity, item.UnitId, item.SkuId })
+                               .ToList();
+
+            if (importItems.Any())
+            {
+                var skuIds = importItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+                var skuLookup = skuIds.Any()
+                    ? (await _skuRepository.GetQueryableAsync()).Where(s => skuIds.Contains(s.Id)).ToDictionary(s => s.Id)
+                    : new Dictionary<Guid, ProductSku>();
+
+                warehouseQty = 0;
+                foreach (var item in importItems)
+                {
+                    try
+                    {
+                        if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku))
+                            warehouseQty += ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+                        else
+                            warehouseQty += await _unitConversionResolver.ResolveBaseQuantityAsync(
+                                product, item.UnitId, item.ActualReceivedQuantity, product.Name);
+                    }
+                    catch
+                    {
+                        warehouseQty += item.ActualReceivedQuantity;
+                    }
+                }
+            }
+            else
+            {
+                warehouseQty = 0;
+            }
+        }
+
+        return new ProductDetailDto
+        {
+            Id = product.Id,
+            Name = product.Name,
+            FormattedName = product.FormattedName,
+            IdentificationCode = product.IdentificationCode,
+            CASNumber = product.CASNumber,
+            StorageConditions = product.StorageConditions,
+            FormattedStorageConditions = product.FormattedStorageConditions,
+            MainTechnicalSpecs = product.MainTechnicalSpecs,
+            ProductType = product.ProductType,
+            WarehouseAvailableQuantity = warehouseQty,
+            BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null,
+            PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null,
+            PackagingQuantity = product.PackagingQuantity,
+        };
+    }
+
+    public async Task<PagedResultDto<ProductImportHistoryDto>> GetImportHistoryAsync(Guid id, GetProductImportHistoryInput input)
+    {
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var query = from item in importItemQuery
+                    join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                    where item.ProductId == id
+                          && receipt.Status == WarehouseImportReceiptStatus.Completed
+                          && item.Status == WarehouseImportLineStatus.Checked
+                    select new { item, receipt };
+
+        if (input.WarehouseId.HasValue)
+        {
+            var warehouseIds = await GetWarehouseSubtreeIdsAsync(input.WarehouseId.Value);
+            query = query.Where(x =>
+                (x.item.StorageWarehouseId.HasValue && warehouseIds.Contains(x.item.StorageWarehouseId.Value))
+                || (!x.item.StorageWarehouseId.HasValue && x.receipt.WarehouseId.HasValue && warehouseIds.Contains(x.receipt.WarehouseId.Value)));
+        }
+
+        if (input.FromDate.HasValue)
+            query = query.Where(x => x.receipt.ActualImportDate >= input.FromDate.Value.Date);
+
+        if (input.ToDate.HasValue)
+            query = query.Where(x => x.receipt.ActualImportDate < input.ToDate.Value.Date.AddDays(1));
+
+        var totalCount = query.Count();
+
+        var sorted = !string.IsNullOrWhiteSpace(input.Sorting)
+            ? input.Sorting.Trim().ToLower() switch
+            {
+                "lotexpirydate asc" => query.OrderBy(x => x.item.LotExpiryDate == null ? 1 : 0).ThenBy(x => x.item.LotExpiryDate),
+                "lotexpirydate desc" => query.OrderBy(x => x.item.LotExpiryDate == null ? 1 : 0).ThenByDescending(x => x.item.LotExpiryDate),
+                "actualimportdate asc" => query.OrderBy(x => x.receipt.ActualImportDate),
+                "actualimportdate desc" => query.OrderByDescending(x => x.receipt.ActualImportDate),
+                _ => query.OrderBy(x => x.item.LotExpiryDate == null ? 1 : 0).ThenBy(x => x.item.LotExpiryDate),
+            }
+            : query.OrderBy(x => x.item.LotExpiryDate == null ? 1 : 0).ThenBy(x => x.item.LotExpiryDate);
+
+        var rawItems = sorted.Skip(input.SkipCount).Take(input.MaxResultCount)
+            .Select(x => new
+            {
+                ReceiptId = x.receipt.Id,
+                ReceiptCode = x.receipt.Code,
+                x.receipt.ActualImportDate,
+                x.receipt.SupplierName,
+                x.item.OrderedQuantity,
+                x.item.ActualReceivedQuantity,
+                x.item.UnitName,
+                x.item.LotNumber,
+                x.item.LotExpiryDate,
+                x.item.QualityDocumentFileId,
+                x.item.QualityDocumentFileName,
+                x.item.QualityDocumentFilePath,
+                x.receipt.TotalAmount,
+                x.item.GoodsReceiptItemId,
+                x.item.SkuId,
+            }).ToList();
+
+        var goodsReceiptItemIds = rawItems.Select(x => x.GoodsReceiptItemId).Distinct().ToList();
+        var grItemLookup = (await _goodsReceiptItemRepository.GetQueryableAsync())
+            .Where(x => goodsReceiptItemIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.UnitName })
+            .ToDictionary(x => x.Id);
+
+        var skuIds = rawItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuMap = skuIds.Count > 0
+            ? (await _skuRepository.GetQueryableAsync()).Where(x => skuIds.Contains(x.Id)).ToDictionary(x => x.Id)
+            : new Dictionary<Guid, ProductSku>();
+        var manufacturerIds = skuMap.Values.Select(x => x.ManufacturerId).Distinct().ToList();
+        var manufacturerNames = manufacturerIds.Count > 0
+            ? (await _manufacturerRepository.GetQueryableAsync()).Where(x => manufacturerIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name)
+            : new Dictionary<Guid, string>();
+
+        var items = rawItems.Select(x =>
+        {
+            var dto = new ProductImportHistoryDto
+            {
+                WarehouseImportReceiptId = x.ReceiptId,
+                ReceiptCode = x.ReceiptCode,
+                ActualImportDate = x.ActualImportDate,
+                SupplierName = x.SupplierName,
+                OrderedQuantity = x.OrderedQuantity,
+                ActualReceivedQuantity = x.ActualReceivedQuantity,
+                UnitName = x.UnitName,
+                LotNumber = x.LotNumber,
+                LotExpiryDate = x.LotExpiryDate,
+                QualityDocumentFileId = x.QualityDocumentFileId,
+                QualityDocumentFileName = x.QualityDocumentFileName,
+                QualityDocumentFilePath = x.QualityDocumentFilePath,
+                TotalAmount = x.TotalAmount,
+            };
+            if (grItemLookup.TryGetValue(x.GoodsReceiptItemId, out var grItem))
+            {
+                dto.PurchaseUnitName = grItem.UnitName;
+            }
+            if (x.SkuId.HasValue && skuMap.TryGetValue(x.SkuId.Value, out var sku)
+                && manufacturerNames.TryGetValue(sku.ManufacturerId, out var mfName))
+                dto.ManufacturerName = mfName;
+            return dto;
+        }).ToList();
+
+        var receiptIds = items.Select(x => x.WarehouseImportReceiptId).Distinct().ToList();
+        var deliveryDocsMap = new Dictionary<Guid, List<WarehouseImports.DeliveryDocumentFileDto>>();
+        if (receiptIds.Any())
+        {
+            var receipts = importReceiptQuery.Where(r => receiptIds.Contains(r.Id)).ToList();
+            foreach (var r in receipts)
+            {
+                var docs = new List<WarehouseImports.DeliveryDocumentFileDto>();
+                if (!string.IsNullOrEmpty(r.DeliveryDocumentFiles))
+                {
+                    var parsed = System.Text.Json.JsonSerializer.Deserialize<List<WarehouseImports.DeliveryDocumentFileDto>>(r.DeliveryDocumentFiles);
+                    if (parsed != null) docs.AddRange(parsed);
+                }
+                else if (!string.IsNullOrEmpty(r.DeliveryDocumentFileId))
+                {
+                    docs.Add(new WarehouseImports.DeliveryDocumentFileDto
+                    {
+                        FileId = r.DeliveryDocumentFileId,
+                        FileName = r.DeliveryDocumentFileName ?? "",
+                        FileSize = r.DeliveryDocumentFileSize,
+                    });
+                }
+                deliveryDocsMap[r.Id] = docs;
+            }
+        }
+
+        foreach (var item in items)
+        {
+            item.DeliveryDocumentFiles = deliveryDocsMap.GetValueOrDefault(item.WarehouseImportReceiptId);
+        }
+
+        return new PagedResultDto<ProductImportHistoryDto>(totalCount, items);
+    }
+
     #region Private Methods
+
+    private async Task<HashSet<Guid>> GetWarehouseSubtreeIdsAsync(Guid rootWarehouseId)
+    {
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var allWarehouses = warehouseQuery.Where(w => w.IsActive)
+            .Select(w => new { w.Id, w.ParentWarehouseId }).ToList();
+
+        var warehouseIds = new HashSet<Guid> { rootWarehouseId };
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootWarehouseId);
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
+            {
+                if (warehouseIds.Add(child.Id))
+                    queue.Enqueue(child.Id);
+            }
+        }
+
+        return warehouseIds;
+    }
 
     private async Task CheckProductNotReferencedAsync(Guid productId)
     {

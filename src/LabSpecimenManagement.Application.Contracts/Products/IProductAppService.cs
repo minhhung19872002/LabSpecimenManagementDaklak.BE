@@ -20,4 +20,6 @@ public interface IProductAppService : IApplicationService
     Task DeleteAttachmentAsync(Guid productId, Guid attachmentId);
     Task DeleteSkuAsync(Guid productId, Guid skuId);
     Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input);
+    Task<ProductDetailDto> GetDetailAsync(Guid id, Guid? warehouseId);
+    Task<PagedResultDto<ProductImportHistoryDto>> GetImportHistoryAsync(Guid id, GetProductImportHistoryInput input);
 }
