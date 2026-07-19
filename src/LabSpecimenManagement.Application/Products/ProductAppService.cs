@@ -826,6 +826,59 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToList()
             .ToDictionary(x => x.ProductId, x => x.Total);
 
+        // Consumable quantity from completed imports (per-SKU accurate)
+        var consumableImportItems = (from item in importItemQuery
+                                     join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                                     where productIds.Contains(item.ProductId)
+                                           && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                           && item.Status == WarehouseImportLineStatus.Checked
+                                     select new
+                                     {
+                                         item.ProductId,
+                                         item.SkuId,
+                                         item.UnitId,
+                                         item.ActualReceivedQuantity
+                                     })
+                                     .ToList();
+        var consumableByProduct = new Dictionary<Guid, decimal>();
+        foreach (var ci in consumableImportItems)
+        {
+            decimal cQty = 0;
+            ProductSku? sku = null;
+            if (ci.SkuId.HasValue && skuMap.TryGetValue(ci.ProductId, out var pSkus))
+                sku = pSkus.FirstOrDefault(s => s.Id == ci.SkuId.Value);
+
+            if (sku?.VolumePerUnit > 0)
+            {
+                if (ci.UnitId == sku.VolumeUnitId)
+                    cQty = ci.ActualReceivedQuantity;
+                else if (ci.UnitId == sku.PackagingUnitId)
+                    cQty = ci.ActualReceivedQuantity * sku.VolumePerUnit.Value;
+                else if (ci.UnitId == sku.BaseUnitId && sku.BaseUnitId != sku.PackagingUnitId)
+                    cQty = ci.ActualReceivedQuantity * (sku.PackagingQuantity ?? 1) * sku.VolumePerUnit.Value;
+                else
+                    cQty = ci.ActualReceivedQuantity * sku.VolumePerUnit.Value;
+            }
+            else
+            {
+                var prod = products.FirstOrDefault(p => p.Id == ci.ProductId);
+                if (prod?.VolumePerUnit > 0)
+                {
+                    if (ci.UnitId == prod.VolumeUnitId)
+                        cQty = ci.ActualReceivedQuantity;
+                    else if (ci.UnitId == prod.PackagingUnitId)
+                        cQty = ci.ActualReceivedQuantity * prod.VolumePerUnit.Value;
+                    else if (ci.UnitId == prod.BaseUnitId && prod.BaseUnitId != prod.PackagingUnitId)
+                        cQty = ci.ActualReceivedQuantity * (prod.PackagingQuantity ?? 1) * prod.VolumePerUnit.Value;
+                    else
+                        cQty = ci.ActualReceivedQuantity * prod.VolumePerUnit.Value;
+                }
+            }
+
+            if (cQty > 0)
+                consumableByProduct[ci.ProductId] = consumableByProduct.GetValueOrDefault(ci.ProductId) + cQty;
+        }
+
         // Load all unit names for conversions
         var allConversionUnitIds = conversions
             .SelectMany(c => new[] { c.BaseUnitId, c.ConvertedUnitId })
@@ -850,6 +903,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             dto.StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
+            dto.ConsumableImportedQuantity = consumableByProduct.GetValueOrDefault(product.Id);
             dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
 
             // FIFO batch data

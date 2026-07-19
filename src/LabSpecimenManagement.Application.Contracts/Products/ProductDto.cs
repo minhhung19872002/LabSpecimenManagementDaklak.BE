@@ -62,6 +62,7 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public string? InstallationLocation { get; set; }
     public decimal AvailableQuantity { get; set; }
     public decimal StorageAvailableQuantity { get; set; }
+    public decimal ConsumableImportedQuantity { get; set; }
     public bool IsActive { get; set; }
     public bool IsDraft { get; set; }
     public int SkuCount { get; set; }
