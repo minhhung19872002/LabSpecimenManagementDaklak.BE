@@ -59,6 +59,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
     private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IFifoStockDeductionService _fifoStockService;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -90,7 +91,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<Product, Guid> productRepository,
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
-        IRepository<TestBatchItem, Guid> testBatchItemRepository)
+        IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IFifoStockDeductionService fifoStockService)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -122,6 +124,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _equipmentRepository = equipmentRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
         _testBatchItemRepository = testBatchItemRepository;
+        _fifoStockService = fifoStockService;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -1519,7 +1522,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         // Deduct stock based on material consumption setup
-        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators);
+        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id);
 
         // Mark corresponding batch items as externally completed
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
@@ -1543,7 +1546,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
-    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators)
+    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators, Guid taskId)
     {
         var indicatorsWithMethod = submittedIndicators.Where(i => i.MethodId.HasValue).ToList();
         if (!indicatorsWithMethod.Any()) return;
@@ -1615,8 +1618,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     baseQty = item.Quantity * ratio;
                 }
 
-                product.AvailableQuantity -= baseQty;
-                await _productRepository.UpdateAsync(product, autoSave: true);
+                await _fifoStockService.DeductAsync(
+                    product, baseQty,
+                    StockMovementType.MaterialConsumption,
+                    taskId, null,
+                    "Tiêu hao tự động theo chỉ tiêu");
             }
         }
 

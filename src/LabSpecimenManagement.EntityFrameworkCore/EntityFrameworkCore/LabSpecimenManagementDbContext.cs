@@ -732,6 +732,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.SkuId);
             b.Property(x => x.StorageWarehouseId);
             b.Property(x => x.StorageWarehouseName).HasMaxLength(500);
+            b.Property(x => x.ReceivedBaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ConsumedBaseQuantity).HasPrecision(18, 4);
 
             b.HasIndex(x => x.WarehouseImportReceiptId);
             b.HasIndex(x => x.GoodsReceiptItemId);
@@ -1676,10 +1678,13 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.QuantityAfter).HasPrecision(18, 4);
             b.Property(x => x.ChangeQuantity).HasPrecision(18, 4);
 
+            b.Property(x => x.LotNumber).HasMaxLength(100);
+
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.MovementType);
             b.HasIndex(x => x.ReferenceId);
             b.HasIndex(x => x.CreationTime);
+            b.HasIndex(x => x.WarehouseId);
         });
 
         builder.Entity<Equipment>(b =>

@@ -14,6 +14,9 @@ public class StockMovementLog : CreationAuditedEntity<Guid>
     public Guid? ReferenceId { get; set; }
     public string? ReferenceCode { get; set; }
     public string? Notes { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? LotNumber { get; set; }
+    public Guid? WarehouseImportReceiptItemId { get; set; }
 
     protected StockMovementLog() { }
 
@@ -26,7 +29,10 @@ public class StockMovementLog : CreationAuditedEntity<Guid>
         StockMovementType movementType,
         Guid? referenceId = null,
         string? referenceCode = null,
-        string? notes = null)
+        string? notes = null,
+        Guid? warehouseId = null,
+        string? lotNumber = null,
+        Guid? warehouseImportReceiptItemId = null)
         : base(id)
     {
         ProductId = productId;
@@ -38,5 +44,8 @@ public class StockMovementLog : CreationAuditedEntity<Guid>
         ReferenceId = referenceId;
         ReferenceCode = referenceCode;
         Notes = notes;
+        WarehouseId = warehouseId;
+        LotNumber = lotNumber;
+        WarehouseImportReceiptItemId = warehouseImportReceiptItemId;
     }
 }

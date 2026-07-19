@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
@@ -26,6 +27,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
+    private readonly IFifoStockDeductionService _fifoStockService;
 
     public PreparedSolutionBatchAppService(
         IRepository<PreparedSolutionBatch, Guid> repository,
@@ -35,7 +37,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         IRepository<StockMovementLog, Guid> stockMovementLogRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
-        IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository)
+        IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
+        IFifoStockDeductionService fifoStockService)
     {
         _repository = repository;
         _ingredientRepository = ingredientRepository;
@@ -45,6 +48,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         _warehouseRepository = warehouseRepository;
         _importReceiptRepository = importReceiptRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
+        _fifoStockService = fifoStockService;
     }
 
     public async Task<PagedResultDto<PreparedSolutionBatchDto>> GetListAsync(GetPreparedSolutionBatchesInput input)
@@ -419,23 +423,13 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
             await _ingredientRepository.InsertAsync(ingredient, autoSave: true);
 
-            // Equipment: do not deduct AvailableQuantity — no reliable ProductId→Equipment.Id link in V1
             if (!isEquipment)
             {
-                var quantityBefore = product.AvailableQuantity;
-                product.AvailableQuantity -= inp.QuantityUsed;
-                await _productRepository.UpdateAsync(product, autoSave: true);
-
-                await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
-                    GuidGenerator.Create(),
-                    product.Id,
-                    product.Name,
-                    quantityBefore,
-                    product.AvailableQuantity,
+                await _fifoStockService.DeductAsync(
+                    product, inp.QuantityUsed,
                     StockMovementType.MaterialConsumption,
-                    batchId,
-                    lotCode,
-                    "Pha dung dịch"), autoSave: true);
+                    batchId, lotCode,
+                    "Pha dung dịch");
             }
         }
     }
@@ -445,25 +439,18 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         string lotCode,
         List<PreparedSolutionIngredient> oldIngredients)
     {
-        foreach (var old in oldIngredients.Where(i => !i.IsEquipment))
+        var distinctProductIds = oldIngredients
+            .Where(i => !i.IsEquipment)
+            .Select(i => i.ProductId)
+            .Distinct()
+            .ToList();
+
+        foreach (var productId in distinctProductIds)
         {
-            var product = await _productRepository.FindAsync(old.ProductId);
+            var product = await _productRepository.FindAsync(productId);
             if (product == null) continue;
 
-            var quantityBefore = product.AvailableQuantity;
-            product.AvailableQuantity += old.QuantityUsed;
-            await _productRepository.UpdateAsync(product, autoSave: true);
-
-            await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
-                GuidGenerator.Create(),
-                product.Id,
-                product.Name,
-                quantityBefore,
-                product.AvailableQuantity,
-                StockMovementType.StockAdjustment,
-                batchId,
-                lotCode,
-                "Hoàn lại — chỉnh sửa phiếu pha"), autoSave: true);
+            await _fifoStockService.ReverseAsync(product, batchId, "Hoàn lại — chỉnh sửa phiếu pha");
         }
     }
 

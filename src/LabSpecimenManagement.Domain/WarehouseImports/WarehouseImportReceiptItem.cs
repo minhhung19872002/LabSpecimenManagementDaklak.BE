@@ -24,6 +24,8 @@ public class WarehouseImportReceiptItem : Entity<Guid>
     public Guid? SkuId { get; set; }
     public Guid? StorageWarehouseId { get; set; }
     public string? StorageWarehouseName { get; set; }
+    public decimal ReceivedBaseQuantity { get; set; }
+    public decimal ConsumedBaseQuantity { get; set; }
 
     protected WarehouseImportReceiptItem()
     {

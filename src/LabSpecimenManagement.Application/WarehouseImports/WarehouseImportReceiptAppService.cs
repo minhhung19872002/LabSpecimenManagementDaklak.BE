@@ -277,6 +277,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             }
             product.AvailableQuantity += baseQty;
             await _productRepository.UpdateAsync(product, autoSave: true);
+
+            item.ReceivedBaseQuantity = baseQty;
         }
 
         receipt.Status = WarehouseImportReceiptStatus.Completed;

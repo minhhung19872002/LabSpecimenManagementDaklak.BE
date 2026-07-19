@@ -27,6 +27,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
+    private readonly IFifoStockDeductionService _fifoStockService;
 
     public StockAdjustmentAppService(
         IRepository<StockAdjustment, Guid> repository,
@@ -36,7 +37,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         IRepository<StockMovementLog, Guid> stockMovementLogRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
-        IUserNameProvider userNameProvider)
+        IUserNameProvider userNameProvider,
+        IFifoStockDeductionService fifoStockService)
     {
         _repository = repository;
         _itemRepository = itemRepository;
@@ -46,6 +48,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
+        _fifoStockService = fifoStockService;
     }
 
     public async Task<PagedResultDto<StockAdjustmentListDto>> GetListAsync(GetStockAdjustmentListInput input)
@@ -227,19 +230,31 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         {
             var product = await _productRepository.GetAsync(item.ProductId);
             var quantityBefore = product.AvailableQuantity;
-            product.AvailableQuantity = item.ActualQuantity;
-            await _productRepository.UpdateAsync(product, autoSave: true);
 
-            var log = new StockMovementLog(
-                GuidGenerator.Create(),
-                product.Id,
-                product.Name,
-                quantityBefore,
-                item.ActualQuantity,
-                StockMovementType.StockAdjustment,
-                adjustment.Id,
-                adjustment.Code);
-            await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
+            if (item.ActualQuantity < quantityBefore)
+            {
+                var diff = quantityBefore - item.ActualQuantity;
+                await _fifoStockService.DeductAsync(
+                    product, diff,
+                    StockMovementType.StockAdjustment,
+                    adjustment.Id, adjustment.Code, null);
+            }
+            else if (item.ActualQuantity > quantityBefore)
+            {
+                product.AvailableQuantity = item.ActualQuantity;
+                await _productRepository.UpdateAsync(product, autoSave: true);
+
+                var log = new StockMovementLog(
+                    GuidGenerator.Create(),
+                    product.Id,
+                    product.Name,
+                    quantityBefore,
+                    item.ActualQuantity,
+                    StockMovementType.StockAdjustment,
+                    adjustment.Id,
+                    adjustment.Code);
+                await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
+            }
         }
 
         adjustment.Status = StockAdjustmentStatus.Confirmed;

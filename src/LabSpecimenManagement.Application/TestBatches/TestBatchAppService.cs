@@ -44,6 +44,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IAsyncQueryableExecuter AsyncExecuter;
+    private readonly IFifoStockDeductionService _fifoStockService;
 
     public TestBatchAppService(
         IRepository<TestBatch, Guid> testBatchRepository,
@@ -65,7 +66,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
-        IAsyncQueryableExecuter asyncQueryableExecuter)
+        IAsyncQueryableExecuter asyncQueryableExecuter,
+        IFifoStockDeductionService fifoStockService)
     {
         _testBatchRepository = testBatchRepository;
         _testBatchItemRepository = testBatchItemRepository;
@@ -87,6 +89,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         AsyncExecuter = asyncQueryableExecuter;
+        _fifoStockService = fifoStockService;
     }
 
     public async Task<PagedResultDto<TestBatchListDto>> GetListAsync(GetTestBatchListInput input)
@@ -1074,8 +1077,11 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     baseQty = consumption.ActualQuantity * ratio;
                 }
 
-                product.AvailableQuantity -= baseQty;
-                await _productRepository.UpdateAsync(product, autoSave: true);
+                await _fifoStockService.DeductAsync(
+                    product, baseQty,
+                    StockMovementType.MaterialConsumption,
+                    consumption.TestBatchId, null,
+                    "Tiêu hao thử nghiệm");
             }
         }
 

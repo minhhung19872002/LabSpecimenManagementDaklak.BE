@@ -37,6 +37,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<StockMovementLog, Guid> _stockMovementLogRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
+    private readonly IUnitConversionResolver _unitConversionResolver;
 
     public ProductAppService(
         IRepository<Product, Guid> productRepository,
@@ -53,7 +54,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<StockMovementLog, Guid> stockMovementLogRepository,
         ICodeGeneratorService codeGenerator,
-        IDataFilter dataFilter)
+        IDataFilter dataFilter,
+        IUnitConversionResolver unitConversionResolver)
     {
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
@@ -70,10 +72,16 @@ public class ProductAppService : ApplicationService, IProductAppService
         _stockMovementLogRepository = stockMovementLogRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
+        _unitConversionResolver = unitConversionResolver;
     }
 
     public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
     {
+        if (input.WarehouseId.HasValue)
+        {
+            return await GetListByWarehouseAsync(input);
+        }
+
         var query = await _productRepository.GetQueryableAsync();
 
         // Filter by ProductType
@@ -187,6 +195,241 @@ public class ProductAppService : ApplicationService, IProductAppService
         var dtos = await MapToProductDtosAsync(items);
 
         return new PagedResultDto<ProductDto>(totalCount, dtos);
+    }
+
+    private async Task<PagedResultDto<ProductDto>> GetListByWarehouseAsync(ProductFilterDto input)
+    {
+        // 1. BFS warehouse hierarchy
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var allWarehouses = warehouseQuery.Where(w => w.IsActive)
+            .Select(w => new { w.Id, w.ParentWarehouseId, w.Name }).ToList();
+
+        var warehouseIds = new HashSet<Guid> { input.WarehouseId!.Value };
+        var queue = new Queue<Guid>();
+        queue.Enqueue(input.WarehouseId.Value);
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
+            {
+                if (warehouseIds.Add(child.Id))
+                    queue.Enqueue(child.Id);
+            }
+        }
+
+        var warehouseNameMap = allWarehouses
+            .Where(w => warehouseIds.Contains(w.Id))
+            .ToDictionary(w => w.Id, w => w.Name);
+
+        // 2. Query completed+checked import items in warehouse scope
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var importItemsRaw = (from item in importItemQuery
+                              join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                              where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                    && item.Status == WarehouseImportLineStatus.Checked
+                              where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                              select new
+                              {
+                                  item.ProductId,
+                                  item.ProductName,
+                                  EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                                  item.StorageWarehouseName,
+                                  ReceiptWarehouseName = receipt.WarehouseName,
+                                  item.ActualReceivedQuantity,
+                                  item.UnitId,
+                                  item.SkuId
+                              })
+                              .ToList();
+
+        var importItems = importItemsRaw.Where(x => x.EffectiveWarehouseId.HasValue).ToList();
+        if (!importItems.Any())
+            return new PagedResultDto<ProductDto>(0, new List<ProductDto>());
+
+        // 3. Load products with filters
+        var productIdsInScope = importItems.Select(x => x.ProductId).Distinct().ToList();
+        var productQuery = await _productRepository.GetQueryableAsync();
+        productQuery = productQuery.Where(x => productIdsInScope.Contains(x.Id));
+
+        if (input.ProductType.HasValue)
+            productQuery = productQuery.Where(x => x.ProductType == input.ProductType.Value);
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.Trim().ToLower();
+            productQuery = productQuery.Where(x =>
+                x.Code.ToLower().Contains(search) || x.Name.ToLower().Contains(search));
+        }
+        if (input.IsDraft.HasValue)
+            productQuery = productQuery.Where(x => x.IsDraft == input.IsDraft.Value);
+
+        var filteredProducts = productQuery.ToList();
+        var filteredProductIds = filteredProducts.Select(p => p.Id).ToHashSet();
+        var productMap = filteredProducts.ToDictionary(p => p.Id);
+
+        var filteredImportItems = importItems.Where(x => filteredProductIds.Contains(x.ProductId)).ToList();
+        if (!filteredImportItems.Any())
+            return new PagedResultDto<ProductDto>(0, new List<ProductDto>());
+
+        // 4. Load SKUs for unit conversion
+        var skuIds = filteredImportItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuQueryable = await _skuRepository.GetQueryableAsync();
+        var skus = skuIds.Any() ? skuQueryable.Where(s => skuIds.Contains(s.Id)).ToList() : new List<ProductSku>();
+        var skuLookup = skus.ToDictionary(s => s.Id);
+
+        // 5. Convert each import item to base units + volume units, grouped by (ProductId, WarehouseId)
+        var entries = new List<WarehouseStockEntry>();
+
+        foreach (var item in filteredImportItems)
+        {
+            var product = productMap[item.ProductId];
+            decimal baseQty;
+            try
+            {
+                if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku))
+                    baseQty = ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+                else
+                    baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(
+                        product, item.UnitId, item.ActualReceivedQuantity, item.ProductName ?? product.Name);
+            }
+            catch
+            {
+                baseQty = item.ActualReceivedQuantity;
+            }
+
+            decimal volumeQty = ComputeVolumeQty(
+                item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var s2) ? s2 : null,
+                product, item.UnitId, item.ActualReceivedQuantity);
+
+            var whName = item.StorageWarehouseName
+                ?? item.ReceiptWarehouseName
+                ?? warehouseNameMap.GetValueOrDefault(item.EffectiveWarehouseId!.Value, "");
+
+            entries.Add(new WarehouseStockEntry
+            {
+                ProductId = item.ProductId,
+                WarehouseId = item.EffectiveWarehouseId!.Value,
+                WarehouseName = whName,
+                BaseQty = baseQty,
+                VolumeQty = volumeQty
+            });
+        }
+
+        // 6. Group by (ProductId, WarehouseId) and sum
+        var grouped = entries
+            .GroupBy(x => new { x.ProductId, x.WarehouseId })
+            .Select(g => new WarehouseStockEntry
+            {
+                ProductId = g.Key.ProductId,
+                WarehouseId = g.Key.WarehouseId,
+                WarehouseName = g.First().WarehouseName,
+                BaseQty = g.Sum(x => x.BaseQty),
+                VolumeQty = g.Sum(x => x.VolumeQty)
+            })
+            .ToList();
+
+        // 7. Sort
+        var sorting = input.Sorting?.Trim().ToLower() ?? "";
+        IEnumerable<WarehouseStockEntry> sorted = sorting switch
+        {
+            "name asc" => grouped.OrderBy(x => productMap[x.ProductId].Name),
+            "name desc" => grouped.OrderByDescending(x => productMap[x.ProductId].Name),
+            "code asc" => grouped.OrderBy(x => productMap[x.ProductId].Code),
+            "code desc" => grouped.OrderByDescending(x => productMap[x.ProductId].Code),
+            "producttype asc" => grouped.OrderBy(x => productMap[x.ProductId].ProductType),
+            "producttype desc" => grouped.OrderByDescending(x => productMap[x.ProductId].ProductType),
+            "availablequantity asc" => grouped.OrderBy(x => x.BaseQty),
+            "availablequantity desc" => grouped.OrderByDescending(x => x.BaseQty),
+            "storageavailablequantity asc" => grouped.OrderBy(x =>
+                productMap[x.ProductId].BaseUnitId.HasValue && productMap[x.ProductId].PackagingQuantity > 0
+                    ? x.BaseQty * productMap[x.ProductId].PackagingQuantity!.Value
+                    : x.BaseQty),
+            "storageavailablequantity desc" => grouped.OrderByDescending(x =>
+                productMap[x.ProductId].BaseUnitId.HasValue && productMap[x.ProductId].PackagingQuantity > 0
+                    ? x.BaseQty * productMap[x.ProductId].PackagingQuantity!.Value
+                    : x.BaseQty),
+            "warehousename asc" => grouped.OrderBy(x => x.WarehouseName),
+            "warehousename desc" => grouped.OrderByDescending(x => x.WarehouseName),
+            "creationtime asc" => grouped.OrderBy(x => productMap[x.ProductId].CreationTime),
+            _ => grouped.OrderByDescending(x => productMap[x.ProductId].CreationTime),
+        };
+
+        // 8. Paginate
+        var totalCount = grouped.Count;
+        var pagedItems = sorted.Skip(input.SkipCount).Take(input.MaxResultCount).ToList();
+
+        if (!pagedItems.Any())
+            return new PagedResultDto<ProductDto>(totalCount, new List<ProductDto>());
+
+        // 9. Map to DTOs with per-warehouse overrides
+        var productsForPage = pagedItems.Select(x => productMap[x.ProductId]).ToList();
+        var dtos = await MapToProductDtosAsync(productsForPage);
+
+        for (int i = 0; i < dtos.Count; i++)
+        {
+            var entry = pagedItems[i];
+            var product = productsForPage[i];
+            dtos[i].AvailableQuantity = entry.BaseQty;
+            dtos[i].StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
+                ? entry.BaseQty * product.PackagingQuantity.Value
+                : entry.BaseQty;
+            dtos[i].ConsumableImportedQuantity = entry.VolumeQty;
+            dtos[i].WarehouseName = entry.WarehouseName;
+        }
+
+        return new PagedResultDto<ProductDto>(totalCount, dtos);
+    }
+
+    private static decimal ComputeVolumeQty(ProductSku? sku, Product product, Guid? unitId, decimal qty)
+    {
+        if (sku?.VolumePerUnit > 0)
+        {
+            if (unitId == sku.VolumeUnitId) return qty;
+            if (unitId == sku.PackagingUnitId) return qty * sku.VolumePerUnit.Value;
+            if (unitId == sku.BaseUnitId && sku.BaseUnitId != sku.PackagingUnitId)
+                return qty * (sku.PackagingQuantity ?? 1) * sku.VolumePerUnit.Value;
+            return qty * sku.VolumePerUnit.Value;
+        }
+        if (product.VolumePerUnit > 0)
+        {
+            if (unitId == product.VolumeUnitId) return qty;
+            if (unitId == product.PackagingUnitId) return qty * product.VolumePerUnit.Value;
+            if (unitId == product.BaseUnitId && product.BaseUnitId != product.PackagingUnitId)
+                return qty * (product.PackagingQuantity ?? 1) * product.VolumePerUnit.Value;
+            return qty * product.VolumePerUnit.Value;
+        }
+        return 0;
+    }
+
+    private static decimal ResolveSkuQuantity(ProductSku sku, Guid? selectedUnitId, decimal quantity)
+    {
+        if (selectedUnitId == sku.PackagingUnitId || sku.PackagingUnitId == null)
+            return quantity;
+
+        if (selectedUnitId == sku.BaseUnitId)
+        {
+            if (sku.BaseUnitId == sku.PackagingUnitId)
+                return quantity;
+            return quantity * (sku.PackagingQuantity ?? 1);
+        }
+
+        if (selectedUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0)
+        {
+            var ratio = quantity / sku.VolumePerUnit.Value;
+            return Math.Round(Math.Ceiling(ratio * 100m) / 100m, 2);
+        }
+
+        return quantity;
+    }
+
+    private class WarehouseStockEntry
+    {
+        public Guid ProductId { get; set; }
+        public Guid WarehouseId { get; set; }
+        public string WarehouseName { get; set; } = "";
+        public decimal BaseQty { get; set; }
+        public decimal VolumeQty { get; set; }
     }
 
     public async Task<ProductDto> GetAsync(Guid id)
