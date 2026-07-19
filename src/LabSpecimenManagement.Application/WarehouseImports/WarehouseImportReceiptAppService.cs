@@ -734,10 +734,22 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Where(x => goodsReceiptItemIds.Contains(x.Id))
             .ToDictionary(x => x.Id, x => x.UnitName);
 
+        var skuIds = receipt.Items.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuMap = skuIds.Count > 0
+            ? (await _productSkuRepository.GetQueryableAsync()).Where(x => skuIds.Contains(x.Id)).ToDictionary(x => x.Id)
+            : new Dictionary<Guid, ProductSku>();
+        var manufacturerIds = skuMap.Values.Select(x => x.ManufacturerId).Distinct().ToList();
+        var manufacturerNames = manufacturerIds.Count > 0
+            ? (await _manufacturerRepository.GetQueryableAsync()).Where(x => manufacturerIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name)
+            : new Dictionary<Guid, string>();
+
         dto.Items = receipt.Items.Select(x =>
         {
             var itemDto = ObjectMapper.Map<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>(x);
             itemDto.PurchaseUnitName = purchaseUnitByPoLineId.TryGetValue(x.GoodsReceiptItemId, out var u) ? u : null;
+            if (x.SkuId.HasValue && skuMap.TryGetValue(x.SkuId.Value, out var sku)
+                && manufacturerNames.TryGetValue(sku.ManufacturerId, out var mfName))
+                itemDto.ManufacturerName = mfName;
             return itemDto;
         }).ToList();
 
