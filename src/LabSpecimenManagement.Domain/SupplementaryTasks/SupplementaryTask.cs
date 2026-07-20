@@ -15,6 +15,7 @@ public class SupplementaryTask : FullAuditedAggregateRoot<Guid>
     public string? ImageUrls { get; set; }
     public string? CompletionNote { get; set; }
     public string? CompletionImageUrls { get; set; }
+    public string? RejectionReason { get; set; }
 
     protected SupplementaryTask() { }
 

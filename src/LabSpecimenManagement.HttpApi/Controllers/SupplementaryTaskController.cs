@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.SupplementaryTasks;
 using LabSpecimenManagement.SupplementaryTasks.Dtos;
@@ -55,5 +56,23 @@ public class SupplementaryTaskController : LabSpecimenManagementController
     public virtual Task CompleteAsync(Guid id, [FromBody] CompleteSupplementaryTaskDto input)
     {
         return _appService.CompleteAsync(id, input);
+    }
+
+    [HttpPost("{id}/approve")]
+    public virtual Task ApproveAsync(Guid id)
+    {
+        return _appService.ApproveAsync(id);
+    }
+
+    [HttpPost("{id}/reject")]
+    public virtual Task RejectAsync(Guid id, [FromBody] RejectSupplementaryTaskDto input)
+    {
+        return _appService.RejectAsync(id, input);
+    }
+
+    [HttpGet("{id}/logs")]
+    public virtual Task<List<SupplementaryTaskLogDto>> GetLogsAsync(Guid id)
+    {
+        return _appService.GetLogsAsync(id);
     }
 }

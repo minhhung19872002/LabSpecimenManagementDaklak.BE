@@ -574,7 +574,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
 
         // Get completed contracts grouped by customer
         var completedRequests = testRequestQuery
-            .Where(x => x.Status == TestRequestStatus.Completed)
+            .Where(x => x.Status == TestRequestStatus.Completed
+                     || x.Status == TestRequestStatus.ReportPublished)
             .ToList();
 
         var customerGroups = completedRequests
@@ -634,12 +635,13 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         // Filter by customer and year, only completed contracts
         var allRequests = testRequestQuery
             .Where(x => x.CustomerName == customerName &&
-                        x.Status == TestRequestStatus.Completed &&
-                        x.CompletedDate.HasValue &&
-                        x.CompletedDate.Value.Year == year)
+                        (x.Status == TestRequestStatus.Completed
+                         || x.Status == TestRequestStatus.ReportPublished) &&
+                        (x.CompletedDate.HasValue || x.ReportPublishedDate.HasValue))
+            .ToList()
+            .Where(x => (x.CompletedDate ?? x.ReportPublishedDate)!.Value.Year == year)
             .ToList();
 
-        // Get all samples and indicators for these requests once
         var allRequestIds = allRequests.Select(x => x.Id).ToList();
         var allSamples = sampleQuery.Where(s => allRequestIds.Contains(s.TestRequestId)).ToList();
         var allSampleIds = allSamples.Select(s => s.Id).ToList();
@@ -650,7 +652,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         for (int month = 1; month <= 12; month++)
         {
             var monthRequests = allRequests
-                .Where(x => x.CompletedDate!.Value.Month == month)
+                .Where(x => (x.CompletedDate ?? x.ReportPublishedDate)!.Value.Month == month)
                 .ToList();
 
             var requestIds = monthRequests.Select(x => x.Id).ToList();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.SupplementaryTasks.Dtos;
 using Volo.Abp.Application.Dtos;
@@ -14,4 +15,7 @@ public interface ISupplementaryTaskAppService : IApplicationService
     Task<SupplementaryTaskDto> UpdateAsync(Guid id, UpdateSupplementaryTaskDto input);
     Task CancelAsync(Guid id);
     Task CompleteAsync(Guid id, CompleteSupplementaryTaskDto input);
+    Task ApproveAsync(Guid id);
+    Task RejectAsync(Guid id, RejectSupplementaryTaskDto input);
+    Task<List<SupplementaryTaskLogDto>> GetLogsAsync(Guid taskId);
 }

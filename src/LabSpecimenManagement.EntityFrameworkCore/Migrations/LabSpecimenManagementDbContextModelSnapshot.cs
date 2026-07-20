@@ -4774,7 +4774,6 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppSubcontractorCertifications", (string)null);
                 });
 
-
             modelBuilder.Entity("LabSpecimenManagement.SupplementaryTasks.SupplementaryTask", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4848,6 +4847,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("Priority")
                         .HasColumnType("integer");
 
+                    b.Property<string>("RejectionReason")
+                        .HasColumnType("text");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -4882,6 +4884,9 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("ImageUrls")
+                        .HasColumnType("text");
 
                     b.Property<int>("NewStatus")
                         .HasColumnType("integer");
