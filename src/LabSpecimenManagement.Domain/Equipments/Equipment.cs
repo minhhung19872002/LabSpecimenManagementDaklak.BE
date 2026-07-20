@@ -25,6 +25,9 @@ public class Equipment : FullAuditedAggregateRoot<Guid>
     public int UsageCount { get; set; }
     public int MaintenanceCount { get; set; }
     public string? Notes { get; set; }
+    public string? AssetCode { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public string? Location { get; set; }
 
     protected Equipment() { }
 

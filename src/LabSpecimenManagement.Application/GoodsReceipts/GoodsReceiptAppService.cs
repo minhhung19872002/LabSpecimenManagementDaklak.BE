@@ -88,9 +88,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
 
-        if (input.ReceiptType.HasValue)
-            query = query.Where(x => x.ReceiptType == input.ReceiptType.Value);
-
         if (input.SupplierId.HasValue)
             query = query.Where(x => x.SupplierId == input.SupplierId.Value);
 
@@ -192,7 +189,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         var receipt = new GoodsReceipt(
             GuidGenerator.Create(),
             code,
-            input.ReceiptType,
             supplierId,
             supplierName)
         {
@@ -238,7 +234,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         await _goodsReceiptRepository.InsertAsync(receipt, autoSave: true);
 
-        await SaveItemsAsync(receipt.Id, input.Items, input.VatPercent, receipt.ReceiptType);
+        await SaveItemsAsync(receipt.Id, input.Items, input.VatPercent);
 
         var savedItems = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == receipt.Id).ToList();
@@ -294,9 +290,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         if (receipt.OrderStatus == GoodsReceiptOrderStatus.Rejected)
             throw new UserFriendlyException("Không thể sửa phiếu đã bị từ chối.");
 
-        if (input.ReceiptType != receipt.ReceiptType)
-            throw new UserFriendlyException("Không thể thay đổi loại phiếu nhập hàng.");
-
         if (input.SupplierId.HasValue)
         {
             var supplier = await _supplierRepository.GetAsync(input.SupplierId.Value);
@@ -311,7 +304,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
 
         receipt.SupplierAddress = input.SupplierAddress;
         receipt.SupplierPhone = input.SupplierPhone;
-        receipt.ReceiptType = input.ReceiptType;
         receipt.PurchaserName = input.PurchaserName;
         receipt.DeliveryNoteNumber = input.DeliveryNoteNumber;
         receipt.DocumentDate = input.DocumentDate;
@@ -338,7 +330,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 await _itemRepository.DeleteAsync(existing, autoSave: true);
         }
 
-        await SaveItemsAsync(id, input.Items, input.VatPercent, receipt.ReceiptType, existingItems);
+        await SaveItemsAsync(id, input.Items, input.VatPercent, existingItems);
 
         var savedItems = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == id).ToList();
@@ -533,8 +525,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             await _productRepository.UpdateAsync(product, autoSave: true);
         }
 
-        // Update supplier financials only for Goods receipts
-        if (receipt.ReceiptType == GoodsReceiptType.Goods && receipt.SupplierId.HasValue)
+        if (receipt.SupplierId.HasValue)
         {
             var supplier = await _supplierRepository.GetAsync(receipt.SupplierId.Value);
             supplier.TotalPurchase += receipt.TotalAmountAfterVat;
@@ -592,9 +583,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         receipt.UpdatePaymentStatus();
         await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
 
-        // Update supplier debt if already imported (Goods receipts only)
         if (receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported &&
-            receipt.ReceiptType == GoodsReceiptType.Goods &&
             receipt.SupplierId.HasValue)
         {
             var supplier = await _supplierRepository.GetAsync(receipt.SupplierId.Value);
@@ -729,11 +718,6 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         return await GenerateCodeAsync();
     }
 
-    public async Task<string> GetNextEquipmentCodeAsync()
-    {
-        return await GenerateEquipmentCodeAsync();
-    }
-
     private async Task<string> GenerateCodeAsync()
     {
         var prefix = "PR";
@@ -824,15 +808,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         Guid receiptId,
         List<CreateUpdateGoodsReceiptItemDto> items,
         decimal defaultVatPercent,
-        GoodsReceiptType receiptType,
         List<GoodsReceiptItem>? existingItems = null)
     {
-        // Validate that item types match the receipt type
-        if (receiptType == GoodsReceiptType.Goods && items.Any(i => i.IsEquipment))
-            throw new UserFriendlyException("Phiếu nhập hàng hóa không được chứa dòng thiết bị.");
-        if (receiptType == GoodsReceiptType.Equipment && items.Any(i => !i.IsEquipment))
-            throw new UserFriendlyException("Phiếu nhập thiết bị không được chứa dòng hàng hóa thông thường.");
-
         var unitQuery = await _unitRepository.GetQueryableAsync();
         var productQuery = await _productRepository.GetQueryableAsync();
 
@@ -841,20 +818,12 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             if (itemDto.LotExpiryDate.HasValue && itemDto.LotExpiryDate.Value.Date < Clock.Now.Date)
                 throw new UserFriendlyException($"Lô hàng đã hết hạn (HSD: {itemDto.LotExpiryDate.Value:dd/MM/yyyy}). Không thể sử dụng lô đã hết hạn.");
 
-            if (itemDto.IsEquipment)
-            {
-                if (itemDto.Quantity != 1)
-                    throw new UserFriendlyException("Số lượng thiết bị trong mỗi dòng phải là 1. Vui lòng thêm dòng riêng cho mỗi thiết bị.");
-                if (string.IsNullOrWhiteSpace(itemDto.SerialNumber))
-                    throw new UserFriendlyException("Thiết bị phải có serial number.");
-            }
-
             string resolvedName;
             Guid? resolvedProductId;
             Guid? resolvedUnitId;
             string? resolvedUnitName;
 
-            if (itemDto.IsEquipment)
+            if (itemDto.IsEquipment && !itemDto.ProductId.HasValue)
             {
                 if (string.IsNullOrWhiteSpace(itemDto.ProductName))
                     throw new UserFriendlyException("Thiết bị phải có tên.");
@@ -863,6 +832,17 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
                 resolvedUnitId = itemDto.UnitId;
                 resolvedUnitName = itemDto.UnitId.HasValue
                     ? unitQuery.FirstOrDefault(u => u.Id == itemDto.UnitId)?.Name
+                    : null;
+            }
+            else if (itemDto.IsEquipment && itemDto.ProductId.HasValue)
+            {
+                var product = productQuery.FirstOrDefault(p => p.Id == itemDto.ProductId.Value)
+                    ?? throw new UserFriendlyException($"Không tìm thấy vật phẩm với ID {itemDto.ProductId}.");
+                resolvedName = product.Name;
+                resolvedProductId = product.Id;
+                resolvedUnitId = itemDto.UnitId ?? product.BaseUnitId;
+                resolvedUnitName = resolvedUnitId.HasValue
+                    ? unitQuery.FirstOrDefault(u => u.Id == resolvedUnitId)?.Name
                     : null;
             }
             else

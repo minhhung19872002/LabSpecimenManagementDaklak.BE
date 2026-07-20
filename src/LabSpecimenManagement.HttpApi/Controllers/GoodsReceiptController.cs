@@ -113,10 +113,4 @@ public class GoodsReceiptController : LabSpecimenManagementController
     {
         return _goodsReceiptAppService.GetNextCodeAsync();
     }
-
-    [HttpGet("next-equipment-code")]
-    public virtual Task<string> GetNextEquipmentCodeAsync()
-    {
-        return _goodsReceiptAppService.GetNextEquipmentCodeAsync();
-    }
 }

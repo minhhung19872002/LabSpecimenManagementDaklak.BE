@@ -40,7 +40,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var input = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = "456 Đường ABC, Hà Nội",
             SupplierPhone = "0912345678",
             PurchaserName = "Nguyễn Văn A",
@@ -66,7 +65,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
 
         var input = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierId = supplier.Id,
             SupplierAddress = "Địa chỉ tùy chỉnh",
             SupplierPhone = "0999888777",
@@ -87,7 +85,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var input = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = null,
             SupplierPhone = null,
             VatPercent = 8,
@@ -102,11 +99,10 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     }
 
     [Fact]
-    public async Task Should_Create_Equipment_Receipt_Without_Supplier()
+    public async Task Should_Create_Receipt_Without_Supplier()
     {
         var input = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Equipment,
             SupplierAddress = "Địa chỉ thiết bị NCC",
             SupplierPhone = "0911222333",
             VatPercent = 8,
@@ -116,7 +112,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
         var result = await _goodsReceiptAppService.CreateAsync(input);
 
         result.ShouldNotBeNull();
-        result.ReceiptType.ShouldBe(GoodsReceiptType.Equipment);
         result.SupplierId.ShouldBeNull();
         result.SupplierAddress.ShouldBe("Địa chỉ thiết bị NCC");
         result.SupplierPhone.ShouldBe("0911222333");
@@ -129,7 +124,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var created = await _goodsReceiptAppService.CreateAsync(new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = "Địa chỉ ban đầu",
             SupplierPhone = "0900000000",
             VatPercent = 8,
@@ -138,7 +132,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
 
         var updateInput = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = "Địa chỉ cập nhật",
             SupplierPhone = "0911111111",
             VatPercent = 8,
@@ -156,7 +149,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var created = await _goodsReceiptAppService.CreateAsync(new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = "Có địa chỉ",
             SupplierPhone = "0901234567",
             VatPercent = 8,
@@ -165,7 +157,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
 
         var updateInput = new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = null,
             SupplierPhone = null,
             VatPercent = 8,
@@ -185,7 +176,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var created = await _goodsReceiptAppService.CreateAsync(new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             SupplierAddress = "Địa chỉ kiểm tra",
             SupplierPhone = "0922233344",
             PurchaserName = "Tester",
@@ -205,7 +195,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         await _goodsReceiptAppService.CreateAsync(new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             VatPercent = 8,
             Items = new List<CreateUpdateGoodsReceiptItemDto>()
         });
@@ -223,7 +212,6 @@ public abstract class GoodsReceiptAppService_Tests<TStartupModule> : LabSpecimen
     {
         var created = await _goodsReceiptAppService.CreateAsync(new CreateUpdateGoodsReceiptDto
         {
-            ReceiptType = GoodsReceiptType.Goods,
             VatPercent = 8,
             Items = new List<CreateUpdateGoodsReceiptItemDto>()
         });

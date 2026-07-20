@@ -7,7 +7,6 @@ namespace LabSpecimenManagement.GoodsReceipts;
 public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
 {
     public string Code { get; set; }
-    public GoodsReceiptType ReceiptType { get; set; }
     public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public string? SupplierAddress { get; set; }
@@ -40,10 +39,9 @@ public class GoodsReceipt : FullAuditedAggregateRoot<Guid>
         Payments = new List<GoodsReceiptPayment>();
     }
 
-    public GoodsReceipt(Guid id, string code, GoodsReceiptType receiptType, Guid? supplierId = null, string? supplierName = null) : base(id)
+    public GoodsReceipt(Guid id, string code, Guid? supplierId = null, string? supplierName = null) : base(id)
     {
         Code = code;
-        ReceiptType = receiptType;
         SupplierId = supplierId;
         SupplierName = supplierName;
         VatPercent = 8;

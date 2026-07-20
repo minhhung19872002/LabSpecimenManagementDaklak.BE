@@ -10,7 +10,6 @@ namespace LabSpecimenManagement.GoodsReceipts;
 public class GoodsReceiptListDto : EntityDto<Guid>
 {
     public string Code { get; set; }
-    public GoodsReceiptType ReceiptType { get; set; }
     public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public string? SupplierAddress { get; set; }
@@ -28,7 +27,6 @@ public class GoodsReceiptListDto : EntityDto<Guid>
 public class GoodsReceiptDto : EntityDto<Guid>
 {
     public string Code { get; set; }
-    public GoodsReceiptType ReceiptType { get; set; }
     public Guid? SupplierId { get; set; }
     public string? SupplierName { get; set; }
     public string? SupplierAddress { get; set; }
@@ -117,8 +115,6 @@ public class InvoiceFileInfoDto
 
 public class CreateUpdateGoodsReceiptDto
 {
-    public GoodsReceiptType ReceiptType { get; set; }
-
     public Guid? SupplierId { get; set; }
 
     [StringLength(500)]
@@ -199,7 +195,6 @@ public class CreateUpdateGoodsReceiptItemDto
 public class GetGoodsReceiptListInput : PagedRequestDto
 {
     public string? Search { get; set; }
-    public GoodsReceiptType? ReceiptType { get; set; }
     public Guid? SupplierId { get; set; }
     public Guid? ProductId { get; set; }
     public GoodsReceiptWarehouseStatus? WarehouseStatus { get; set; }

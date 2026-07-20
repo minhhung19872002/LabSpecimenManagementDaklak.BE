@@ -22,5 +22,4 @@ public interface IGoodsReceiptAppService : IApplicationService
     Task<GoodsReceiptStatisticsDto> GetStatisticsAsync();
     Task<LatestSupplierInfoDto> GetLatestSupplierInfoAsync(Guid supplierId);
     Task<string> GetNextCodeAsync();
-    Task<string> GetNextEquipmentCodeAsync();
 }

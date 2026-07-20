@@ -607,7 +607,6 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
-            b.Property(x => x.ReceiptType).HasDefaultValue(GoodsReceiptType.Goods);
             b.Property(x => x.SupplierName).HasMaxLength(500);
             b.Property(x => x.SupplierAddress).HasMaxLength(500);
             b.Property(x => x.SupplierPhone).HasMaxLength(20);
@@ -626,7 +625,6 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.TotalPaid).HasPrecision(18, 2);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
-            b.HasIndex(x => x.ReceiptType);
             b.HasIndex(x => x.SupplierId);
             b.HasIndex(x => x.DocumentDate);
             b.HasIndex(x => x.WarehouseStatus);
@@ -733,6 +731,14 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.StorageWarehouseName).HasMaxLength(500);
             b.Property(x => x.ReceivedBaseQuantity).HasPrecision(18, 4);
             b.Property(x => x.ConsumedBaseQuantity).HasPrecision(18, 4);
+
+            b.Property(x => x.IsEquipment).HasDefaultValue(false);
+            b.Property(x => x.AssetCode).HasMaxLength(100);
+            b.Property(x => x.SerialNumber).HasMaxLength(200);
+            b.Property(x => x.ManufacturerName).HasMaxLength(500);
+            b.Property(x => x.EquipmentReceiveStatus).HasDefaultValue(WarehouseImports.EquipmentReceiveStatus.NotReceived);
+            b.Property(x => x.OriginalPrice).HasPrecision(18, 0);
+            b.Property(x => x.Location).HasMaxLength(256);
 
             b.HasIndex(x => x.WarehouseImportReceiptId);
             b.HasIndex(x => x.GoodsReceiptItemId);
@@ -1703,6 +1709,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Price).HasPrecision(18, 2);
             b.Property(x => x.LotNumber).HasMaxLength(100);
             b.Property(x => x.Notes).HasMaxLength(2000);
+            b.Property(x => x.AssetCode).HasMaxLength(100);
+            b.Property(x => x.Location).HasMaxLength(256);
 
             b.HasIndex(x => x.SerialNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Code);
