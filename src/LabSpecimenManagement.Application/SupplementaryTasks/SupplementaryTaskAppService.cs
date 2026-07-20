@@ -54,7 +54,24 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
                 (t.Description != null && t.Description.ToLower().Contains(s)));
         }
         if (input.Status.HasValue)
-            query = query.Where(t => t.Status == input.Status.Value);
+        {
+            if (input.Status.Value == SupplementaryTaskStatus.Overdue)
+            {
+                var today = DateTime.Today;
+                query = query.Where(t => t.Status == SupplementaryTaskStatus.Overdue
+                    || (t.Status == SupplementaryTaskStatus.Pending && t.DueDate.HasValue && t.DueDate.Value < today));
+            }
+            else if (input.Status.Value == SupplementaryTaskStatus.Pending)
+            {
+                var today = DateTime.Today;
+                query = query.Where(t => t.Status == SupplementaryTaskStatus.Pending
+                    && !(t.DueDate.HasValue && t.DueDate.Value < today));
+            }
+            else
+            {
+                query = query.Where(t => t.Status == input.Status.Value);
+            }
+        }
         if (input.Priority.HasValue)
             query = query.Where(t => t.Priority == input.Priority.Value);
         if (input.AssignedToId.HasValue && isDirector)
@@ -88,6 +105,9 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
             Pending = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.Pending && !(t.DueDate.HasValue && t.DueDate.Value < today))),
             Overdue = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.Overdue || (t.Status == SupplementaryTaskStatus.Pending && t.DueDate.HasValue && t.DueDate.Value < today))),
             Completed = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.Completed)),
+            WaitingForConfirmation = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.WaitingForConfirmation)),
+            Rejected = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.Rejected)),
+            Cancelled = await AsyncExecuter.CountAsync(query.Where(t => t.Status == SupplementaryTaskStatus.Cancelled)),
             IsDirector = isDirector
         };
     }
@@ -173,8 +193,8 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
         var task = await _repository.GetAsync(id);
 
-        if (task.Status != SupplementaryTaskStatus.Pending && task.Status != SupplementaryTaskStatus.Overdue)
-            throw new UserFriendlyException("Chỉ có thể hủy công việc ở trạng thái Chờ xử lý hoặc Quá hạn.");
+        if (task.Status == SupplementaryTaskStatus.Completed || task.Status == SupplementaryTaskStatus.Cancelled)
+            throw new UserFriendlyException("Công việc đã kết thúc, không thể hủy.");
 
         var oldStatus = task.Status;
         task.Status = SupplementaryTaskStatus.Cancelled;
@@ -188,36 +208,101 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
     public async Task CompleteAsync(Guid id, CompleteSupplementaryTaskDto input)
     {
         var task = await _repository.GetAsync(id);
-        var isDirector = await IsDirectorAsync();
 
-        if (!isDirector && task.AssignedToId != CurrentUser.Id!.Value)
+        if (task.AssignedToId != CurrentUser.Id!.Value)
             throw new UserFriendlyException("Bạn không có quyền cập nhật công việc này.");
 
-        if (task.Status == SupplementaryTaskStatus.Completed || task.Status == SupplementaryTaskStatus.Cancelled)
-            throw new UserFriendlyException("Công việc đã kết thúc, không thể cập nhật.");
+        if (task.Status != SupplementaryTaskStatus.Pending
+            && task.Status != SupplementaryTaskStatus.Overdue
+            && task.Status != SupplementaryTaskStatus.Rejected)
+            throw new UserFriendlyException("Không thể gửi xác nhận hoàn thành ở trạng thái hiện tại.");
 
         var oldStatus = task.Status;
-        task.Status = SupplementaryTaskStatus.Completed;
+        task.Status = SupplementaryTaskStatus.WaitingForConfirmation;
         task.CompletionNote = input.Note;
         task.CompletionImageUrls = input.ImageUrls?.Count > 0
             ? JsonSerializer.Serialize(input.ImageUrls)
             : null;
+        task.RejectionReason = null;
         await _repository.UpdateAsync(task, autoSave: true);
 
         await _logRepository.InsertAsync(new SupplementaryTaskLog(
-            GuidGenerator.Create(), task.Id, oldStatus, SupplementaryTaskStatus.Completed,
-            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? "", input.Note), autoSave: true);
+            GuidGenerator.Create(), task.Id, oldStatus, SupplementaryTaskStatus.WaitingForConfirmation,
+            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? "", input.Note,
+            task.CompletionImageUrls), autoSave: true);
+    }
+
+    public async Task ApproveAsync(Guid id)
+    {
+        if (!await IsDirectorAsync())
+            throw new UserFriendlyException("Chỉ Ban giám đốc mới có thể xác nhận hoàn thành.");
+
+        var task = await _repository.GetAsync(id);
+
+        if (task.Status != SupplementaryTaskStatus.WaitingForConfirmation)
+            throw new UserFriendlyException("Chỉ có thể xác nhận công việc ở trạng thái Chờ xác nhận.");
+
+        task.Status = SupplementaryTaskStatus.Completed;
+        await _repository.UpdateAsync(task, autoSave: true);
+
+        await _logRepository.InsertAsync(new SupplementaryTaskLog(
+            GuidGenerator.Create(), task.Id, SupplementaryTaskStatus.WaitingForConfirmation,
+            SupplementaryTaskStatus.Completed,
+            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? ""), autoSave: true);
+    }
+
+    public async Task RejectAsync(Guid id, RejectSupplementaryTaskDto input)
+    {
+        if (!await IsDirectorAsync())
+            throw new UserFriendlyException("Chỉ Ban giám đốc mới có thể từ chối.");
+
+        var task = await _repository.GetAsync(id);
+
+        if (task.Status != SupplementaryTaskStatus.WaitingForConfirmation)
+            throw new UserFriendlyException("Chỉ có thể từ chối công việc ở trạng thái Chờ xác nhận.");
+
+        task.Status = SupplementaryTaskStatus.Rejected;
+        task.RejectionReason = input.Reason;
+        await _repository.UpdateAsync(task, autoSave: true);
+
+        await _logRepository.InsertAsync(new SupplementaryTaskLog(
+            GuidGenerator.Create(), task.Id, SupplementaryTaskStatus.WaitingForConfirmation,
+            SupplementaryTaskStatus.Rejected,
+            CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? "", input.Reason), autoSave: true);
+    }
+
+    public async Task<List<SupplementaryTaskLogDto>> GetLogsAsync(Guid taskId)
+    {
+        var query = (await _logRepository.GetQueryableAsync())
+            .Where(l => l.TaskId == taskId)
+            .OrderBy(l => l.ChangedAt);
+
+        var logs = await AsyncExecuter.ToListAsync(query);
+        return logs.Select(l => new SupplementaryTaskLogDto
+        {
+            Id = l.Id,
+            OldStatus = l.OldStatus,
+            NewStatus = l.NewStatus,
+            ChangedAt = l.ChangedAt,
+            ChangedById = l.ChangedById,
+            ChangedByName = l.ChangedByName,
+            Note = l.Note,
+            ImageUrls = SafeDeserializeList(l.ImageUrls),
+        }).ToList();
+    }
+
+    private static List<string> SafeDeserializeList(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return new();
+        try { return JsonSerializer.Deserialize<List<string>>(json) ?? new(); }
+        catch { return new(); }
     }
 
     private SupplementaryTaskDto MapToDto(SupplementaryTask task)
     {
         var dto = ObjectMapper.Map<SupplementaryTask, SupplementaryTaskDto>(task);
-        dto.ImageUrls = !string.IsNullOrEmpty(task.ImageUrls)
-            ? JsonSerializer.Deserialize<List<string>>(task.ImageUrls) ?? new()
-            : new();
-        dto.CompletionImageUrls = !string.IsNullOrEmpty(task.CompletionImageUrls)
-            ? JsonSerializer.Deserialize<List<string>>(task.CompletionImageUrls) ?? new()
-            : new();
+        dto.ImageUrls = SafeDeserializeList(task.ImageUrls);
+        dto.CompletionImageUrls = SafeDeserializeList(task.CompletionImageUrls);
         return dto;
     }
 

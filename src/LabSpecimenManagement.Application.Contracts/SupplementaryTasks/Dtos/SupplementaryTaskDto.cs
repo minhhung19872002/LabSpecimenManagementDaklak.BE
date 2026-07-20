@@ -16,5 +16,6 @@ public class SupplementaryTaskDto
     public List<string> ImageUrls { get; set; } = new();
     public string? CompletionNote { get; set; }
     public List<string> CompletionImageUrls { get; set; } = new();
+    public string? RejectionReason { get; set; }
     public DateTime CreationTime { get; set; }
 }
