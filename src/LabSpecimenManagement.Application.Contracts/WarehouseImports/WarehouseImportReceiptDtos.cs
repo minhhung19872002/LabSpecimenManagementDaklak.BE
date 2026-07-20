@@ -281,4 +281,16 @@ public class PreviousReceivedLotDto
     public string? QualityDocumentFileId { get; set; }
     public string? QualityDocumentFileName { get; set; }
     public long? QualityDocumentFileSize { get; set; }
+
+    // Equipment fields
+    public bool IsEquipment { get; set; }
+    public int EquipmentIndex { get; set; }
+    public string? AssetCode { get; set; }
+    public string? SerialNumber { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public string? ManufacturerName { get; set; }
+    public int EquipmentReceiveStatus { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public decimal? OriginalPrice { get; set; }
+    public string? Location { get; set; }
 }

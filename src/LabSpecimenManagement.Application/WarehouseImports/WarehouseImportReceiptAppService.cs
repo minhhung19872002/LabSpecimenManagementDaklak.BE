@@ -416,7 +416,17 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                     Status = x.Status,
                     QualityDocumentFileId = x.QualityDocumentFileId,
                     QualityDocumentFileName = x.QualityDocumentFileName,
-                    QualityDocumentFileSize = x.QualityDocumentFileSize
+                    QualityDocumentFileSize = x.QualityDocumentFileSize,
+                    IsEquipment = x.IsEquipment,
+                    EquipmentIndex = x.EquipmentIndex,
+                    AssetCode = x.AssetCode,
+                    SerialNumber = x.SerialNumber,
+                    ManufacturerId = x.ManufacturerId,
+                    ManufacturerName = x.ManufacturerName,
+                    EquipmentReceiveStatus = (int)x.EquipmentReceiveStatus,
+                    DepreciationPeriod = x.DepreciationPeriod,
+                    OriginalPrice = x.OriginalPrice,
+                    Location = x.Location,
                 }).ToList()
             };
 
