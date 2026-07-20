@@ -20,6 +20,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
 {
     private readonly IRepository<Equipment, Guid> _repository;
     private readonly IRepository<EquipmentAttachment, Guid> _attachmentRepository;
+    private readonly IRepository<EquipmentCostConfig, Guid> _costConfigRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -28,6 +29,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     public EquipmentAppService(
         IRepository<Equipment, Guid> repository,
         IRepository<EquipmentAttachment, Guid> attachmentRepository,
+        IRepository<EquipmentCostConfig, Guid> costConfigRepository,
         IRepository<Unit, Guid> unitRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
@@ -35,6 +37,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     {
         _repository = repository;
         _attachmentRepository = attachmentRepository;
+        _costConfigRepository = costConfigRepository;
         _unitRepository = unitRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
@@ -107,6 +110,15 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             WarrantyExpiryDate = x.WarrantyExpiryDate,
             UsageCount = x.UsageCount,
             MaintenanceCount = x.MaintenanceCount,
+            AssetCode = x.AssetCode,
+            Price = x.Price,
+            DepreciationPeriod = x.DepreciationPeriod,
+            PowerConsumption = x.PowerConsumption,
+            OperatingHoursPerYear = x.OperatingHoursPerYear,
+            AverageSamplesPerYear = x.AverageSamplesPerYear,
+            MaintenanceCostRatio = x.MaintenanceCostRatio,
+            CalibrationCostPerYear = x.CalibrationCostPerYear,
+            ImportDate = x.ImportDate,
             CreationTime = x.CreationTime,
             Attachments = attachmentsByEquipment.GetValueOrDefault(x.Id, new()),
         }).ToList();
@@ -139,6 +151,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             WarrantyExpiryDate = input.WarrantyExpiryDate,
             Price = input.Price,
             Notes = input.Notes,
+            AssetCode = input.AssetCode,
+            DepreciationPeriod = input.DepreciationPeriod,
+            Location = input.Location,
+            PowerConsumption = input.PowerConsumption,
+            OperatingHoursPerYear = input.OperatingHoursPerYear,
+            AverageSamplesPerYear = input.AverageSamplesPerYear,
+            MaintenanceCostRatio = input.MaintenanceCostRatio,
+            CalibrationCostPerYear = input.CalibrationCostPerYear,
         };
 
         if (input.UnitId.HasValue)
@@ -182,6 +202,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         equipment.WarrantyExpiryDate = input.WarrantyExpiryDate;
         equipment.Price = input.Price;
         equipment.Notes = input.Notes;
+        equipment.AssetCode = input.AssetCode;
+        equipment.DepreciationPeriod = input.DepreciationPeriod;
+        equipment.Location = input.Location;
+        equipment.PowerConsumption = input.PowerConsumption;
+        equipment.OperatingHoursPerYear = input.OperatingHoursPerYear;
+        equipment.AverageSamplesPerYear = input.AverageSamplesPerYear;
+        equipment.MaintenanceCostRatio = input.MaintenanceCostRatio;
+        equipment.CalibrationCostPerYear = input.CalibrationCostPerYear;
 
         if (input.UnitId.HasValue)
         {
@@ -281,8 +309,8 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     {
         var allowed = current switch
         {
-            EquipmentStatus.InStock => new[] { EquipmentStatus.InUse, EquipmentStatus.Broken },
-            EquipmentStatus.InUse => new[] { EquipmentStatus.InStock, EquipmentStatus.Broken },
+            EquipmentStatus.InStock => new[] { EquipmentStatus.InUse, EquipmentStatus.UnderMaintenance, EquipmentStatus.Broken },
+            EquipmentStatus.InUse => new[] { EquipmentStatus.InStock, EquipmentStatus.UnderMaintenance, EquipmentStatus.Broken },
             EquipmentStatus.UnderMaintenance => new[] { EquipmentStatus.InStock, EquipmentStatus.Broken },
             EquipmentStatus.Broken => new[] { EquipmentStatus.Disposed },
             _ => Array.Empty<EquipmentStatus>(),
@@ -332,6 +360,15 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             UsageCount = equipment.UsageCount,
             MaintenanceCount = equipment.MaintenanceCount,
             Notes = equipment.Notes,
+            AssetCode = equipment.AssetCode,
+            DepreciationPeriod = equipment.DepreciationPeriod,
+            Location = equipment.Location,
+            PowerConsumption = equipment.PowerConsumption,
+            OperatingHoursPerYear = equipment.OperatingHoursPerYear,
+            AverageSamplesPerYear = equipment.AverageSamplesPerYear,
+            MaintenanceCostRatio = equipment.MaintenanceCostRatio,
+            CalibrationCostPerYear = equipment.CalibrationCostPerYear,
+            ImportDate = equipment.ImportDate,
             CreationTime = equipment.CreationTime,
             Attachments = attachments.Select(a => new EquipmentAttachmentDto
             {
@@ -340,7 +377,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
                 FileName = a.FileName,
                 FileSize = a.FileSize,
                 FileType = a.FileType,
-                Url = $"/uploads/samples/{a.FileId}",
+                Url = $"/api/v1/files/{a.FileId}",
                 CreationTime = a.CreationTime,
             }).ToList(),
         };
@@ -354,4 +391,128 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     }
 
     #endregion
+
+    public async Task<List<EquipmentCostConfigDto>> GetCostConfigListAsync(Guid equipmentId)
+    {
+        var query = await _costConfigRepository.GetQueryableAsync();
+        var configs = query
+            .Where(x => x.EquipmentId == equipmentId)
+            .OrderByDescending(x => x.CreationTime)
+            .ToList();
+
+        var dtos = configs.Select(c => new EquipmentCostConfigDto
+        {
+            Id = c.Id,
+            EquipmentId = c.EquipmentId,
+            EffectiveFrom = c.EffectiveFrom,
+            EffectiveTo = c.EffectiveTo,
+            OperatingHoursPerYear = c.OperatingHoursPerYear,
+            AverageSamplesPerYear = c.AverageSamplesPerYear,
+            MaintenanceCostRatio = c.MaintenanceCostRatio,
+            CalibrationCostPerYear = c.CalibrationCostPerYear,
+            Description = c.Description,
+            CreationTime = c.CreationTime,
+        }).ToList();
+
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            dtos,
+            dto => configs.First(c => c.Id == dto.Id).CreatorId,
+            (dto, name) => dto.CreatorName = name);
+
+        return dtos;
+    }
+
+    public async Task<EquipmentCostConfigDto?> GetActiveCostConfigAsync(Guid equipmentId)
+    {
+        var query = await _costConfigRepository.GetQueryableAsync();
+        var config = query
+            .Where(x => x.EquipmentId == equipmentId && x.EffectiveTo >= DateTime.Today)
+            .OrderByDescending(x => x.CreationTime)
+            .FirstOrDefault();
+
+        if (config == null) return null;
+
+        var dto = new EquipmentCostConfigDto
+        {
+            Id = config.Id,
+            EquipmentId = config.EquipmentId,
+            EffectiveFrom = config.EffectiveFrom,
+            EffectiveTo = config.EffectiveTo,
+            OperatingHoursPerYear = config.OperatingHoursPerYear,
+            AverageSamplesPerYear = config.AverageSamplesPerYear,
+            MaintenanceCostRatio = config.MaintenanceCostRatio,
+            CalibrationCostPerYear = config.CalibrationCostPerYear,
+            Description = config.Description,
+            CreationTime = config.CreationTime,
+        };
+
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            new List<EquipmentCostConfigDto> { dto },
+            _ => config.CreatorId,
+            (d, name) => d.CreatorName = name);
+
+        return dto;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Equipments.Edit)]
+    public async Task<EquipmentCostConfigDto> SaveCostConfigAsync(Guid equipmentId, CreateEquipmentCostConfigDto input)
+    {
+        var equipment = await _repository.GetAsync(equipmentId);
+
+        if (input.EffectiveFrom.Date >= input.EffectiveTo.Date)
+            throw new UserFriendlyException("Ngày bắt đầu hiệu lực phải nhỏ hơn ngày kết thúc.");
+
+        if (input.EffectiveTo.Date <= DateTime.Today)
+            throw new UserFriendlyException("Ngày kết thúc hiệu lực phải lớn hơn ngày hiện tại.");
+
+        var query = await _costConfigRepository.GetQueryableAsync();
+        var previousActive = query
+            .Where(x => x.EquipmentId == equipmentId)
+            .OrderByDescending(x => x.CreationTime)
+            .FirstOrDefault();
+
+        var description = "Tạo thiết lập mới";
+        if (previousActive != null && previousActive.EffectiveFrom.Date == input.EffectiveFrom.Date)
+        {
+            description = "Chỉnh sửa thiết lập";
+        }
+
+        var config = new EquipmentCostConfig(
+            GuidGenerator.Create(),
+            equipmentId,
+            input.EffectiveFrom,
+            input.EffectiveTo)
+        {
+            OperatingHoursPerYear = input.OperatingHoursPerYear,
+            AverageSamplesPerYear = input.AverageSamplesPerYear,
+            MaintenanceCostRatio = input.MaintenanceCostRatio,
+            CalibrationCostPerYear = input.CalibrationCostPerYear,
+            Description = description,
+        };
+
+        await _costConfigRepository.InsertAsync(config, autoSave: true);
+
+        equipment.OperatingHoursPerYear = input.OperatingHoursPerYear;
+        equipment.AverageSamplesPerYear = input.AverageSamplesPerYear;
+        equipment.MaintenanceCostRatio = input.MaintenanceCostRatio;
+        equipment.CalibrationCostPerYear = input.CalibrationCostPerYear;
+        await _repository.UpdateAsync(equipment, autoSave: true);
+
+        var dto = new EquipmentCostConfigDto
+        {
+            Id = config.Id,
+            EquipmentId = config.EquipmentId,
+            EffectiveFrom = config.EffectiveFrom,
+            EffectiveTo = config.EffectiveTo,
+            OperatingHoursPerYear = config.OperatingHoursPerYear,
+            AverageSamplesPerYear = config.AverageSamplesPerYear,
+            MaintenanceCostRatio = config.MaintenanceCostRatio,
+            CalibrationCostPerYear = config.CalibrationCostPerYear,
+            Description = config.Description,
+            CreationTime = config.CreationTime,
+            CreatorName = CurrentUser.Name ?? CurrentUser.UserName,
+        };
+
+        return dto;
+    }
 }

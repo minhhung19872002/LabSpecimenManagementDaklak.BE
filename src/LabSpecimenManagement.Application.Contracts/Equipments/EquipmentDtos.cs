@@ -20,6 +20,15 @@ public class EquipmentListDto : EntityDto<Guid>
     public DateTime? WarrantyExpiryDate { get; set; }
     public int UsageCount { get; set; }
     public int MaintenanceCount { get; set; }
+    public string? AssetCode { get; set; }
+    public decimal Price { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public decimal? PowerConsumption { get; set; }
+    public decimal? OperatingHoursPerYear { get; set; }
+    public int? AverageSamplesPerYear { get; set; }
+    public decimal? MaintenanceCostRatio { get; set; }
+    public decimal? CalibrationCostPerYear { get; set; }
+    public DateTime? ImportDate { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
     public List<EquipmentAttachmentDto> Attachments { get; set; } = new();
@@ -47,6 +56,15 @@ public class EquipmentDto : EntityDto<Guid>
     public int UsageCount { get; set; }
     public int MaintenanceCount { get; set; }
     public string? Notes { get; set; }
+    public string? AssetCode { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public string? Location { get; set; }
+    public decimal? PowerConsumption { get; set; }
+    public decimal? OperatingHoursPerYear { get; set; }
+    public int? AverageSamplesPerYear { get; set; }
+    public decimal? MaintenanceCostRatio { get; set; }
+    public decimal? CalibrationCostPerYear { get; set; }
+    public DateTime? ImportDate { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
     public List<EquipmentAttachmentDto> Attachments { get; set; } = new();
@@ -77,6 +95,17 @@ public class CreateUpdateEquipmentDto
 
     [StringLength(2000)]
     public string? Notes { get; set; }
+
+    [StringLength(100)]
+    public string? AssetCode { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    [StringLength(256)]
+    public string? Location { get; set; }
+    public decimal? PowerConsumption { get; set; }
+    public decimal? OperatingHoursPerYear { get; set; }
+    public int? AverageSamplesPerYear { get; set; }
+    public decimal? MaintenanceCostRatio { get; set; }
+    public decimal? CalibrationCostPerYear { get; set; }
 
     public List<CreateEquipmentAttachmentDto>? Attachments { get; set; }
 }

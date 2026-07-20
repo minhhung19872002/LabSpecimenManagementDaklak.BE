@@ -291,6 +291,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var equipmentItems = receipt.Items.Where(x => x.IsEquipment && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received).ToList();
         foreach (var item in equipmentItems)
         {
+            var product = await _productRepository.FindAsync(item.ProductId);
             var equipCode = await GenerateEquipmentCodeAsync();
             var equipment = new Equipment(GuidGenerator.Create(), equipCode, item.ProductName, item.SerialNumber ?? "")
             {
@@ -305,7 +306,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 Price = item.OriginalPrice ?? 0,
                 AssetCode = item.AssetCode,
                 DepreciationPeriod = item.DepreciationPeriod,
-                Location = item.Location
+                Location = item.Location,
+                PowerConsumption = product?.PowerConsumption,
+                ImportDate = receipt.ActualImportDate,
             };
             await _equipmentRepository.InsertAsync(equipment, autoSave: true);
         }

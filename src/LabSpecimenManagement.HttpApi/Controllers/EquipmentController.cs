@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.Permissions;
@@ -66,5 +67,24 @@ public class EquipmentController : LabSpecimenManagementController
     public virtual Task DeleteAttachmentAsync(Guid id, Guid attachmentId)
     {
         return _appService.DeleteAttachmentAsync(id, attachmentId);
+    }
+
+    [HttpGet("{id}/cost-configs")]
+    public virtual Task<List<EquipmentCostConfigDto>> GetCostConfigListAsync(Guid id)
+    {
+        return _appService.GetCostConfigListAsync(id);
+    }
+
+    [HttpGet("{id}/cost-configs/active")]
+    public virtual Task<EquipmentCostConfigDto?> GetActiveCostConfigAsync(Guid id)
+    {
+        return _appService.GetActiveCostConfigAsync(id);
+    }
+
+    [HttpPost("{id}/cost-configs")]
+    [Authorize(LabSpecimenManagementPermissions.Equipments.Edit)]
+    public virtual Task<EquipmentCostConfigDto> SaveCostConfigAsync(Guid id, [FromBody] CreateEquipmentCostConfigDto input)
+    {
+        return _appService.SaveCostConfigAsync(id, input);
     }
 }

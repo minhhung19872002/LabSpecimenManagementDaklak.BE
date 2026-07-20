@@ -28,6 +28,12 @@ public class Equipment : FullAuditedAggregateRoot<Guid>
     public string? AssetCode { get; set; }
     public int? DepreciationPeriod { get; set; }
     public string? Location { get; set; }
+    public decimal? PowerConsumption { get; set; }
+    public decimal? OperatingHoursPerYear { get; set; }
+    public int? AverageSamplesPerYear { get; set; }
+    public decimal? MaintenanceCostRatio { get; set; }
+    public decimal? CalibrationCostPerYear { get; set; }
+    public DateTime? ImportDate { get; set; }
 
     protected Equipment() { }
 

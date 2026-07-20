@@ -212,6 +212,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AssetCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<int?>("AverageSamplesPerYear")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CalibrationCostPerYear")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Code")
                         .IsRequired()
                         .HasMaxLength(50)
@@ -240,6 +251,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("DeletionTime");
 
+                    b.Property<int?>("DepreciationPeriod")
+                        .HasColumnType("integer");
+
                     b.Property<string>("ExtraProperties")
                         .IsRequired()
                         .HasColumnType("text")
@@ -251,6 +265,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid?>("GoodsReceiptId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("ImportDate")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -266,12 +283,20 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<string>("Location")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTime?>("LotExpiryDate")
                         .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("LotNumber")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<decimal?>("MaintenanceCostRatio")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<int>("MaintenanceCount")
                         .HasColumnType("integer");
@@ -293,9 +318,17 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<decimal?>("OperatingHoursPerYear")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<string>("Origin")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<decimal?>("PowerConsumption")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
 
                     b.Property<decimal>("Price")
                         .HasPrecision(18, 2)
@@ -390,6 +423,78 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppEquipmentAttachments", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Equipments.EquipmentCostConfig", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<int?>("AverageSamplesPerYear")
+                        .HasColumnType("integer");
+
+                    b.Property<decimal?>("CalibrationCostPerYear")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<DateTime>("EffectiveFrom")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<DateTime>("EffectiveTo")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("EquipmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<decimal?>("MaintenanceCostRatio")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<decimal?>("OperatingHoursPerYear")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EquipmentId");
+
+                    b.HasIndex("EquipmentId", "EffectiveFrom");
+
+                    b.ToTable("AppEquipmentCostConfigs", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.GoodsReceipts.GoodsReceipt", b =>
                 {
                     b.Property<Guid>("Id")
@@ -476,11 +581,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
-                    b.Property<int>("ReceiptType")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasDefaultValue(0);
-
                     b.Property<string>("SupplierAddress")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
@@ -538,8 +638,6 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("OrderStatus");
 
                     b.HasIndex("PaymentStatus");
-
-                    b.HasIndex("ReceiptType");
 
                     b.HasIndex("SupplierId");
 
@@ -6726,12 +6824,36 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("AssetCode")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<decimal>("ConsumedBaseQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<int?>("DepreciationPeriod")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EquipmentIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("EquipmentReceiveStatus")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
                     b.Property<Guid>("GoodsReceiptItemId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("IsEquipment")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("Location")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<DateTime?>("LotExpiryDate")
                         .HasColumnType("timestamp without time zone");
@@ -6740,6 +6862,13 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
+                    b.Property<Guid?>("ManufacturerId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ManufacturerName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
@@ -6747,6 +6876,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<decimal>("OrderedQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("OriginalPrice")
+                        .HasPrecision(18)
+                        .HasColumnType("numeric(18,0)");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
@@ -6774,6 +6907,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<decimal>("ReceivedBaseQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("SerialNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid?>("SkuId")
                         .HasColumnType("uuid");

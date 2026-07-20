@@ -94,6 +94,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<StockMovementLog> StockMovementLogs { get; set; }
     public DbSet<Equipment> Equipments { get; set; }
     public DbSet<EquipmentAttachment> EquipmentAttachments { get; set; }
+    public DbSet<EquipmentCostConfig> EquipmentCostConfigs { get; set; }
     public DbSet<Organization> Organizations { get; set; }
     public DbSet<Laboratory> Laboratories { get; set; }
     public DbSet<Standard> Standards { get; set; }
@@ -1711,6 +1712,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Notes).HasMaxLength(2000);
             b.Property(x => x.AssetCode).HasMaxLength(100);
             b.Property(x => x.Location).HasMaxLength(256);
+            b.Property(x => x.PowerConsumption).HasPrecision(18, 2);
+            b.Property(x => x.OperatingHoursPerYear).HasPrecision(18, 2);
+            b.Property(x => x.MaintenanceCostRatio).HasPrecision(18, 2);
+            b.Property(x => x.CalibrationCostPerYear).HasPrecision(18, 2);
 
             b.HasIndex(x => x.SerialNumber).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Code);
@@ -1732,6 +1737,20 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.EquipmentId);
             b.HasIndex(x => x.FileId);
+        });
+
+        builder.Entity<EquipmentCostConfig>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "EquipmentCostConfigs", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.OperatingHoursPerYear).HasPrecision(18, 2);
+            b.Property(x => x.MaintenanceCostRatio).HasPrecision(18, 2);
+            b.Property(x => x.CalibrationCostPerYear).HasPrecision(18, 2);
+            b.Property(x => x.Description).HasMaxLength(500);
+
+            b.HasIndex(x => x.EquipmentId);
+            b.HasIndex(x => new { x.EquipmentId, x.EffectiveFrom });
         });
 
         // ============ TEST BATCH CONFIGURATION ============

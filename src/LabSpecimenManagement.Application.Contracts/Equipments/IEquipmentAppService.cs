@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -14,4 +15,7 @@ public interface IEquipmentAppService : IApplicationService
     Task<EquipmentDto> UpdateStatusAsync(Guid id, UpdateEquipmentStatusDto input);
     Task DeleteAsync(Guid id);
     Task DeleteAttachmentAsync(Guid equipmentId, Guid attachmentId);
+    Task<List<EquipmentCostConfigDto>> GetCostConfigListAsync(Guid equipmentId);
+    Task<EquipmentCostConfigDto?> GetActiveCostConfigAsync(Guid equipmentId);
+    Task<EquipmentCostConfigDto> SaveCostConfigAsync(Guid equipmentId, CreateEquipmentCostConfigDto input);
 }
