@@ -211,24 +211,19 @@ public class Product : FullAuditedAggregateRoot<Guid>, IHasActive
     public decimal? MinStockLevel { get; set; }
 
     /// <summary>
-    /// Mã nhận dạng thiết bị có định dạng HTML (rich text, dùng cho Thiết bị phòng Lab)
-    /// </summary>
-    public string? FormattedIdentificationCode { get; set; }
-
-    /// <summary>
     /// Model thiết bị
     /// </summary>
     public string? EquipmentModel { get; set; }
 
     /// <summary>
-    /// Số serial thiết bị
-    /// </summary>
-    public string? SerialNumber { get; set; }
-
-    /// <summary>
     /// Năm sản xuất thiết bị
     /// </summary>
     public int? ManufactureYear { get; set; }
+
+    /// <summary>
+    /// Công suất sử dụng (kW, dùng cho Thiết bị phòng Lab)
+    /// </summary>
+    public decimal? PowerConsumption { get; set; }
 
     /// <summary>
     /// Thông số kỹ thuật chính (dùng cho Thiết bị phòng Lab)

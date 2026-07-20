@@ -477,10 +477,9 @@ public class ProductAppService : ApplicationService, IProductAppService
             Categories = input.Categories,
             ChemicalFormula = input.ChemicalFormula,
             MinStockLevel = input.MinStockLevel,
-            FormattedIdentificationCode = input.FormattedIdentificationCode,
             EquipmentModel = input.EquipmentModel,
-            SerialNumber = input.SerialNumber,
             ManufactureYear = input.ManufactureYear,
+            PowerConsumption = input.PowerConsumption,
             MainTechnicalSpecs = input.MainTechnicalSpecs,
             InstallationLocation = input.InstallationLocation,
             IsActive = input.IsActive,
@@ -593,10 +592,9 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.Categories = input.Categories;
         product.ChemicalFormula = input.ChemicalFormula;
         product.MinStockLevel = input.MinStockLevel;
-        product.FormattedIdentificationCode = input.FormattedIdentificationCode;
         product.EquipmentModel = input.EquipmentModel;
-        product.SerialNumber = input.SerialNumber;
         product.ManufactureYear = input.ManufactureYear;
+        product.PowerConsumption = input.PowerConsumption;
         product.MainTechnicalSpecs = input.MainTechnicalSpecs;
         product.InstallationLocation = input.InstallationLocation;
         product.IsActive = input.IsActive;

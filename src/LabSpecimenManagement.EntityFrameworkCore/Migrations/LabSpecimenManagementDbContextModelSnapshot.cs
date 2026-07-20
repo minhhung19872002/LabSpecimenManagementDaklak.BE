@@ -3396,9 +3396,6 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("FormattedConcentration")
                         .HasColumnType("text");
 
-                    b.Property<string>("FormattedIdentificationCode")
-                        .HasColumnType("text");
-
                     b.Property<string>("FormattedMaterialComposition")
                         .HasColumnType("text");
 
@@ -3496,12 +3493,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("PackagingUnitId")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("PowerConsumption")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<int>("ProductType")
                         .HasColumnType("integer");
-
-                    b.Property<string>("SerialNumber")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
 
                     b.Property<int?>("ShelfLifeDays")
                         .HasColumnType("integer");
@@ -3668,6 +3665,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("CreatorId");
 
+                    b.Property<string>("LotNumber")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("MovementType")
                         .HasColumnType("integer");
 
@@ -3698,6 +3699,12 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("ReferenceId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("WarehouseImportReceiptItemId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("CreationTime");
@@ -3707,6 +3714,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("ReferenceId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("AppStockMovementLogs", (string)null);
                 });
@@ -6668,6 +6677,17 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
+                    b.Property<Guid?>("SupplierId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SupplierName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal?>("TotalAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<Guid?>("WarehouseId")
                         .HasColumnType("uuid");
 
@@ -6703,6 +6723,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ActualReceivedQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal>("ConsumedBaseQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
@@ -6747,8 +6771,22 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<long?>("QualityDocumentFileSize")
                         .HasColumnType("bigint");
 
+                    b.Property<decimal>("ReceivedBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("SkuId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<Guid?>("StorageWarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("StorageWarehouseName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
 
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
