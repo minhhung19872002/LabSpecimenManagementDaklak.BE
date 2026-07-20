@@ -339,21 +339,22 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             }
         }
 
-        // Find WarehouseImportReceipts for those warehouses
-        var receiptIds = (await _importReceiptRepository.GetQueryableAsync())
-            .Where(r => r.WarehouseId.HasValue && warehouseIds.Contains(r.WarehouseId.Value))
-            .Select(r => r.Id)
-            .ToList();
+        // Find distinct ProductIds imported into those warehouses
+        // Check item.StorageWarehouseId first, fall back to receipt.WarehouseId
+        var importReceiptQuery = await _importReceiptRepository.GetQueryableAsync();
+        var importItemQuery = await _importReceiptItemRepository.GetQueryableAsync();
 
-        if (!receiptIds.Any())
-            return new List<PreparedSolutionWarehouseProductDto>();
-
-        // Find distinct ProductIds imported into those receipts
-        var productIds = (await _importReceiptItemRepository.GetQueryableAsync())
-            .Where(i => receiptIds.Contains(i.WarehouseImportReceiptId))
-            .Select(i => i.ProductId)
-            .Distinct()
-            .ToList();
+        var productIds = (from item in importItemQuery
+                          join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                          where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                && item.Status == WarehouseImportLineStatus.Checked
+                                && (
+                                    (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                                )
+                          select item.ProductId)
+                         .Distinct()
+                         .ToList();
 
         if (!productIds.Any())
             return new List<PreparedSolutionWarehouseProductDto>();
@@ -361,7 +362,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         // Load products
         var productQuery = await _productRepository.GetQueryableAsync();
         var products = productQuery
-            .Where(p => productIds.Contains(p.Id) && p.IsActive && p.AvailableQuantity > 0)
+            .Where(p => productIds.Contains(p.Id) && p.IsActive)
             .ToList();
 
         if (productType.HasValue)
