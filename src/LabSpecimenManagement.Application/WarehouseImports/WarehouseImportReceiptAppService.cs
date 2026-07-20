@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.MasterData;
@@ -35,6 +36,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IUnitConversionResolver _unitConversionResolver;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
+    private readonly IRepository<Equipment, Guid> _equipmentRepository;
 
     public WarehouseImportReceiptAppService(
         IRepository<WarehouseImportReceipt, Guid> receiptRepository,
@@ -50,7 +52,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         IUserNameProvider userNameProvider,
         IUnitConversionResolver unitConversionResolver,
         IRepository<ProductSku, Guid> productSkuRepository,
-        IRepository<Manufacturer, Guid> manufacturerRepository)
+        IRepository<Manufacturer, Guid> manufacturerRepository,
+        IRepository<Equipment, Guid> equipmentRepository)
     {
         _receiptRepository = receiptRepository;
         _itemRepository = itemRepository;
@@ -66,6 +69,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         _unitConversionResolver = unitConversionResolver;
         _productSkuRepository = productSkuRepository;
         _manufacturerRepository = manufacturerRepository;
+        _equipmentRepository = equipmentRepository;
     }
 
     private static readonly GoodsReceiptOrderStatus[] EligibleOrderStatuses =
@@ -226,10 +230,12 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
 
         var goodsReceipt = await _goodsReceiptRepository.GetAsync(receipt.GoodsReceiptId);
         var poLines = (await _goodsReceiptItemRepository.GetQueryableAsync())
-            .Where(x => x.GoodsReceiptId == goodsReceipt.Id && !x.IsEquipment)
+            .Where(x => x.GoodsReceiptId == goodsReceipt.Id)
             .ToList();
 
-        var checkedItemsByLine = receipt.Items
+        // Material items: validate quantities
+        var materialItems = receipt.Items.Where(x => !x.IsEquipment).ToList();
+        var checkedItemsByLine = materialItems
             .Where(x => x.Status == WarehouseImportLineStatus.Checked)
             .GroupBy(x => x.GoodsReceiptItemId);
 
@@ -262,7 +268,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 throw new UserFriendlyException($"Số lượng nhận của \"{poLine.ProductName}\" vượt quá số lượng còn lại có thể nhận ({remaining}).");
         }
 
-        foreach (var item in receipt.Items.Where(x => x.Status == WarehouseImportLineStatus.Checked))
+        foreach (var item in materialItems.Where(x => x.Status == WarehouseImportLineStatus.Checked))
         {
             var product = await _productRepository.GetAsync(item.ProductId);
             decimal baseQty;
@@ -279,6 +285,29 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             await _productRepository.UpdateAsync(product, autoSave: true);
 
             item.ReceivedBaseQuantity = baseQty;
+        }
+
+        // Equipment items: create Equipment entities for received items
+        var equipmentItems = receipt.Items.Where(x => x.IsEquipment && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received).ToList();
+        foreach (var item in equipmentItems)
+        {
+            var equipCode = await GenerateEquipmentCodeAsync();
+            var equipment = new Equipment(GuidGenerator.Create(), equipCode, item.ProductName, item.SerialNumber ?? "")
+            {
+                GoodsReceiptId = goodsReceipt.Id,
+                GoodsReceiptCode = goodsReceipt.Code,
+                SupplierId = goodsReceipt.SupplierId,
+                SupplierName = goodsReceipt.SupplierName,
+                Model = null,
+                Manufacturer = item.ManufacturerName,
+                UnitId = item.UnitId,
+                UnitName = item.UnitName,
+                Price = item.OriginalPrice ?? 0,
+                AssetCode = item.AssetCode,
+                DepreciationPeriod = item.DepreciationPeriod,
+                Location = item.Location
+            };
+            await _equipmentRepository.InsertAsync(equipment, autoSave: true);
         }
 
         receipt.Status = WarehouseImportReceiptStatus.Completed;
@@ -326,7 +355,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     public async Task<List<GoodsReceiptItemForImportDto>> GetImportableItemsAsync(Guid goodsReceiptId)
     {
         var lines = (await _goodsReceiptItemRepository.GetQueryableAsync())
-            .Where(x => x.GoodsReceiptId == goodsReceiptId && !x.IsEquipment)
+            .Where(x => x.GoodsReceiptId == goodsReceiptId)
             .ToList();
 
         var completedReceiptIds = await GetCompletedReceiptIdsAsync(excludeReceiptId: null);
@@ -366,13 +395,16 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             var dto = new GoodsReceiptItemForImportDto
             {
                 GoodsReceiptItemId = line.Id,
-                ProductId = line.ProductId!.Value,
+                ProductId = line.ProductId ?? Guid.Empty,
                 ProductName = line.ProductName,
                 UnitId = line.UnitId,
                 UnitName = line.UnitName,
                 OrderedQuantity = line.Quantity,
                 AlreadyReceivedQuantity = alreadyReceived,
                 RemainingOrderableQuantity = remaining,
+                IsEquipment = line.IsEquipment,
+                ManufacturerId = line.ManufacturerId,
+                ManufacturerName = line.Manufacturer,
                 PreviousLots = historicalForLine.Select(x => new PreviousReceivedLotDto
                 {
                     LotNumber = x.LotNumber,
@@ -388,9 +420,12 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 }).ToList()
             };
 
-            var product = await _productRepository.FindAsync(line.ProductId.Value);
+            var product = line.ProductId.HasValue ? await _productRepository.FindAsync(line.ProductId.Value) : null;
             if (product != null)
             {
+                dto.ProductType = (int)product.ProductType;
+                dto.InstallationLocation = product.InstallationLocation;
+
                 if (product.BaseUnitId.HasValue && product.BaseUnitId != line.UnitId)
                 {
                     var baseUnit = await _unitRepository.FindAsync(product.BaseUnitId.Value);
@@ -588,15 +623,19 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             if (!poLines.TryGetValue(input.GoodsReceiptItemId, out var poLine))
                 throw new UserFriendlyException("Không tìm thấy dòng hàng tương ứng trên phiếu mua hàng.");
 
+            if (input.IsEquipment && input.EquipmentReceiveStatus == EquipmentReceiveStatus.Received
+                && string.IsNullOrWhiteSpace(input.AssetCode))
+                throw new UserFriendlyException("Thiết bị đã nhận phải có mã tài sản.");
+
             var item = new WarehouseImportReceiptItem(
                 GuidGenerator.Create(),
                 receipt.Id,
                 poLine.Id,
-                poLine.ProductId!.Value,
+                poLine.ProductId ?? Guid.Empty,
                 poLine.ProductName,
                 poLine.Quantity)
             {
-                ActualReceivedQuantity = input.ActualReceivedQuantity,
+                ActualReceivedQuantity = input.IsEquipment ? 1 : input.ActualReceivedQuantity,
                 UnitId = input.SkuId.HasValue && input.SelectedUnitId.HasValue ? input.SelectedUnitId : poLine.UnitId,
                 UnitName = input.SkuId.HasValue && input.SelectedUnitId.HasValue ? input.SelectedUnitName : poLine.UnitName,
                 LotNumber = input.LotNumber,
@@ -609,7 +648,17 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 Notes = input.Notes,
                 SkuId = input.SkuId,
                 StorageWarehouseId = input.StorageWarehouseId,
-                StorageWarehouseName = input.StorageWarehouseName
+                StorageWarehouseName = input.StorageWarehouseName,
+                IsEquipment = input.IsEquipment,
+                AssetCode = input.AssetCode,
+                SerialNumber = input.SerialNumber,
+                ManufacturerId = input.ManufacturerId,
+                ManufacturerName = input.ManufacturerName,
+                EquipmentReceiveStatus = input.EquipmentReceiveStatus,
+                DepreciationPeriod = input.DepreciationPeriod,
+                OriginalPrice = input.OriginalPrice,
+                Location = input.Location,
+                EquipmentIndex = input.EquipmentIndex
             };
 
             await _itemRepository.InsertAsync(item, autoSave: true);
@@ -678,13 +727,35 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private async Task RecomputeOrderStatusAsync(GoodsReceipt goodsReceipt, List<GoodsReceiptItem> poLines)
     {
         var fullyReceived = true;
-        foreach (var line in poLines)
+
+        // Check material lines
+        foreach (var line in poLines.Where(x => !x.IsEquipment))
         {
             var cumulative = await GetCumulativeCheckedQtyAsync(line.Id, excludeReceiptId: null);
             if (cumulative < line.Quantity)
             {
                 fullyReceived = false;
                 break;
+            }
+        }
+
+        // Check equipment lines: count received items across all completed receipts
+        if (fullyReceived)
+        {
+            var completedReceiptIds = await GetCompletedReceiptIdsAsync(excludeReceiptId: null);
+            var allEquipmentItems = (await _itemRepository.GetQueryableAsync())
+                .Where(x => completedReceiptIds.Contains(x.WarehouseImportReceiptId) && x.IsEquipment
+                    && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received)
+                .ToList();
+
+            foreach (var line in poLines.Where(x => x.IsEquipment))
+            {
+                var receivedCount = allEquipmentItems.Count(x => x.GoodsReceiptItemId == line.Id);
+                if (receivedCount < (int)line.Quantity)
+                {
+                    fullyReceived = false;
+                    break;
+                }
             }
         }
 
@@ -826,5 +897,16 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             return (quantity / sku.VolumePerUnit!.Value) / sku.PackagingQuantity!.Value;
 
         return quantity;
+    }
+
+    private async Task<string> GenerateEquipmentCodeAsync()
+    {
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var todayPrefix = _codeGenerator.GetTodayPrefix("TB");
+            var equipQuery = await _equipmentRepository.GetQueryableAsync();
+            var count = equipQuery.Count(x => x.Code.StartsWith(todayPrefix));
+            return _codeGenerator.GenerateCodeWithDate("TB", count);
+        }
     }
 }

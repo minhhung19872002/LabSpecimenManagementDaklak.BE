@@ -102,6 +102,17 @@ public class WarehouseImportReceiptItemDto : EntityDto<Guid>
     public string? ManufacturerName { get; set; }
     public Guid? StorageWarehouseId { get; set; }
     public string? StorageWarehouseName { get; set; }
+
+    // Equipment fields (Nhóm 2)
+    public bool IsEquipment { get; set; }
+    public string? AssetCode { get; set; }
+    public string? SerialNumber { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public EquipmentReceiveStatus EquipmentReceiveStatus { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public decimal? OriginalPrice { get; set; }
+    public string? Location { get; set; }
+    public int EquipmentIndex { get; set; }
 }
 
 public class CreateUpdateWarehouseImportReceiptDto
@@ -171,6 +182,22 @@ public class CreateUpdateWarehouseImportReceiptItemDto
     public Guid? StorageWarehouseId { get; set; }
     [StringLength(500)]
     public string? StorageWarehouseName { get; set; }
+
+    // Equipment fields (Nhóm 2)
+    public bool IsEquipment { get; set; }
+    [StringLength(100)]
+    public string? AssetCode { get; set; }
+    [StringLength(200)]
+    public string? SerialNumber { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    [StringLength(500)]
+    public string? ManufacturerName { get; set; }
+    public EquipmentReceiveStatus EquipmentReceiveStatus { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public decimal? OriginalPrice { get; set; }
+    [StringLength(256)]
+    public string? Location { get; set; }
+    public int EquipmentIndex { get; set; }
 }
 
 public class ProductSkuForImportDto
@@ -218,6 +245,13 @@ public class GoodsReceiptItemForImportDto
     public List<ProductSkuForImportDto> Skus { get; set; } = new();
     public string? CASNumber { get; set; }
     public string? PackagingSpec { get; set; }
+
+    // Equipment fields
+    public bool IsEquipment { get; set; }
+    public string? InstallationLocation { get; set; }
+    public int? ProductType { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public string? ManufacturerName { get; set; }
 }
 
 public class DefectiveHistoryItemDto

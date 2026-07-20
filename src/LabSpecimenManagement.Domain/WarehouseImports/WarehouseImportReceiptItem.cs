@@ -27,6 +27,18 @@ public class WarehouseImportReceiptItem : Entity<Guid>
     public decimal ReceivedBaseQuantity { get; set; }
     public decimal ConsumedBaseQuantity { get; set; }
 
+    // Equipment fields (Nhóm 2)
+    public bool IsEquipment { get; set; }
+    public string? AssetCode { get; set; }
+    public string? SerialNumber { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public string? ManufacturerName { get; set; }
+    public EquipmentReceiveStatus EquipmentReceiveStatus { get; set; }
+    public int? DepreciationPeriod { get; set; }
+    public decimal? OriginalPrice { get; set; }
+    public string? Location { get; set; }
+    public int EquipmentIndex { get; set; }
+
     protected WarehouseImportReceiptItem()
     {
     }
