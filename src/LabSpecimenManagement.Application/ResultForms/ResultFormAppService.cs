@@ -172,6 +172,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{DateOfIssue}}", testRequest.ResultDeliveryDate?.ToString("dd/MM/yyyy") ?? "" },
             // BM05-QLNN specific placeholders
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{SampleQuantity}}", sample.SampleQuantity ?? "" },
             { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
             { "{{TimeToSaveSample}}", "" },
             // BA: DateOfSending = ngày lấy mẫu, dùng cùng giá trị với DateOfReceiving (ContractDate)
@@ -2352,6 +2353,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Note}}", input.Note ?? "" },
             // BM05-QLNN specific placeholders
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{SampleQuantity}}", sample.SampleQuantity ?? "" },
             { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
             { "{{TimeToSaveSample}}", "" },
             { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
@@ -4782,6 +4784,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Additional placeholders for BM05-QLNN template
             { "{{NumberOfSample}}", sample.SampleCode ?? "" },
+            { "{{SampleQuantity}}", sample.SampleQuantity ?? "" },
             { "{{DescriptionOfSample}}", sample.StatusText ?? "" },
             { "{{TimeToSaveSample}}", "" }, // TODO: Add field to Sample if needed
             { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
@@ -5091,6 +5094,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{FullAddress}}", address },
             // BM05-QLNN specific placeholders
             { "{{NumberOfSample}}", firstSample?.SampleCode ?? "" },
+            { "{{SampleQuantity}}", firstSample?.SampleQuantity ?? "" },
             { "{{DescriptionOfSample}}", firstSample?.StatusText ?? "" },
             { "{{TimeToSaveSample}}", "" },
             { "{{DateOfSending}}", testRequest.RequestDate.ToString("dd/MM/yyyy") },
