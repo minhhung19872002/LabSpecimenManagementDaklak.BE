@@ -66,6 +66,7 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public bool IsDraft { get; set; }
     public int SkuCount { get; set; }
     public string? WarehouseName { get; set; }
+    public Guid? StockWarehouseId { get; set; }
 
     public DateTime? EarliestReceivedDate { get; set; }
     public string? EarliestLotNumber { get; set; }

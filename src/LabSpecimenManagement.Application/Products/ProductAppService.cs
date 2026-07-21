@@ -301,20 +301,16 @@ public class ProductAppService : ApplicationService, IProductAppService
             });
         }
 
-        // 6. Group by ProductId only — same product in multiple child warehouses → one row, quantities summed
+        // 6. Group by (ProductId, WarehouseId) — one row per product per warehouse
         var grouped = entries
-            .GroupBy(x => x.ProductId)
-            .Select(g =>
+            .GroupBy(x => new { x.ProductId, x.WarehouseId })
+            .Select(g => new WarehouseStockEntry
             {
-                var warehouseNames = g.Select(x => x.WarehouseName).Distinct().ToList();
-                return new WarehouseStockEntry
-                {
-                    ProductId = g.Key,
-                    WarehouseId = g.First().WarehouseId,
-                    WarehouseName = string.Join(", ", warehouseNames),
-                    BaseQty = g.Sum(x => x.BaseQty),
-                    VolumeQty = g.Sum(x => x.VolumeQty)
-                };
+                ProductId = g.Key.ProductId,
+                WarehouseId = g.Key.WarehouseId,
+                WarehouseName = g.First().WarehouseName,
+                BaseQty = g.Sum(x => x.BaseQty),
+                VolumeQty = g.Sum(x => x.VolumeQty)
             })
             .ToList();
 
@@ -365,6 +361,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 : entry.BaseQty;
             dtos[i].ConsumableImportedQuantity = entry.VolumeQty;
             dtos[i].WarehouseName = entry.WarehouseName;
+            dtos[i].StockWarehouseId = entry.WarehouseId;
         }
 
         return new PagedResultDto<ProductDto>(totalCount, dtos);
