@@ -301,16 +301,20 @@ public class ProductAppService : ApplicationService, IProductAppService
             });
         }
 
-        // 6. Group by (ProductId, WarehouseId) and sum
+        // 6. Group by ProductId only — same product in multiple child warehouses → one row, quantities summed
         var grouped = entries
-            .GroupBy(x => new { x.ProductId, x.WarehouseId })
-            .Select(g => new WarehouseStockEntry
+            .GroupBy(x => x.ProductId)
+            .Select(g =>
             {
-                ProductId = g.Key.ProductId,
-                WarehouseId = g.Key.WarehouseId,
-                WarehouseName = g.First().WarehouseName,
-                BaseQty = g.Sum(x => x.BaseQty),
-                VolumeQty = g.Sum(x => x.VolumeQty)
+                var warehouseNames = g.Select(x => x.WarehouseName).Distinct().ToList();
+                return new WarehouseStockEntry
+                {
+                    ProductId = g.Key,
+                    WarehouseId = g.First().WarehouseId,
+                    WarehouseName = string.Join(", ", warehouseNames),
+                    BaseQty = g.Sum(x => x.BaseQty),
+                    VolumeQty = g.Sum(x => x.VolumeQty)
+                };
             })
             .ToList();
 
