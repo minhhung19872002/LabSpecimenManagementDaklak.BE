@@ -398,8 +398,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         return products.Select(p =>
         {
-            var volumePerUnit = p.VolumePerUnit
-                ?? p.Skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit;
+            var volumePerUnit = ResolveVolumePerUnit(p);
 
             return new PreparedSolutionWarehouseProductDto
             {
@@ -470,14 +469,18 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         batch.PreparedSolutionReceiptId = null;
     }
 
-    private static decimal ToBaseQty(Product p, decimal displayQty) =>
-        (p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0)
-            ? displayQty / p.VolumePerUnit.Value
+    private static int? ResolveVolumePerUnit(Product p) =>
+        p.VolumePerUnit
+        ?? p.Skus?.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit;
+
+    private static decimal ToBaseQty(int? volumePerUnit, decimal displayQty) =>
+        (volumePerUnit.HasValue && volumePerUnit.Value > 0)
+            ? displayQty / volumePerUnit.Value
             : displayQty;
 
-    private static decimal ToDisplayQty(Product p, decimal baseQty) =>
-        (p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0)
-            ? baseQty * p.VolumePerUnit.Value
+    private static decimal ToDisplayQty(int? volumePerUnit, decimal baseQty) =>
+        (volumePerUnit.HasValue && volumePerUnit.Value > 0)
+            ? baseQty * volumePerUnit.Value
             : baseQty;
 
     private async Task ProcessIngredientsAsync(
@@ -492,11 +495,17 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             sourceWarehouseIds = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
         }
 
+        var productIds = inputIngredients.Select(i => i.ProductId).Distinct().ToList();
+        var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+        var products = productQuery.Where(p => productIds.Contains(p.Id)).ToList();
+        var productMap = products.ToDictionary(p => p.Id);
+
         foreach (var inp in inputIngredients)
         {
-            var product = await _productRepository.GetAsync(inp.ProductId);
+            var product = productMap[inp.ProductId];
             var isEquipment = inp.ProductType == (int)ProductType.Equipment;
-            var snapshot = ToDisplayQty(product, product.AvailableQuantity);
+            var vpu = ResolveVolumePerUnit(product);
+            var snapshot = ToDisplayQty(vpu, product.AvailableQuantity);
 
             var ingredient = new PreparedSolutionIngredient
             {
@@ -515,7 +524,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
             if (!isEquipment)
             {
-                var baseQty = ToBaseQty(product, inp.QuantityUsed);
+                var baseQty = ToBaseQty(vpu, inp.QuantityUsed);
                 await _fifoStockService.DeductAsync(
                     product, baseQty,
                     StockMovementType.MaterialConsumption,
