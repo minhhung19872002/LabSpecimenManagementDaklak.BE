@@ -1278,9 +1278,12 @@ public class ProductAppService : ApplicationService, IProductAppService
                                   receipt.ActualImportDate
                               })
                               .ToList();
+        // Nearest-expiry lot data: pick the lot soonest to expire; nulls (no expiry) sorted last
         var earliestBatchMap = allImportItems
             .GroupBy(x => x.ProductId)
-            .ToDictionary(g => g.Key, g => g.OrderBy(x => x.ActualImportDate).First());
+            .ToDictionary(g => g.Key, g => g
+                .OrderBy(x => x.LotExpiryDate ?? DateTime.MaxValue)
+                .First());
 
         // Usage aggregation: sum consumed quantity per product
         var movementQuery = await _stockMovementLogRepository.GetQueryableAsync();
@@ -1371,7 +1374,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             dto.ConsumableImportedQuantity = consumableByProduct.GetValueOrDefault(product.Id);
             dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
 
-            // FIFO batch data
+            // Nearest-expiry lot data
             if (earliestBatchMap.TryGetValue(product.Id, out var batch))
             {
                 dto.EarliestReceivedDate = batch.ActualImportDate;
