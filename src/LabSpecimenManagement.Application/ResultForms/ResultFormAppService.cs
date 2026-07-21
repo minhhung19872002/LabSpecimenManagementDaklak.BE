@@ -5859,6 +5859,84 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
+    /// Get list of templates available for mixed result printing (In KQ Hỗn hợp)
+    /// </summary>
+    public Task<List<TemplateDto>> GetMixedTemplatesAsync()
+    {
+        var templatesDir = Path.Combine(_environment.WebRootPath ?? "", "templates");
+        var templates = new List<TemplateDto>();
+
+        foreach (var templateFileName in TemplateConstants.MixedTemplates)
+        {
+            var filePath = Path.Combine(templatesDir, templateFileName);
+            if (File.Exists(filePath))
+            {
+                var displayName = TemplateConstants.GetDisplayName(templateFileName);
+                templates.Add(new TemplateDto
+                {
+                    Name = displayName,
+                    DisplayName = displayName,
+                    FileName = templateFileName
+                });
+            }
+        }
+
+        return Task.FromResult(templates);
+    }
+
+    /// <summary>
+    /// Generate mixed indicator result form per sample (each sample = 1 separate file)
+    /// Groups indicators by sample, then calls GenerateMixedIndicatorResultFormAsync for each group
+    /// </summary>
+    public async Task<List<GenerateResultFormOutput>> GenerateMixedPerSampleResultFormAsync(GenerateMixedIndicatorInput input)
+    {
+        if (input.IndicatorIds == null || input.IndicatorIds.Count == 0)
+            throw new ValidationException("indicatorIds", "Vui lòng chọn ít nhất một chỉ tiêu");
+
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => input.IndicatorIds.Contains(x.Id));
+
+        var labTaskIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).ToList();
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => labTaskIndicatorIds.Contains(x.Id));
+
+        var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
+
+        var qiToSampleId = qualityIndicators.ToDictionary(
+            qi => qi.Id,
+            qi =>
+            {
+                var lti = labTaskIndicators.FirstOrDefault(l => l.Id == qi.LaboratoryTaskIndicatorId);
+                if (lti == null) return Guid.Empty;
+                var si = sampleIndicators.FirstOrDefault(s => s.Id == lti.TestRequestSampleIndicatorId);
+                return si?.TestRequestSampleId ?? Guid.Empty;
+            });
+
+        var groupedBySample = input.IndicatorIds
+            .GroupBy(id => qiToSampleId.GetValueOrDefault(id))
+            .Where(g => g.Key != Guid.Empty)
+            .ToList();
+
+        var results = new List<GenerateResultFormOutput>();
+        foreach (var sampleGroup in groupedBySample)
+        {
+            var perSampleInput = new GenerateMixedIndicatorInput
+            {
+                TaskId = input.TaskId,
+                IndicatorIds = sampleGroup.ToList(),
+                Note = input.Note,
+                TemplateName = input.TemplateName,
+                VicePresidentId = input.VicePresidentId
+            };
+            var result = await GenerateMixedIndicatorResultFormAsync(perSampleInput);
+            results.Add(result);
+        }
+
+        return results;
+    }
+
+    /// <summary>
     /// Get template path by name, falls back to default template if not found
     /// </summary>
     private string GetTemplatePath(string? templateName, string defaultTemplate)

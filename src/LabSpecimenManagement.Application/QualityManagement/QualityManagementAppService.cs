@@ -1044,6 +1044,62 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
+    public async Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid taskId, PrintMixedDto input)
+    {
+        var task = await _taskRepository.GetAsync(taskId);
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _indicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            indicatorsToPrint.Add(indicator);
+        }
+
+        var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
+        {
+            TaskId = taskId,
+            IndicatorIds = input.IndicatorIds,
+            Note = input.Note,
+            TemplateName = input.TemplateName,
+            VicePresidentId = input.VicePresidentId
+        });
+
+        foreach (var result in results)
+        {
+            var publishedReport = new PublishedReport(
+                GuidGenerator.Create(),
+                task.TestRequestId,
+                task.Id,
+                result.FileName,
+                "MixedPerSample",
+                input.Note,
+                JsonSerializer.Serialize(input.IndicatorIds)
+            );
+            await _publishedReportRepository.InsertAsync(publishedReport);
+        }
+
+        foreach (var indicator in indicatorsToPrint)
+        {
+            indicator.IsPrinted = true;
+            indicator.PrintedDate = DateTime.Now;
+            await _indicatorRepository.UpdateAsync(indicator);
+        }
+
+        await UpdateTaskStatusAfterPrintAsync(task);
+
+        return new PrintMultiResultOutputDto
+        {
+            Results = results.Select(r => new PrintResultItemDto
+            {
+                FileName = r.FileName,
+                SampleCode = r.SampleCode ?? "",
+                TemplateName = input.TemplateName ?? "QLNN"
+            }).ToList()
+        };
+    }
+
     public async Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input)
     {
         var task = await _taskRepository.GetAsync(taskId);

@@ -77,6 +77,11 @@ public interface IQualityManagementAppService : IApplicationService
     Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
+    /// Print mixed result per sample (mỗi mẫu = 1 file riêng)
+    /// </summary>
+    Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid taskId, PrintMixedDto input);
+
+    /// <summary>
     /// Print multiple single results (In KQ Đơn batch) - Generates (labs × templates) PDFs
     /// </summary>
     Task<PrintMultiResultOutputDto> PrintMultiSingleResultAsync(Guid taskId, PrintMultiSingleDto input);

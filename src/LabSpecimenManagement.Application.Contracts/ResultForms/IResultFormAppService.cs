@@ -52,6 +52,16 @@ public interface IResultFormAppService : IApplicationService
     Task<List<TemplateDto>> GetTemplatesAsync();
 
     /// <summary>
+    /// Get list of templates available for mixed result printing (In KQ Hỗn hợp)
+    /// </summary>
+    Task<List<TemplateDto>> GetMixedTemplatesAsync();
+
+    /// <summary>
+    /// Generate mixed indicator result form per sample (each sample = 1 file)
+    /// </summary>
+    Task<List<GenerateResultFormOutput>> GenerateMixedPerSampleResultFormAsync(GenerateMixedIndicatorInput input);
+
+    /// <summary>
     /// Preview test request form document (BM05) with form data without saving to DB
     /// Used for previewing unsaved form data in create/edit mode
     /// </summary>
