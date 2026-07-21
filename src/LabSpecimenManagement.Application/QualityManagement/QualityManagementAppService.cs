@@ -430,6 +430,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         labIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
         labIndicator.RejectionReason = reason;
         labIndicator.IsSentToQuality = false; // Reset để QLKT có thể gửi lại sau khi KTV sửa
+        labIndicator.IsRejectedByQuality = true;
         await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
 
         // Add to rejection history
@@ -620,6 +621,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 labIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
                 labIndicator.RejectionReason = reason;
                 labIndicator.IsSentToQuality = false;
+                labIndicator.IsRejectedByQuality = true;
                 await _laboratoryTaskIndicatorRepository.UpdateAsync(labIndicator);
 
                 // Add to rejection history

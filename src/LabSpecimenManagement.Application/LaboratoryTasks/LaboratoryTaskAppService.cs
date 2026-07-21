@@ -676,6 +676,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 ApprovedByName = approvedByName,
                 RejectionReason = taskIndicator.RejectionReason,
                 IsSentToQuality = taskIndicator.IsSentToQuality,
+                IsRejectedByQuality = taskIndicator.IsRejectedByQuality,
                 // Phase 7 - Standard comparison fields
                 StandardId = taskIndicator.StandardId,
                 StandardName = standardName,
@@ -994,6 +995,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             taskIndicator.ApprovalDate = DateTime.Now;
             taskIndicator.ApprovedById = CurrentUser.Id;
             taskIndicator.RejectionReason = null;
+            taskIndicator.IsRejectedByQuality = false;
 
             // Auto send to QLCL - set IsSentToQuality = true
             taskIndicator.IsSentToQuality = true;
@@ -1008,6 +1010,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
             taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
             taskIndicator.RejectionReason = input.RejectionReason;
+            taskIndicator.IsRejectedByQuality = false;
             // Không set ApprovalDate khi từ chối - chỉ set khi duyệt thành công
             taskIndicator.ApprovedById = CurrentUser.Id;
             // Giữ lại Result và Unit để user có thể sửa và gửi lại
@@ -2063,6 +2066,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             ApprovedByName = approvedByName,
             RejectionReason = taskIndicator.RejectionReason,
             IsSentToQuality = taskIndicator.IsSentToQuality,
+            IsRejectedByQuality = taskIndicator.IsRejectedByQuality,
             // Supplementary Request fields
             SupplementaryRequestReason = taskIndicator.SupplementaryRequestReason,
             SupplementaryRequestDate = taskIndicator.SupplementaryRequestDate,
@@ -2369,6 +2373,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                 taskIndicator.ApprovalDate = DateTime.Now;
                 taskIndicator.ApprovedById = CurrentUser.Id;
                 taskIndicator.RejectionReason = null;
+                taskIndicator.IsRejectedByQuality = false;
 
                 // Auto send to QLCL - set IsSentToQuality = true
                 taskIndicator.IsSentToQuality = true;
@@ -2388,6 +2393,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             {
                 taskIndicator.ApprovalStatus = IndicatorApprovalStatus.Rejected;
                 taskIndicator.RejectionReason = input.RejectionReason;
+                taskIndicator.IsRejectedByQuality = false;
                 // Không set ApprovalDate khi từ chối - chỉ set khi duyệt thành công
                 taskIndicator.ApprovedById = CurrentUser.Id;
 

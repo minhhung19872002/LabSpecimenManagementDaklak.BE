@@ -391,6 +391,11 @@ public class LaboratoryTaskIndicatorDto
     public bool IsSentToQuality { get; set; }
 
     /// <summary>
+    /// Chỉ tiêu bị QLCL từ chối (phân biệt với QLKT từ chối)
+    /// </summary>
+    public bool IsRejectedByQuality { get; set; }
+
+    /// <summary>
     /// Chỉ tiêu này đang chờ mẫu chung từ lab khác (Vi Sinh)
     /// </summary>
     public bool IsWaitingForSharedSample { get; set; }
