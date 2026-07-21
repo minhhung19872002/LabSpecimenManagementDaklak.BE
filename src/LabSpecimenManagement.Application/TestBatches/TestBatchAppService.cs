@@ -654,10 +654,14 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var products = productIds.Any() ? await _productRepository.GetListAsync(p => productIds.Contains(p.Id)) : new List<Product>();
         var equipments = equipmentIds.Any() ? await _equipmentRepository.GetListAsync(e => equipmentIds.Contains(e.Id)) : new List<Equipment>();
         var units = unitIds.Any() ? await _unitRepository.GetListAsync(u => unitIds.Contains(u.Id)) : new List<Unit>();
+        var conversions = productIds.Any()
+            ? await _productUnitConversionRepository.GetListAsync(c => productIds.Contains(c.ProductId))
+            : new List<ProductUnitConversion>();
 
         var productMap = products.ToDictionary(p => p.Id);
         var equipmentMap = equipments.ToDictionary(e => e.Id);
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
+        var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
         foreach (var line in lines)
         {
@@ -666,8 +670,17 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 line.ProductName = product.Name;
                 line.ProductCode = product.Code;
                 line.ProductType = (int)product.ProductType;
-                line.AvailableQuantity = product.AvailableQuantity;
-                line.ExceedsStock = line.ActualQuantity > product.AvailableQuantity;
+
+                // Convert AvailableQuantity from base unit to the consumption unit
+                var availableInUnit = product.AvailableQuantity;
+                if (line.UnitId.HasValue && line.UnitId != product.BaseUnitId
+                    && conversionMap.TryGetValue((product.Id, line.UnitId.Value), out var conv)
+                    && conv.Quantity > 0)
+                {
+                    availableInUnit = product.AvailableQuantity * (conv.ConvertedQuantity / conv.Quantity);
+                }
+                line.AvailableQuantity = availableInUnit;
+                line.ExceedsStock = line.ActualQuantity > availableInUnit;
             }
             if (line.EquipmentId.HasValue && equipmentMap.TryGetValue(line.EquipmentId.Value, out var equipment))
             {
