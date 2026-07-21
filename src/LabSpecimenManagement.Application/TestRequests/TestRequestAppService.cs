@@ -425,6 +425,7 @@ public partial class TestRequestAppService :
                 x.RequestNumber.ToLower().Contains(search) ||
                 x.CustomerName.ToLower().Contains(search) ||
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(search)) ||
+                (x.ContactPerson != null && x.ContactPerson.ToLower().Contains(search)) ||
                 (x.Phone != null && x.Phone.ToLower().Contains(search)));
         }
 
