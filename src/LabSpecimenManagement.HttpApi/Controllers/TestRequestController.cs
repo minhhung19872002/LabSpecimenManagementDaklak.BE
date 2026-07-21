@@ -255,6 +255,16 @@ public class TestRequestController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Print mixed result per sample (mỗi mẫu = 1 file riêng)
+    /// </summary>
+    [HttpPost("{id}/print-mixed-per-sample")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid id, [FromBody] PrintMixedDto input)
+    {
+        return _testRequestAppService.PrintMixedPerSampleResultAsync(id, input);
+    }
+
+    /// <summary>
     /// Print multiple indicators with multiple templates (batch processing)
     /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
     /// </summary>

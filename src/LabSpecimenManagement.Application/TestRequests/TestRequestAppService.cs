@@ -425,6 +425,7 @@ public partial class TestRequestAppService :
                 x.RequestNumber.ToLower().Contains(search) ||
                 x.CustomerName.ToLower().Contains(search) ||
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(search)) ||
+                (x.ContactPerson != null && x.ContactPerson.ToLower().Contains(search)) ||
                 (x.Phone != null && x.Phone.ToLower().Contains(search)));
         }
 
@@ -3893,6 +3894,49 @@ public partial class TestRequestAppService :
         return new PrintResultOutputDto
         {
             FileName = result.FileName
+        };
+    }
+
+    /// <summary>
+    /// In kết quả hỗn hợp theo từng mẫu (mỗi mẫu = 1 file riêng)
+    /// </summary>
+    public async Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid id, PrintMixedDto input)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
+            if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
+                throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+        }
+
+        var firstIndicator = await _qualityIndicatorRepository.GetAsync(input.IndicatorIds.First());
+        var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
+        {
+            TaskId = qualityTask.Id,
+            IndicatorIds = input.IndicatorIds,
+            Note = input.Note,
+            TemplateName = input.TemplateName,
+            VicePresidentId = input.VicePresidentId
+        });
+
+        if (testRequest.Status == TestRequestStatus.InProgress)
+        {
+            testRequest.Status = TestRequestStatus.PendingApproval;
+            await Repository.UpdateAsync(testRequest);
+        }
+
+        return new PrintMultiResultOutputDto
+        {
+            Results = results.Select(r => new PrintResultItemDto
+            {
+                FileName = r.FileName,
+                SampleCode = r.SampleCode ?? "",
+                TemplateName = input.TemplateName ?? "QLNN"
+            }).ToList()
         };
     }
 

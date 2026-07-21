@@ -106,6 +106,16 @@ public class ResultFormController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Get list of templates available for mixed result printing (In KQ Hỗn hợp)
+    /// </summary>
+    [HttpGet("mixed-templates")]
+    public async Task<ActionResult<List<TemplateDto>>> GetMixedTemplates()
+    {
+        var result = await _resultFormAppService.GetMixedTemplatesAsync();
+        return Ok(result);
+    }
+
+    /// <summary>
     /// Download generated result form
     /// </summary>
     [HttpGet("download/{fileName}")]

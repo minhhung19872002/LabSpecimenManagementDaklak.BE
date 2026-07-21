@@ -140,6 +140,15 @@ public class QualityManagementController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Print mixed result per sample (mỗi mẫu = 1 file riêng)
+    /// </summary>
+    [HttpPost("{taskId}/print-mixed-per-sample")]
+    public virtual Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
+    {
+        return _qualityManagementAppService.PrintMixedPerSampleResultAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Print multiple single results (In KQ Đơn batch) - generates (labs × templates) PDFs
     /// </summary>
     [HttpPost("{taskId}/print-multi-single")]

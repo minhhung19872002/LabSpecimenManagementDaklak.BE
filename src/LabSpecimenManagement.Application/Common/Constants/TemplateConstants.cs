@@ -86,6 +86,19 @@ public static class TemplateConstants
 
     #endregion
 
+    #region Mixed Result Templates
+
+    /// <summary>
+    /// Templates available for mixed result printing (In KQ Hỗn hợp)
+    /// </summary>
+    public static readonly string[] MixedTemplates = new[]
+    {
+        TemplateBM02,
+        TemplateQLNN
+    };
+
+    #endregion
+
     #region Helper Methods
 
     /// <summary>

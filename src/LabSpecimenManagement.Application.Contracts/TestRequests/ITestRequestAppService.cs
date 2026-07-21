@@ -121,6 +121,11 @@ public interface ITestRequestAppService :
     Task<PrintResultOutputDto> PrintMixedResultAsync(Guid id, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null);
 
     /// <summary>
+    /// In kết quả hỗn hợp theo từng mẫu (mỗi mẫu = 1 file riêng)
+    /// </summary>
+    Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid id, PrintMixedDto input);
+
+    /// <summary>
     /// In kết quả đơn với nhiều chỉ tiêu và nhiều templates (batch processing)
     /// Generates (labs × templates) PDFs - mỗi lab với mỗi template = 1 PDF
     /// </summary>

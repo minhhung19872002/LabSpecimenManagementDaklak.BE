@@ -1100,6 +1100,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("FreeTextNote")
                         .HasColumnType("text");
 
+                    b.Property<bool>("IsRejectedByQuality")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("IsSentToQuality")
                         .HasColumnType("boolean");
 
