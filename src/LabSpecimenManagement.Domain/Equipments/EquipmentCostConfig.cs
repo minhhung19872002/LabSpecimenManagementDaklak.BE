@@ -13,6 +13,7 @@ public class EquipmentCostConfig : FullAuditedEntity<Guid>
     public decimal? MaintenanceCostRatio { get; set; }
     public decimal? CalibrationCostPerYear { get; set; }
     public string? Description { get; set; }
+    public string? ChangeLog { get; set; }
 
     protected EquipmentCostConfig() { }
 

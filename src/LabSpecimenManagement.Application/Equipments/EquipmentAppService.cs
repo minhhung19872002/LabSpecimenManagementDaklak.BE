@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
@@ -411,6 +412,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             MaintenanceCostRatio = c.MaintenanceCostRatio,
             CalibrationCostPerYear = c.CalibrationCostPerYear,
             Description = c.Description,
+            ChangeLog = c.ChangeLog,
             CreationTime = c.CreationTime,
         }).ToList();
 
@@ -443,6 +445,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             MaintenanceCostRatio = config.MaintenanceCostRatio,
             CalibrationCostPerYear = config.CalibrationCostPerYear,
             Description = config.Description,
+            ChangeLog = config.ChangeLog,
             CreationTime = config.CreationTime,
         };
 
@@ -477,6 +480,8 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             description = "Chỉnh sửa thiết lập";
         }
 
+        var changeLog = BuildChangeLog(previousActive, input);
+
         var config = new EquipmentCostConfig(
             GuidGenerator.Create(),
             equipmentId,
@@ -488,6 +493,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             MaintenanceCostRatio = input.MaintenanceCostRatio,
             CalibrationCostPerYear = input.CalibrationCostPerYear,
             Description = description,
+            ChangeLog = changeLog,
         };
 
         await _costConfigRepository.InsertAsync(config, autoSave: true);
@@ -509,10 +515,45 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             MaintenanceCostRatio = config.MaintenanceCostRatio,
             CalibrationCostPerYear = config.CalibrationCostPerYear,
             Description = config.Description,
+            ChangeLog = config.ChangeLog,
             CreationTime = config.CreationTime,
             CreatorName = CurrentUser.Name ?? CurrentUser.UserName,
         };
 
         return dto;
+    }
+
+    private static string? BuildChangeLog(EquipmentCostConfig? previous, CreateEquipmentCostConfigDto next)
+    {
+        if (previous == null) return null;
+
+        var changes = new List<object>();
+
+        void CheckDate(string label, DateTime oldVal, DateTime newVal)
+        {
+            if (oldVal.Date != newVal.Date)
+                changes.Add(new { field = label, from = oldVal.ToString("dd/MM/yyyy"), to = newVal.ToString("dd/MM/yyyy") });
+        }
+
+        void CheckDecimal(string label, decimal? oldVal, decimal? newVal)
+        {
+            if (oldVal != newVal)
+                changes.Add(new { field = label, from = oldVal?.ToString() ?? "", to = newVal?.ToString() ?? "" });
+        }
+
+        void CheckInt(string label, int? oldVal, int? newVal)
+        {
+            if (oldVal != newVal)
+                changes.Add(new { field = label, from = oldVal?.ToString() ?? "", to = newVal?.ToString() ?? "" });
+        }
+
+        CheckDate("Hiệu lực từ", previous.EffectiveFrom, next.EffectiveFrom);
+        CheckDate("Hiệu lực đến", previous.EffectiveTo, next.EffectiveTo);
+        CheckDecimal("Thời gian chạy máy (h/năm)", previous.OperatingHoursPerYear, next.OperatingHoursPerYear);
+        CheckInt("Số mẫu trung bình (mẫu/năm)", previous.AverageSamplesPerYear, next.AverageSamplesPerYear);
+        CheckDecimal("Tỷ lệ duy tu bảo dưỡng (%)", previous.MaintenanceCostRatio, next.MaintenanceCostRatio);
+        CheckDecimal("Chi phí hiệu chuẩn (đ/năm)", previous.CalibrationCostPerYear, next.CalibrationCostPerYear);
+
+        return changes.Count > 0 ? JsonSerializer.Serialize(changes) : null;
     }
 }

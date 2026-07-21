@@ -14,6 +14,7 @@ public class EquipmentCostConfigDto : EntityDto<Guid>
     public decimal? MaintenanceCostRatio { get; set; }
     public decimal? CalibrationCostPerYear { get; set; }
     public string? Description { get; set; }
+    public string? ChangeLog { get; set; }
     public DateTime CreationTime { get; set; }
     public string? CreatorName { get; set; }
 }

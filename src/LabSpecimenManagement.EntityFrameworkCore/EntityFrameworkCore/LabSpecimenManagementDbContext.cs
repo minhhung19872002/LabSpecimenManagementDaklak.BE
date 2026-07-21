@@ -1748,6 +1748,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.MaintenanceCostRatio).HasPrecision(18, 2);
             b.Property(x => x.CalibrationCostPerYear).HasPrecision(18, 2);
             b.Property(x => x.Description).HasMaxLength(500);
+            b.Property(x => x.ChangeLog).HasMaxLength(4000);
 
             b.HasIndex(x => x.EquipmentId);
             b.HasIndex(x => new { x.EquipmentId, x.EffectiveFrom });
