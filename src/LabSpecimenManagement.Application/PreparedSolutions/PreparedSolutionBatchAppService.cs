@@ -392,7 +392,9 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                 : p.BaseUnitId.HasValue && unitMap.ContainsKey(p.BaseUnitId.Value)
                     ? unitMap[p.BaseUnitId.Value]
                     : null,
-            AvailableQuantity = p.AvailableQuantity,
+            AvailableQuantity = p.VolumeUnitId.HasValue && p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0
+                ? p.AvailableQuantity * p.VolumePerUnit.Value
+                : p.AvailableQuantity,
         }).OrderBy(p => p.ProductName).ToList();
     }
 
