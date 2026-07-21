@@ -80,7 +80,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
 
     public async Task<PagedResultDto<WarehouseImportReceiptListDto>> GetListAsync(GetWarehouseImportReceiptListInput input)
     {
-        var query = await _receiptRepository.GetQueryableAsync();
+        var query = (await _receiptRepository.GetQueryableAsync())
+            .Where(x => x.ReceiptType == WarehouseImportReceiptType.Normal);
         var goodsReceiptQuery = await _goodsReceiptRepository.GetQueryableAsync();
 
         if (input.FromDate.HasValue)
@@ -111,8 +112,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
 
             query = query.Where(x =>
                 x.Code.ToLower().Contains(search) ||
-                x.GoodsReceiptCode.ToLower().Contains(search) ||
-                matchingGoodsReceiptIds.Contains(x.GoodsReceiptId));
+                (x.GoodsReceiptCode != null && x.GoodsReceiptCode.ToLower().Contains(search)) ||
+                (x.GoodsReceiptId.HasValue && matchingGoodsReceiptIds.Contains(x.GoodsReceiptId.Value)));
         }
 
         if (input.DisplayStatus.HasValue && input.DisplayStatus.Value != WarehouseImportReceiptDisplayStatusFilter.All)
@@ -145,7 +146,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var dtos = ObjectMapper.Map<List<WarehouseImportReceipt>, List<WarehouseImportReceiptListDto>>(items);
         foreach (var dto in dtos)
         {
-            if (goodsReceiptInfoById.TryGetValue(dto.GoodsReceiptId, out var grInfo))
+            if (dto.GoodsReceiptId.HasValue && goodsReceiptInfoById.TryGetValue(dto.GoodsReceiptId.Value, out var grInfo))
             {
                 dto.SupplierName = grInfo.SupplierName;
                 dto.ContactPersonName = grInfo.SupplierRepresentativeName;
@@ -228,7 +229,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         if (receipt.Items.Count == 0)
             throw new UserFriendlyException("Phiếu nhập kho chưa có vật tư nào.");
 
-        var goodsReceipt = await _goodsReceiptRepository.GetAsync(receipt.GoodsReceiptId);
+        var goodsReceipt = await _goodsReceiptRepository.GetAsync(receipt.GoodsReceiptId!.Value);
         var poLines = (await _goodsReceiptItemRepository.GetQueryableAsync())
             .Where(x => x.GoodsReceiptId == goodsReceipt.Id)
             .ToList();
@@ -237,7 +238,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var materialItems = receipt.Items.Where(x => !x.IsEquipment).ToList();
         var checkedItemsByLine = materialItems
             .Where(x => x.Status == WarehouseImportLineStatus.Checked)
-            .GroupBy(x => x.GoodsReceiptItemId);
+            .GroupBy(x => x.GoodsReceiptItemId!.Value);
 
         foreach (var group in checkedItemsByLine)
         {
@@ -815,7 +816,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         dto.CreatorName = await _userNameProvider.GetUserNameAsync(receipt.CreatorId) ?? "Admin";
         dto.HasDefectiveItem = receipt.Items.Any(x => x.Status == WarehouseImportLineStatus.Defective);
 
-        var goodsReceiptItemIds = receipt.Items.Select(x => x.GoodsReceiptItemId).Distinct().ToList();
+        var goodsReceiptItemIds = receipt.Items
+            .Where(x => x.GoodsReceiptItemId.HasValue)
+            .Select(x => x.GoodsReceiptItemId!.Value).Distinct().ToList();
         var purchaseUnitByPoLineId = (await _goodsReceiptItemRepository.GetQueryableAsync())
             .Where(x => goodsReceiptItemIds.Contains(x.Id))
             .ToDictionary(x => x.Id, x => x.UnitName);
@@ -832,14 +835,16 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         dto.Items = receipt.Items.Select(x =>
         {
             var itemDto = ObjectMapper.Map<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>(x);
-            itemDto.PurchaseUnitName = purchaseUnitByPoLineId.TryGetValue(x.GoodsReceiptItemId, out var u) ? u : null;
+            itemDto.PurchaseUnitName = x.GoodsReceiptItemId.HasValue && purchaseUnitByPoLineId.TryGetValue(x.GoodsReceiptItemId.Value, out var u) ? u : null;
             if (x.SkuId.HasValue && skuMap.TryGetValue(x.SkuId.Value, out var sku)
                 && manufacturerNames.TryGetValue(sku.ManufacturerId, out var mfName))
                 itemDto.ManufacturerName = mfName;
             return itemDto;
         }).ToList();
 
-        var goodsReceipt = await _goodsReceiptRepository.FindAsync(receipt.GoodsReceiptId);
+        var goodsReceipt = receipt.GoodsReceiptId.HasValue
+            ? await _goodsReceiptRepository.FindAsync(receipt.GoodsReceiptId.Value)
+            : null;
         if (goodsReceipt != null)
         {
             dto.SupplierName = receipt.SupplierName ?? goodsReceipt.SupplierName;

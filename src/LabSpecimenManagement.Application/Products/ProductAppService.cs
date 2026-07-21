@@ -1014,7 +1014,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 x.item.SkuId,
             }).ToList();
 
-        var goodsReceiptItemIds = rawItems.Select(x => x.GoodsReceiptItemId).Distinct().ToList();
+        var goodsReceiptItemIds = rawItems
+            .Where(x => x.GoodsReceiptItemId.HasValue)
+            .Select(x => x.GoodsReceiptItemId!.Value).Distinct().ToList();
         var grItemLookup = (await _goodsReceiptItemRepository.GetQueryableAsync())
             .Where(x => goodsReceiptItemIds.Contains(x.Id))
             .Select(x => new { x.Id, x.UnitName })
@@ -1047,7 +1049,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 QualityDocumentFilePath = x.QualityDocumentFilePath,
                 TotalAmount = x.TotalAmount,
             };
-            if (grItemLookup.TryGetValue(x.GoodsReceiptItemId, out var grItem))
+            if (x.GoodsReceiptItemId.HasValue && grItemLookup.TryGetValue(x.GoodsReceiptItemId.Value, out var grItem))
             {
                 dto.PurchaseUnitName = grItem.UnitName;
             }

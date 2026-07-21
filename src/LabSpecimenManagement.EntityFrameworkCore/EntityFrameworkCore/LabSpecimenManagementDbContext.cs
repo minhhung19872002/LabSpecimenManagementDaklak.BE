@@ -696,7 +696,8 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
-            b.Property(x => x.GoodsReceiptCode).IsRequired().HasMaxLength(50);
+            b.Property(x => x.ReceiptType).HasDefaultValue(WarehouseImportReceiptType.Normal);
+            b.Property(x => x.GoodsReceiptCode).HasMaxLength(50);
             b.Property(x => x.WarehouseKeeperName).HasMaxLength(200);
             b.Property(x => x.WarehouseName).HasMaxLength(500);
             b.Property(x => x.DeliveryDocumentFileId).HasMaxLength(50);

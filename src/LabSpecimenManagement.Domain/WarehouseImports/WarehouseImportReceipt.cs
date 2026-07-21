@@ -7,8 +7,9 @@ namespace LabSpecimenManagement.WarehouseImports;
 public class WarehouseImportReceipt : FullAuditedAggregateRoot<Guid>
 {
     public string Code { get; set; }
-    public Guid GoodsReceiptId { get; set; }
-    public string GoodsReceiptCode { get; set; }
+    public WarehouseImportReceiptType ReceiptType { get; set; }
+    public Guid? GoodsReceiptId { get; set; }
+    public string? GoodsReceiptCode { get; set; }
     public DateTime ActualImportDate { get; set; }
     public Guid? WarehouseKeeperId { get; set; }
     public string? WarehouseKeeperName { get; set; }
@@ -40,9 +41,21 @@ public class WarehouseImportReceipt : FullAuditedAggregateRoot<Guid>
         string goodsReceiptCode) : base(id)
     {
         Code = code;
+        ReceiptType = WarehouseImportReceiptType.Normal;
         GoodsReceiptId = goodsReceiptId;
         GoodsReceiptCode = goodsReceiptCode;
         Status = WarehouseImportReceiptStatus.InProgress;
+        Items = new List<WarehouseImportReceiptItem>();
+    }
+
+    public WarehouseImportReceipt(
+        Guid id,
+        string code,
+        WarehouseImportReceiptType receiptType) : base(id)
+    {
+        Code = code;
+        ReceiptType = receiptType;
+        Status = WarehouseImportReceiptStatus.Completed;
         Items = new List<WarehouseImportReceiptItem>();
     }
 }

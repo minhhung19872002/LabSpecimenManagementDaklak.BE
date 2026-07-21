@@ -117,10 +117,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (!input.Ingredients.Any())
             throw new UserFriendlyException("Phải chọn ít nhất 1 nguyên liệu tiêu hao.");
 
-        // Load solution product
+        if (!input.StorageWarehouseId.HasValue)
+            throw new UserFriendlyException("Vui lòng chọn vị trí lưu kho.");
+
         var solutionProduct = await _productRepository.GetAsync(input.SolutionProductId);
 
-        // Denorm warehouse names
         string? storageWarehouseName = null;
         if (input.StorageWarehouseId.HasValue)
         {
@@ -134,7 +135,6 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             sourceWarehouseName = w?.Name;
         }
 
-        // Denorm preparer name
         var preparedByName = BuildDisplayName(CurrentUser.SurName, CurrentUser.Name) ?? CurrentUser.UserName;
 
         var volumeUnitName = solutionProduct.VolumeUnitId.HasValue
@@ -183,8 +183,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             batch.LotCode,
             "Pha dung dịch — nhập kho"), autoSave: true);
 
+        // Create synthetic receipt so the solution appears in warehouse inventory
+        await CreateSyntheticReceiptAsync(batch, solutionProduct, volumeUnitName, storageWarehouseName);
+
         // Process ingredients and deduct stock
-        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients);
+        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
 
         return await GetAsync(batch.Id);
     }
@@ -195,9 +198,18 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (!input.Ingredients.Any())
             throw new UserFriendlyException("Phải chọn ít nhất 1 nguyên liệu tiêu hao.");
 
+        if (!input.StorageWarehouseId.HasValue)
+            throw new UserFriendlyException("Vui lòng chọn vị trí lưu kho.");
+
         var batch = await _repository.GetAsync(id);
         if (batch.IsProcessed)
             throw new UserFriendlyException("Không thể chỉnh sửa phiếu pha đã xử lý.");
+
+        if ((DateTime.UtcNow - batch.PreparationDate).TotalDays > 1)
+            throw new UserFriendlyException("Phiếu pha đã qua 1 ngày, không thể chỉnh sửa.");
+
+        // Delete old synthetic receipt
+        await DeleteSyntheticReceiptAsync(batch);
 
         // Reverse old stock deductions
         var oldIngredients = await _ingredientRepository.GetListAsync(i => i.PreparedSolutionBatchId == id);
@@ -273,8 +285,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             batch.LotCode,
             "Pha dung dịch — nhập kho (cập nhật)"), autoSave: true);
 
+        // Create new synthetic receipt
+        await CreateSyntheticReceiptAsync(batch, solutionProduct, batch.VolumeUnitName, storageWarehouseName);
+
         // Apply new stock deductions
-        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients);
+        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
 
         return await GetAsync(batch.Id);
     }
@@ -359,8 +374,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (!productIds.Any())
             return new List<PreparedSolutionWarehouseProductDto>();
 
-        // Load products
-        var productQuery = await _productRepository.GetQueryableAsync();
+        // Load products with SKUs
+        var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
         var products = productQuery
             .Where(p => productIds.Contains(p.Id) && p.IsActive)
             .ToList();
@@ -381,35 +396,107 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                 .ToDictionary(u => u.Id, u => u.Name)
             : new Dictionary<Guid, string>();
 
-        return products.Select(p => new PreparedSolutionWarehouseProductDto
+        return products.Select(p =>
         {
-            ProductId = p.Id,
-            ProductName = p.Name,
-            ProductType = (int)p.ProductType,
-            ProductTypeName = GetProductTypeName(p.ProductType),
-            UnitName = p.VolumeUnitId.HasValue && unitMap.ContainsKey(p.VolumeUnitId.Value)
-                ? unitMap[p.VolumeUnitId.Value]
-                : p.BaseUnitId.HasValue && unitMap.ContainsKey(p.BaseUnitId.Value)
-                    ? unitMap[p.BaseUnitId.Value]
-                    : null,
-            AvailableQuantity = p.VolumeUnitId.HasValue && p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0
-                ? p.AvailableQuantity * p.VolumePerUnit.Value
-                : p.AvailableQuantity,
+            var volumePerUnit = p.VolumePerUnit
+                ?? p.Skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit;
+
+            return new PreparedSolutionWarehouseProductDto
+            {
+                ProductId = p.Id,
+                ProductName = p.Name,
+                ProductType = (int)p.ProductType,
+                ProductTypeName = GetProductTypeName(p.ProductType),
+                UnitName = p.VolumeUnitId.HasValue && unitMap.ContainsKey(p.VolumeUnitId.Value)
+                    ? unitMap[p.VolumeUnitId.Value]
+                    : p.BaseUnitId.HasValue && unitMap.ContainsKey(p.BaseUnitId.Value)
+                        ? unitMap[p.BaseUnitId.Value]
+                        : null,
+                AvailableQuantity = p.VolumeUnitId.HasValue && volumePerUnit.HasValue && volumePerUnit.Value > 0
+                    ? p.AvailableQuantity * volumePerUnit.Value
+                    : p.AvailableQuantity,
+            };
         }).OrderBy(p => p.ProductName).ToList();
     }
 
     #region Private Methods
 
+    private async Task CreateSyntheticReceiptAsync(
+        PreparedSolutionBatch batch,
+        Product solutionProduct,
+        string? volumeUnitName,
+        string? storageWarehouseName)
+    {
+        var receipt = new WarehouseImportReceipt(
+            GuidGenerator.Create(),
+            $"PSB-{batch.LotCode}",
+            WarehouseImportReceiptType.PreparedSolutionProduction)
+        {
+            ActualImportDate = batch.PreparationDate,
+            WarehouseId = batch.StorageWarehouseId,
+            WarehouseName = storageWarehouseName,
+        };
+        await _importReceiptRepository.InsertAsync(receipt, autoSave: true);
+
+        var lotItem = new WarehouseImportReceiptItem(
+            GuidGenerator.Create(), receipt.Id, solutionProduct.Id, solutionProduct.Name)
+        {
+            LotNumber = batch.LotCode,
+            LotExpiryDate = batch.ExpiryDate,
+            ReceivedBaseQuantity = batch.TotalVolume,
+            ConsumedBaseQuantity = 0,
+            ActualReceivedQuantity = batch.TotalVolume,
+            StorageWarehouseId = batch.StorageWarehouseId,
+            StorageWarehouseName = storageWarehouseName,
+            UnitId = solutionProduct.VolumeUnitId ?? solutionProduct.BaseUnitId,
+            UnitName = volumeUnitName,
+        };
+        await _importReceiptItemRepository.InsertAsync(lotItem, autoSave: true);
+
+        batch.PreparedSolutionReceiptId = receipt.Id;
+        await _repository.UpdateAsync(batch, autoSave: true);
+    }
+
+    private async Task DeleteSyntheticReceiptAsync(PreparedSolutionBatch batch)
+    {
+        if (!batch.PreparedSolutionReceiptId.HasValue) return;
+
+        var oldItems = await _importReceiptItemRepository.GetListAsync(
+            i => i.WarehouseImportReceiptId == batch.PreparedSolutionReceiptId.Value);
+        if (oldItems.Any())
+            await _importReceiptItemRepository.DeleteManyAsync(oldItems, autoSave: true);
+
+        await _importReceiptRepository.DeleteAsync(batch.PreparedSolutionReceiptId.Value, autoSave: true);
+        batch.PreparedSolutionReceiptId = null;
+    }
+
+    private static decimal ToBaseQty(Product p, decimal displayQty) =>
+        (p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0)
+            ? displayQty / p.VolumePerUnit.Value
+            : displayQty;
+
+    private static decimal ToDisplayQty(Product p, decimal baseQty) =>
+        (p.VolumePerUnit.HasValue && p.VolumePerUnit.Value > 0)
+            ? baseQty * p.VolumePerUnit.Value
+            : baseQty;
+
     private async Task ProcessIngredientsAsync(
         Guid batchId,
         string lotCode,
-        List<CreateIngredientDto> inputIngredients)
+        List<CreateIngredientDto> inputIngredients,
+        Guid? sourceWarehouseId)
     {
+        HashSet<Guid>? sourceWarehouseIds = null;
+        if (sourceWarehouseId.HasValue)
+        {
+            sourceWarehouseIds = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
+        }
+
         foreach (var inp in inputIngredients)
         {
             var product = await _productRepository.GetAsync(inp.ProductId);
             var isEquipment = inp.ProductType == (int)ProductType.Equipment;
-            var snapshot = product.AvailableQuantity;
+            var snapshot = ToDisplayQty(product, product.AvailableQuantity);
 
             var ingredient = new PreparedSolutionIngredient
             {
@@ -428,13 +515,36 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
             if (!isEquipment)
             {
+                var baseQty = ToBaseQty(product, inp.QuantityUsed);
                 await _fifoStockService.DeductAsync(
-                    product, inp.QuantityUsed,
+                    product, baseQty,
                     StockMovementType.MaterialConsumption,
                     batchId, lotCode,
-                    "Pha dung dịch");
+                    "Pha dung dịch",
+                    sourceWarehouseIds);
             }
         }
+    }
+
+    private async Task<HashSet<Guid>> CollectWarehouseSubtreeAsync(Guid rootId)
+    {
+        var allWarehouses = (await _warehouseRepository.GetQueryableAsync())
+            .Select(w => new { w.Id, w.ParentWarehouseId })
+            .ToList();
+
+        var result = new HashSet<Guid> { rootId };
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootId);
+        while (queue.Count > 0)
+        {
+            var parentId = queue.Dequeue();
+            foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
+            {
+                if (result.Add(child.Id))
+                    queue.Enqueue(child.Id);
+            }
+        }
+        return result;
     }
 
     private async Task ReverseStockDeductionsAsync(

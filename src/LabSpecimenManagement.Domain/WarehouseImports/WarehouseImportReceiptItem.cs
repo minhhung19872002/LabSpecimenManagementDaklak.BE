@@ -6,7 +6,7 @@ namespace LabSpecimenManagement.WarehouseImports;
 public class WarehouseImportReceiptItem : Entity<Guid>
 {
     public Guid WarehouseImportReceiptId { get; set; }
-    public Guid GoodsReceiptItemId { get; set; }
+    public Guid? GoodsReceiptItemId { get; set; }
     public Guid ProductId { get; set; }
     public string ProductName { get; set; }
     public decimal OrderedQuantity { get; set; }
@@ -56,6 +56,18 @@ public class WarehouseImportReceiptItem : Entity<Guid>
         ProductId = productId;
         ProductName = productName;
         OrderedQuantity = orderedQuantity;
+        Status = WarehouseImportLineStatus.Checked;
+    }
+
+    public WarehouseImportReceiptItem(
+        Guid id,
+        Guid warehouseImportReceiptId,
+        Guid productId,
+        string productName) : base(id)
+    {
+        WarehouseImportReceiptId = warehouseImportReceiptId;
+        ProductId = productId;
+        ProductName = productName;
         Status = WarehouseImportLineStatus.Checked;
     }
 }

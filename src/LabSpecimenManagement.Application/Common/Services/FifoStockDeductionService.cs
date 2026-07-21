@@ -27,7 +27,8 @@ public interface IFifoStockDeductionService
         StockMovementType movementType,
         Guid? referenceId,
         string? referenceCode,
-        string? notes);
+        string? notes,
+        ICollection<Guid>? warehouseIds = null);
 
     Task ReverseAsync(
         Product product,
@@ -66,7 +67,8 @@ public class FifoStockDeductionService : IFifoStockDeductionService, ITransientD
         StockMovementType movementType,
         Guid? referenceId,
         string? referenceCode,
-        string? notes)
+        string? notes,
+        ICollection<Guid>? warehouseIds = null)
     {
         var deductions = new List<LotDeduction>();
 
@@ -87,6 +89,12 @@ public class FifoStockDeductionService : IFifoStockDeductionService, ITransientD
                             Item = item,
                             EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
                         };
+
+        if (warehouseIds != null && warehouseIds.Count > 0)
+        {
+            lotsQuery = lotsQuery.Where(x =>
+                x.EffectiveWarehouseId.HasValue && warehouseIds.Contains(x.EffectiveWarehouseId.Value));
+        }
 
         var lots = await _asyncExecuter.ToListAsync(lotsQuery);
 

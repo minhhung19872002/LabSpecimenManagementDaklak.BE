@@ -15,8 +15,8 @@ public class DeliveryDocumentFileDto
 public class WarehouseImportReceiptListDto : EntityDto<Guid>
 {
     public string Code { get; set; }
-    public Guid GoodsReceiptId { get; set; }
-    public string GoodsReceiptCode { get; set; }
+    public Guid? GoodsReceiptId { get; set; }
+    public string? GoodsReceiptCode { get; set; }
     public DateTime ActualImportDate { get; set; }
     public string? WarehouseKeeperName { get; set; }
     public string? WarehouseName { get; set; }
@@ -54,8 +54,8 @@ public class WarehouseImportReceiptStatisticsDto
 public class WarehouseImportReceiptDto : EntityDto<Guid>
 {
     public string Code { get; set; }
-    public Guid GoodsReceiptId { get; set; }
-    public string GoodsReceiptCode { get; set; }
+    public Guid? GoodsReceiptId { get; set; }
+    public string? GoodsReceiptCode { get; set; }
     public DateTime ActualImportDate { get; set; }
     public Guid? WarehouseKeeperId { get; set; }
     public string? WarehouseKeeperName { get; set; }

@@ -50,5 +50,7 @@ public class PreparedSolutionBatch : FullAuditedAggregateRoot<Guid>
     public Guid? PreparedByUserId { get; set; }
     public string? PreparedByName { get; set; }
 
+    public Guid? PreparedSolutionReceiptId { get; set; }
+
     public ICollection<PreparedSolutionIngredient> Ingredients { get; set; } = new List<PreparedSolutionIngredient>();
 }
