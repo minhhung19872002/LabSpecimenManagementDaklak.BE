@@ -287,9 +287,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var s2) ? s2 : null,
                 product, item.UnitId, item.ActualReceivedQuantity);
 
-            var whName = item.StorageWarehouseName
-                ?? item.ReceiptWarehouseName
-                ?? warehouseNameMap.GetValueOrDefault(item.EffectiveWarehouseId!.Value, "");
+            var whName = warehouseNameMap.GetValueOrDefault(
+                item.EffectiveWarehouseId!.Value,
+                item.StorageWarehouseName ?? item.ReceiptWarehouseName ?? "");
 
             entries.Add(new WarehouseStockEntry
             {
