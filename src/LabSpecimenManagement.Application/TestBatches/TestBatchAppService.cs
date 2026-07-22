@@ -40,6 +40,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -63,6 +64,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<ProductSku, Guid> productSkuRepository,
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
@@ -85,6 +87,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _productUnitConversionRepository = productUnitConversionRepository;
         _equipmentRepository = equipmentRepository;
         _unitRepository = unitRepository;
+        _productSkuRepository = productSkuRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
@@ -106,23 +109,34 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             query = query.Where(x => x.Status == input.Status.Value);
         }
 
-        if (input.IndicatorIds != null && input.IndicatorIds.Any())
+        if ((input.IndicatorIds != null && input.IndicatorIds.Any()) || input.IndicatorId.HasValue
+            || input.MethodId.HasValue || input.SpecimenTypeId.HasValue)
         {
-            query = query.Where(x => input.IndicatorIds.Contains(x.IndicatorId));
-        }
-        else if (input.IndicatorId.HasValue)
-        {
-            query = query.Where(x => x.IndicatorId == input.IndicatorId.Value);
-        }
+            var batchItemQuery = await _testBatchItemRepository.GetQueryableAsync();
+            var taskIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+            var sampleIndicatorQuery = await _sampleIndicatorRepository.GetQueryableAsync();
 
-        if (input.MethodId.HasValue)
-        {
-            query = query.Where(x => x.MethodId == input.MethodId.Value);
-        }
+            var joined = batchItemQuery
+                .Join(taskIndicatorQuery,
+                    bi => bi.LaboratoryTaskIndicatorId, ti => ti.Id,
+                    (bi, ti) => new { bi.TestBatchId, ti.TestRequestSampleIndicatorId, ti.MethodId })
+                .Join(sampleIndicatorQuery,
+                    x => x.TestRequestSampleIndicatorId, si => si.Id,
+                    (x, si) => new { x.TestBatchId, x.MethodId, si.IndicatorId, si.SpecimenTypeId });
 
-        if (input.SpecimenTypeId.HasValue)
-        {
-            query = query.Where(x => x.SpecimenTypeId == input.SpecimenTypeId.Value);
+            if (input.IndicatorIds != null && input.IndicatorIds.Any())
+                joined = joined.Where(x => input.IndicatorIds.Contains(x.IndicatorId));
+            else if (input.IndicatorId.HasValue)
+                joined = joined.Where(x => x.IndicatorId == input.IndicatorId.Value);
+
+            if (input.MethodId.HasValue)
+                joined = joined.Where(x => x.MethodId == input.MethodId.Value);
+
+            if (input.SpecimenTypeId.HasValue)
+                joined = joined.Where(x => x.SpecimenTypeId == input.SpecimenTypeId.Value);
+
+            var matchingBatchIds = joined.Select(x => x.TestBatchId).Distinct();
+            query = query.Where(x => matchingBatchIds.Contains(x.Id));
         }
 
         if (input.FromDate.HasValue)
@@ -653,6 +667,19 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var products = productIds.Any() ? await _productRepository.GetListAsync(p => productIds.Contains(p.Id)) : new List<Product>();
         var equipments = equipmentIds.Any() ? await _equipmentRepository.GetListAsync(e => equipmentIds.Contains(e.Id)) : new List<Equipment>();
+
+        // Load SKUs for unit conversion fallback
+        var skus = productIds.Any()
+            ? await _productSkuRepository.GetListAsync(s => productIds.Contains(s.ProductId))
+            : new List<ProductSku>();
+        var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        // Also load storage/purchase unit names for stock display
+        var productUnitIds = products
+            .SelectMany(p => new[] { p.PackagingUnitId, p.BaseUnitId })
+            .Where(id => id.HasValue).Select(id => id!.Value);
+        unitIds = unitIds.Union(productUnitIds).Distinct().ToList();
+
         var units = unitIds.Any() ? await _unitRepository.GetListAsync(u => unitIds.Contains(u.Id)) : new List<Unit>();
         var conversions = productIds.Any()
             ? await _productUnitConversionRepository.GetListAsync(c => productIds.Contains(c.ProductId))
@@ -671,13 +698,44 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 line.ProductCode = product.Code;
                 line.ProductType = (int)product.ProductType;
 
-                // Convert AvailableQuantity from base unit to the consumption unit
+                // AvailableQuantity is stored in storage units (PackagingUnit)
+                line.StorageAvailableQuantity = product.AvailableQuantity;
+                var storageUnitId = product.PackagingUnitId ?? product.BaseUnitId;
+                if (storageUnitId.HasValue && unitMap.TryGetValue(storageUnitId.Value, out var suName))
+                    line.StorageUnitName = suName;
+
+                // Convert storage qty to consumption unit
                 var availableInUnit = product.AvailableQuantity;
-                if (line.UnitId.HasValue && line.UnitId != product.BaseUnitId
-                    && conversionMap.TryGetValue((product.Id, line.UnitId.Value), out var conv)
-                    && conv.Quantity > 0)
+                if (line.UnitId.HasValue)
                 {
-                    availableInUnit = product.AvailableQuantity * (conv.ConvertedQuantity / conv.Quantity);
+                    var consumeUnitId = line.UnitId.Value;
+                    decimal? factor = null;
+
+                    // 1. Product-level units
+                    if (consumeUnitId == product.PackagingUnitId)
+                        factor = 1;
+                    else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+                        factor = product.VolumePerUnit.Value;
+                    else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+                        factor = 1m / product.PackagingQuantity.Value;
+
+                    // 2. SKU-level units
+                    if (factor == null && skuByProduct.TryGetValue(product.Id, out var pSkus))
+                    {
+                        foreach (var sku in pSkus)
+                        {
+                            if (consumeUnitId == sku.PackagingUnitId) { factor = 1; break; }
+                            if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { factor = sku.VolumePerUnit.Value; break; }
+                            if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { factor = 1m / sku.PackagingQuantity.Value; break; }
+                        }
+                    }
+
+                    // 3. ProductUnitConversion table
+                    if (factor == null && conversionMap.TryGetValue((product.Id, consumeUnitId), out var conv) && conv.Quantity > 0)
+                        factor = conv.ConvertedQuantity / conv.Quantity;
+
+                    if (factor.HasValue)
+                        availableInUnit = product.AvailableQuantity * factor.Value;
                 }
                 line.AvailableQuantity = availableInUnit;
                 line.ExceedsStock = line.ActualQuantity > availableInUnit;
@@ -980,6 +1038,12 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             throw new UserFriendlyException("Không tìm thấy chỉ tiêu nào");
         }
 
+        var noMethod = taskIndicators.FirstOrDefault(x => !x.MethodId.HasValue);
+        if (noMethod != null)
+        {
+            throw new UserFriendlyException("Chỉ tiêu chưa được gán phương pháp thử nghiệm");
+        }
+
         var sampleIndicatorIds = taskIndicators.Select(x => x.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
         var sampleIndicatorMap = sampleIndicators.ToDictionary(x => x.Id);
@@ -988,21 +1052,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         {
             if (!sampleIndicatorMap.TryGetValue(taskIndicator.TestRequestSampleIndicatorId, out var sampleIndicator))
                 continue;
-
-            if (sampleIndicator.IndicatorId != batch.IndicatorId)
-            {
-                throw new UserFriendlyException($"Chỉ tiêu không khớp với mẻ (yêu cầu cùng chỉ tiêu)");
-            }
-
-            if (taskIndicator.MethodId != batch.MethodId)
-            {
-                throw new UserFriendlyException($"Phương pháp không khớp với mẻ (yêu cầu cùng phương pháp)");
-            }
-
-            if (sampleIndicator.SpecimenTypeId != batch.SpecimenTypeId)
-            {
-                throw new UserFriendlyException($"Nền mẫu không khớp với mẻ (yêu cầu cùng nền mẫu)");
-            }
 
             if (batch.Items.Any(x => x.LaboratoryTaskIndicatorId == taskIndicator.Id))
                 continue;
@@ -1065,33 +1114,54 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
             var productMap = products.ToDictionary(p => p.Id);
 
-            var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
+            var skus = await _productSkuRepository.GetListAsync(s => productIds.Contains(s.ProductId));
+            var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+            var conversions = await _productUnitConversionRepository.GetListAsync(c => productIds.Contains(c.ProductId));
+            var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
             foreach (var consumption in productConsumptions)
             {
                 if (!productMap.TryGetValue(consumption.ProductId!.Value, out var product))
                     continue;
 
-                decimal baseQty;
-                if (consumption.UnitId == product.BaseUnitId)
-                {
-                    baseQty = consumption.ActualQuantity;
-                }
-                else
-                {
-                    var conversion = await AsyncExecuter.FirstOrDefaultAsync(
-                        conversionQuery.Where(c =>
-                            c.ProductId == consumption.ProductId && c.ConvertedUnitId == consumption.UnitId));
+                var consumeUnitId = consumption.UnitId;
+                decimal? unitsPerStorage = null;
 
-                    if (conversion == null || conversion.ConvertedQuantity == 0)
-                        continue;
+                // 1. Product-level units
+                if (consumeUnitId == product.PackagingUnitId)
+                    unitsPerStorage = 1;
+                else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+                    unitsPerStorage = product.VolumePerUnit.Value;
+                else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+                    unitsPerStorage = 1m / product.PackagingQuantity.Value;
 
-                    decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
-                    baseQty = consumption.ActualQuantity * ratio;
+                // 2. SKU-level units
+                if (unitsPerStorage == null && skuByProduct.TryGetValue(product.Id, out var pSkus))
+                {
+                    foreach (var sku in pSkus)
+                    {
+                        if (consumeUnitId == sku.PackagingUnitId) { unitsPerStorage = 1; break; }
+                        if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { unitsPerStorage = sku.VolumePerUnit.Value; break; }
+                        if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { unitsPerStorage = 1m / sku.PackagingQuantity.Value; break; }
+                    }
                 }
+
+                // 3. ProductUnitConversion table
+                if (unitsPerStorage == null && consumeUnitId.HasValue
+                    && conversionMap.TryGetValue((product.Id, consumeUnitId.Value), out var conv)
+                    && conv.ConvertedQuantity > 0)
+                {
+                    unitsPerStorage = conv.ConvertedQuantity / conv.Quantity;
+                }
+
+                if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+                    continue;
+
+                var storageQty = consumption.ActualQuantity / unitsPerStorage.Value;
 
                 await _fifoStockService.DeductAsync(
-                    product, baseQty,
+                    product, storageQty,
                     StockMovementType.MaterialConsumption,
                     consumption.TestBatchId, null,
                     "Tiêu hao thử nghiệm");
@@ -1141,6 +1211,14 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var sampleIds = sampleIndicators.Select(si => si.TestRequestSampleId).Distinct().ToList();
         var samples = await _sampleRepository.GetListAsync(s => sampleIds.Contains(s.Id));
         var sampleMap = samples.ToDictionary(s => s.Id);
+
+        var allIndicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var allIndicators = await _indicatorRepository.GetListAsync(x => allIndicatorIds.Contains(x.Id));
+        var indicatorNameMap = allIndicators.ToDictionary(x => x.Id, x => x.Name);
+
+        var allMethodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
+        var allMethods = allMethodIds.Any() ? await _testMethodRepository.GetListAsync(x => allMethodIds.Contains(x.Id)) : new List<TestMethod>();
+        var methodNameMap = allMethods.ToDictionary(x => x.Id, x => x.Name);
 
         var productIds = consumptions.Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct().ToList();
         var equipmentIds = consumptions.Where(c => c.EquipmentId.HasValue).Select(c => c.EquipmentId!.Value).Distinct().ToList();
@@ -1197,8 +1275,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     SampleCode = i.SampleCode,
                     SampleName = sample?.SampleName,
                     TechnicianName = taskIndicator?.TechnicianId.HasValue == true ? techMap.GetValueOrDefault(taskIndicator.TechnicianId!.Value) : null,
-                    IndicatorName = indicator?.Name,
-                    MethodName = method?.Name,
+                    IndicatorName = sampleIndicator2 != null ? indicatorNameMap.GetValueOrDefault(sampleIndicator2.IndicatorId) : null,
+                    MethodName = taskIndicator?.MethodId.HasValue == true ? methodNameMap.GetValueOrDefault(taskIndicator.MethodId!.Value) : null,
                     Unit = taskIndicator?.Unit,
                     SubmitDate = taskIndicator?.SubmitDate,
                     RejectionReason = taskIndicator?.RejectionReason,

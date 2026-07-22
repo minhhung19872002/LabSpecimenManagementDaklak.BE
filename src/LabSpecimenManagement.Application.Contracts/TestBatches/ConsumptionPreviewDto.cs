@@ -21,6 +21,8 @@ public class ConsumptionPreviewLineDto
     public string? EquipmentName { get; set; }
     public Guid? UnitId { get; set; }
     public string? UnitName { get; set; }
+    public decimal StorageAvailableQuantity { get; set; }
+    public string? StorageUnitName { get; set; }
     public decimal RecommendedQuantity { get; set; }
     public decimal ActualQuantity { get; set; }
     public bool IsDeducted { get; set; }

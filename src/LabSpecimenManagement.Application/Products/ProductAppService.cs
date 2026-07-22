@@ -905,7 +905,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                      && item.Status == WarehouseImportLineStatus.Checked
                                where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
                                      || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
-                               select new { item.ActualReceivedQuantity, item.UnitId, item.SkuId })
+                               select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId })
                                .ToList();
 
             if (importItems.Any())
@@ -918,24 +918,23 @@ public class ProductAppService : ApplicationService, IProductAppService
                 warehouseQty = 0;
                 foreach (var item in importItems)
                 {
-                    try
-                    {
-                        ProductSku? sku = null;
-                        if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
-                            sku = skuVal;
+                    var remaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+                    if (remaining <= 0) continue;
 
-                        if (sku != null)
-                            warehouseQty += ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
-                        else
-                            warehouseQty += await _unitConversionResolver.ResolveBaseQuantityAsync(
-                                product, item.UnitId, item.ActualReceivedQuantity, product.Name);
+                    warehouseQty += remaining;
 
-                        consumableQty += ComputeVolumeQty(sku, product, item.UnitId, item.ActualReceivedQuantity);
-                    }
-                    catch
-                    {
-                        warehouseQty += item.ActualReceivedQuantity;
-                    }
+                    ProductSku? sku = null;
+                    if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
+                        sku = skuVal;
+
+                    int? vpu = null;
+                    if (sku?.VolumePerUnit > 0)
+                        vpu = sku.VolumePerUnit;
+                    else if (product.VolumePerUnit > 0)
+                        vpu = product.VolumePerUnit;
+
+                    if (vpu.HasValue && vpu.Value > 0)
+                        consumableQty += remaining * vpu.Value;
                 }
             }
             else
@@ -950,7 +949,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                             where item.ProductId == id
                                   && receipt.Status == WarehouseImportReceiptStatus.Completed
                                   && item.Status == WarehouseImportLineStatus.Checked
-                            select new { item.ActualReceivedQuantity, item.UnitId, item.SkuId })
+                            select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId })
                             .ToList();
 
             if (allItems.Any())
@@ -960,12 +959,26 @@ public class ProductAppService : ApplicationService, IProductAppService
                     ? (await _skuRepository.GetQueryableAsync()).Where(s => skuIds.Contains(s.Id)).ToDictionary(s => s.Id)
                     : new Dictionary<Guid, ProductSku>();
 
+                warehouseQty = 0;
                 foreach (var item in allItems)
                 {
+                    var remaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+                    if (remaining <= 0) continue;
+
+                    warehouseQty += remaining;
+
                     ProductSku? sku = null;
                     if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
                         sku = skuVal;
-                    consumableQty += ComputeVolumeQty(sku, product, item.UnitId, item.ActualReceivedQuantity);
+
+                    int? vpu = null;
+                    if (sku?.VolumePerUnit > 0)
+                        vpu = sku.VolumePerUnit;
+                    else if (product.VolumePerUnit > 0)
+                        vpu = product.VolumePerUnit;
+
+                    if (vpu.HasValue && vpu.Value > 0)
+                        consumableQty += remaining * vpu.Value;
                 }
             }
         }
