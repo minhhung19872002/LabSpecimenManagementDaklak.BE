@@ -319,6 +319,8 @@ public class ProductDetailDto
     public string? BaseUnitName { get; set; }
     public string? PackagingUnitName { get; set; }
     public int? PackagingQuantity { get; set; }
+    public decimal ConsumableImportedQuantity { get; set; }
+    public string? VolumeUnitName { get; set; }
 }
 
 public class ProductImportHistoryDto

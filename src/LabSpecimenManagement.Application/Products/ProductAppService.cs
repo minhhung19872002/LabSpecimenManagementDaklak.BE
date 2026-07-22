@@ -883,19 +883,20 @@ public class ProductAppService : ApplicationService, IProductAppService
         var product = await _productRepository.GetAsync(id);
 
         var unitQuery = await _unitRepository.GetQueryableAsync();
-        var unitIds = new[] { product.BaseUnitId, product.PackagingUnitId }
+        var unitIds = new[] { product.BaseUnitId, product.PackagingUnitId, product.VolumeUnitId }
             .Where(uid => uid.HasValue).Select(uid => uid!.Value).Distinct().ToList();
         var unitMap = unitQuery.Where(u => unitIds.Contains(u.Id))
             .ToDictionary(u => u.Id, u => u.Name);
 
         decimal warehouseQty = product.AvailableQuantity;
+        decimal consumableQty = 0;
+
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
 
         if (warehouseId.HasValue)
         {
             var warehouseIds = await GetWarehouseSubtreeIdsAsync(warehouseId.Value);
-
-            var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
-            var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
 
             var importItems = (from item in importItemQuery
                                join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
@@ -919,11 +920,17 @@ public class ProductAppService : ApplicationService, IProductAppService
                 {
                     try
                     {
-                        if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku))
+                        ProductSku? sku = null;
+                        if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
+                            sku = skuVal;
+
+                        if (sku != null)
                             warehouseQty += ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
                         else
                             warehouseQty += await _unitConversionResolver.ResolveBaseQuantityAsync(
                                 product, item.UnitId, item.ActualReceivedQuantity, product.Name);
+
+                        consumableQty += ComputeVolumeQty(sku, product, item.UnitId, item.ActualReceivedQuantity);
                     }
                     catch
                     {
@@ -934,6 +941,32 @@ public class ProductAppService : ApplicationService, IProductAppService
             else
             {
                 warehouseQty = 0;
+            }
+        }
+        else
+        {
+            var allItems = (from item in importItemQuery
+                            join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                            where item.ProductId == id
+                                  && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                  && item.Status == WarehouseImportLineStatus.Checked
+                            select new { item.ActualReceivedQuantity, item.UnitId, item.SkuId })
+                            .ToList();
+
+            if (allItems.Any())
+            {
+                var skuIds = allItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+                var skuLookup = skuIds.Any()
+                    ? (await _skuRepository.GetQueryableAsync()).Where(s => skuIds.Contains(s.Id)).ToDictionary(s => s.Id)
+                    : new Dictionary<Guid, ProductSku>();
+
+                foreach (var item in allItems)
+                {
+                    ProductSku? sku = null;
+                    if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
+                        sku = skuVal;
+                    consumableQty += ComputeVolumeQty(sku, product, item.UnitId, item.ActualReceivedQuantity);
+                }
             }
         }
 
@@ -952,6 +985,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null,
             PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null,
             PackagingQuantity = product.PackagingQuantity,
+            ConsumableImportedQuantity = consumableQty,
+            VolumeUnitName = product.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value) : null,
         };
     }
 
