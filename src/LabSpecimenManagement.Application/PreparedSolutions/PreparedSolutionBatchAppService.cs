@@ -354,12 +354,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             }
         }
 
-        // Find distinct ProductIds imported into those warehouses
-        // Check item.StorageWarehouseId first, fall back to receipt.WarehouseId
+        // Find receipt items imported into those warehouses with per-item stock data
         var importReceiptQuery = await _importReceiptRepository.GetQueryableAsync();
         var importItemQuery = await _importReceiptItemRepository.GetQueryableAsync();
 
-        var productIds = (from item in importItemQuery
+        var stockItems = (from item in importItemQuery
                           join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                           where receipt.Status == WarehouseImportReceiptStatus.Completed
                                 && item.Status == WarehouseImportLineStatus.Checked
@@ -367,9 +366,14 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                                     (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
                                     || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
                                 )
-                          select item.ProductId)
-                         .Distinct()
-                         .ToList();
+                          select new
+                          {
+                              item.ProductId,
+                              item.SkuId,
+                              NetBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
+                          }).ToList();
+
+        var productIds = stockItems.Select(x => x.ProductId).Distinct().ToList();
 
         if (!productIds.Any())
             return new List<PreparedSolutionWarehouseProductDto>();
@@ -382,6 +386,28 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         if (productType.HasValue)
             products = products.Where(p => (int)p.ProductType == productType.Value).ToList();
+
+        // Build lookups for per-item volume calculation
+        var skuMap = products.SelectMany(p => p.Skus).ToDictionary(s => s.Id);
+        var productLookup = products.ToDictionary(p => p.Id);
+
+        var availableVolumeByProduct = stockItems
+            .Where(x => productLookup.ContainsKey(x.ProductId))
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(item =>
+                {
+                    int? vpu = item.SkuId.HasValue
+                        && skuMap.TryGetValue(item.SkuId.Value, out var sku)
+                        && sku.VolumePerUnit > 0
+                            ? sku.VolumePerUnit
+                            : ResolveVolumePerUnit(productLookup[g.Key]);
+                    return vpu.HasValue && vpu.Value > 0
+                        ? item.NetBase * vpu.Value
+                        : item.NetBase;
+                })
+            );
 
         // Batch-load unit names
         var unitIds = products
@@ -398,8 +424,6 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         return products.Select(p =>
         {
-            var volumePerUnit = ResolveVolumePerUnit(p);
-
             return new PreparedSolutionWarehouseProductDto
             {
                 ProductId = p.Id,
@@ -411,9 +435,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                     : p.BaseUnitId.HasValue && unitMap.ContainsKey(p.BaseUnitId.Value)
                         ? unitMap[p.BaseUnitId.Value]
                         : null,
-                AvailableQuantity = p.VolumeUnitId.HasValue && volumePerUnit.HasValue && volumePerUnit.Value > 0
-                    ? p.AvailableQuantity * volumePerUnit.Value
-                    : p.AvailableQuantity,
+                AvailableQuantity = availableVolumeByProduct.GetValueOrDefault(p.Id, 0m),
             };
         }).OrderBy(p => p.ProductName).ToList();
     }
