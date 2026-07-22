@@ -231,6 +231,10 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             var product = await _productRepository.GetAsync(item.ProductId);
             var quantityBefore = product.AvailableQuantity;
 
+            item.QuantityBefore = quantityBefore;
+            item.AdjustmentQuantity = quantityBefore - item.ActualQuantity;
+            await _itemRepository.UpdateAsync(item, autoSave: true);
+
             if (item.ActualQuantity < quantityBefore)
             {
                 var diff = quantityBefore - item.ActualQuantity;
@@ -261,6 +265,41 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         await _repository.UpdateAsync(adjustment, autoSave: true);
 
         return await GetAsync(id);
+    }
+
+    public async Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id)
+    {
+        var adjustment = await _repository.GetAsync(id);
+
+        if (adjustment.Status != StockAdjustmentStatus.Draft)
+            throw new UserFriendlyException("Chỉ có thể kiểm tra phiếu ở trạng thái Lưu tạm.");
+
+        var items = (await _itemRepository.GetQueryableAsync())
+            .Where(x => x.StockAdjustmentId == id)
+            .ToList();
+
+        var result = new ConfirmPreviewDto();
+
+        foreach (var item in items)
+        {
+            var product = await _productRepository.GetAsync(item.ProductId);
+            var currentQty = product.AvailableQuantity;
+            var changed = currentQty != item.QuantityBefore;
+            if (changed) result.HasChanges = true;
+
+            result.Items.Add(new ConfirmPreviewItemDto
+            {
+                ProductId = item.ProductId,
+                ProductName = item.ProductName,
+                UnitName = item.UnitName,
+                SnapshotQuantity = item.QuantityBefore,
+                CurrentQuantity = currentQty,
+                ActualQuantity = item.ActualQuantity,
+                HasChanged = changed,
+            });
+        }
+
+        return result;
     }
 
     #region Private Methods

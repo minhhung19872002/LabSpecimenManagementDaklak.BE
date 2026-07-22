@@ -13,4 +13,5 @@ public interface IStockAdjustmentAppService : IApplicationService
     Task<StockAdjustmentDto> UpdateAsync(Guid id, CreateUpdateStockAdjustmentDto input);
     Task DeleteAsync(Guid id);
     Task<StockAdjustmentDto> ConfirmAsync(Guid id);
+    Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id);
 }

@@ -62,3 +62,20 @@ public class GetStockAdjustmentListInput : PagedRequestDto
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
 }
+
+public class ConfirmPreviewDto
+{
+    public bool HasChanges { get; set; }
+    public List<ConfirmPreviewItemDto> Items { get; set; } = new();
+}
+
+public class ConfirmPreviewItemDto
+{
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string UnitName { get; set; } = string.Empty;
+    public decimal SnapshotQuantity { get; set; }
+    public decimal CurrentQuantity { get; set; }
+    public decimal ActualQuantity { get; set; }
+    public bool HasChanged { get; set; }
+}

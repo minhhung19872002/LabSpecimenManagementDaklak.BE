@@ -60,4 +60,11 @@ public class StockAdjustmentController : LabSpecimenManagementController
     {
         return _appService.ConfirmAsync(id);
     }
+
+    [HttpGet("{id}/confirm-preview")]
+    [Authorize(LabSpecimenManagementPermissions.StockAdjustments.Confirm)]
+    public virtual Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id)
+    {
+        return _appService.GetConfirmPreviewAsync(id);
+    }
 }
