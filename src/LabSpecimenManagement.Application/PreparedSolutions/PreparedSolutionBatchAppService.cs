@@ -27,6 +27,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
 
     public PreparedSolutionBatchAppService(
@@ -38,6 +39,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         IFifoStockDeductionService fifoStockService)
     {
         _repository = repository;
@@ -48,6 +50,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         _warehouseRepository = warehouseRepository;
         _importReceiptRepository = importReceiptRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
+        _manufacturerRepository = manufacturerRepository;
         _fifoStockService = fifoStockService;
     }
 
@@ -120,7 +123,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (!input.StorageWarehouseId.HasValue)
             throw new UserFriendlyException("Vui lòng chọn vị trí lưu kho.");
 
-        var solutionProduct = await _productRepository.GetAsync(input.SolutionProductId);
+        var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+        var solutionProduct = productQuery.First(p => p.Id == input.SolutionProductId);
+
+        var tuPhaSku = await FindTuPhaSkuAsync(solutionProduct);
+        if (tuPhaSku == null || !tuPhaSku.VolumePerUnit.HasValue || tuPhaSku.VolumePerUnit.Value <= 0)
+            throw new UserFriendlyException("Sản phẩm dung dịch pha chưa có SKU 'Tự pha' với dung tích hợp lệ.");
 
         string? storageWarehouseName = null;
         if (input.StorageWarehouseId.HasValue)
@@ -168,9 +176,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         await _repository.InsertAsync(batch, autoSave: true);
 
-        // Add prepared solution to stock
+        // Convert TotalVolume (mL) → storage units via "Tự pha" SKU
+        var storageQty = input.TotalVolume / tuPhaSku.VolumePerUnit.Value;
+
+        // Add prepared solution to stock (in storage units)
         var solQtyBefore = solutionProduct.AvailableQuantity;
-        solutionProduct.AvailableQuantity += input.TotalVolume;
+        solutionProduct.AvailableQuantity += storageQty;
         await _productRepository.UpdateAsync(solutionProduct, autoSave: true);
         await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
             GuidGenerator.Create(),
@@ -184,7 +195,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             "Pha dung dịch — nhập kho"), autoSave: true);
 
         // Create synthetic receipt so the solution appears in warehouse inventory
-        await CreateSyntheticReceiptAsync(batch, solutionProduct, volumeUnitName, storageWarehouseName);
+        await CreateSyntheticReceiptAsync(batch, solutionProduct, storageQty, tuPhaSku, storageWarehouseName);
 
         // Process ingredients and deduct stock
         await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
@@ -216,10 +227,16 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         await ReverseStockDeductionsAsync(id, batch.LotCode, oldIngredients);
         await _ingredientRepository.DeleteManyAsync(oldIngredients);
 
-        // Reverse old solution product stock
-        var oldSolutionProduct = await _productRepository.GetAsync(batch.SolutionProductId);
+        // Reverse old solution product stock (convert old TotalVolume to storage units)
+        var oldProductQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+        var oldSolutionProduct = oldProductQuery.First(p => p.Id == batch.SolutionProductId);
+        var oldTuPhaSku = await FindTuPhaSkuAsync(oldSolutionProduct);
+        var oldStorageQty = oldTuPhaSku != null && oldTuPhaSku.VolumePerUnit > 0
+            ? batch.TotalVolume / oldTuPhaSku.VolumePerUnit.Value
+            : batch.TotalVolume;
+
         var oldSolQtyBefore = oldSolutionProduct.AvailableQuantity;
-        oldSolutionProduct.AvailableQuantity -= batch.TotalVolume;
+        oldSolutionProduct.AvailableQuantity -= oldStorageQty;
         await _productRepository.UpdateAsync(oldSolutionProduct, autoSave: true);
         await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
             GuidGenerator.Create(),
@@ -233,7 +250,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             "Hoàn lại dung dịch pha — chỉnh sửa phiếu pha"), autoSave: true);
 
         // Update batch metadata
-        var solutionProduct = await _productRepository.GetAsync(input.SolutionProductId);
+        var newProductQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+        var solutionProduct = newProductQuery.First(p => p.Id == input.SolutionProductId);
+
+        var tuPhaSku = await FindTuPhaSkuAsync(solutionProduct);
+        if (tuPhaSku == null || !tuPhaSku.VolumePerUnit.HasValue || tuPhaSku.VolumePerUnit.Value <= 0)
+            throw new UserFriendlyException("Sản phẩm dung dịch pha chưa có SKU 'Tự pha' với dung tích hợp lệ.");
 
         string? storageWarehouseName = null;
         if (input.StorageWarehouseId.HasValue)
@@ -270,9 +292,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         await _repository.UpdateAsync(batch, autoSave: true);
 
-        // Add new solution product to stock
+        // Convert new TotalVolume (mL) → storage units
+        var newStorageQty = input.TotalVolume / tuPhaSku.VolumePerUnit.Value;
+
+        // Add new solution product to stock (in storage units)
         var newSolQtyBefore = solutionProduct.AvailableQuantity;
-        solutionProduct.AvailableQuantity += input.TotalVolume;
+        solutionProduct.AvailableQuantity += newStorageQty;
         await _productRepository.UpdateAsync(solutionProduct, autoSave: true);
         await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
             GuidGenerator.Create(),
@@ -286,7 +311,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             "Pha dung dịch — nhập kho (cập nhật)"), autoSave: true);
 
         // Create new synthetic receipt
-        await CreateSyntheticReceiptAsync(batch, solutionProduct, batch.VolumeUnitName, storageWarehouseName);
+        await CreateSyntheticReceiptAsync(batch, solutionProduct, newStorageQty, tuPhaSku, storageWarehouseName);
 
         // Apply new stock deductions
         await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
@@ -445,9 +470,14 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private async Task CreateSyntheticReceiptAsync(
         PreparedSolutionBatch batch,
         Product solutionProduct,
-        string? volumeUnitName,
+        decimal storageQty,
+        ProductSku tuPhaSku,
         string? storageWarehouseName)
     {
+        var storageUnitName = tuPhaSku.PackagingUnitId.HasValue
+            ? (await _unitRepository.FindAsync(tuPhaSku.PackagingUnitId.Value))?.Name
+            : null;
+
         var receipt = new WarehouseImportReceipt(
             GuidGenerator.Create(),
             $"PSB-{batch.LotCode}",
@@ -456,6 +486,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             ActualImportDate = batch.PreparationDate,
             WarehouseId = batch.StorageWarehouseId,
             WarehouseName = storageWarehouseName,
+            Status = WarehouseImportReceiptStatus.Completed,
         };
         await _importReceiptRepository.InsertAsync(receipt, autoSave: true);
 
@@ -464,13 +495,14 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         {
             LotNumber = batch.LotCode,
             LotExpiryDate = batch.ExpiryDate,
-            ReceivedBaseQuantity = batch.TotalVolume,
+            ReceivedBaseQuantity = storageQty,
             ConsumedBaseQuantity = 0,
             ActualReceivedQuantity = batch.TotalVolume,
             StorageWarehouseId = batch.StorageWarehouseId,
             StorageWarehouseName = storageWarehouseName,
-            UnitId = solutionProduct.VolumeUnitId ?? solutionProduct.BaseUnitId,
-            UnitName = volumeUnitName,
+            UnitId = tuPhaSku.PackagingUnitId ?? solutionProduct.BaseUnitId,
+            UnitName = storageUnitName,
+            SkuId = tuPhaSku.Id,
         };
         await _importReceiptItemRepository.InsertAsync(lotItem, autoSave: true);
 
@@ -489,6 +521,14 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         await _importReceiptRepository.DeleteAsync(batch.PreparedSolutionReceiptId.Value, autoSave: true);
         batch.PreparedSolutionReceiptId = null;
+    }
+
+    private async Task<ProductSku?> FindTuPhaSkuAsync(Product product)
+    {
+        var mfgQuery = await _manufacturerRepository.GetQueryableAsync();
+        var systemMfgId = mfgQuery.Where(m => m.IsSystem).Select(m => m.Id).FirstOrDefault();
+        if (systemMfgId == Guid.Empty) return null;
+        return product.Skus?.FirstOrDefault(s => s.ManufacturerId == systemMfgId);
     }
 
     private static int? ResolveVolumePerUnit(Product p) =>

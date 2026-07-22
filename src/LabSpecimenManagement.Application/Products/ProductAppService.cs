@@ -224,6 +224,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                                   item.StorageWarehouseName,
                                   ReceiptWarehouseName = receipt.WarehouseName,
                                   item.ActualReceivedQuantity,
+                                  item.ReceivedBaseQuantity,
+                                  item.ConsumedBaseQuantity,
                                   item.UnitId,
                                   item.SkuId
                               })
@@ -263,29 +265,23 @@ public class ProductAppService : ApplicationService, IProductAppService
         var skus = skuIds.Any() ? skuQueryable.Where(s => skuIds.Contains(s.Id)).ToList() : new List<ProductSku>();
         var skuLookup = skus.ToDictionary(s => s.Id);
 
-        // 5. Convert each import item to base units + volume units, grouped by (ProductId, WarehouseId)
+        // 5. Use remaining lot quantities (ReceivedBase - Consumed), grouped by (ProductId, WarehouseId)
         var entries = new List<WarehouseStockEntry>();
 
         foreach (var item in filteredImportItems)
         {
-            var product = productMap[item.ProductId];
-            decimal baseQty;
-            try
-            {
-                if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku))
-                    baseQty = ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
-                else
-                    baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(
-                        product, item.UnitId, item.ActualReceivedQuantity, item.ProductName ?? product.Name);
-            }
-            catch
-            {
-                baseQty = item.ActualReceivedQuantity;
-            }
+            var remainingBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+            if (remainingBase <= 0) continue;
 
-            decimal volumeQty = ComputeVolumeQty(
-                item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var s2) ? s2 : null,
-                product, item.UnitId, item.ActualReceivedQuantity);
+            var product = productMap[item.ProductId];
+
+            int? vpu = null;
+            if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku) && sku.VolumePerUnit > 0)
+                vpu = sku.VolumePerUnit;
+            else if (product.VolumePerUnit > 0)
+                vpu = product.VolumePerUnit;
+
+            decimal volumeQty = vpu.HasValue && vpu.Value > 0 ? remainingBase * vpu.Value : 0;
 
             var whName = warehouseNameMap.GetValueOrDefault(
                 item.EffectiveWarehouseId!.Value,
@@ -296,7 +292,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ProductId = item.ProductId,
                 WarehouseId = item.EffectiveWarehouseId!.Value,
                 WarehouseName = whName,
-                BaseQty = baseQty,
+                BaseQty = remainingBase,
                 VolumeQty = volumeQty
             });
         }
@@ -882,8 +878,12 @@ public class ProductAppService : ApplicationService, IProductAppService
     {
         var product = await _productRepository.GetAsync(id);
 
+        var productSkus = (await _skuRepository.GetQueryableAsync())
+            .Where(s => s.ProductId == id).ToList();
+
         var unitQuery = await _unitRepository.GetQueryableAsync();
         var unitIds = new[] { product.BaseUnitId, product.PackagingUnitId, product.VolumeUnitId }
+            .Concat(productSkus.SelectMany(s => new[] { s.PackagingUnitId, s.VolumeUnitId }))
             .Where(uid => uid.HasValue).Select(uid => uid!.Value).Distinct().ToList();
         var unitMap = unitQuery.Where(u => unitIds.Contains(u.Id))
             .ToDictionary(u => u.Id, u => u.Name);
@@ -970,6 +970,9 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
         }
 
+        var detailSystemMfgIds = (await _manufacturerRepository.GetQueryableAsync())
+            .Where(m => m.IsSystem).Select(m => m.Id).ToHashSet();
+
         return new ProductDetailDto
         {
             Id = product.Id,
@@ -983,10 +986,20 @@ public class ProductAppService : ApplicationService, IProductAppService
             ProductType = product.ProductType,
             WarehouseAvailableQuantity = warehouseQty,
             BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null,
-            PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null,
+            PackagingUnitName = product.PackagingUnitId.HasValue
+                ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value)
+                : (productSkus.FirstOrDefault(s => s.PackagingUnitId.HasValue && detailSystemMfgIds.Contains(s.ManufacturerId))
+                   ?? productSkus.FirstOrDefault(s => s.PackagingUnitId.HasValue))?.PackagingUnitId is { } skuPkgId
+                    ? unitMap.GetValueOrDefault(skuPkgId)
+                    : null,
             PackagingQuantity = product.PackagingQuantity,
             ConsumableImportedQuantity = consumableQty,
-            VolumeUnitName = product.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value) : null,
+            VolumeUnitName = product.VolumeUnitId.HasValue
+                ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value)
+                : (productSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue && detailSystemMfgIds.Contains(s.ManufacturerId))
+                   ?? productSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue))?.VolumeUnitId is { } skuVolId
+                    ? unitMap.GetValueOrDefault(skuVolId)
+                    : null,
         };
     }
 
@@ -1328,7 +1341,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToList()
             .ToDictionary(x => x.ProductId, x => x.Total);
 
-        // Consumable quantity from completed imports (per-SKU accurate)
+        // Consumable quantity = remaining lot volume (ReceivedBase - Consumed) × VolumePerUnit
         var consumableImportItems = (from item in importItemQuery
                                      join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                                      where productIds.Contains(item.ProductId)
@@ -1338,44 +1351,27 @@ public class ProductAppService : ApplicationService, IProductAppService
                                      {
                                          item.ProductId,
                                          item.SkuId,
-                                         item.UnitId,
-                                         item.ActualReceivedQuantity
+                                         RemainingBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity
                                      })
                                      .ToList();
         var consumableByProduct = new Dictionary<Guid, decimal>();
         foreach (var ci in consumableImportItems)
         {
-            decimal cQty = 0;
-            ProductSku? sku = null;
-            if (ci.SkuId.HasValue && skuMap.TryGetValue(ci.ProductId, out var pSkus))
-                sku = pSkus.FirstOrDefault(s => s.Id == ci.SkuId.Value);
+            if (ci.RemainingBase <= 0) continue;
 
-            if (sku?.VolumePerUnit > 0)
+            int? vpu = null;
+            if (ci.SkuId.HasValue && skuMap.TryGetValue(ci.ProductId, out var pSkus))
             {
-                if (ci.UnitId == sku.VolumeUnitId)
-                    cQty = ci.ActualReceivedQuantity;
-                else if (ci.UnitId == sku.PackagingUnitId)
-                    cQty = ci.ActualReceivedQuantity * sku.VolumePerUnit.Value;
-                else if (ci.UnitId == sku.BaseUnitId && sku.BaseUnitId != sku.PackagingUnitId)
-                    cQty = ci.ActualReceivedQuantity * (sku.PackagingQuantity ?? 1) * sku.VolumePerUnit.Value;
-                else
-                    cQty = ci.ActualReceivedQuantity * sku.VolumePerUnit.Value;
+                var sku = pSkus.FirstOrDefault(s => s.Id == ci.SkuId.Value);
+                if (sku?.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
             }
-            else
+            if (!vpu.HasValue)
             {
                 var prod = products.FirstOrDefault(p => p.Id == ci.ProductId);
-                if (prod?.VolumePerUnit > 0)
-                {
-                    if (ci.UnitId == prod.VolumeUnitId)
-                        cQty = ci.ActualReceivedQuantity;
-                    else if (ci.UnitId == prod.PackagingUnitId)
-                        cQty = ci.ActualReceivedQuantity * prod.VolumePerUnit.Value;
-                    else if (ci.UnitId == prod.BaseUnitId && prod.BaseUnitId != prod.PackagingUnitId)
-                        cQty = ci.ActualReceivedQuantity * (prod.PackagingQuantity ?? 1) * prod.VolumePerUnit.Value;
-                    else
-                        cQty = ci.ActualReceivedQuantity * prod.VolumePerUnit.Value;
-                }
+                if (prod?.VolumePerUnit > 0) vpu = prod.VolumePerUnit;
             }
+
+            decimal cQty = vpu.HasValue && vpu.Value > 0 ? ci.RemainingBase * vpu.Value : 0;
 
             if (cQty > 0)
                 consumableByProduct[ci.ProductId] = consumableByProduct.GetValueOrDefault(ci.ProductId) + cQty;
@@ -1396,12 +1392,28 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
         }
 
+        var systemMfgIds = manufacturers.Where(m => m.IsSystem).Select(m => m.Id).ToHashSet();
+
         return products.Select(product =>
         {
             var dto = ObjectMapper.Map<Product, ProductDto>(product);
             dto.BaseUnitName = product.BaseUnitId.HasValue ? unitMap.GetValueOrDefault(product.BaseUnitId.Value) : null;
             dto.PackagingUnitName = product.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(product.PackagingUnitId.Value) : null;
+            if (dto.PackagingUnitName == null && skuMap.TryGetValue(product.Id, out var fallbackSkus))
+            {
+                var sku = fallbackSkus.FirstOrDefault(s => s.PackagingUnitId.HasValue && systemMfgIds.Contains(s.ManufacturerId))
+                       ?? fallbackSkus.FirstOrDefault(s => s.PackagingUnitId.HasValue);
+                if (sku != null)
+                    dto.PackagingUnitName = unitMap.GetValueOrDefault(sku.PackagingUnitId!.Value);
+            }
             dto.VolumeUnitName = product.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value) : null;
+            if (dto.VolumeUnitName == null && skuMap.TryGetValue(product.Id, out var volFallbackSkus))
+            {
+                var vSku = volFallbackSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue && systemMfgIds.Contains(s.ManufacturerId))
+                        ?? volFallbackSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue);
+                if (vSku != null)
+                    dto.VolumeUnitName = unitMap.GetValueOrDefault(vSku.VolumeUnitId!.Value);
+            }
             dto.StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
