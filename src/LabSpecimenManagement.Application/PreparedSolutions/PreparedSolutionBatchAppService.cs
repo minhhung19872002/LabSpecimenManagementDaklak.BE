@@ -587,12 +587,17 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             if (!isEquipment)
             {
                 var baseQty = ToBaseQty(vpu, inp.QuantityUsed);
-                await _fifoStockService.DeductAsync(
+                var deductions = await _fifoStockService.DeductAsync(
                     product, baseQty,
                     StockMovementType.MaterialConsumption,
                     batchId, lotCode,
                     "Pha dung dịch",
                     sourceWarehouseIds);
+
+                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                {
+                    await UpdateSourceBatchRemainingVolumeAsync(product, vpu, deductions);
+                }
             }
         }
     }
@@ -618,6 +623,38 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         return result;
     }
 
+    private async Task UpdateSourceBatchRemainingVolumeAsync(
+        Product product, int? vpu, List<LotDeduction> deductions)
+    {
+        var receiptItemIds = deductions.Select(d => d.WarehouseImportReceiptItemId).ToList();
+        var receiptItems = await _importReceiptItemRepository.GetListAsync(
+            i => receiptItemIds.Contains(i.Id));
+        var receiptIds = receiptItems.Select(i => i.WarehouseImportReceiptId).Distinct().ToList();
+
+        var batches = await _repository.GetListAsync(
+            b => b.PreparedSolutionReceiptId.HasValue && receiptIds.Contains(b.PreparedSolutionReceiptId.Value));
+        if (!batches.Any()) return;
+
+        var batchByReceiptId = batches.ToDictionary(b => b.PreparedSolutionReceiptId!.Value);
+
+        foreach (var deduction in deductions)
+        {
+            var receiptItem = receiptItems.FirstOrDefault(i => i.Id == deduction.WarehouseImportReceiptItemId);
+            if (receiptItem == null) continue;
+
+            if (!batchByReceiptId.TryGetValue(receiptItem.WarehouseImportReceiptId, out var batch))
+                continue;
+
+            var deductedVolume = vpu is > 0
+                ? deduction.DeductedBaseQty * vpu.Value
+                : deduction.DeductedBaseQty;
+
+            batch.RemainingVolume = Math.Max(0m, batch.RemainingVolume - deductedVolume);
+            await _repository.UpdateAsync(batch, autoSave: true);
+        }
+    }
+
+
     private async Task ReverseStockDeductionsAsync(
         Guid batchId,
         string lotCode,
@@ -629,12 +666,45 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             .Distinct()
             .ToList();
 
+        var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+
         foreach (var productId in distinctProductIds)
         {
-            var product = await _productRepository.FindAsync(productId);
+            var product = productQuery.FirstOrDefault(p => p.Id == productId);
             if (product == null) continue;
 
             await _fifoStockService.ReverseAsync(product, batchId, "Hoàn lại — chỉnh sửa phiếu pha");
+
+            if (product.ProductType == ProductType.PreparedSolution)
+            {
+                await RecalcSourceBatchRemainingVolumeAsync(product);
+            }
+        }
+    }
+
+    private async Task RecalcSourceBatchRemainingVolumeAsync(Product product)
+    {
+        var sourceBatches = await _repository.GetListAsync(
+            b => b.SolutionProductId == product.Id && b.PreparedSolutionReceiptId.HasValue);
+        if (!sourceBatches.Any()) return;
+
+        var receiptIds = sourceBatches.Select(b => b.PreparedSolutionReceiptId!.Value).ToList();
+        var receiptItems = await _importReceiptItemRepository.GetListAsync(
+            i => receiptIds.Contains(i.WarehouseImportReceiptId));
+
+        var vpu = ResolveVolumePerUnit(product);
+
+        foreach (var batch in sourceBatches)
+        {
+            var lotItem = receiptItems.FirstOrDefault(
+                i => i.WarehouseImportReceiptId == batch.PreparedSolutionReceiptId!.Value);
+            if (lotItem == null) continue;
+
+            var remainingStorage = lotItem.ReceivedBaseQuantity - lotItem.ConsumedBaseQuantity;
+            batch.RemainingVolume = vpu is > 0
+                ? Math.Max(0m, remainingStorage * vpu.Value)
+                : Math.Max(0m, remainingStorage);
+            await _repository.UpdateAsync(batch, autoSave: true);
         }
     }
 

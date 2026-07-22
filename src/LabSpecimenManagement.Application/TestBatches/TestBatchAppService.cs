@@ -6,10 +6,12 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.TestBatches;
 using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -41,6 +43,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
+    private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
+    private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -65,6 +69,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
+        IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
+        IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
@@ -88,6 +94,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _equipmentRepository = equipmentRepository;
         _unitRepository = unitRepository;
         _productSkuRepository = productSkuRepository;
+        _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
+        _importReceiptItemRepository = importReceiptItemRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
@@ -1160,11 +1168,17 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
                 var storageQty = consumption.ActualQuantity / unitsPerStorage.Value;
 
-                await _fifoStockService.DeductAsync(
+                var deductions = await _fifoStockService.DeductAsync(
                     product, storageQty,
                     StockMovementType.MaterialConsumption,
                     consumption.TestBatchId, null,
                     "Tiêu hao thử nghiệm");
+
+                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                {
+                    var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                    await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+                }
             }
         }
 
@@ -1182,6 +1196,52 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
             }
         }
+    }
+
+    private async Task UpdatePreparedSolutionRemainingVolumeAsync(
+        Product product, List<ProductSku>? productSkus, List<LotDeduction> deductions)
+    {
+        var receiptItemIds = deductions.Select(d => d.WarehouseImportReceiptItemId).ToList();
+        var receiptItems = await _importReceiptItemRepository.GetListAsync(
+            i => receiptItemIds.Contains(i.Id));
+        var receiptIds = receiptItems.Select(i => i.WarehouseImportReceiptId).Distinct().ToList();
+
+        var batches = await _preparedSolutionBatchRepository.GetListAsync(
+            b => b.PreparedSolutionReceiptId.HasValue && receiptIds.Contains(b.PreparedSolutionReceiptId.Value));
+        if (!batches.Any()) return;
+
+        var batchByReceiptId = batches.ToDictionary(b => b.PreparedSolutionReceiptId!.Value);
+
+        var vpu = ResolveVolumePerUnit(product, productSkus);
+
+        foreach (var deduction in deductions)
+        {
+            var receiptItem = receiptItems.FirstOrDefault(i => i.Id == deduction.WarehouseImportReceiptItemId);
+            if (receiptItem == null) continue;
+
+            if (!batchByReceiptId.TryGetValue(receiptItem.WarehouseImportReceiptId, out var batch))
+                continue;
+
+            var deductedVolume = vpu > 0
+                ? deduction.DeductedBaseQty * vpu
+                : deduction.DeductedBaseQty;
+
+            batch.RemainingVolume = Math.Max(0m, batch.RemainingVolume - deductedVolume);
+            await _preparedSolutionBatchRepository.UpdateAsync(batch, autoSave: true);
+        }
+    }
+
+    private static int ResolveVolumePerUnit(Product product, List<ProductSku>? skus)
+    {
+        if (product.VolumePerUnit is > 0) return product.VolumePerUnit.Value;
+        if (skus != null)
+        {
+            foreach (var sku in skus)
+            {
+                if (sku.VolumePerUnit is > 0) return sku.VolumePerUnit.Value;
+            }
+        }
+        return 0;
     }
 
     private async Task<TestBatchDto> MapToDetailDtoAsync(TestBatch batch)

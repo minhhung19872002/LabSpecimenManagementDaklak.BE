@@ -11,9 +11,11 @@ using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Equipments;
+using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -59,6 +61,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
     private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
+    private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
+    private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
 
     public TestingAppService(
@@ -92,6 +97,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
         IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
+        IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
+        IRepository<ProductSku, Guid> productSkuRepository,
         IFifoStockDeductionService fifoStockService)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
@@ -124,6 +132,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _equipmentRepository = equipmentRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
         _testBatchItemRepository = testBatchItemRepository;
+        _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
+        _importReceiptItemRepository = importReceiptItemRepository;
+        _productSkuRepository = productSkuRepository;
         _fifoStockService = fifoStockService;
     }
 
@@ -1593,6 +1604,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
             var productMap = products.ToDictionary(p => p.Id);
 
+            var skus = await _productSkuRepository.GetListAsync(s => productIds.Contains(s.ProductId));
+            var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
             var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
 
             foreach (var item in productItems)
@@ -1601,28 +1615,58 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     continue;
 
                 decimal baseQty;
-                if (item.UnitId == product.BaseUnitId)
-                {
+                var consumeUnitId = item.UnitId;
+
+                // 1. Product-level units
+                if (consumeUnitId == product.PackagingUnitId)
                     baseQty = item.Quantity;
-                }
+                else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+                    baseQty = item.Quantity / product.VolumePerUnit.Value;
+                else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+                    baseQty = item.Quantity * product.PackagingQuantity.Value;
                 else
                 {
-                    var conversion = await AsyncExecuter.FirstOrDefaultAsync(
-                        conversionQuery.Where(c =>
-                            c.ProductId == item.ProductId && c.ConvertedUnitId == item.UnitId));
+                    decimal? factor = null;
 
-                    if (conversion == null || conversion.ConvertedQuantity == 0)
+                    // 2. SKU-level units
+                    if (skuByProduct.TryGetValue(product.Id, out var pSkus))
+                    {
+                        foreach (var sku in pSkus)
+                        {
+                            if (consumeUnitId == sku.PackagingUnitId) { factor = 1; break; }
+                            if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { factor = (decimal)sku.VolumePerUnit.Value; break; }
+                            if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { factor = 1m / sku.PackagingQuantity.Value; break; }
+                        }
+                    }
+
+                    // 3. ProductUnitConversion table
+                    if (factor == null && consumeUnitId.HasValue)
+                    {
+                        var conversion = await AsyncExecuter.FirstOrDefaultAsync(
+                            conversionQuery.Where(c =>
+                                c.ProductId == item.ProductId && c.ConvertedUnitId == consumeUnitId.Value));
+
+                        if (conversion != null && conversion.ConvertedQuantity > 0)
+                            factor = conversion.ConvertedQuantity / conversion.Quantity;
+                    }
+
+                    if (factor == null || factor.Value == 0)
                         continue;
 
-                    decimal ratio = conversion.Quantity / conversion.ConvertedQuantity;
-                    baseQty = item.Quantity * ratio;
+                    baseQty = item.Quantity / factor.Value;
                 }
 
-                await _fifoStockService.DeductAsync(
+                var deductions = await _fifoStockService.DeductAsync(
                     product, baseQty,
                     StockMovementType.MaterialConsumption,
                     taskId, null,
                     "Tiêu hao tự động theo chỉ tiêu");
+
+                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                {
+                    var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                    await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+                }
             }
         }
 
@@ -1640,6 +1684,52 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
             }
         }
+    }
+
+    private async Task UpdatePreparedSolutionRemainingVolumeAsync(
+        Product product, List<ProductSku>? productSkus, List<LotDeduction> deductions)
+    {
+        var receiptItemIds = deductions.Select(d => d.WarehouseImportReceiptItemId).ToList();
+        var receiptItems = await _importReceiptItemRepository.GetListAsync(
+            i => receiptItemIds.Contains(i.Id));
+        var receiptIds = receiptItems.Select(i => i.WarehouseImportReceiptId).Distinct().ToList();
+
+        var batches = await _preparedSolutionBatchRepository.GetListAsync(
+            b => b.PreparedSolutionReceiptId.HasValue && receiptIds.Contains(b.PreparedSolutionReceiptId.Value));
+        if (!batches.Any()) return;
+
+        var batchByReceiptId = batches.ToDictionary(b => b.PreparedSolutionReceiptId!.Value);
+
+        var vpu = ResolveVolumePerUnit(product, productSkus);
+
+        foreach (var deduction in deductions)
+        {
+            var receiptItem = receiptItems.FirstOrDefault(i => i.Id == deduction.WarehouseImportReceiptItemId);
+            if (receiptItem == null) continue;
+
+            if (!batchByReceiptId.TryGetValue(receiptItem.WarehouseImportReceiptId, out var batch))
+                continue;
+
+            var deductedVolume = vpu > 0
+                ? deduction.DeductedBaseQty * vpu
+                : deduction.DeductedBaseQty;
+
+            batch.RemainingVolume = Math.Max(0m, batch.RemainingVolume - deductedVolume);
+            await _preparedSolutionBatchRepository.UpdateAsync(batch, autoSave: true);
+        }
+    }
+
+    private static int ResolveVolumePerUnit(Product product, List<ProductSku>? skus)
+    {
+        if (product.VolumePerUnit is > 0) return product.VolumePerUnit.Value;
+        if (skus != null)
+        {
+            foreach (var sku in skus)
+            {
+                if (sku.VolumePerUnit is > 0) return sku.VolumePerUnit.Value;
+            }
+        }
+        return 0;
     }
 
     private async Task MarkBatchItemsAsExternallyCompletedAsync(List<LaboratoryTaskIndicator> submittedIndicators)
