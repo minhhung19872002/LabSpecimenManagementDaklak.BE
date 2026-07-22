@@ -271,7 +271,6 @@ public class ProductAppService : ApplicationService, IProductAppService
         foreach (var item in filteredImportItems)
         {
             var remainingBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
-            if (remainingBase <= 0) continue;
 
             var product = productMap[item.ProductId];
 
