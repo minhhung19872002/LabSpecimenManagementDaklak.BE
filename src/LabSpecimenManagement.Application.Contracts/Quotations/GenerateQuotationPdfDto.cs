@@ -51,4 +51,15 @@ public class QuotationPdfIndicatorDto
     public int Quantity { get; set; } = 1;
 
     public decimal UnitPrice { get; set; }
+
+    /// <summary>
+    /// Ghi chú cho chỉ tiêu
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
+    /// Combo group key (e.g. "hm_specimenTypeId" for heavy metal, "ec_specimenTypeId" for E.coli+Coliform).
+    /// Indicators with the same non-null ComboGroup get their Note cells merged in the PDF.
+    /// </summary>
+    public string? ComboGroup { get; set; }
 }

@@ -27,7 +27,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
     private readonly IPdfConversionService _pdfConversionService;
     private readonly ILogger<QuotationPdfGenerator> _logger;
 
-    private const string TemplateFileName = "Báo giá HỌC VIỆN HÀNH CHÍNH 2025.template.docx";
+    private const string TemplateFileName = "Template báo giá.template.docx";
 
     public QuotationPdfGenerator(
         IWebHostEnvironment environment,
@@ -283,6 +283,23 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
             // Insert rows for each sample and its indicators
             OpenXmlElement lastInsertedElement = templateRow;
             int rowNumber = 1;
+            var noteColumnIndex = -1;
+
+            // Detect Note column index from template row
+            var templateCells = templateRow.Elements<TableCell>().ToList();
+            for (int ci = 0; ci < templateCells.Count; ci++)
+            {
+                var cellText = string.Concat(templateCells[ci].Descendants<Text>().Select(t => t.Text));
+                if (cellText.Contains("{{Note}}"))
+                {
+                    noteColumnIndex = ci;
+                    break;
+                }
+            }
+
+            // Track combo groups for Note column vertical merge
+            // Key: comboGroup string, Value: list of inserted rows
+            var comboGroupRows = new Dictionary<string, List<TableRow>>();
 
             foreach (var sample in samples)
             {
@@ -290,6 +307,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                 var groupedIndicators = GroupIndicatorsByParentChild(sample.Indicators);
                 var indicatorCount = groupedIndicators.Count;
                 var isFirstIndicator = true;
+                var sampleComboRows = new Dictionary<string, List<TableRow>>();
 
                 foreach (var indicatorGroup in groupedIndicators)
                 {
@@ -311,6 +329,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                     var totalQuantity = indicatorGroup.TotalQuantity;
                     var totalUnitPrice = indicatorGroup.TotalUnitPrice;
                     var amount = totalQuantity * totalUnitPrice * sample.Quantity;
+                    var noteValue = indicatorGroup.Note ?? "";
 
                     // Check if indicator name has HTML or newlines
                     var hasHtml = HtmlToOpenXmlConverter.ContainsHtmlTags(indicatorFormattedName);
@@ -330,7 +349,8 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                                 .Replace("{{Sample}}", isFirstIndicator ? sample.SampleName : "")
                                 .Replace("{{Quantity}}", isFirstIndicator ? FormatQuantity(sample.Quantity) : "")
                                 .Replace("{{UnitPrice}}", FormatCurrency(totalUnitPrice))
-                                .Replace("{{Amount}}", FormatCurrency(amount));
+                                .Replace("{{Amount}}", FormatCurrency(amount))
+                                .Replace("{{Note}}", noteValue);
 
                             // Handle {{Indicator}} with HTML/newlines
                             ReplaceTextWithFormattedRuns(text, "{{Indicator}}", indicatorFormattedName ?? indicatorDisplayName);
@@ -344,7 +364,8 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                                 .Replace("{{Indicator}}", indicatorDisplayName)
                                 .Replace("{{Quantity}}", isFirstIndicator ? FormatQuantity(sample.Quantity) : "")
                                 .Replace("{{UnitPrice}}", FormatCurrency(totalUnitPrice))
-                                .Replace("{{Amount}}", FormatCurrency(amount));
+                                .Replace("{{Amount}}", FormatCurrency(amount))
+                                .Replace("{{Note}}", noteValue);
                         }
                     }
 
@@ -358,10 +379,41 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                         ApplyVerticalMerge(cells[3], isFirstIndicator);
                     }
 
+                    // Track combo group for Note column merge
+                    if (!string.IsNullOrEmpty(indicatorGroup.ComboGroup))
+                    {
+                        if (!sampleComboRows.ContainsKey(indicatorGroup.ComboGroup))
+                            sampleComboRows[indicatorGroup.ComboGroup] = new List<TableRow>();
+                        sampleComboRows[indicatorGroup.ComboGroup].Add(newRow);
+                    }
+
                     table.InsertAfter(newRow, lastInsertedElement);
                     lastInsertedElement = newRow;
                     rowNumber++;
                     isFirstIndicator = false;
+                }
+
+                // Apply vertical merge for Note column on combo groups within this sample
+                if (noteColumnIndex >= 0)
+                {
+                    foreach (var (_, comboRows) in sampleComboRows)
+                    {
+                        if (comboRows.Count <= 1) continue;
+                        for (int ri = 0; ri < comboRows.Count; ri++)
+                        {
+                            var rowCells = comboRows[ri].Elements<TableCell>().ToList();
+                            if (noteColumnIndex < rowCells.Count)
+                            {
+                                ApplyVerticalMerge(rowCells[noteColumnIndex], ri == 0);
+                                // Clear note text in non-first rows
+                                if (ri > 0)
+                                {
+                                    foreach (var text in rowCells[noteColumnIndex].Descendants<Text>())
+                                        text.Text = "";
+                                }
+                            }
+                        }
+                    }
                 }
             }
 
@@ -390,7 +442,9 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                     DisplayName = ind.IndicatorName,
                     FormattedDisplayName = ind.IndicatorFormattedName ?? ind.IndicatorName,
                     TotalQuantity = ind.Quantity,
-                    TotalUnitPrice = ind.UnitPrice
+                    TotalUnitPrice = ind.UnitPrice,
+                    Note = ind.Note,
+                    ComboGroup = ind.ComboGroup
                 });
             }
             return result;
@@ -460,7 +514,9 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                     DisplayName = namePlainBuilder.ToString(),
                     FormattedDisplayName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
                     TotalQuantity = totalQuantity,
-                    TotalUnitPrice = totalUnitPrice
+                    TotalUnitPrice = totalUnitPrice,
+                    Note = indicator.Note,
+                    ComboGroup = indicator.ComboGroup
                 });
             }
             else
@@ -471,7 +527,9 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                     DisplayName = indicator.IndicatorName,
                     FormattedDisplayName = indicator.IndicatorFormattedName,
                     TotalQuantity = indicator.Quantity,
-                    TotalUnitPrice = indicator.UnitPrice
+                    TotalUnitPrice = indicator.UnitPrice,
+                    Note = indicator.Note,
+                    ComboGroup = indicator.ComboGroup
                 });
             }
 
@@ -491,6 +549,8 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
         public string? FormattedDisplayName { get; set; }
         public int TotalQuantity { get; set; }
         public decimal TotalUnitPrice { get; set; }
+        public string? Note { get; set; }
+        public string? ComboGroup { get; set; }
     }
 
     /// <summary>
