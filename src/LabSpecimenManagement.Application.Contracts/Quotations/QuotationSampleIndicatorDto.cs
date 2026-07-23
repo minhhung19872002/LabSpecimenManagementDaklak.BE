@@ -62,4 +62,9 @@ public class QuotationSampleIndicatorDto : EntityDto<Guid>
     /// Tên loại mẫu
     /// </summary>
     public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
+    /// Ghi chú
+    /// </summary>
+    public string? Note { get; set; }
 }

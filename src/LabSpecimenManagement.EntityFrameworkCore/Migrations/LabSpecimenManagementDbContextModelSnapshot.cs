@@ -2584,6 +2584,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
 
+                    b.Property<string>("Note")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("QuotationSampleId")
                         .HasColumnType("uuid");
 

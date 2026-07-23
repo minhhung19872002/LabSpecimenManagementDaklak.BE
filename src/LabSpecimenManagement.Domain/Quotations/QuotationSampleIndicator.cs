@@ -55,6 +55,11 @@ public class QuotationSampleIndicator : Entity<Guid>
     public string? SpecimenTypeName { get; set; }
 
     /// <summary>
+    /// Ghi chú cho chỉ tiêu
+    /// </summary>
+    public string? Note { get; set; }
+
+    /// <summary>
     /// Navigation property to QuotationSample
     /// </summary>
     public virtual QuotationSample QuotationSample { get; set; } = null!;
@@ -88,7 +93,8 @@ public class QuotationSampleIndicator : Entity<Guid>
         decimal unitPrice,
         int sortOrder,
         Guid? specimenTypeId = null,
-        string? specimenTypeName = null) : base(id)
+        string? specimenTypeName = null,
+        string? note = null) : base(id)
     {
         QuotationSampleId = quotationSampleId;
         IndicatorId = indicatorId;
@@ -99,5 +105,6 @@ public class QuotationSampleIndicator : Entity<Guid>
         SortOrder = sortOrder;
         SpecimenTypeId = specimenTypeId;
         SpecimenTypeName = specimenTypeName;
+        Note = note;
     }
 }

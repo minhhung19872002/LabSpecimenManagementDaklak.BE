@@ -60,4 +60,10 @@ public class CreateUpdateQuotationSampleIndicatorDto
     /// </summary>
     [StringLength(256)]
     public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
+    /// Ghi chú
+    /// </summary>
+    [StringLength(500)]
+    public string? Note { get; set; }
 }

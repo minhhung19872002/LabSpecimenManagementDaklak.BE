@@ -1195,6 +1195,7 @@ public class LabSpecimenManagementDbContext :
                 .IsRequired();
 
             b.Property(x => x.SpecimenTypeName).HasMaxLength(256);
+            b.Property(x => x.Note).HasMaxLength(500);
             b.HasIndex(x => x.SpecimenTypeId);
 
             b.HasOne(x => x.SpecimenType)
