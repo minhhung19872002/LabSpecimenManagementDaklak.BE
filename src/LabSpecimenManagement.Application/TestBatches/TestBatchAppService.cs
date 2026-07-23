@@ -176,9 +176,17 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var totalCount = await AsyncExecuter.CountAsync(query);
 
+        var sorting = input.Sorting?.Trim().ToLower() ?? "";
+        query = sorting switch
+        {
+            "creationtime desc" => query.OrderByDescending(x => x.CreationTime),
+            "creationtime" or "creationtime asc" => query.OrderBy(x => x.CreationTime),
+            "testdate desc" => query.OrderByDescending(x => x.TestDate),
+            "testdate" or "testdate asc" => query.OrderBy(x => x.TestDate),
+            _ => query.OrderBy(x => x.Status).ThenByDescending(x => x.CreationTime),
+        };
+
         query = query
-            .OrderBy(x => x.Status)
-            .ThenByDescending(x => x.CreationTime)
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount);
 
@@ -252,7 +260,15 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             };
         }).ToList();
 
-        return new PagedResultDto<TestBatchListDto>(totalCount, dtos);
+        // RequestCompletionDate is computed in-memory — apply sort here
+        var sortedDtos = sorting switch
+        {
+            "requestcompletiondate desc" => [.. dtos.OrderByDescending(x => x.RequestCompletionDate)],
+            "requestcompletiondate" or "requestcompletiondate asc" => [.. dtos.OrderBy(x => x.RequestCompletionDate)],
+            _ => dtos,
+        };
+
+        return new PagedResultDto<TestBatchListDto>(totalCount, sortedDtos);
     }
 
     public async Task<TestBatchDto> GetAsync(Guid id)
