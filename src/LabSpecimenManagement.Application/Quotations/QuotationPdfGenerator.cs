@@ -70,6 +70,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
 
             // 5. Calculate totals
             var totalSample = samples.Sum(s => s.Quantity);
+            var totalIndicators = samples.Sum(s => GroupIndicatorsByParentChild(s.Indicators).Count);
             var totalUnitPrice = samples.Sum(s => s.Indicators.Sum(i => i.UnitPrice));
             var totalAmount = samples.Sum(s => s.Quantity * s.Indicators.Sum(i => i.Quantity * i.UnitPrice));
 
@@ -81,6 +82,7 @@ public class QuotationPdfGenerator : IQuotationPdfGenerator, ITransientDependenc
                 { "{{CurrentUser}}", currentUserName },
                 { "{{CurrentDate}}", DateTime.Now.ToString("dd/MM/yyyy") },
                 { "{{TotalSample}}", FormatQuantity(totalSample) },
+                { "{{TotalIndicators}}", totalIndicators.ToString() },
                 { "{{TotalUnitPrice}}", FormatCurrency(totalUnitPrice) },
                 { "{{TotalAmount}}", FormatCurrency(totalAmount) },
                 { "{{AmountByText}}", NumberToVietnameseText.Convert(totalAmount) },
