@@ -1002,6 +1002,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
+        dto.SampleReceivedDate = testRequest?.CreationTime;
         dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate;
         dto.UnderReviewDate = testRequest?.UnderReviewDate;
 

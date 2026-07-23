@@ -226,7 +226,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     indicatorDto.UnitPrice,
                     indicatorDto.SortOrder,
                     indicatorDto.SpecimenTypeId,
-                    indicatorDto.SpecimenTypeName);
+                    indicatorDto.SpecimenTypeName,
+                    indicatorDto.Note);
 
                 sample.Indicators.Add(indicator);
             }
@@ -328,6 +329,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         existingIndicator.SortOrder = indicatorDto.SortOrder;
                         existingIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         existingIndicator.SpecimenTypeName = indicatorDto.SpecimenTypeName;
+                        existingIndicator.Note = indicatorDto.Note;
                     }
                     else
                     {
@@ -342,7 +344,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             indicatorDto.UnitPrice,
                             indicatorDto.SortOrder,
                             indicatorDto.SpecimenTypeId,
-                            indicatorDto.SpecimenTypeName);
+                            indicatorDto.SpecimenTypeName,
+                            indicatorDto.Note);
 
                         existingSample.Indicators.Add(newIndicator);
                     }
@@ -374,7 +377,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         indicatorDto.UnitPrice,
                         indicatorDto.SortOrder,
                         indicatorDto.SpecimenTypeId,
-                        indicatorDto.SpecimenTypeName);
+                        indicatorDto.SpecimenTypeName,
+                        indicatorDto.Note);
 
                     newSample.Indicators.Add(indicator);
                 }
@@ -476,7 +480,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     UnitPrice = indicator.UnitPrice,
                     SortOrder = indicator.SortOrder,
                     SpecimenTypeId = indicator.SpecimenTypeId,
-                    SpecimenTypeName = indicator.SpecimenTypeName
+                    SpecimenTypeName = indicator.SpecimenTypeName,
+                    Note = indicator.Note
                 }).ToList()
             }).ToList()
         };
@@ -541,7 +546,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             UnitPrice = indicator.UnitPrice,
                             SortOrder = indicator.SortOrder,
                             SpecimenTypeId = indicator.SpecimenTypeId,
-                            SpecimenTypeName = indicator.SpecimenTypeName
+                            SpecimenTypeName = indicator.SpecimenTypeName,
+                            Note = indicator.Note
                         };
                     }).ToList()
                 };

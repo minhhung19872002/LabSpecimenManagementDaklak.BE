@@ -47,6 +47,11 @@ public class TestingDetailDto : EntityDto<Guid>
     public DateTime? RequestCompletionDate { get; set; }
 
     /// <summary>
+    /// Ngày nhận mẫu = Ngày tạo phiếu thử nghiệm (TestRequest.CreationTime)
+    /// </summary>
+    public DateTime? SampleReceivedDate { get; set; }
+
+    /// <summary>
     /// Ngày gửi KP - Ngày BPGN xác nhận gửi mẫu
     /// </summary>
     public DateTime? SampleSentDate { get; set; }
