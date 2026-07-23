@@ -277,8 +277,9 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         batch.LotCode = input.LotCode;
         batch.PreparationDate = input.PreparationDate;
         batch.ExpiryDate = input.ExpiryDate;
+        var usedVolume = batch.TotalVolume - batch.RemainingVolume;
         batch.TotalVolume = input.TotalVolume;
-        batch.RemainingVolume = input.TotalVolume;
+        batch.RemainingVolume = input.TotalVolume - usedVolume;
         batch.VolumeUnitId = solutionProduct.VolumeUnitId;
         batch.VolumeUnitName = solutionProduct.VolumeUnitId.HasValue
             ? (await _unitRepository.FindAsync(solutionProduct.VolumeUnitId.Value))?.Name
