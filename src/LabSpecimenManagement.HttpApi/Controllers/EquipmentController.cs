@@ -87,4 +87,10 @@ public class EquipmentController : LabSpecimenManagementController
     {
         return _appService.SaveCostConfigAsync(id, input);
     }
+
+    [HttpGet("{id}/test-log")]
+    public virtual Task<PagedResultDto<EquipmentTestLogItemDto>> GetTestLogAsync(Guid id, [FromQuery] GetEquipmentTestLogInput input)
+    {
+        return _appService.GetTestLogAsync(id, input);
+    }
 }

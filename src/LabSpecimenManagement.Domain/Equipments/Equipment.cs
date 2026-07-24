@@ -34,6 +34,7 @@ public class Equipment : FullAuditedAggregateRoot<Guid>
     public decimal? MaintenanceCostRatio { get; set; }
     public decimal? CalibrationCostPerYear { get; set; }
     public DateTime? ImportDate { get; set; }
+    public Guid? ProductId { get; set; }
 
     protected Equipment() { }
 

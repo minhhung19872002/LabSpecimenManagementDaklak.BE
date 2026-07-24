@@ -18,4 +18,5 @@ public interface IEquipmentAppService : IApplicationService
     Task<List<EquipmentCostConfigDto>> GetCostConfigListAsync(Guid equipmentId);
     Task<EquipmentCostConfigDto?> GetActiveCostConfigAsync(Guid equipmentId);
     Task<EquipmentCostConfigDto> SaveCostConfigAsync(Guid equipmentId, CreateEquipmentCostConfigDto input);
+    Task<PagedResultDto<EquipmentTestLogItemDto>> GetTestLogAsync(Guid id, GetEquipmentTestLogInput input);
 }

@@ -1725,6 +1725,7 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.SupplierId);
             b.HasIndex(x => x.GoodsReceiptId);
             b.HasIndex(x => x.CreationTime);
+            b.HasIndex(x => x.ProductId);
         });
 
         builder.Entity<EquipmentAttachment>(b =>

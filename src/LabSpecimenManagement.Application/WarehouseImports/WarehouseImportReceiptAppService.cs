@@ -310,6 +310,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 Location = item.Location,
                 PowerConsumption = product?.PowerConsumption,
                 ImportDate = receipt.ActualImportDate,
+                ProductId = item.ProductId,
             };
             await _equipmentRepository.InsertAsync(equipment, autoSave: true);
         }

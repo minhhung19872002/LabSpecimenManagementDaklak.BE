@@ -65,6 +65,7 @@ public class EquipmentDto : EntityDto<Guid>
     public decimal? MaintenanceCostRatio { get; set; }
     public decimal? CalibrationCostPerYear { get; set; }
     public DateTime? ImportDate { get; set; }
+    public Guid? ProductId { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
     public List<EquipmentAttachmentDto> Attachments { get; set; } = new();
@@ -106,6 +107,8 @@ public class CreateUpdateEquipmentDto
     public int? AverageSamplesPerYear { get; set; }
     public decimal? MaintenanceCostRatio { get; set; }
     public decimal? CalibrationCostPerYear { get; set; }
+
+    public Guid? ProductId { get; set; }
 
     public List<CreateEquipmentAttachmentDto>? Attachments { get; set; }
 }
@@ -149,4 +152,24 @@ public class CreateEquipmentAttachmentDto
 
     public long FileSize { get; set; }
     public string? FileType { get; set; }
+}
+
+public class GetEquipmentTestLogInput
+{
+    public DateTime? DateFrom { get; set; }
+    public DateTime? DateTo { get; set; }
+    public int SkipCount { get; set; } = 0;
+    public int MaxResultCount { get; set; } = 20;
+}
+
+public class EquipmentTestLogItemDto
+{
+    public string SampleCode { get; set; } = string.Empty;
+    public string SampleName { get; set; } = string.Empty;
+    public string IndicatorName { get; set; } = string.Empty;
+    public string TestMethodName { get; set; } = string.Empty;
+    public string? TechnicianName { get; set; }
+    public string? Result { get; set; }
+    public int ApprovalStatus { get; set; }
+    public DateTime? TestTime { get; set; }
 }

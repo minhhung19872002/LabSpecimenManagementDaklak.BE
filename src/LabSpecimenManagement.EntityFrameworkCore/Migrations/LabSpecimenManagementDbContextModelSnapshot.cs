@@ -334,6 +334,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("SerialNumber")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -369,6 +372,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("CreationTime");
 
                     b.HasIndex("GoodsReceiptId");
+
+                    b.HasIndex("ProductId");
 
                     b.HasIndex("SerialNumber")
                         .IsUnique()
@@ -3310,6 +3315,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(256)");
 
                     b.Property<Guid?>("PreparedByUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("PreparedSolutionReceiptId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime?>("ProcessedAt")
@@ -6758,11 +6766,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnName("ExtraProperties");
 
                     b.Property<string>("GoodsReceiptCode")
-                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("character varying(50)");
 
-                    b.Property<Guid>("GoodsReceiptId")
+                    b.Property<Guid?>("GoodsReceiptId")
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsDeleted")
@@ -6782,6 +6789,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
+
+                    b.Property<int>("ReceiptType")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
@@ -6854,7 +6866,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("integer")
                         .HasDefaultValue(0);
 
-                    b.Property<Guid>("GoodsReceiptItemId")
+                    b.Property<Guid?>("GoodsReceiptItemId")
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsEquipment")

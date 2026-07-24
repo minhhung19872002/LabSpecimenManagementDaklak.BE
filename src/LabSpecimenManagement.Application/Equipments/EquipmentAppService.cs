@@ -4,8 +4,11 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -23,6 +26,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     private readonly IRepository<EquipmentAttachment, Guid> _attachmentRepository;
     private readonly IRepository<EquipmentCostConfig, Guid> _costConfigRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<TestBatchConsumption, Guid> _testBatchConsumptionRepository;
+    private readonly IRepository<TestBatch, Guid> _testBatchRepository;
+    private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IRepository<LaboratoryTaskIndicator, Guid> _ltiRepository;
+    private readonly IRepository<TestRequestSampleIndicator, Guid> _trsiRepository;
+    private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -32,6 +43,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         IRepository<EquipmentAttachment, Guid> attachmentRepository,
         IRepository<EquipmentCostConfig, Guid> costConfigRepository,
         IRepository<Unit, Guid> unitRepository,
+        IRepository<TestBatchConsumption, Guid> testBatchConsumptionRepository,
+        IRepository<TestBatch, Guid> testBatchRepository,
+        IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IRepository<LaboratoryTaskIndicator, Guid> ltiRepository,
+        IRepository<TestRequestSampleIndicator, Guid> trsiRepository,
+        IRepository<TestRequestSample, Guid> sampleRepository,
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider)
@@ -40,6 +59,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         _attachmentRepository = attachmentRepository;
         _costConfigRepository = costConfigRepository;
         _unitRepository = unitRepository;
+        _testBatchConsumptionRepository = testBatchConsumptionRepository;
+        _testBatchRepository = testBatchRepository;
+        _testBatchItemRepository = testBatchItemRepository;
+        _ltiRepository = ltiRepository;
+        _trsiRepository = trsiRepository;
+        _sampleRepository = sampleRepository;
+        _indicatorRepository = indicatorRepository;
+        _testMethodRepository = testMethodRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -160,6 +187,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             AverageSamplesPerYear = input.AverageSamplesPerYear,
             MaintenanceCostRatio = input.MaintenanceCostRatio,
             CalibrationCostPerYear = input.CalibrationCostPerYear,
+            ProductId = input.ProductId,
         };
 
         if (input.UnitId.HasValue)
@@ -211,6 +239,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         equipment.AverageSamplesPerYear = input.AverageSamplesPerYear;
         equipment.MaintenanceCostRatio = input.MaintenanceCostRatio;
         equipment.CalibrationCostPerYear = input.CalibrationCostPerYear;
+        equipment.ProductId = input.ProductId;
 
         if (input.UnitId.HasValue)
         {
@@ -282,6 +311,92 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         if (attachment.EquipmentId != equipmentId)
             throw new UserFriendlyException("Tài liệu không thuộc thiết bị này.");
         await _attachmentRepository.DeleteAsync(attachmentId);
+    }
+
+    public async Task<PagedResultDto<EquipmentTestLogItemDto>> GetTestLogAsync(Guid id, GetEquipmentTestLogInput input)
+    {
+        var equipment = await _repository.GetAsync(id);
+
+        var consumptionQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var batchQuery = await _testBatchRepository.GetQueryableAsync();
+        var itemQuery = await _testBatchItemRepository.GetQueryableAsync();
+        var ltiQuery = await _ltiRepository.GetQueryableAsync();
+        var trsiQuery = await _trsiRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+
+        var batchIds = consumptionQuery
+            .Where(c => c.EquipmentId == id
+                || (equipment.ProductId.HasValue && c.ProductId == equipment.ProductId.Value))
+            .Select(c => c.TestBatchId)
+            .Distinct();
+
+        var baseQuery =
+            from batch in batchQuery
+            where batchIds.Contains(batch.Id)
+               && (!input.DateFrom.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate >= input.DateFrom))
+               && (!input.DateTo.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate <= input.DateTo.Value.AddDays(1)))
+            join item in itemQuery on batch.Id equals item.TestBatchId
+            where item.IsSubmitted
+            join lti in ltiQuery on item.LaboratoryTaskIndicatorId equals lti.Id
+            join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+            join sample in sampleQuery on trsi.TestRequestSampleId equals sample.Id
+            join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
+            join method in methodQuery on lti.MethodId equals method.Id into methods
+            from method in methods.DefaultIfEmpty()
+            select new { batch, item, lti, trsi, sample, ind, method };
+
+        var totalCount = baseQuery.Count();
+
+        var rawResults = baseQuery
+            .OrderByDescending(x => x.batch.ConsumptionConfirmedDate)
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
+            .Select(x => new TestLogRawItem
+            {
+                SampleCode = x.item.SampleCode ?? x.sample.SampleCode,
+                SampleName = x.sample.SampleName,
+                IndicatorName = x.ind.Name,
+                TestMethodName = x.method != null ? x.method.Name : (x.lti.SubContractMethodName ?? ""),
+                TechnicianId = x.lti.TechnicianId,
+                Result = x.item.Result ?? x.lti.Result,
+                ApprovalStatus = (int)x.lti.ApprovalStatus,
+                TestTime = x.batch.ConsumptionConfirmedDate,
+            })
+            .ToList();
+
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            rawResults,
+            r => r.TechnicianId,
+            (r, name) => r.TechnicianName = name);
+
+        var items = rawResults.Select(r => new EquipmentTestLogItemDto
+        {
+            SampleCode = r.SampleCode ?? "",
+            SampleName = r.SampleName,
+            IndicatorName = r.IndicatorName,
+            TestMethodName = r.TestMethodName,
+            TechnicianName = r.TechnicianName,
+            Result = r.Result,
+            ApprovalStatus = r.ApprovalStatus,
+            TestTime = r.TestTime,
+        }).ToList();
+
+        return new PagedResultDto<EquipmentTestLogItemDto>(totalCount, items);
+    }
+
+    private class TestLogRawItem
+    {
+        public string? SampleCode { get; set; }
+        public string SampleName { get; set; } = "";
+        public string IndicatorName { get; set; } = "";
+        public string TestMethodName { get; set; } = "";
+        public Guid? TechnicianId { get; set; }
+        public string? TechnicianName { get; set; }
+        public string? Result { get; set; }
+        public int ApprovalStatus { get; set; }
+        public DateTime? TestTime { get; set; }
     }
 
     #region Private Methods
@@ -370,6 +485,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             MaintenanceCostRatio = equipment.MaintenanceCostRatio,
             CalibrationCostPerYear = equipment.CalibrationCostPerYear,
             ImportDate = equipment.ImportDate,
+            ProductId = equipment.ProductId,
             CreationTime = equipment.CreationTime,
             Attachments = attachments.Select(a => new EquipmentAttachmentDto
             {
