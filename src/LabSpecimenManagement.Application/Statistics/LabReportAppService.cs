@@ -11,8 +11,10 @@ using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.Extensions.Hosting;
 using MiniExcelLibs;
+using Volo.Abp;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Content;
+using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Identity;
 
@@ -33,6 +35,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityManagementIndicatorRepository;
     private readonly IRepository<IdentityUser, Guid> _userRepository;
     private readonly IHostEnvironment _hostEnvironment;
+    private readonly IDataFilter _dataFilter;
 
     public LabReportAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -47,7 +50,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<QualityManagementIndicator, Guid> qualityManagementIndicatorRepository,
         IRepository<IdentityUser, Guid> userRepository,
-        IHostEnvironment hostEnvironment)
+        IHostEnvironment hostEnvironment,
+        IDataFilter dataFilter)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -62,6 +66,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         _qualityManagementIndicatorRepository = qualityManagementIndicatorRepository;
         _userRepository = userRepository;
         _hostEnvironment = hostEnvironment;
+        _dataFilter = dataFilter;
     }
 
     public async Task<LabReportDataDto> GetLabReportDataAsync(Guid labId, DateTime fromDate, DateTime toDate)
@@ -625,7 +630,11 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var siQuery   = await _sampleIndicatorRepository.GetQueryableAsync();
         var sampleQ   = await _sampleRepository.GetQueryableAsync();
         var trQuery   = await _testRequestRepository.GetQueryableAsync();
-        var miQuery   = await _indicatorRepository.GetQueryableAsync();
+        IQueryable<Indicator> miQuery;
+        using (_dataFilter.Disable<ISoftDelete>())
+        {
+            miQuery = await _indicatorRepository.GetQueryableAsync();
+        }
         var liQuery   = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
         var ltQuery   = await _laboratoryTaskRepository.GetQueryableAsync();
         var qiQuery   = await _qualityManagementIndicatorRepository.GetQueryableAsync();
