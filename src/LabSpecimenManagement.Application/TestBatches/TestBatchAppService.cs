@@ -32,6 +32,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
+    private readonly IRepository<TestRequest, Guid> _testRequestRepository;
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
@@ -58,6 +59,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
+        IRepository<TestRequest, Guid> testRequestRepository,
         IRepository<TestRequestSample, Guid> sampleRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
@@ -83,6 +85,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _sampleIndicatorRepository = sampleIndicatorRepository;
+        _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
         _indicatorRepository = indicatorRepository;
         _testMethodRepository = testMethodRepository;
@@ -971,6 +974,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var tasks = await _laboratoryTaskRepository.GetListAsync(t => taskIds.Contains(t.Id));
         var taskMap = tasks.ToDictionary(t => t.Id);
 
+        var testRequestIds = tasks.Select(t => t.TestRequestId).Distinct().ToList();
+        var testRequests = await _testRequestRepository.GetListAsync(r => testRequestIds.Contains(r.Id));
+        var testRequestMap = testRequests.ToDictionary(r => r.Id);
+
         var sampleIndicatorIds = taskIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(si => sampleIndicatorIds.Contains(si.Id));
         var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id);
@@ -997,6 +1004,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var dtos = taskIndicators.Select(ti =>
         {
             var task = taskMap.GetValueOrDefault(ti.LaboratoryTaskId);
+            var testRequest = task != null ? testRequestMap.GetValueOrDefault(task.TestRequestId) : null;
             var sampleIndicator = sampleIndicatorMap.GetValueOrDefault(ti.TestRequestSampleIndicatorId);
             var sample = sampleIndicator != null ? sampleMap.GetValueOrDefault(sampleIndicator.TestRequestSampleId) : null;
 
@@ -1018,6 +1026,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     ? specimenTypeNameMap.GetValueOrDefault(sampleIndicator.SpecimenTypeId!.Value) : null,
                 RequestCompletionDate = task?.RequestCompletionDate,
                 SampleSentDate = task?.SampleSentDate,
+                SampleReceivedDate = testRequest?.CreationTime,
                 IsAlreadyInBatch = existingSet.Contains(ti.Id),
                 TestingStatus = MapTestingStatus(ti.ApprovalStatus, ti.TestDate, ti.Result),
             };
