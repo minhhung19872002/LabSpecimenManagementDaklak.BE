@@ -6514,6 +6514,45 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTestResults", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.Testing.IndicatorConsumption", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("ActualQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("EquipmentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsDeducted")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("LaboratoryTaskIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("RecommendedQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid?>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EquipmentId");
+
+                    b.HasIndex("LaboratoryTaskIndicatorId");
+
+                    b.HasIndex("ProductId");
+
+                    b.ToTable("AppIndicatorConsumptions", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.Testing.TestBatch", b =>
                 {
                     b.Property<Guid>("Id")

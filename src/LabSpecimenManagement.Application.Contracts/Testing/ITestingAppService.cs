@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.TestBatches;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -134,4 +135,29 @@ public interface ITestingAppService : IApplicationService
     /// Lấy thống kê số lượng công việc xét nghiệm theo trạng thái
     /// </summary>
     Task<TestingStatusStatisticsDto> GetStatusStatisticsAsync(TestingTabType tab);
+
+    /// <summary>
+    /// Xem trước nguyên liệu tiêu hao cho 1 chỉ tiêu (từ template hoặc draft đã lưu)
+    /// </summary>
+    Task<ConsumptionPreviewDto> GetIndicatorConsumptionPreviewAsync(Guid laboratoryTaskId, Guid indicatorId);
+
+    /// <summary>
+    /// Gửi kết quả 1 chỉ tiêu kèm xác nhận tiêu hao nguyên liệu
+    /// </summary>
+    Task<TestingDetailDto> SubmitIndicatorWithConsumptionAsync(Guid laboratoryTaskId, SubmitIndicatorWithConsumptionDto input);
+
+    /// <summary>
+    /// Lưu nháp tiêu hao nguyên liệu cho 1 chỉ tiêu
+    /// </summary>
+    Task<TestingDetailDto> SaveIndicatorConsumptionDraftAsync(Guid laboratoryTaskId, SaveIndicatorConsumptionDraftDto input);
+
+    /// <summary>
+    /// Xem trước nguyên liệu tiêu hao cho nhiều chỉ tiêu (tổng hợp, dùng cho bulk submit)
+    /// </summary>
+    Task<ConsumptionPreviewDto> GetBulkIndicatorConsumptionPreviewAsync(Guid laboratoryTaskId, List<Guid> indicatorIds);
+
+    /// <summary>
+    /// Gửi kết quả nhiều chỉ tiêu cùng lúc kèm xác nhận tiêu hao nguyên liệu (bulk direct submit)
+    /// </summary>
+    Task<TestingDetailDto> SubmitBulkIndicatorsWithConsumptionAsync(Guid laboratoryTaskId, BulkSubmitIndicatorWithConsumptionDto input);
 }

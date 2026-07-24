@@ -641,9 +641,12 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var lines = new List<ConsumptionPreviewLineDto>();
 
-        if (hasDeducted)
+        // Always show fresh lines for the new round: draft → template
+        // Deducted lines from previous rounds are NOT shown as pre-fill (accumulate model)
+        var draftConsumptions = existingConsumptions.Where(c => !c.IsDeducted).ToList();
+        if (draftConsumptions.Any())
         {
-            foreach (var c in existingConsumptions)
+            foreach (var c in draftConsumptions)
             {
                 lines.Add(new ConsumptionPreviewLineDto
                 {
@@ -653,56 +656,36 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     UnitId = c.UnitId,
                     RecommendedQuantity = c.RecommendedQuantity,
                     ActualQuantity = c.ActualQuantity,
-                    IsDeducted = c.IsDeducted,
+                    IsDeducted = false,
                 });
             }
         }
         else
         {
-            var draftConsumptions = existingConsumptions.Where(c => !c.IsDeducted).ToList();
-            if (draftConsumptions.Any())
+            var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+                tmiQuery.Where(x =>
+                    x.TestMethodId == batch.MethodId &&
+                    x.IndicatorId == batch.IndicatorId &&
+                    x.SpecimenTypeId == batch.SpecimenTypeId));
+
+            if (tmi != null)
             {
-                foreach (var c in draftConsumptions)
+                var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
+                var templates = await AsyncExecuter.ToListAsync(
+                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+
+                foreach (var template in templates)
                 {
                     lines.Add(new ConsumptionPreviewLineDto
                     {
-                        ConsumptionId = c.Id,
-                        ProductId = c.ProductId,
-                        EquipmentId = c.EquipmentId,
-                        UnitId = c.UnitId,
-                        RecommendedQuantity = c.RecommendedQuantity,
-                        ActualQuantity = c.ActualQuantity,
+                        ProductId = template.ProductId,
+                        EquipmentId = template.EquipmentId,
+                        UnitId = template.UnitId,
+                        RecommendedQuantity = template.Quantity,
+                        ActualQuantity = template.Quantity,
                         IsDeducted = false,
                     });
-                }
-            }
-            else
-            {
-                var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-                var tmi = await AsyncExecuter.FirstOrDefaultAsync(
-                    tmiQuery.Where(x =>
-                        x.TestMethodId == batch.MethodId &&
-                        x.IndicatorId == batch.IndicatorId &&
-                        x.SpecimenTypeId == batch.SpecimenTypeId));
-
-                if (tmi != null)
-                {
-                    var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-                    var templates = await AsyncExecuter.ToListAsync(
-                        consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-
-                    foreach (var template in templates)
-                    {
-                        lines.Add(new ConsumptionPreviewLineDto
-                        {
-                            ProductId = template.ProductId,
-                            EquipmentId = template.EquipmentId,
-                            UnitId = template.UnitId,
-                            RecommendedQuantity = template.Quantity,
-                            ActualQuantity = template.Quantity,
-                            IsDeducted = false,
-                        });
-                    }
                 }
             }
         }
@@ -811,9 +794,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         if (batch.Status == TestBatchStatus.Cancelled)
             throw new UserFriendlyException("Không thể lưu nháp tiêu hao cho mẻ đã hủy");
 
-        if (batch.ConsumptionConfirmed)
-            throw new UserFriendlyException("Tiêu hao đã được xác nhận, không thể cập nhật nháp");
-
         var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
         var nonDeducted = existingConsumptions.Where(c => !c.IsDeducted).ToList();
         if (nonDeducted.Any())
@@ -908,8 +888,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             batch.Status = TestBatchStatus.Running;
         }
 
-        // Step 2: Handle consumption (only on first submit)
-        if (!batch.ConsumptionConfirmed && input.ConsumptionLines != null && input.ConsumptionLines.Any())
+        // Step 2: Handle consumption — each submit round creates a new set of deducted consumptions (accumulate)
+        if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
             var nonDeducted = existingConsumptions.Where(c => !c.IsDeducted).ToList();
@@ -934,17 +914,21 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
             await _testBatchRepository.UpdateAsync(batch, autoSave: true);
 
-            var allConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id && !x.IsDeducted);
-            await DeductStockAsync(allConsumptions);
+            var newConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id && !x.IsDeducted);
+            await DeductStockAsync(newConsumptions);
 
-            foreach (var consumption in allConsumptions)
+            foreach (var consumption in newConsumptions)
             {
                 consumption.IsDeducted = true;
                 await _testBatchConsumptionRepository.UpdateAsync(consumption, autoSave: false);
             }
 
-            batch.ConsumptionConfirmed = true;
-            batch.ConsumptionConfirmedDate = Clock.Now;
+            // Mark confirmed on first round (informational only, not used as a guard)
+            if (!batch.ConsumptionConfirmed)
+            {
+                batch.ConsumptionConfirmed = true;
+                batch.ConsumptionConfirmedDate = Clock.Now;
+            }
         }
 
         await _testBatchRepository.UpdateAsync(batch, autoSave: true);

@@ -159,6 +159,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<TestBatch> TestBatches { get; set; }
     public DbSet<TestBatchItem> TestBatchItems { get; set; }
     public DbSet<TestBatchConsumption> TestBatchConsumptions { get; set; }
+    public DbSet<IndicatorConsumption> IndicatorConsumptions { get; set; }
 
     // Approval Process Entities
     public DbSet<ApprovalProcess> ApprovalProcesses { get; set; }
@@ -1811,6 +1812,19 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
 
             b.HasIndex(x => x.TestBatchId);
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.EquipmentId);
+        });
+
+        builder.Entity<IndicatorConsumption>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorConsumptions", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+
+            b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
+
+            b.HasIndex(x => x.LaboratoryTaskIndicatorId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
         });

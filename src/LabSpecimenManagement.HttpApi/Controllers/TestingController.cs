@@ -1,6 +1,7 @@
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.QualityManagement;
+using LabSpecimenManagement.TestBatches;
 using LabSpecimenManagement.Testing;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Hosting;
@@ -438,6 +439,62 @@ public class TestingController : LabSpecimenManagementController
     public virtual async Task<List<IndicatorImageDto>> GetIndicatorImagesAsync(Guid indicatorId)
     {
         return await _testingAppService.GetIndicatorImagesAsync(indicatorId);
+    }
+
+    #endregion
+
+    #region Indicator Consumption
+
+    /// <summary>
+    /// Xem trước nguyên liệu tiêu hao cho 1 chỉ tiêu
+    /// </summary>
+    [HttpGet("{id}/indicators/{indicatorId}/consumption-preview")]
+    public virtual async Task<ConsumptionPreviewDto> GetIndicatorConsumptionPreviewAsync(Guid id, Guid indicatorId)
+    {
+        return await _testingAppService.GetIndicatorConsumptionPreviewAsync(id, indicatorId);
+    }
+
+    /// <summary>
+    /// Gửi kết quả 1 chỉ tiêu kèm xác nhận tiêu hao nguyên liệu
+    /// </summary>
+    [HttpPost("{id}/submit-indicator-with-consumption")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<TestingDetailDto> SubmitIndicatorWithConsumptionAsync(Guid id, [FromBody] SubmitIndicatorWithConsumptionDto input)
+    {
+        return await _testingAppService.SubmitIndicatorWithConsumptionAsync(id, input);
+    }
+
+    /// <summary>
+    /// Lưu nháp tiêu hao nguyên liệu cho 1 chỉ tiêu
+    /// </summary>
+    [HttpPost("{id}/save-indicator-consumption-draft")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<TestingDetailDto> SaveIndicatorConsumptionDraftAsync(Guid id, [FromBody] SaveIndicatorConsumptionDraftDto input)
+    {
+        return await _testingAppService.SaveIndicatorConsumptionDraftAsync(id, input);
+    }
+
+    /// <summary>
+    /// Xem trước nguyên liệu tiêu hao cho nhiều chỉ tiêu (tổng hợp)
+    /// </summary>
+    [HttpGet("{id}/bulk-indicator-consumption-preview")]
+    public virtual async Task<ConsumptionPreviewDto> GetBulkIndicatorConsumptionPreviewAsync(
+        Guid id,
+        [FromQuery] List<Guid> indicatorIds)
+    {
+        return await _testingAppService.GetBulkIndicatorConsumptionPreviewAsync(id, indicatorIds);
+    }
+
+    /// <summary>
+    /// Gửi kết quả nhiều chỉ tiêu cùng lúc kèm xác nhận tiêu hao nguyên liệu
+    /// </summary>
+    [HttpPost("{id}/submit-bulk-indicators-with-consumption")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<TestingDetailDto> SubmitBulkIndicatorsWithConsumptionAsync(
+        Guid id,
+        [FromBody] BulkSubmitIndicatorWithConsumptionDto input)
+    {
+        return await _testingAppService.SubmitBulkIndicatorsWithConsumptionAsync(id, input);
     }
 
     #endregion

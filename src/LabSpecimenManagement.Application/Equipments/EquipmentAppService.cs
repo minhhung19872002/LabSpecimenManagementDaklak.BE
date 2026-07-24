@@ -27,6 +27,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     private readonly IRepository<EquipmentCostConfig, Guid> _costConfigRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<TestBatchConsumption, Guid> _testBatchConsumptionRepository;
+    private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
     private readonly IRepository<TestBatch, Guid> _testBatchRepository;
     private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _ltiRepository;
@@ -44,6 +45,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         IRepository<EquipmentCostConfig, Guid> costConfigRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<TestBatchConsumption, Guid> testBatchConsumptionRepository,
+        IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
         IRepository<TestBatch, Guid> testBatchRepository,
         IRepository<TestBatchItem, Guid> testBatchItemRepository,
         IRepository<LaboratoryTaskIndicator, Guid> ltiRepository,
@@ -60,6 +62,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         _costConfigRepository = costConfigRepository;
         _unitRepository = unitRepository;
         _testBatchConsumptionRepository = testBatchConsumptionRepository;
+        _indicatorConsumptionRepository = indicatorConsumptionRepository;
         _testBatchRepository = testBatchRepository;
         _testBatchItemRepository = testBatchItemRepository;
         _ltiRepository = ltiRepository;
@@ -317,7 +320,8 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
     {
         var equipment = await _repository.GetAsync(id);
 
-        var consumptionQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var testBatchConsumptionQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var indicatorConsumptionQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
         var batchQuery = await _testBatchRepository.GetQueryableAsync();
         var itemQuery = await _testBatchItemRepository.GetQueryableAsync();
         var ltiQuery = await _ltiRepository.GetQueryableAsync();
@@ -326,13 +330,14 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var methodQuery = await _testMethodRepository.GetQueryableAsync();
 
-        var batchIds = consumptionQuery
+        // Path 1: TestBatchConsumption → TestBatch → TestBatchItem (TestBatch flow)
+        var batchIds = testBatchConsumptionQuery
             .Where(c => c.EquipmentId == id
                 || (equipment.ProductId.HasValue && c.ProductId == equipment.ProductId.Value))
             .Select(c => c.TestBatchId)
             .Distinct();
 
-        var baseQuery =
+        var fromBatchPath = (
             from batch in batchQuery
             where batchIds.Contains(batch.Id)
                && (!input.DateFrom.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate >= input.DateFrom))
@@ -345,25 +350,62 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
             join method in methodQuery on lti.MethodId equals method.Id into methods
             from method in methods.DefaultIfEmpty()
-            select new { batch, item, lti, trsi, sample, ind, method };
+            select new TestLogRawItem
+            {
+                LtiId = lti.Id,
+                SampleCode = item.SampleCode ?? sample.SampleCode,
+                SampleName = sample.SampleName,
+                IndicatorName = ind.Name,
+                TestMethodName = method != null ? method.Name : (lti.SubContractMethodName ?? ""),
+                TechnicianId = lti.TechnicianId,
+                Result = item.Result ?? lti.Result,
+                ApprovalStatus = (int)lti.ApprovalStatus,
+                TestTime = batch.ConsumptionConfirmedDate,
+            }
+        ).ToList();
 
-        var totalCount = baseQuery.Count();
+        // Path 2: IndicatorConsumption → LaboratoryTaskIndicator (direct indicator submit flow)
+        var ltiIdsFromIC = indicatorConsumptionQuery
+            .Where(c => c.EquipmentId == id
+                || (equipment.ProductId.HasValue && c.ProductId == equipment.ProductId.Value))
+            .Select(c => c.LaboratoryTaskIndicatorId)
+            .Distinct();
 
-        var rawResults = baseQuery
-            .OrderByDescending(x => x.batch.ConsumptionConfirmedDate)
+        var fromIndicatorPath = (
+            from lti in ltiQuery
+            where ltiIdsFromIC.Contains(lti.Id)
+               && (!input.DateFrom.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate >= input.DateFrom))
+               && (!input.DateTo.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate <= input.DateTo.Value.AddDays(1)))
+            join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+            join sample in sampleQuery on trsi.TestRequestSampleId equals sample.Id
+            join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
+            join method in methodQuery on lti.MethodId equals method.Id into methods
+            from method in methods.DefaultIfEmpty()
+            select new TestLogRawItem
+            {
+                LtiId = lti.Id,
+                SampleCode = sample.SampleCode,
+                SampleName = sample.SampleName,
+                IndicatorName = ind.Name,
+                TestMethodName = method != null ? method.Name : (lti.SubContractMethodName ?? ""),
+                TechnicianId = lti.TechnicianId,
+                Result = lti.Result,
+                ApprovalStatus = (int)lti.ApprovalStatus,
+                TestTime = lti.SubmitDate,
+            }
+        ).ToList();
+
+        // Merge both paths, deduplicate by LtiId (batch path takes priority), sort descending
+        var seenLtiIds = new HashSet<Guid>(fromBatchPath.Select(x => x.LtiId));
+        var merged = fromBatchPath
+            .Concat(fromIndicatorPath.Where(x => seenLtiIds.Add(x.LtiId)))
+            .OrderByDescending(x => x.TestTime)
+            .ToList();
+
+        var totalCount = merged.Count;
+        var rawResults = merged
             .Skip(input.SkipCount)
             .Take(input.MaxResultCount)
-            .Select(x => new TestLogRawItem
-            {
-                SampleCode = x.item.SampleCode ?? x.sample.SampleCode,
-                SampleName = x.sample.SampleName,
-                IndicatorName = x.ind.Name,
-                TestMethodName = x.method != null ? x.method.Name : (x.lti.SubContractMethodName ?? ""),
-                TechnicianId = x.lti.TechnicianId,
-                Result = x.item.Result ?? x.lti.Result,
-                ApprovalStatus = (int)x.lti.ApprovalStatus,
-                TestTime = x.batch.ConsumptionConfirmedDate,
-            })
             .ToList();
 
         await _userNameProvider.EnrichWithUserNamesAsync(
@@ -388,6 +430,7 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
 
     private class TestLogRawItem
     {
+        public Guid LtiId { get; set; }
         public string? SampleCode { get; set; }
         public string SampleName { get; set; } = "";
         public string IndicatorName { get; set; } = "";
