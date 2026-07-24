@@ -59,4 +59,14 @@ public class LabReportController : LabSpecimenManagementController
         var result = await _labReportAppService.ExportLabReportDetailAsync(labId, fromDate, toDate);
         return File(result.GetStream(), result.ContentType, result.FileName);
     }
+
+    [HttpGet("export-so-nhan-mau")]
+    [Authorize(LabSpecimenManagementPermissions.LabReport.Export)]
+    public virtual async Task<IActionResult> ExportSoNhanMauAsync(
+        [FromQuery] DateTime fromDate,
+        [FromQuery] DateTime toDate)
+    {
+        var result = await _labReportAppService.ExportSoNhanMauAsync(fromDate, toDate);
+        return File(result.GetStream(), result.ContentType, result.FileName);
+    }
 }
