@@ -3,8 +3,10 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
+using ClosedXML.Excel;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
 using Volo.Abp.Application.Services;
@@ -21,6 +23,11 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
     private readonly IRepository<LaboratoryTaskIndicator, Guid> _laboratoryTaskIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<Standard, Guid> _standardRepository;
+    private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
+    private readonly IRepository<QualityManagementIndicator, Guid> _qualityManagementIndicatorRepository;
 
     public LabReportAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -28,7 +35,12 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         IRepository<TestRequestSampleIndicator, Guid> sampleIndicatorRepository,
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IRepository<LaboratoryTaskIndicator, Guid> laboratoryTaskIndicatorRepository,
-        IRepository<Indicator, Guid> indicatorRepository)
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<Standard, Guid> standardRepository,
+        IRepository<StandardIndicator, Guid> standardIndicatorRepository,
+        IRepository<QualityManagementIndicator, Guid> qualityManagementIndicatorRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -36,6 +48,11 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
         _indicatorRepository = indicatorRepository;
+        _specimenTypeRepository = specimenTypeRepository;
+        _testMethodRepository = testMethodRepository;
+        _standardRepository = standardRepository;
+        _standardIndicatorRepository = standardIndicatorRepository;
+        _qualityManagementIndicatorRepository = qualityManagementIndicatorRepository;
     }
 
     public async Task<LabReportDataDto> GetLabReportDataAsync(Guid labId, DateTime fromDate, DateTime toDate)
@@ -358,4 +375,235 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var fileName = $"BaoCaoPhongLab_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx";
         return new RemoteStreamContent(memoryStream, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
     }
+
+    public async Task<IRemoteStreamContent> ExportLabReportDetailAsync(Guid labId, DateTime fromDate, DateTime toDate)
+    {
+        var toDateExclusive = toDate.Date.AddDays(1);
+
+        var trQuery = await _testRequestRepository.GetQueryableAsync();
+        var trsQuery = await _sampleRepository.GetQueryableAsync();
+        var ltiQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
+        var ltQuery = await _laboratoryTaskRepository.GetQueryableAsync();
+        var trsiQuery = await _sampleIndicatorRepository.GetQueryableAsync();
+        var indQuery = await _indicatorRepository.GetQueryableAsync();
+        var stQuery = await _specimenTypeRepository.GetQueryableAsync();
+        var tmQuery = await _testMethodRepository.GetQueryableAsync();
+        var stdQuery = await _standardRepository.GetQueryableAsync();
+        var siQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var qmiQuery = await _qualityManagementIndicatorRepository.GetQueryableAsync();
+
+        // Main flat query — tất cả LTI của lab trong kỳ (không lọc ApprovalStatus)
+        var rawQuery = from lti in ltiQuery
+                       join lt in ltQuery on lti.LaboratoryTaskId equals lt.Id
+                       join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+                       join trs in trsQuery on trsi.TestRequestSampleId equals trs.Id
+                       join tr in trQuery on trs.TestRequestId equals tr.Id
+                       join ind in indQuery on trsi.IndicatorId equals ind.Id
+                       join tm in tmQuery on trsi.TestMethodId equals (Guid?)tm.Id into tmGroup
+                       from tm in tmGroup.DefaultIfEmpty()
+                       join st in stQuery on trsi.SpecimenTypeId equals (Guid?)st.Id into stGroup
+                       from st in stGroup.DefaultIfEmpty()
+                       where lt.LaboratoryId == labId
+                           && tr.CreationTime >= fromDate && tr.CreationTime < toDateExclusive
+                       select new
+                       {
+                           LtiId = lti.Id,
+                           LtiResult = lti.Result,
+                           TrsId = trs.Id,
+                           TrsSampleName = trs.SampleName,
+                           TrsSampleCode = trs.SampleCode,
+                           SpecimenTypeId = trsi.SpecimenTypeId,
+                           SpecimenTypeName = st != null ? st.Name : "",
+                           IndicatorId = trsi.IndicatorId,
+                           IndicatorName = ind.Name,
+                           TestMethodId = trsi.TestMethodId,
+                           TestMethodName = tm != null ? tm.Name : "",
+                       };
+
+        var rawData = await AsyncExecuter.ToListAsync(rawQuery);
+
+        var ltiIds = rawData.Select(x => x.LtiId).Distinct().ToList();
+        var indicatorIds = rawData.Select(x => x.IndicatorId).Distinct().ToList();
+
+        // QualityManagementIndicator → Standard (cho Sheet 2: So với tiêu chuẩn + Giới hạn phát hiện)
+        var qmiData = await AsyncExecuter.ToListAsync(
+            from qmi in qmiQuery
+            join std in stdQuery on qmi.StandardId equals std.Id into stdGroup
+            from std in stdGroup.DefaultIfEmpty()
+            where ltiIds.Contains(qmi.LaboratoryTaskIndicatorId)
+            select new
+            {
+                qmi.LaboratoryTaskIndicatorId,
+                qmi.StandardId,
+                StandardName = std != null ? std.Name : (string?)null,
+            }
+        );
+
+        var qmiByLtiId = qmiData
+            .GroupBy(x => x.LaboratoryTaskIndicatorId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // StandardIndicator — dùng cho Giới hạn phát hiện (không dùng cho Nền mẫu)
+        var siData = indicatorIds.Any()
+            ? await AsyncExecuter.ToListAsync(
+                siQuery.Where(si => indicatorIds.Contains(si.IndicatorId) && si.IsActive))
+            : new List<StandardIndicator>();
+
+        var siByStdAndInd = siData
+            .GroupBy(si => (si.StandardId, si.IndicatorId))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        // === Sheet 1: group by (SpecimenType + Indicator + Method) ===
+        var sheet1Rows = rawData
+            .GroupBy(x => (x.SpecimenTypeId, x.SpecimenTypeName, x.IndicatorId, x.IndicatorName, x.TestMethodId, x.TestMethodName))
+            .Select(g =>
+            {
+                // Tìm StandardIndicator để lấy Giới hạn phát hiện
+                // Fallback: nếu row không có SpecimenType thì bỏ qua filter SpecimenType của SI
+                var matchingSi = siData.Where(si =>
+                    si.IndicatorId == g.Key.IndicatorId
+                    && (!g.Key.TestMethodId.HasValue || si.TestMethodId == g.Key.TestMethodId.Value)
+                    && (!si.SpecimenTypeId.HasValue || si.SpecimenTypeId.Value == g.Key.SpecimenTypeId)
+                ).ToList();
+
+                var limits = matchingSi
+                    .Select(si => BuildCompareWithStandard(
+                        si.ComparisonOperator, si.AllowedLimit,
+                        si.LowerOperator, si.LowerLimit,
+                        si.UpperOperator, si.UpperLimit))
+                    .Where(s => !string.IsNullOrWhiteSpace(s))
+                    .Distinct()
+                    .ToList();
+
+                return new
+                {
+                    NenMau = g.Key.SpecimenTypeName,
+                    TenChiTieu = g.Key.IndicatorName,
+                    PhuongPhapThu = g.Key.TestMethodName,
+                    CongSuat = g.Select(x => x.TrsId).Distinct().Count(),
+                    GioiHanPhatHien = string.Join(", ", limits),
+                };
+            })
+            .OrderBy(x => x.NenMau).ThenBy(x => x.TenChiTieu)
+            .ToList();
+
+        // === Sheet 2: flat list — 1 dòng / LaboratoryTaskIndicator ===
+        var sheet2Rows = rawData.Select(x =>
+        {
+            var qmi = qmiByLtiId.TryGetValue(x.LtiId, out var q) ? q : null;
+
+            var limitStr = "";
+            if (qmi?.StandardId.HasValue == true)
+            {
+                var key = (qmi.StandardId!.Value, x.IndicatorId);
+                if (siByStdAndInd.TryGetValue(key, out var si))
+                {
+                    limitStr = BuildCompareWithStandard(
+                        si.ComparisonOperator, si.AllowedLimit,
+                        si.LowerOperator, si.LowerLimit,
+                        si.UpperOperator, si.UpperLimit);
+                }
+            }
+
+            return new
+            {
+                TenMau = x.TrsSampleName,
+                MaMau = x.TrsSampleCode,
+                NenMau = x.SpecimenTypeName,
+                TenChiTieu = x.IndicatorName,
+                PhuongPhapThu = x.TestMethodName,
+                SoVoiTieuChuan = qmi?.StandardName ?? "",
+                GioiHanPhatHien = limitStr,
+                KetQua = x.LtiResult ?? "",
+            };
+        }).ToList();
+
+        // === Tạo file Excel với ClosedXML ===
+        using var workbook = new XLWorkbook();
+
+        var ws1 = workbook.Worksheets.Add("Sheet1");
+        var headers1 = new[]
+        {
+            "Nền mẫu (loại mẫu)", "Tên chỉ tiêu", "Phương pháp thử",
+            "Công suất kiểm nghiệm (tổng số mẫu/6 tháng)", "Giới hạn phát hiện (nếu có)", "Ghi chú"
+        };
+        WriteSheetHeaders(ws1, headers1);
+        for (int r = 0; r < sheet1Rows.Count; r++)
+        {
+            var row = sheet1Rows[r];
+            ws1.Cell(r + 2, 1).Value = row.NenMau;
+            ws1.Cell(r + 2, 2).Value = row.TenChiTieu;
+            ws1.Cell(r + 2, 3).Value = row.PhuongPhapThu;
+            ws1.Cell(r + 2, 4).Value = row.CongSuat;
+            ws1.Cell(r + 2, 5).Value = row.GioiHanPhatHien;
+            ws1.Cell(r + 2, 6).Value = "";
+        }
+        ws1.Columns().AdjustToContents();
+
+        var ws2 = workbook.Worksheets.Add("Sheet2");
+        var headers2 = new[]
+        {
+            "Tên mẫu", "Mã mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
+            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú"
+        };
+        WriteSheetHeaders(ws2, headers2);
+        for (int r = 0; r < sheet2Rows.Count; r++)
+        {
+            var row = sheet2Rows[r];
+            ws2.Cell(r + 2, 1).Value = row.TenMau;
+            ws2.Cell(r + 2, 2).Value = row.MaMau;
+            ws2.Cell(r + 2, 3).Value = row.NenMau;
+            ws2.Cell(r + 2, 4).Value = row.TenChiTieu;
+            ws2.Cell(r + 2, 5).Value = row.PhuongPhapThu;
+            ws2.Cell(r + 2, 6).Value = row.SoVoiTieuChuan;
+            ws2.Cell(r + 2, 7).Value = row.GioiHanPhatHien;
+            ws2.Cell(r + 2, 8).Value = row.KetQua;
+            ws2.Cell(r + 2, 9).Value = "";
+        }
+        ws2.Columns().AdjustToContents();
+
+        var memoryStream = new MemoryStream();
+        workbook.SaveAs(memoryStream);
+        memoryStream.Position = 0;
+
+        var fileName = $"BaoCaoPhongLab_ChiTiet_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx";
+        return new RemoteStreamContent(memoryStream, fileName, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private static void WriteSheetHeaders(IXLWorksheet ws, string[] headers)
+    {
+        for (int i = 0; i < headers.Length; i++)
+        {
+            var cell = ws.Cell(1, i + 1);
+            cell.Value = headers[i];
+            cell.Style.Font.Bold = true;
+            cell.Style.Font.FontColor = XLColor.Red;
+        }
+    }
+
+    private static string BuildCompareWithStandard(
+        string? comparisonOperator,
+        string? allowedLimit,
+        string? lowerOperator = null,
+        string? lowerLimit = null,
+        string? upperOperator = null,
+        string? upperLimit = null)
+    {
+        if (!string.IsNullOrWhiteSpace(lowerLimit) && !string.IsNullOrWhiteSpace(upperLimit))
+        {
+            var lower = NormalizeOperator(lowerOperator) ?? ">";
+            var upper = NormalizeOperator(upperOperator) ?? "<";
+            return $"{lower} {lowerLimit.Trim()} và {upper} {upperLimit.Trim()}";
+        }
+        if (string.IsNullOrWhiteSpace(allowedLimit)) return "";
+        if (string.IsNullOrWhiteSpace(comparisonOperator)) return allowedLimit.Trim();
+        return $"{NormalizeOperator(comparisonOperator) ?? comparisonOperator} {allowedLimit.Trim()}";
+    }
+
+    private static string? NormalizeOperator(string? op) => op?.Trim() switch
+    {
+        "<=" => "≤",
+        ">=" => "≥",
+        var x => x
+    };
 }
