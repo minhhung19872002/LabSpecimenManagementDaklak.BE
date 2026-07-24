@@ -2872,11 +2872,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 x.TestRequestStatus),
             QualityApprovalStatus = x.QualityApprovalStatus,
             IsReportPublished = false,
-            CanEdit = currentUserId.HasValue && (
-                isAdmin ||
-                x.TechnicianId == currentUserId ||
-                x.TechnicalManagerId == currentUserId ||
-                supporterTaskIds.Contains(x.LaboratoryTaskId))
+            CanEdit = currentUserId.HasValue && x.TechnicianId == currentUserId
         }).ToList();
 
         return new PagedResultDto<QualityManagement.SampleAssignmentLogDto>(totalContractCount, dtos);
