@@ -928,6 +928,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var taskIndicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
         var query = taskIndicatorQuery.Where(ti =>
             ti.ApprovalStatus != IndicatorApprovalStatus.Approved &&
+            ti.ApprovalStatus != IndicatorApprovalStatus.Rejected &&
+            ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
+            ti.ApprovalStatus != IndicatorApprovalStatus.TestingRejected &&
+            ti.ApprovalStatus != IndicatorApprovalStatus.CannotTest &&
             ti.TechnicianId.HasValue);
 
         if (input.MethodId.HasValue)
