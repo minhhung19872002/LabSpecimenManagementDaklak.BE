@@ -659,30 +659,50 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         }
         else
         {
-            var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
-                tmiQuery.Where(x =>
-                    x.TestMethodId == batch.MethodId &&
-                    x.IndicatorId == batch.IndicatorId &&
-                    x.SpecimenTypeId == batch.SpecimenTypeId));
-
-            if (tmi != null)
+            var draftConsumptions = existingConsumptions.Where(c => !c.IsDeducted).ToList();
+            if (draftConsumptions.Any())
             {
-                var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-                var templates = await AsyncExecuter.ToListAsync(
-                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-
-                foreach (var template in templates)
+                foreach (var c in draftConsumptions)
                 {
                     lines.Add(new ConsumptionPreviewLineDto
                     {
-                        ProductId = template.ProductId,
-                        EquipmentId = template.EquipmentId,
-                        UnitId = template.UnitId,
-                        RecommendedQuantity = template.Quantity,
-                        ActualQuantity = template.Quantity,
+                        ConsumptionId = c.Id,
+                        ProductId = c.ProductId,
+                        EquipmentId = c.EquipmentId,
+                        UnitId = c.UnitId,
+                        RecommendedQuantity = c.RecommendedQuantity,
+                        ActualQuantity = c.ActualQuantity,
                         IsDeducted = false,
                     });
+                }
+            }
+            else
+            {
+                var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+                var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+                    tmiQuery.Where(x =>
+                        x.TestMethodId == batch.MethodId &&
+                        x.IndicatorId == batch.IndicatorId &&
+                        x.SpecimenTypeId == batch.SpecimenTypeId));
+
+                if (tmi != null)
+                {
+                    var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
+                    var templates = await AsyncExecuter.ToListAsync(
+                        consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+
+                    foreach (var template in templates)
+                    {
+                        lines.Add(new ConsumptionPreviewLineDto
+                        {
+                            ProductId = template.ProductId,
+                            EquipmentId = template.EquipmentId,
+                            UnitId = template.UnitId,
+                            RecommendedQuantity = template.Quantity,
+                            ActualQuantity = template.Quantity,
+                            IsDeducted = false,
+                        });
+                    }
                 }
             }
         }
@@ -782,6 +802,44 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             IsFirstSubmit = !hasDeducted,
             Lines = lines,
         };
+    }
+
+    public async Task<TestBatchDto> SaveConsumptionDraftAsync(Guid id, SaveConsumptionDraftDto input)
+    {
+        var batch = await _testBatchRepository.GetAsync(id);
+
+        if (batch.Status == TestBatchStatus.Cancelled)
+            throw new UserFriendlyException("Không thể lưu nháp tiêu hao cho mẻ đã hủy");
+
+        if (batch.ConsumptionConfirmed)
+            throw new UserFriendlyException("Tiêu hao đã được xác nhận, không thể cập nhật nháp");
+
+        var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
+        var nonDeducted = existingConsumptions.Where(c => !c.IsDeducted).ToList();
+        if (nonDeducted.Any())
+        {
+            await _testBatchConsumptionRepository.DeleteManyAsync(nonDeducted);
+        }
+
+        if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
+        {
+            foreach (var line in input.ConsumptionLines)
+            {
+                var consumption = new TestBatchConsumption(
+                    GuidGenerator.Create(),
+                    batch.Id,
+                    line.ProductId,
+                    line.EquipmentId,
+                    line.UnitId,
+                    line.RecommendedQuantity);
+                consumption.ActualQuantity = line.ActualQuantity;
+                batch.Consumptions.Add(consumption);
+            }
+        }
+
+        await _testBatchRepository.UpdateAsync(batch, autoSave: true);
+
+        return await MapToDetailDtoAsync(batch);
     }
 
     public async Task<TestBatchDto> SubmitWithConsumptionAsync(Guid id, SubmitWithConsumptionDto input)

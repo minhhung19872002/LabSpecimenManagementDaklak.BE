@@ -98,6 +98,12 @@ public class TestBatchController : LabSpecimenManagementController
         return _testBatchAppService.SubmitWithConsumptionAsync(id, input);
     }
 
+    [HttpPost("{id}/save-consumption-draft")]
+    public Task<TestBatchDto> SaveConsumptionDraftAsync(Guid id, [FromBody] SaveConsumptionDraftDto input)
+    {
+        return _testBatchAppService.SaveConsumptionDraftAsync(id, input);
+    }
+
     [HttpPost("{id}/cancel")]
     public Task<TestBatchDto> CancelAsync(Guid id)
     {

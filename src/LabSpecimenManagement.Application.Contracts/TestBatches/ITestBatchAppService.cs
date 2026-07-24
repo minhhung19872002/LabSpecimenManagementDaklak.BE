@@ -35,6 +35,8 @@ public interface ITestBatchAppService : IApplicationService
 
     Task<TestBatchDto> SubmitWithConsumptionAsync(Guid id, SubmitWithConsumptionDto input);
 
+    Task<TestBatchDto> SaveConsumptionDraftAsync(Guid id, SaveConsumptionDraftDto input);
+
     Task<PagedResultDto<AvailableIndicatorDto>> GetAvailableIndicatorsAsync(GetAvailableIndicatorsInput input);
 }
 
