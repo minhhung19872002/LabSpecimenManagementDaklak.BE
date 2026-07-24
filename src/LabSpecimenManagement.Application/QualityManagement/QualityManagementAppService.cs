@@ -1527,6 +1527,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 TaskType = task.TaskType,
                 TotalSampleCount = task.TotalSampleCount,
                 TotalIndicatorCount = task.TotalIndicatorCount,
+                PendingApprovalIndicatorCount = indicators.Count(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval),
                 LaboratoryNames = labNames,
                 TransferDate = testRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
