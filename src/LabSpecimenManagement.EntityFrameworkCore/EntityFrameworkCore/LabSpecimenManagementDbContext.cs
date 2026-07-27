@@ -1327,6 +1327,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Description);
             b.Property(x => x.AssignedToName).IsRequired().HasMaxLength(256);
             b.Property(x => x.ImageUrls);
+            b.Property(x => x.IsPrivate).HasDefaultValue(false);
 
             b.HasIndex(x => x.Status);
             b.HasIndex(x => x.AssignedToId);

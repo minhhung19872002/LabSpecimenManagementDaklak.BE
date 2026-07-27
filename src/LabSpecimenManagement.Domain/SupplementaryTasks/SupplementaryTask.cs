@@ -12,6 +12,7 @@ public class SupplementaryTask : FullAuditedAggregateRoot<Guid>
     public DateTime? DueDate { get; set; }
     public SupplementaryTaskPriority Priority { get; set; }
     public SupplementaryTaskStatus Status { get; set; }
+    public bool IsPrivate { get; set; }
     public string? ImageUrls { get; set; }
     public string? CompletionNote { get; set; }
     public string? CompletionImageUrls { get; set; }
@@ -28,5 +29,6 @@ public class SupplementaryTask : FullAuditedAggregateRoot<Guid>
         Priority = priority;
         DueDate = dueDate;
         Status = SupplementaryTaskStatus.Pending;
+        IsPrivate = false;
     }
 }

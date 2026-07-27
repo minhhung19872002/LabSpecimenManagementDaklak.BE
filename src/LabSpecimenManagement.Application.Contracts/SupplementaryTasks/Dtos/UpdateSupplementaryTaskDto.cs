@@ -21,5 +21,7 @@ public class UpdateSupplementaryTaskDto
 
     public SupplementaryTaskStatus Status { get; set; }
 
+    public bool IsPrivate { get; set; }
+
     public List<string> ImageUrls { get; set; } = new();
 }

@@ -19,5 +19,7 @@ public class CreateSupplementaryTaskDto
 
     public SupplementaryTaskPriority Priority { get; set; } = SupplementaryTaskPriority.Medium;
 
+    public bool IsPrivate { get; set; }
+
     public List<string> ImageUrls { get; set; } = new();
 }
