@@ -591,10 +591,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     continue;
                 }
 
-                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
+                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval &&
+                    indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
                 {
                     result.FailedCount++;
-                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái chờ phê duyệt");
+                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái hợp lệ để từ chối");
                     continue;
                 }
 
