@@ -41,6 +41,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public int PendingApprovalIndicatorCount { get; set; }
 
     /// <summary>
+    /// Số chỉ tiêu đã được QLCL duyệt - Approved Indicator Count
+    /// </summary>
+    public int ApprovedIndicatorCount { get; set; }
+
+    /// <summary>
     /// Tên các khoa phòng - Laboratory Names (comma separated)
     /// </summary>
     public string? LaboratoryNames { get; set; }

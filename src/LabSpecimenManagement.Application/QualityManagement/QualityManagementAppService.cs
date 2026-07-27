@@ -1434,8 +1434,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return dtos[0];
     }
 
-    // Batch toàn bộ dữ liệu liên quan cho cả trang trong 6 query
-    // (thay vì 6 query cho MỖI task như trước)
+    // Batch toàn bộ dữ liệu liên quan cho cả trang
+    // (thay vì query riêng cho MỖI task)
     private async Task<List<QualityManagementTaskDto>> MapToListDtosAsync(List<QualityManagementTask> tasks)
     {
         var dtos = new List<QualityManagementTaskDto>();
@@ -1473,6 +1473,89 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var allIndicators = await _indicatorRepository.GetListAsync(i => taskIds.Contains(i.QualityManagementTaskId));
         var indicatorsByTask = allIndicators.ToLookup(i => i.QualityManagementTaskId);
 
+        // TotalIndicatorCount hiển thị phải là tổng chỉ tiêu của phiếu yêu cầu,
+        // không phải số chỉ tiêu đã được gửi vào scope QLCL.
+        var allSamples = await _sampleRepository.GetListAsync(s => testRequestIds.Contains(s.TestRequestId));
+        var sampleById = allSamples.ToDictionary(s => s.Id);
+        var allSampleIds = allSamples.Select(s => s.Id).ToList();
+        var allSampleIndicators = allSampleIds.Count == 0
+            ? new List<TestRequestSampleIndicator>()
+            : await _sampleIndicatorRepository.GetListAsync(si => allSampleIds.Contains(si.TestRequestSampleId));
+
+        var allMasterIndicatorIds = allSampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var masterIndicatorById = allMasterIndicatorIds.Count == 0
+            ? new Dictionary<Guid, Indicator>()
+            : (await _masterIndicatorRepository.GetListAsync(i => allMasterIndicatorIds.Contains(i.Id)))
+                .ToDictionary(i => i.Id);
+
+        // Parent của combo chỉ dùng để nhóm hiển thị; tổng thực tế chỉ tính children và standalone.
+        var requestParentKeys = new HashSet<(Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var sampleIndicator in allSampleIndicators)
+        {
+            if (masterIndicatorById.TryGetValue(sampleIndicator.IndicatorId, out var masterIndicator) &&
+                masterIndicator.ParentIndicatorId.HasValue)
+            {
+                requestParentKeys.Add((
+                    sampleIndicator.TestRequestSampleId,
+                    masterIndicator.ParentIndicatorId.Value,
+                    sampleIndicator.TestMethodId));
+            }
+        }
+
+        var activeSampleIndicatorsByRequest = allSampleIndicators
+            .Where(si => sampleById.ContainsKey(si.TestRequestSampleId))
+            .Where(si => !requestParentKeys.Contains((
+                si.TestRequestSampleId,
+                si.IndicatorId,
+                si.TestMethodId)))
+            .ToLookup(si => sampleById[si.TestRequestSampleId].TestRequestId);
+
+        // Pending/Approved cũng áp dụng cùng quy tắc loại parent combo.
+        var qualityLabIndicatorIds = allIndicators
+            .Select(i => i.LaboratoryTaskIndicatorId)
+            .Distinct()
+            .ToList();
+        var qualityLabIndicatorById = qualityLabIndicatorIds.Count == 0
+            ? new Dictionary<Guid, LaboratoryTaskIndicator>()
+            : (await _laboratoryTaskIndicatorRepository.GetListAsync(li => qualityLabIndicatorIds.Contains(li.Id)))
+                .ToDictionary(li => li.Id);
+        var sampleIndicatorById = allSampleIndicators.ToDictionary(si => si.Id);
+
+        var qualityParentKeys = new HashSet<(Guid TaskId, Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var qualityIndicator in allIndicators)
+        {
+            if (!qualityLabIndicatorById.TryGetValue(qualityIndicator.LaboratoryTaskIndicatorId, out var labIndicator) ||
+                !sampleIndicatorById.TryGetValue(labIndicator.TestRequestSampleIndicatorId, out var sampleIndicator) ||
+                !masterIndicatorById.TryGetValue(sampleIndicator.IndicatorId, out var masterIndicator) ||
+                !masterIndicator.ParentIndicatorId.HasValue)
+            {
+                continue;
+            }
+
+            qualityParentKeys.Add((
+                qualityIndicator.QualityManagementTaskId,
+                sampleIndicator.TestRequestSampleId,
+                masterIndicator.ParentIndicatorId.Value,
+                labIndicator.MethodId));
+        }
+
+        var activeQualityIndicatorsByTask = allIndicators
+            .Where(qualityIndicator =>
+            {
+                if (!qualityLabIndicatorById.TryGetValue(qualityIndicator.LaboratoryTaskIndicatorId, out var labIndicator) ||
+                    !sampleIndicatorById.TryGetValue(labIndicator.TestRequestSampleIndicatorId, out var sampleIndicator))
+                {
+                    return true;
+                }
+
+                return !qualityParentKeys.Contains((
+                    qualityIndicator.QualityManagementTaskId,
+                    sampleIndicator.TestRequestSampleId,
+                    sampleIndicator.IndicatorId,
+                    labIndicator.MethodId));
+            })
+            .ToLookup(i => i.QualityManagementTaskId);
+
         foreach (var task in tasks)
         {
             testRequestById.TryGetValue(task.TestRequestId, out var testRequest);
@@ -1495,6 +1578,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
             // Get latest printed date from published indicators
             var indicators = indicatorsByTask[task.Id].ToList();
+            var activeQualityIndicators = activeQualityIndicatorsByTask[task.Id].ToList();
             var latestPrintedDate = indicators
                 .Where(i => i.IsPrinted && i.PrintedDate.HasValue)
                 .Select(i => i.PrintedDate!.Value)
@@ -1514,8 +1598,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 ContractNumber = task.ContractNumber,
                 TaskType = task.TaskType,
                 TotalSampleCount = task.TotalSampleCount,
-                TotalIndicatorCount = task.TotalIndicatorCount,
-                PendingApprovalIndicatorCount = indicators.Count(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval),
+                TotalIndicatorCount = activeSampleIndicatorsByRequest[task.TestRequestId].Count(),
+                PendingApprovalIndicatorCount = activeQualityIndicators.Count(i =>
+                    i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval),
+                ApprovedIndicatorCount = activeQualityIndicators.Count(i =>
+                    i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved),
                 LaboratoryNames = labNames,
                 TransferDate = testRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
