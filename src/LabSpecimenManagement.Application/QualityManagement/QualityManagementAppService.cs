@@ -2619,7 +2619,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         ContractNumber = tr.ContractNumber,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
+                        RequestCompletionDate = si.RequestDate ?? tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
 
                         // Sample info
                         SampleId = s.Id,
@@ -2640,7 +2640,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                             ? null
                             : (tm != null ? tm.FormattedName : null),
                         Unit = li != null ? li.Unit : null,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestDate = li != null ? li.TestDate : null,
                         Result = li != null ? li.Result : null,
 

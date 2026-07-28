@@ -3220,7 +3220,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         ContractNumber = tr.ContractNumber,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+                        RequestCompletionDate = si.RequestDate ?? tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
                         // Sample info
                         SampleId = s.Id,
@@ -3239,7 +3239,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestDate = li.TestDate,
                         Result = li.Result,
 

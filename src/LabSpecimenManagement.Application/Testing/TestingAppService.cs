@@ -1095,7 +1095,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
         dto.CustomerName = testRequest?.CustomerName;
         dto.TestRequestStatus = testRequest?.Status;
-        dto.SampleReceivedDate = testRequest?.CreationTime;
+        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+        dto.SampleReceivedDate = testRequest?.FormPrintedDate;
         dto.SampleSentDate = testRequest?.SampleSentDate ?? task.SampleSentDate;
         dto.UnderReviewDate = testRequest?.UnderReviewDate;
 
@@ -2553,7 +2554,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         ContractNumber = tr.ContractNumber,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+                        RequestCompletionDate = si.RequestDate ?? tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
                         // Sample info
                         SampleId = s.Id,
@@ -2575,7 +2576,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                             ? null
                             : (tm != null ? tm.FormattedName : null),
                         Unit = li.Unit,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestDate = li.TestDate,
                         Result = li.Result,
 
@@ -2815,7 +2817,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         SampleCode = s.SampleCode,
                         SampleName = s.SampleName,
                         IndicatorName = mi.Name,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestRequestSampleIndicatorId = si.Id,
                         TechnicianId = li.TechnicianId,
                         IndicatorApprovalStatus = li.ApprovalStatus,
