@@ -14,12 +14,16 @@ public class SaveIndicatorResultDto
     public Guid IndicatorId { get; set; }
 
     /// <summary>
-    /// Phương pháp - Method ID
+    /// Phương pháp - Method ID.
+    /// [OBSOLETE] Không còn được SaveResultsAsync ghi nhận — đổi PP qua PUT /testing/indicators/{id}/method.
+    /// Giữ lại property để wire-compat với bundle FE cũ (PWA cache).
     /// </summary>
     public Guid? MethodId { get; set; }
 
     /// <summary>
-    /// Đơn vị tính - Unit
+    /// Đơn vị tính - Unit.
+    /// [OBSOLETE] Không còn được SaveResultsAsync ghi nhận — đổi ĐVT qua PUT /testing/indicators/{id}/unit.
+    /// Giữ lại property để wire-compat với bundle FE cũ (PWA cache).
     /// </summary>
     public string? Unit { get; set; }
 

@@ -401,13 +401,19 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
             }
 
+            // Validate: Cannot edit if customer cancelled (đồng bộ với UpdateIndicatorMethod/UnitAsync)
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã bị hủy", "indicator");
+            }
+
             // Note: Result now accepts both numeric values, formulas (2^2, 10^-3),
             // unicode superscript (2², 10⁻³), and text values (Đạt, Không đạt, Âm tính)
             // Text values will be auto-created in master data when submitting for approval
 
             // Update indicator
-            indicator.MethodId = result.MethodId;
-            indicator.Unit = result.Unit;
+            // MethodId/Unit KHÔNG còn được ghi ở đây — đổi PP/ĐVT đi qua endpoint riêng
+            // UpdateIndicatorMethodAsync / UpdateIndicatorUnitAsync (PUT indicators/{id}/method|unit)
             indicator.Result = result.Result;
 
             // Chỉ update FreeTextNote nếu có giá trị mới được truyền vào
@@ -439,6 +445,127 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Update TestRequest status to InProgress when KTV sets testDate
         await TryUpdateTestRequestToInProgressAsync(task.TestRequestId);
     }
+
+    /// <summary>
+    /// KTV cập nhật phương pháp cho 1 chỉ tiêu.
+    /// Mirror LaboratoryTaskAppService.UpdateIndicatorMethodAsync nhưng dùng quyền
+    /// CanEditIndicatorAsync (KTV được gán/QLKT/supporter) và chặn chỉ tiêu đã duyệt.
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<TestingIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, Guid? methodId)
+    {
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(indicator.LaboratoryTaskId);
+
+        if (!await CanEditIndicatorAsync(indicator, task, CurrentUser.Id))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật phương pháp cho chỉ tiêu đã bị hủy", "indicator");
+        }
+
+        TestMethod? selectedMethod = null;
+        if (methodId.HasValue)
+        {
+            selectedMethod = await _testMethodRepository.FindAsync(methodId.Value);
+            if (selectedMethod == null)
+            {
+                throw new ValidationException("methodId", "Phương pháp không tồn tại");
+            }
+        }
+
+        // Đổi sang method thường -> clear thông tin thầu phụ (đồng bộ với LaboratoryTaskAppService)
+        if (!IsDashMethodName(selectedMethod?.Name))
+        {
+            indicator.SubContractMethodName = null;
+            indicator.SubContractNumber = null;
+            indicator.SubContractCost = null;
+        }
+
+        // Auto-fill ĐVT theo PP mới khi: ĐVT đang trống (kể cả html rỗng "<p></p>")
+        // hoặc đang đúng bằng ĐVT mặc định của PP cũ (chưa được nhập tay giá trị riêng).
+        // ĐVT đã nhập tay thì giữ nguyên.
+        var shouldAutoFillUnit = IsBlankUnit(indicator.Unit);
+        if (!shouldAutoFillUnit && indicator.MethodId.HasValue)
+        {
+            var oldMethod = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
+            var oldDefaultUnit = oldMethod?.FormattedUnit ?? oldMethod?.Unit;
+            shouldAutoFillUnit = !string.IsNullOrEmpty(oldDefaultUnit) && indicator.Unit == oldDefaultUnit;
+        }
+
+        indicator.MethodId = methodId;
+        if (shouldAutoFillUnit)
+        {
+            indicator.Unit = selectedMethod?.FormattedUnit ?? selectedMethod?.Unit;
+        }
+
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+
+        // Recalculate task status after changing method
+        await UpdateTaskStatusAsync(task);
+
+        return await MapSingleIndicatorAsync(indicator, task);
+    }
+
+    /// <summary>
+    /// KTV cập nhật đơn vị tính cho 1 chỉ tiêu.
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<TestingIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit)
+    {
+        var indicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicatorId);
+        var task = await _laboratoryTaskRepository.GetAsync(indicator.LaboratoryTaskId);
+
+        if (!await CanEditIndicatorAsync(indicator, task, CurrentUser.Id))
+        {
+            throw new ForbiddenAccessException("Bạn không có quyền chỉnh sửa chỉ tiêu này");
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể chỉnh sửa chỉ tiêu đã được phê duyệt", "indicator");
+        }
+
+        if (indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+        {
+            throw new Common.Exceptions.InvalidOperationException("Không thể cập nhật đơn vị tính cho chỉ tiêu đã bị hủy", "indicator");
+        }
+
+        indicator.Unit = unit;
+        await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+
+        return await MapSingleIndicatorAsync(indicator, task);
+    }
+
+    // Load dữ liệu phụ trợ rồi build DTO cho 1 chỉ tiêu (dùng cho các endpoint update lẻ)
+    private async Task<TestingIndicatorDto> MapSingleIndicatorAsync(LaboratoryTaskIndicator taskIndicator, LaboratoryTask task)
+    {
+        var sampleIndicator = await _sampleIndicatorRepository.FindAsync(taskIndicator.TestRequestSampleIndicatorId);
+        if (sampleIndicator == null)
+        {
+            throw new EntityNotFoundException("SampleIndicator", taskIndicator.TestRequestSampleIndicatorId);
+        }
+
+        var userNames = await _userNameProvider.GetUserNamesAsync(new List<Guid?> { taskIndicator.TechnicianId });
+        return await MapIndicatorToDtoAsync(taskIndicator, sampleIndicator, task, userNames);
+    }
+
+    // Đồng bộ với LaboratoryTaskAppService.IsDashMethodName
+    private static bool IsDashMethodName(string? methodName)
+        => string.Equals(methodName?.Trim(), "-", StringComparison.Ordinal);
+
+    // ĐVT coi như trống nếu null/khoảng trắng hoặc chỉ còn thẻ html rỗng (vd "<p></p>" từ RichTextEditor)
+    private static bool IsBlankUnit(string? unit)
+        => string.IsNullOrWhiteSpace(unit)
+           || string.IsNullOrWhiteSpace(Regex.Replace(unit, "<[^>]*>", string.Empty));
 
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
     public async Task SubmitForApprovalAsync(Guid laboratoryTaskId, SubmitForApprovalInput input)
@@ -1091,176 +1218,190 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 sampleGroups[sampleId] = sampleDto;
             }
 
-            // Map indicator
-            var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
-            string? methodName = null;
-            string? methodFormattedName = null;
-            string? technicianName = null;
-            string? unit = taskIndicator.Unit;
-
-            if (taskIndicator.MethodId.HasValue)
-            {
-                var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
-                methodName = method?.Name;
-                methodFormattedName = method?.FormattedName;
-                // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
-                if (string.IsNullOrEmpty(unit) && method != null)
-                {
-                    unit = method.FormattedUnit ?? method.Unit ?? "";
-                }
-            }
-
-            if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
-            {
-                methodName = taskIndicator.SubContractMethodName;
-                methodFormattedName = null;
-            }
-
-            if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
-            {
-                technicianName = techName;
-            }
-
-            // Get rejection history count and latest reason
-            var rejectionHistories = new List<IndicatorRejectionHistory>();
-            IndicatorRejectionHistory? latestRejection = null;
-            try
-            {
-                rejectionHistories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == taskIndicator.Id);
-                latestRejection = rejectionHistories.OrderByDescending(h => h.RejectedDate).FirstOrDefault();
-            }
-            catch
-            {
-                // Table may not exist yet - migration not applied
-            }
-
-            // Get standard info (set by QLKT)
-            string? standardName = null;
-            string? limitDescription = null;
-            string? comparisonOperator = null;
-            string? allowedLimit = null;
-            string? lowerOperator = null;
-            string? lowerLimit = null;
-            string? upperOperator = null;
-            string? upperLimit = null;
-            if (taskIndicator.StandardId.HasValue)
-            {
-                var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
-                if (standard != null)
-                {
-                    standardName = standard.Name;
-                    limitDescription = standard.LimitDescription;
-
-                    // Get StandardIndicator for ComparisonOperator and AllowedLimit
-                    if (taskIndicator.MethodId.HasValue)
-                    {
-                        var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
-                            si.StandardId == taskIndicator.StandardId.Value &&
-                            si.IndicatorId == sampleIndicator.IndicatorId &&
-                            si.TestMethodId == taskIndicator.MethodId.Value);
-                        if (standardIndicator != null)
-                        {
-                            comparisonOperator = standardIndicator.ComparisonOperator;
-                            allowedLimit = standardIndicator.AllowedLimit;
-                            lowerOperator = standardIndicator.LowerOperator;
-                            lowerLimit = standardIndicator.LowerLimit;
-                            upperOperator = standardIndicator.UpperOperator;
-                            upperLimit = standardIndicator.UpperLimit;
-                        }
-                    }
-                }
-            }
-
-            // Determine if can edit
-            var hasPermission = await CanEditIndicatorAsync(taskIndicator, task, CurrentUser.Id);
-            var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
-
-            // Determine if can check-in (Thực hiện)
-            // Có thể check-in nếu: có quyền, status phù hợp, chưa có TestDate
-            // Status phù hợp: Pending, Rejected, MethodChanged, AcceptedForTesting
-            var canCheckInStatuses = new[]
-            {
-                IndicatorApprovalStatus.Pending,
-                IndicatorApprovalStatus.Rejected,
-                IndicatorApprovalStatus.MethodChanged,
-                IndicatorApprovalStatus.AcceptedForTesting
-            };
-            var canCheckIn = hasPermission &&
-                             canCheckInStatuses.Contains(taskIndicator.ApprovalStatus) &&
-                             !taskIndicator.TestDate.HasValue;
-
-            // Determine if can submit (Gửi kết quả)
-            // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending/Rejected/Entered, có kết quả
-            var canSubmit = hasPermission &&
-                            taskIndicator.TestDate.HasValue &&
-                            (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
-                             taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered) && // Cho phép gửi lại khi đang chờ phê duyệt
-                            !string.IsNullOrWhiteSpace(taskIndicator.Result);
-
-            // Calculate indicator testing status
-            var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
-
-            // Get indicator images
-            var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
-                x.LaboratoryTaskIndicatorId == taskIndicator.Id);
-
-            sampleGroups[sampleId].Indicators.Add(new TestingIndicatorDto
-            {
-                Id = taskIndicator.Id,
-                TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
-                IndicatorId = sampleIndicator.IndicatorId,
-                SpecimenTypeId = sampleIndicator.SpecimenTypeId,
-                IndicatorName = indicator?.Name,
-                IndicatorFormattedName = indicator?.FormattedName,
-                MethodId = taskIndicator.MethodId,
-                MethodName = methodName,
-                MethodFormattedName = methodFormattedName,
-                Unit = unit,
-                Result = taskIndicator.Result,
-                Note = taskIndicator.FreeTextNote,
-                EntryDate = taskIndicator.EntryDate,
-                AssignedDate = taskIndicator.AssignedDate,
-                StartDate = taskIndicator.TestDate,  // Deprecated, use TestDate
-                TestDate = taskIndicator.TestDate,
-                SubmitDate = taskIndicator.SubmitDate,
-                CompletionDate = taskIndicator.ApprovalDate,
-                ApprovalStatus = taskIndicator.ApprovalStatus,
-                TestingStatus = indicatorTestingStatus,
-                LatestRejectionReason = latestRejection?.RejectionReason ?? taskIndicator.RejectionReason,
-                RejectionHistoryCount = rejectionHistories.Count,
-                TechnicianId = taskIndicator.TechnicianId,
-                TechnicianName = technicianName,
-                CanEdit = canEdit,
-                CanCheckIn = canCheckIn,
-                CanSubmit = canSubmit,
-                Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
-                {
-                    Id = x.Id,
-                    LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
-                    FileId = x.FileId,
-                    FileName = x.FileName,
-                    FileSize = x.FileSize,
-                    Url = $"/api/v1/files/{x.FileId}",
-                    CreationTime = x.CreationTime,
-                    CreatorId = x.CreatorId
-                }).ToList(),
-                StandardId = taskIndicator.StandardId,
-                StandardName = standardName,
-                LimitDescription = limitDescription,
-                ComparisonOperator = comparisonOperator,
-                AllowedLimit = allowedLimit,
-                LowerOperator = lowerOperator,
-                LowerLimit = lowerLimit,
-                UpperOperator = upperOperator,
-                UpperLimit = upperLimit,
-                ParentIndicatorId = indicator?.ParentIndicatorId
-            });
+            // Map indicator (logic build DTO dùng chung với các endpoint update method/unit)
+            sampleGroups[sampleId].Indicators.Add(
+                await MapIndicatorToDtoAsync(taskIndicator, sampleIndicator, task, userNames));
         }
 
         dto.Samples = sampleGroups.Values.ToList();
 
         return dto;
+    }
+
+    /// <summary>
+    /// Build TestingIndicatorDto cho 1 chỉ tiêu.
+    /// Dùng chung cho MapToDetailDtoAsync (loop detail) và UpdateIndicatorMethodAsync/UpdateIndicatorUnitAsync.
+    /// </summary>
+    private async Task<TestingIndicatorDto> MapIndicatorToDtoAsync(
+        LaboratoryTaskIndicator taskIndicator,
+        TestRequestSampleIndicator sampleIndicator,
+        LaboratoryTask task,
+        Dictionary<Guid, string> userNames)
+    {
+        var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+        string? methodName = null;
+        string? methodFormattedName = null;
+        string? technicianName = null;
+        string? unit = taskIndicator.Unit;
+
+        if (taskIndicator.MethodId.HasValue)
+        {
+            var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
+            methodName = method?.Name;
+            methodFormattedName = method?.FormattedName;
+            // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
+            if (string.IsNullOrEmpty(unit) && method != null)
+            {
+                unit = method.FormattedUnit ?? method.Unit ?? "";
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
+        {
+            methodName = taskIndicator.SubContractMethodName;
+            methodFormattedName = null;
+        }
+
+        if (taskIndicator.TechnicianId.HasValue && userNames.TryGetValue(taskIndicator.TechnicianId.Value, out var techName))
+        {
+            technicianName = techName;
+        }
+
+        // Get rejection history count and latest reason
+        var rejectionHistories = new List<IndicatorRejectionHistory>();
+        IndicatorRejectionHistory? latestRejection = null;
+        try
+        {
+            rejectionHistories = await _rejectionHistoryRepository.GetListAsync(x => x.IndicatorId == taskIndicator.Id);
+            latestRejection = rejectionHistories.OrderByDescending(h => h.RejectedDate).FirstOrDefault();
+        }
+        catch
+        {
+            // Table may not exist yet - migration not applied
+        }
+
+        // Get standard info (set by QLKT)
+        string? standardName = null;
+        string? limitDescription = null;
+        string? comparisonOperator = null;
+        string? allowedLimit = null;
+        string? lowerOperator = null;
+        string? lowerLimit = null;
+        string? upperOperator = null;
+        string? upperLimit = null;
+        if (taskIndicator.StandardId.HasValue)
+        {
+            var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
+            if (standard != null)
+            {
+                standardName = standard.Name;
+                limitDescription = standard.LimitDescription;
+
+                // Get StandardIndicator for ComparisonOperator and AllowedLimit
+                if (taskIndicator.MethodId.HasValue)
+                {
+                    var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(si =>
+                        si.StandardId == taskIndicator.StandardId.Value &&
+                        si.IndicatorId == sampleIndicator.IndicatorId &&
+                        si.TestMethodId == taskIndicator.MethodId.Value);
+                    if (standardIndicator != null)
+                    {
+                        comparisonOperator = standardIndicator.ComparisonOperator;
+                        allowedLimit = standardIndicator.AllowedLimit;
+                        lowerOperator = standardIndicator.LowerOperator;
+                        lowerLimit = standardIndicator.LowerLimit;
+                        upperOperator = standardIndicator.UpperOperator;
+                        upperLimit = standardIndicator.UpperLimit;
+                    }
+                }
+            }
+        }
+
+        // Determine if can edit
+        var hasPermission = await CanEditIndicatorAsync(taskIndicator, task, CurrentUser.Id);
+        var canEdit = taskIndicator.ApprovalStatus != IndicatorApprovalStatus.Approved && hasPermission;
+
+        // Determine if can check-in (Thực hiện)
+        // Có thể check-in nếu: có quyền, status phù hợp, chưa có TestDate
+        // Status phù hợp: Pending, Rejected, MethodChanged, AcceptedForTesting
+        var canCheckInStatuses = new[]
+        {
+            IndicatorApprovalStatus.Pending,
+            IndicatorApprovalStatus.Rejected,
+            IndicatorApprovalStatus.MethodChanged,
+            IndicatorApprovalStatus.AcceptedForTesting
+        };
+        var canCheckIn = hasPermission &&
+                         canCheckInStatuses.Contains(taskIndicator.ApprovalStatus) &&
+                         !taskIndicator.TestDate.HasValue;
+
+        // Determine if can submit (Gửi kết quả)
+        // Có thể submit nếu: có quyền, đã check-in (có TestDate), status = Pending/Rejected/Entered, có kết quả
+        var canSubmit = hasPermission &&
+                        taskIndicator.TestDate.HasValue &&
+                        (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Pending ||
+                         taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Rejected ||
+                         taskIndicator.ApprovalStatus == IndicatorApprovalStatus.Entered) && // Cho phép gửi lại khi đang chờ phê duyệt
+                        !string.IsNullOrWhiteSpace(taskIndicator.Result);
+
+        // Calculate indicator testing status
+        var indicatorTestingStatus = CalculateIndicatorTestingStatus(taskIndicator);
+
+        // Get indicator images
+        var indicatorImages = await _indicatorImageRepository.GetListAsync(x =>
+            x.LaboratoryTaskIndicatorId == taskIndicator.Id);
+
+        return new TestingIndicatorDto
+        {
+            Id = taskIndicator.Id,
+            TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
+            IndicatorId = sampleIndicator.IndicatorId,
+            SpecimenTypeId = sampleIndicator.SpecimenTypeId,
+            IndicatorName = indicator?.Name,
+            IndicatorFormattedName = indicator?.FormattedName,
+            MethodId = taskIndicator.MethodId,
+            MethodName = methodName,
+            MethodFormattedName = methodFormattedName,
+            Unit = unit,
+            Result = taskIndicator.Result,
+            Note = taskIndicator.FreeTextNote,
+            EntryDate = taskIndicator.EntryDate,
+            AssignedDate = taskIndicator.AssignedDate,
+            StartDate = taskIndicator.TestDate,  // Deprecated, use TestDate
+            TestDate = taskIndicator.TestDate,
+            SubmitDate = taskIndicator.SubmitDate,
+            CompletionDate = taskIndicator.ApprovalDate,
+            ApprovalStatus = taskIndicator.ApprovalStatus,
+            TestingStatus = indicatorTestingStatus,
+            LatestRejectionReason = latestRejection?.RejectionReason ?? taskIndicator.RejectionReason,
+            RejectionHistoryCount = rejectionHistories.Count,
+            TechnicianId = taskIndicator.TechnicianId,
+            TechnicianName = technicianName,
+            CanEdit = canEdit,
+            CanCheckIn = canCheckIn,
+            CanSubmit = canSubmit,
+            Images = indicatorImages.OrderBy(x => x.CreationTime).Select(x => new IndicatorImageDto
+            {
+                Id = x.Id,
+                LaboratoryTaskIndicatorId = x.LaboratoryTaskIndicatorId,
+                FileId = x.FileId,
+                FileName = x.FileName,
+                FileSize = x.FileSize,
+                Url = $"/api/v1/files/{x.FileId}",
+                CreationTime = x.CreationTime,
+                CreatorId = x.CreatorId
+            }).ToList(),
+            StandardId = taskIndicator.StandardId,
+            StandardName = standardName,
+            LimitDescription = limitDescription,
+            ComparisonOperator = comparisonOperator,
+            AllowedLimit = allowedLimit,
+            LowerOperator = lowerOperator,
+            LowerLimit = lowerLimit,
+            UpperOperator = upperOperator,
+            UpperLimit = upperLimit,
+            ParentIndicatorId = indicator?.ParentIndicatorId
+        };
     }
 
     /// <summary>

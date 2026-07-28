@@ -106,6 +106,26 @@ public class TestingController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// KTV cập nhật phương pháp cho 1 chỉ tiêu
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/method")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<TestingIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, [FromBody] Guid? methodId)
+    {
+        return await _testingAppService.UpdateIndicatorMethodAsync(indicatorId, methodId);
+    }
+
+    /// <summary>
+    /// KTV cập nhật đơn vị tính cho 1 chỉ tiêu
+    /// </summary>
+    [HttpPut("indicators/{indicatorId}/unit")]
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public virtual async Task<TestingIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, [FromBody] string? unit)
+    {
+        return await _testingAppService.UpdateIndicatorUnitAsync(indicatorId, unit);
+    }
+
+    /// <summary>
     /// Submit indicators for approval
     /// </summary>
     [HttpPost("{id}/submit-approval")]
