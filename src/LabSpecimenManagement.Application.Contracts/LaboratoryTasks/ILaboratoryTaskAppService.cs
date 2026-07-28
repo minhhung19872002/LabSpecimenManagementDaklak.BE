@@ -81,6 +81,11 @@ public interface ILaboratoryTaskAppService : IApplicationService
     Task<LaboratoryTaskIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, Guid? methodId);
 
     /// <summary>
+    /// Cập nhật phương pháp cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    Task<List<LaboratoryTaskIndicatorDto>> BulkUpdateIndicatorMethodAsync(Guid taskId, BulkUpdateIndicatorMethodDto input);
+
+    /// <summary>
     /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
     /// </summary>
     Task<LaboratoryTaskIndicatorDto> UpdateSubContractMethodAsync(Guid indicatorId, UpdateSubContractMethodDto input);

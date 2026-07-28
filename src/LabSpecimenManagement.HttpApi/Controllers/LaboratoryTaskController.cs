@@ -165,6 +165,18 @@ public class LaboratoryTaskController : LabSpecimenManagementController
     }
 
     /// <summary>
+    /// Cập nhật phương pháp cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [HttpPut("{taskId}/indicators/bulk-method")]
+    [Authorize]
+    public virtual Task<List<LaboratoryTaskIndicatorDto>> BulkUpdateIndicatorMethodAsync(
+        Guid taskId,
+        [FromBody] BulkUpdateIndicatorMethodDto input)
+    {
+        return _laboratoryTaskAppService.BulkUpdateIndicatorMethodAsync(taskId, input);
+    }
+
+    /// <summary>
     /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
     /// </summary>
     [HttpPut("indicators/{indicatorId}/subcontract-method")]
