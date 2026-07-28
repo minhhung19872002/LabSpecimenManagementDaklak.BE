@@ -516,6 +516,90 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     }
 
     /// <summary>
+    /// KTV bulk cập nhật phương pháp cho nhiều chỉ tiêu.
+    /// Cùng logic với UpdateIndicatorMethodAsync nhưng skip (không throw) từng chỉ tiêu
+    /// không hợp lệ (đã duyệt/đã hủy/không thuộc task/không có quyền chỉnh sửa).
+    /// </summary>
+    [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
+    public async Task<List<TestingIndicatorDto>> BulkUpdateIndicatorMethodAsync(Guid laboratoryTaskId, BulkUpdateIndicatorMethodInput input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+
+        TestMethod? selectedMethod = null;
+        if (input.MethodId.HasValue)
+        {
+            selectedMethod = await _testMethodRepository.FindAsync(input.MethodId.Value);
+            if (selectedMethod == null)
+            {
+                throw new ValidationException("methodId", "Phương pháp không tồn tại");
+            }
+        }
+
+        var keepSubContract = IsDashMethodName(selectedMethod?.Name);
+        var updatedDtos = new List<TestingIndicatorDto>();
+
+        // Cùng semantic với CanEditIndicatorAsync nhưng check QLKT/supporter 1 lần cho cả batch
+        // (2 điều kiện này chỉ phụ thuộc task + user), trong loop chỉ còn so TechnicianId
+        var currentUserId = CurrentUser.Id;
+        if (!currentUserId.HasValue)
+        {
+            return updatedDtos;
+        }
+        var canEditAllTaskIndicators =
+            task.TechnicalManagerId == currentUserId.Value ||
+            await _supporterRepository.AnyAsync(s =>
+                s.LaboratoryTaskId == task.Id && s.UserId == currentUserId.Value);
+
+        foreach (var indicatorId in input.IndicatorIds.Distinct())
+        {
+            var indicator = await _laboratoryTaskIndicatorRepository.FindAsync(indicatorId);
+            if (indicator == null || indicator.LaboratoryTaskId != task.Id)
+            {
+                continue;
+            }
+
+            if (!canEditAllTaskIndicators && indicator.TechnicianId != currentUserId.Value)
+            {
+                continue;
+            }
+
+            if (indicator.ApprovalStatus == IndicatorApprovalStatus.Approved ||
+                indicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled)
+            {
+                continue;
+            }
+
+            if (!keepSubContract)
+            {
+                indicator.SubContractMethodName = null;
+                indicator.SubContractNumber = null;
+                indicator.SubContractCost = null;
+            }
+
+            var shouldAutoFillUnit = IsBlankUnit(indicator.Unit);
+            if (!shouldAutoFillUnit && indicator.MethodId.HasValue)
+            {
+                var oldMethod = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
+                var oldDefaultUnit = oldMethod?.FormattedUnit ?? oldMethod?.Unit;
+                shouldAutoFillUnit = !string.IsNullOrEmpty(oldDefaultUnit) && indicator.Unit == oldDefaultUnit;
+            }
+
+            indicator.MethodId = input.MethodId;
+            if (shouldAutoFillUnit)
+            {
+                indicator.Unit = selectedMethod?.FormattedUnit ?? selectedMethod?.Unit;
+            }
+
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
+            updatedDtos.Add(await MapSingleIndicatorAsync(indicator, task));
+        }
+
+        await UpdateTaskStatusAsync(task);
+
+        return updatedDtos;
+    }
+
+    /// <summary>
     /// KTV cập nhật đơn vị tính cho 1 chỉ tiêu.
     /// </summary>
     [Authorize(LabSpecimenManagementPermissions.LaboratoryTasks.Edit)]
