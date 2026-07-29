@@ -955,6 +955,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
         {
@@ -962,7 +971,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorId = indicatorId,
             Note = note,
             TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            VicePresidentId = vicePresidentId,
+            PrintDate = printDate
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -977,9 +987,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         );
         await _publishedReportRepository.InsertAsync(publishedReport);
 
-        // Đánh dấu indicator đã in (phát hành)
+        // Đánh dấu indicator đã in (phát hành) - chỉ set PrintedDate lần đầu
+        if (!indicator.PrintedDate.HasValue)
+        {
+            indicator.PrintedDate = printDate;
+        }
         indicator.IsPrinted = true;
-        indicator.PrintedDate = DateTime.Now;
         await _indicatorRepository.UpdateAsync(indicator);
 
         // Cập nhật task status dựa vào số chỉ tiêu đã in
@@ -1006,6 +1019,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             indicatorsToPrint.Add(indicator);
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
         {
@@ -1013,7 +1035,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorIds = indicatorIds,
             Note = note,
             TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            VicePresidentId = vicePresidentId,
+            PrintDate = printDate
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -1028,11 +1051,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         );
         await _publishedReportRepository.InsertAsync(publishedReport);
 
-        // Đánh dấu tất cả indicators đã in (phát hành)
+        // Đánh dấu tất cả indicators đã in (phát hành) - chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 
@@ -1058,13 +1084,23 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             indicatorsToPrint.Add(indicator);
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
         {
             TaskId = taskId,
             IndicatorIds = input.IndicatorIds,
             Note = input.Note,
             TemplateName = input.TemplateName,
-            VicePresidentId = input.VicePresidentId
+            VicePresidentId = input.VicePresidentId,
+            PrintDate = printDate
         });
 
         foreach (var result in results)
@@ -1081,10 +1117,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             await _publishedReportRepository.InsertAsync(publishedReport);
         }
 
+        // Chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 
@@ -1140,6 +1180,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             .GroupBy(ind => (indicatorMapping[ind.Id].LabId, indicatorMapping[ind.Id].SampleId))
             .ToDictionary(g => g.Key, g => g.Select(ind => ind.Id).ToList());
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDFs for each (lab × sample × template) combination
         var results = new List<PrintResultItemDto>();
 
@@ -1161,7 +1210,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     IndicatorIds = labSampleIndicatorIds,
                     Note = input.Note,
                     TemplateName = templateName,
-                    VicePresidentId = input.VicePresidentId
+                    VicePresidentId = input.VicePresidentId,
+                    PrintDate = printDate
                 });
 
                 results.Add(new PrintResultItemDto
@@ -1189,11 +1239,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             }
         }
 
-        // Đánh dấu tất cả indicators đã in (phát hành)
+        // Chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 

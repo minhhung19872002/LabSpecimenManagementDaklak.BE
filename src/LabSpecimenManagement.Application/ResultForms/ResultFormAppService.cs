@@ -99,6 +99,28 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
     }
 
+    /// <summary>
+    /// Lookup ngày in đầu tiên từ QualityManagementIndicator cho toàn bộ test request.
+    /// Trả về PrintedDate sớm nhất nếu có, null nếu chưa từng in.
+    /// </summary>
+    private async Task<DateTime?> GetFirstPrintDateForTestRequestAsync(Guid testRequestId)
+    {
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(
+            x => x.TestRequestId == testRequestId);
+        var qualityTaskIds = qualityTasks.Select(t => t.Id).ToList();
+
+        if (!qualityTaskIds.Any()) return null;
+
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => qualityTaskIds.Contains(x.QualityManagementTaskId) && x.PrintedDate != null);
+
+        return qualityIndicators
+            .Select(qi => qi.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault();
+    }
+
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
     {
         // 1. Load data
@@ -153,7 +175,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -2333,7 +2358,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -4762,7 +4790,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -5067,12 +5096,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var now = DateTime.Now;
+        var printDate = input.PrintDate ?? DateTime.Now;
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
-            { "{{CurrentDate}}", now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDate.ToString("dd/MM/yyyy") },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
@@ -5087,9 +5116,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Note}}", input.Note ?? "" },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
-            { "{{Date}}", now.Day.ToString("D2") },
-            { "{{Month}}", now.Month.ToString("D2") },
-            { "{{Year}}", now.Year.ToString() },
+            { "{{Date}}", printDate.Day.ToString("D2") },
+            { "{{Month}}", printDate.Month.ToString("D2") },
+            { "{{Year}}", printDate.Year.ToString() },
             { "{{CustomerName}}", testRequest.CustomerName ?? "" },
             { "{{FullAddress}}", address },
             // BM05-QLNN specific placeholders
@@ -5690,7 +5719,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -5927,7 +5959,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 IndicatorIds = sampleGroup.ToList(),
                 Note = input.Note,
                 TemplateName = input.TemplateName,
-                VicePresidentId = input.VicePresidentId
+                VicePresidentId = input.VicePresidentId,
+                PrintDate = input.PrintDate
             };
             var result = await GenerateMixedIndicatorResultFormAsync(perSampleInput);
             results.Add(result);
