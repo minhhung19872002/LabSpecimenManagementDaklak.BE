@@ -51,6 +51,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly ILogger<ResultFormAppService> _logger;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
 
     // Template constants are defined in TemplateConstants class
     // Use TemplateConstants.StandardBasedTemplates for single indicator templates
@@ -75,7 +76,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IPdfConversionService pdfConversionService,
         ILogger<ResultFormAppService> logger,
         IIdentityUserRepository userRepository,
-        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository)
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -97,6 +99,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _logger = logger;
         _userRepository = userRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _laboratoryRepository = laboratoryRepository;
     }
 
     /// <summary>
@@ -338,6 +341,45 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         });
 
         return string.Join(", ", managerNames);
+    }
+
+    private record PerLabOfficerResult(string OfficerHoa, string OfficerViSinh);
+
+    private async Task<PerLabOfficerResult> GetOfficerInChargePerLabAsync(
+        List<LaboratoryTask> labTasks,
+        List<LaboratoryTaskIndicator> labTaskIndicators)
+    {
+        var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
+        var labs = await _laboratoryRepository.GetListAsync(x => distinctLabIds.Contains(x.Id));
+        var labsSorted = labs.OrderBy(l => l.SortOrder).ToList();
+
+        var allUsers = (await _userRepository.GetListAsync()).ToList();
+
+        string GetManagerName(Guid labId)
+        {
+            var managerIds = labTasks
+                .Where(lt => lt.LaboratoryId == labId && lt.TechnicalManagerId.HasValue)
+                .Select(lt => lt.TechnicalManagerId!.Value)
+                .Distinct()
+                .ToList();
+
+            var names = allUsers
+                .Where(u => managerIds.Contains(u.Id))
+                .Select(u =>
+                {
+                    var fullName = $"{u.Surname} {u.Name}".Trim();
+                    return string.IsNullOrWhiteSpace(fullName) ? u.UserName : fullName;
+                })
+                .ToList();
+
+            return string.Join(", ", names);
+        }
+
+        // First lab (by SortOrder) → Hoá, second → Vi sinh
+        var officerHoa = labsSorted.Count > 0 ? GetManagerName(labsSorted[0].Id) : "";
+        var officerViSinh = labsSorted.Count > 1 ? GetManagerName(labsSorted[1].Id) : "";
+
+        return new PerLabOfficerResult(officerHoa, officerViSinh);
     }
 
     /// <summary>
@@ -5001,6 +5043,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var labTaskIds = labTaskIndicators.Select(lti => lti.LaboratoryTaskId).Distinct().ToList();
         var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
 
+        // Detect number of distinct laboratories for template selection (1 lab vs 2 lab)
+        var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
+        var is2Lab = distinctLabIds.Count >= 2;
+
         var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
 
@@ -5136,13 +5182,32 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
-        // Add Officer In Charge placeholder (QLKT who approved the indicators)
-        // Only shows name if exactly 1 approver, otherwise empty
+        // Add Officer In Charge placeholder(s)
+        // Always compute the combined name as fallback for {{OfficerInCharge}} (used by 1-lab templates)
         var officerInChargeName = await GetOfficerInChargeNameAsync(labTaskIndicators);
         placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
+        if (is2Lab)
+        {
+            var perLabOfficers = await GetOfficerInChargePerLabAsync(labTasks, labTaskIndicators);
+            placeholders.Add("{{OfficerInCharge_Hoa}}", perLabOfficers.OfficerHoa);
+            placeholders.Add("{{OfficerInCharge_ViSinh}}", perLabOfficers.OfficerViSinh);
+        }
+        else
+        {
+            placeholders.Add("{{OfficerInCharge_Hoa}}", "");
+            placeholders.Add("{{OfficerInCharge_ViSinh}}", "");
+        }
+
         // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
+        // 2-lab: force BM02_2Lab when user selects BM02 or no template specified
+        var effectiveTemplateName = input.TemplateName;
+        if (is2Lab && (string.IsNullOrWhiteSpace(effectiveTemplateName) || IsBM02Template(effectiveTemplateName)))
+        {
+            effectiveTemplateName = null;
+        }
+        var defaultTemplate = is2Lab ? TemplateConstants.TemplateBM02_2Lab : TemplateConstants.TemplateBM02;
+        var templatePath = GetTemplatePath(effectiveTemplateName, defaultTemplate);
         var templateFileName = Path.GetFileName(templatePath);
         var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
         var isBM04 = IsBM04Template(templateFileName);
@@ -6355,6 +6420,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Kiểm tra template có phải BM05-QLNN không
     /// </summary>
+    private static bool IsBM02Template(string? templateName)
+    {
+        if (string.IsNullOrEmpty(templateName)) return false;
+        return templateName.Contains("BM02", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsBM05QLNNTemplate(string? templateFileName)
     {
         if (string.IsNullOrEmpty(templateFileName)) return false;
