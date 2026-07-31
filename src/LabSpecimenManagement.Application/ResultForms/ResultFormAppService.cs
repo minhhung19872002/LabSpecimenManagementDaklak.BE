@@ -5200,13 +5200,26 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
-        // 2-lab: force BM02_2Lab when user selects BM02 or no template specified
+        // 2-lab: force corresponding _2lab template variant
         var effectiveTemplateName = input.TemplateName;
-        if (is2Lab && (string.IsNullOrWhiteSpace(effectiveTemplateName) || IsBM02Template(effectiveTemplateName)))
+        string defaultTemplate;
+        if (is2Lab)
         {
-            effectiveTemplateName = null;
+            if (IsBM05QLNNTemplate(effectiveTemplateName))
+            {
+                effectiveTemplateName = null;
+                defaultTemplate = TemplateConstants.TemplateQLNN_2Lab;
+            }
+            else
+            {
+                effectiveTemplateName = null;
+                defaultTemplate = TemplateConstants.TemplateBM02_2Lab;
+            }
         }
-        var defaultTemplate = is2Lab ? TemplateConstants.TemplateBM02_2Lab : TemplateConstants.TemplateBM02;
+        else
+        {
+            defaultTemplate = TemplateConstants.TemplateBM02;
+        }
         var templatePath = GetTemplatePath(effectiveTemplateName, defaultTemplate);
         var templateFileName = Path.GetFileName(templatePath);
         var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
