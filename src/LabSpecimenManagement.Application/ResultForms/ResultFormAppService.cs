@@ -2683,7 +2683,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var totalAmount = actualTotalCost.ToString("N0");
         var totalByText = input.SampleTypeTask
             ? "Không đồng"
-            : (input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost));
+            : ConvertNumberToVietnameseWords(actualTotalCost);
         var receiptNumber = input.ReceiptNumber ?? "";
         var currentDateText = currentDate.ToString("dd/MM/yyyy");
 
@@ -4592,7 +4592,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var totalAmount = actualTotalCost.ToString("N0");
         var totalByText = testRequest.SampleTypeTask
             ? "Không đồng"
-            : (testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost));
+            : ConvertNumberToVietnameseWords(actualTotalCost);
 
         // Receipt number
         var receiptNumber = testRequest.ReceiptNumber ?? "";
