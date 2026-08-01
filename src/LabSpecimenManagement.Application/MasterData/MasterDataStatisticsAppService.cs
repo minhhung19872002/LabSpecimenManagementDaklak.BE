@@ -79,7 +79,12 @@ public class MasterDataStatisticsAppService : ApplicationService, IMasterDataSta
         if (Directory.Exists(templatesPath))
         {
             formTemplateCount = Directory.GetFiles(templatesPath)
-                .Count(f => !f.Contains(".template.", StringComparison.OrdinalIgnoreCase));
+                .Count(f =>
+                {
+                    var fn = Path.GetFileName(f);
+                    return fn.Contains(".template.", StringComparison.OrdinalIgnoreCase)
+                        || fn.Contains(".template_", StringComparison.OrdinalIgnoreCase);
+                });
         }
 
         return new MasterDataStatisticsDto
