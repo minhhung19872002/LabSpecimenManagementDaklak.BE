@@ -87,8 +87,11 @@ public class FormTemplateController : LabSpecimenManagementController
     /// </summary>
     private static bool IsTemplateFile(string fileName)
     {
-        // Check for ".template." pattern in the filename (case-insensitive)
-        return fileName.Contains(".template.", StringComparison.OrdinalIgnoreCase);
+        // Check for ".template." or ".template_" pattern in the filename (case-insensitive)
+        // ".template." matches standard templates (e.g., "form.template.docx")
+        // ".template_" matches variant templates (e.g., "form.template_2lab.docx")
+        return fileName.Contains(".template.", StringComparison.OrdinalIgnoreCase)
+            || fileName.Contains(".template_", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
