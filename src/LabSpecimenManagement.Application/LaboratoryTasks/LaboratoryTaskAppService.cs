@@ -3232,7 +3232,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         // Indicator info
                         TestRequestSampleIndicatorId = si.Id,
                         LaboratoryTaskIndicatorId = li.Id,
-                        IndicatorId = li.Id,
+                        IndicatorId = mi.Id,
                         IndicatorName = mi.Name,
                         IndicatorFormattedName = mi.FormattedName,
                         MethodId = li.MethodId,
