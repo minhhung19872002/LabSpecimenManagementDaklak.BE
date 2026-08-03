@@ -3830,6 +3830,15 @@ public partial class TestRequestAppService :
         // Get quality task for this indicator
         var qualityTask = await _qualityTaskRepository.GetAsync(indicator.QualityManagementTaskId);
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == qualityTask.Id);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
         {
@@ -3837,8 +3846,17 @@ public partial class TestRequestAppService :
             IndicatorId = indicatorId,
             Note = note,
             TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            VicePresidentId = vicePresidentId,
+            PrintDate = printDate
         });
+
+        // Chỉ set PrintedDate lần đầu
+        if (!indicator.PrintedDate.HasValue)
+        {
+            indicator.PrintedDate = printDate;
+            indicator.IsPrinted = true;
+            await _qualityIndicatorRepository.UpdateAsync(indicator);
+        }
 
         // Update TestRequest status to PendingApproval if not already past that
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -3861,6 +3879,7 @@ public partial class TestRequestAppService :
         var testRequest = await Repository.GetAsync(id);
 
         // Validate all indicators are approved
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
         foreach (var indicatorId in indicatorIds)
         {
             var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
@@ -3868,11 +3887,21 @@ public partial class TestRequestAppService :
             {
                 throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
             }
+            indicatorsToPrint.Add(indicator);
         }
 
         // Get first indicator to find quality task
-        var firstIndicator = await _qualityIndicatorRepository.GetAsync(indicatorIds.First());
+        var firstIndicator = indicatorsToPrint.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == qualityTask.Id);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
 
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
@@ -3881,8 +3910,20 @@ public partial class TestRequestAppService :
             IndicatorIds = indicatorIds,
             Note = note,
             TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            VicePresidentId = vicePresidentId,
+            PrintDate = printDate
         });
+
+        // Chỉ set PrintedDate lần đầu
+        foreach (var indicator in indicatorsToPrint)
+        {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+                indicator.IsPrinted = true;
+                await _qualityIndicatorRepository.UpdateAsync(indicator);
+            }
+        }
 
         // Update TestRequest status to PendingApproval if not already past that
         if (testRequest.Status == TestRequestStatus.InProgress)
@@ -3904,15 +3945,26 @@ public partial class TestRequestAppService :
     {
         var testRequest = await Repository.GetAsync(id);
 
+        var indicatorsToPrint = new List<QualityManagementIndicator>();
         foreach (var indicatorId in input.IndicatorIds)
         {
             var indicator = await _qualityIndicatorRepository.GetAsync(indicatorId);
             if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
                 throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
+            indicatorsToPrint.Add(indicator);
         }
 
-        var firstIndicator = await _qualityIndicatorRepository.GetAsync(input.IndicatorIds.First());
+        var firstIndicator = indicatorsToPrint.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == qualityTask.Id);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
 
         var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
         {
@@ -3920,8 +3972,20 @@ public partial class TestRequestAppService :
             IndicatorIds = input.IndicatorIds,
             Note = input.Note,
             TemplateName = input.TemplateName,
-            VicePresidentId = input.VicePresidentId
+            VicePresidentId = input.VicePresidentId,
+            PrintDate = printDate
         });
+
+        // Chỉ set PrintedDate lần đầu
+        foreach (var indicator in indicatorsToPrint)
+        {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+                indicator.IsPrinted = true;
+                await _qualityIndicatorRepository.UpdateAsync(indicator);
+            }
+        }
 
         if (testRequest.Status == TestRequestStatus.InProgress)
         {
@@ -3975,6 +4039,15 @@ public partial class TestRequestAppService :
         // Get first indicator to find quality task
         var firstIndicator = qualityIndicators.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
+
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == qualityTask.Id);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
 
         // Get LaboratoryTaskIndicators to find LaboratoryId
         var labTaskIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).ToList();
@@ -4057,7 +4130,8 @@ public partial class TestRequestAppService :
                         IndicatorId = labSampleIndicators[0].Id,
                         Note = input.Note,
                         TemplateName = templateName,
-                        VicePresidentId = input.VicePresidentId
+                        VicePresidentId = input.VicePresidentId,
+                        PrintDate = printDate
                     });
                 }
                 else
@@ -4069,7 +4143,8 @@ public partial class TestRequestAppService :
                         IndicatorIds = labSampleIndicators.Select(qi => qi.Id).ToList(),
                         Note = input.Note,
                         TemplateName = templateName,
-                        VicePresidentId = input.VicePresidentId
+                        VicePresidentId = input.VicePresidentId,
+                        PrintDate = printDate
                     });
                 }
 
@@ -4083,6 +4158,17 @@ public partial class TestRequestAppService :
                     SampleName = sampleName,
                     TemplateName = templateName
                 });
+            }
+        }
+
+        // Chỉ set PrintedDate lần đầu
+        foreach (var indicator in qualityIndicators)
+        {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+                indicator.IsPrinted = true;
+                await _qualityIndicatorRepository.UpdateAsync(indicator);
             }
         }
 

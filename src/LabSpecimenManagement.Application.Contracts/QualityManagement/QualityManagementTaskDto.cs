@@ -41,6 +41,11 @@ public class QualityManagementTaskDto : FullAuditedEntityDto<Guid>
     public int PendingApprovalIndicatorCount { get; set; }
 
     /// <summary>
+    /// Số chỉ tiêu đã được QLCL duyệt - Approved Indicator Count
+    /// </summary>
+    public int ApprovedIndicatorCount { get; set; }
+
+    /// <summary>
     /// Tên các khoa phòng - Laboratory Names (comma separated)
     /// </summary>
     public string? LaboratoryNames { get; set; }
@@ -234,4 +239,15 @@ public class PrintResultItemDto
     /// Template name used
     /// </summary>
     public string TemplateName { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// Cấu hình ghi chú từ lần in trước - dùng để pre-populate dialog in
+/// </summary>
+public class PrintNoteConfigDto
+{
+    public List<Guid> SelectedMasterNoteIds { get; set; } = new();
+    public string? FreeTextNote { get; set; }
+    public Guid? VicePresidentId { get; set; }
+    public string? TemplateName { get; set; }
 }

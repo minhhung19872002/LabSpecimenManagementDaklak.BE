@@ -1178,6 +1178,51 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     }
 
     /// <summary>
+    /// Cập nhật phương pháp cho nhiều chỉ tiêu cùng lúc
+    /// </summary>
+    [Authorize]
+    public async Task<List<LaboratoryTaskIndicatorDto>> BulkUpdateIndicatorMethodAsync(Guid taskId, BulkUpdateIndicatorMethodDto input)
+    {
+        var task = await _laboratoryTaskRepository.GetAsync(taskId);
+
+        if (!await CanManageTaskAsync(task))
+            throw new ForbiddenAccessException("Bạn không có quyền cập nhật phương pháp");
+
+        TestMethod? selectedMethod = null;
+        if (input.MethodId.HasValue)
+        {
+            selectedMethod = await _testMethodRepository.FindAsync(input.MethodId.Value);
+            if (selectedMethod == null)
+                throw new ValidationException("methodId", "Phương pháp không tồn tại");
+        }
+
+        var keepSubContractMethod = IsDashMethodName(selectedMethod?.Name);
+        var updatedIndicators = new List<LaboratoryTaskIndicatorDto>();
+
+        foreach (var indicatorId in input.IndicatorIds)
+        {
+            var taskIndicator = await _laboratoryTaskIndicatorRepository.FindAsync(indicatorId);
+            if (taskIndicator == null || taskIndicator.LaboratoryTaskId != task.Id) continue;
+            if (taskIndicator.ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled) continue;
+
+            if (!keepSubContractMethod)
+            {
+                taskIndicator.SubContractMethodName = null;
+                taskIndicator.SubContractNumber = null;
+                taskIndicator.SubContractCost = null;
+            }
+
+            taskIndicator.MethodId = input.MethodId;
+            await _laboratoryTaskIndicatorRepository.UpdateAsync(taskIndicator);
+            updatedIndicators.Add(await MapToIndicatorDtoAsync(taskIndicator));
+        }
+
+        await UpdateTaskStatusAsync(task);
+
+        return updatedIndicators;
+    }
+
+    /// <summary>
     /// Cập nhật thông tin phương pháp phụ cho chỉ tiêu có phương pháp gốc là "-"
     /// </summary>
     [Authorize]
@@ -3188,7 +3233,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         CustomerName = tr.CustomerName,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
+                        RequestCompletionDate = si.RequestDate ?? tr.ExpectedCompletionDate ?? lt.RequestCompletionDate,
 
                         // Sample info
                         SampleId = s.Id,
@@ -3207,7 +3252,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
                         MethodName = tm != null ? tm.Name : null,
                         MethodFormattedName = tm != null ? tm.FormattedName : null,
                         Unit = li.Unit,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestDate = li.TestDate,
                         Result = li.Result,
 

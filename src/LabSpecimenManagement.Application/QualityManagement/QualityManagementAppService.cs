@@ -600,10 +600,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     continue;
                 }
 
-                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval)
+                if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.PendingApproval &&
+                    indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
                 {
                     result.FailedCount++;
-                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái chờ phê duyệt");
+                    result.FailedIndicators.Add($"Chỉ tiêu không ở trạng thái hợp lệ để từ chối");
                     continue;
                 }
 
@@ -966,6 +967,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             throw new Common.Exceptions.InvalidOperationException("Chỉ có thể in kết quả đã được duyệt.", "indicator");
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
         {
@@ -973,7 +983,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             IndicatorId = indicatorId,
             Note = note,
             TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            VicePresidentId = vicePresidentId,
+            PrintDate = printDate
         });
 
         // Tạo record PublishedReport (log lịch sử in)
@@ -988,9 +999,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         );
         await _publishedReportRepository.InsertAsync(publishedReport);
 
-        // Đánh dấu indicator đã in (phát hành)
+        // Đánh dấu indicator đã in (phát hành) - chỉ set PrintedDate lần đầu
+        if (!indicator.PrintedDate.HasValue)
+        {
+            indicator.PrintedDate = printDate;
+        }
         indicator.IsPrinted = true;
-        indicator.PrintedDate = DateTime.Now;
         await _indicatorRepository.UpdateAsync(indicator);
 
         // Cập nhật task status dựa vào số chỉ tiêu đã in
@@ -1002,12 +1016,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, PrintMixedDto input)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicatorsToPrint = new List<QualityManagementIndicator>();
 
-        foreach (var indicatorId in indicatorIds)
+        foreach (var indicatorId in input.IndicatorIds)
         {
             var indicator = await _indicatorRepository.GetAsync(indicatorId);
             if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
@@ -1017,33 +1031,51 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             indicatorsToPrint.Add(indicator);
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
         {
             TaskId = taskId,
-            IndicatorIds = indicatorIds,
-            Note = note,
-            TemplateName = templateName,
-            VicePresidentId = vicePresidentId
+            IndicatorIds = input.IndicatorIds,
+            Note = input.Note,
+            TemplateName = input.TemplateName,
+            VicePresidentId = input.VicePresidentId,
+            PrintDate = printDate
         });
 
-        // Tạo record PublishedReport (log lịch sử in)
+        // Tạo record PublishedReport (log lịch sử in) + lưu structured note data
         var publishedReport = new PublishedReport(
             GuidGenerator.Create(),
             task.TestRequestId,
             task.Id,
             result.FileName,
             "Mixed",
-            note,
-            JsonSerializer.Serialize(indicatorIds)
+            input.Note,
+            JsonSerializer.Serialize(input.IndicatorIds)
         );
+        publishedReport.SelectedMasterNoteIds = input.SelectedMasterNoteIds?.Any() == true
+            ? JsonSerializer.Serialize(input.SelectedMasterNoteIds)
+            : null;
+        publishedReport.FreeTextNote = input.FreeTextNote;
+        publishedReport.VicePresidentId = input.VicePresidentId;
         await _publishedReportRepository.InsertAsync(publishedReport);
 
-        // Đánh dấu tất cả indicators đã in (phát hành)
+        // Đánh dấu tất cả indicators đã in (phát hành) - chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 
@@ -1069,14 +1101,28 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             indicatorsToPrint.Add(indicator);
         }
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
         {
             TaskId = taskId,
             IndicatorIds = input.IndicatorIds,
             Note = input.Note,
             TemplateName = input.TemplateName,
-            VicePresidentId = input.VicePresidentId
+            VicePresidentId = input.VicePresidentId,
+            PrintDate = printDate
         });
+
+        var serializedMasterNoteIds = input.SelectedMasterNoteIds?.Any() == true
+            ? JsonSerializer.Serialize(input.SelectedMasterNoteIds)
+            : null;
 
         foreach (var result in results)
         {
@@ -1089,13 +1135,20 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 input.Note,
                 JsonSerializer.Serialize(input.IndicatorIds)
             );
+            publishedReport.SelectedMasterNoteIds = serializedMasterNoteIds;
+            publishedReport.FreeTextNote = input.FreeTextNote;
+            publishedReport.VicePresidentId = input.VicePresidentId;
             await _publishedReportRepository.InsertAsync(publishedReport);
         }
 
+        // Chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 
@@ -1109,6 +1162,31 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 SampleCode = r.SampleCode ?? "",
                 TemplateName = input.TemplateName ?? "QLNN"
             }).ToList()
+        };
+    }
+
+    public async Task<PrintNoteConfigDto?> GetLastPrintNoteConfigAsync(Guid taskId)
+    {
+        var lastReport = (await _publishedReportRepository.GetQueryableAsync())
+            .Where(r => r.QualityManagementTaskId == taskId
+                && (r.ReportType == "Mixed" || r.ReportType == "MixedPerSample"))
+            .OrderByDescending(r => r.CreationTime)
+            .FirstOrDefault();
+
+        if (lastReport == null)
+            return null;
+
+        var masterNoteIds = new List<Guid>();
+        if (!string.IsNullOrEmpty(lastReport.SelectedMasterNoteIds))
+        {
+            masterNoteIds = JsonSerializer.Deserialize<List<Guid>>(lastReport.SelectedMasterNoteIds) ?? new();
+        }
+
+        return new PrintNoteConfigDto
+        {
+            SelectedMasterNoteIds = masterNoteIds,
+            FreeTextNote = lastReport.FreeTextNote,
+            VicePresidentId = lastReport.VicePresidentId,
         };
     }
 
@@ -1151,6 +1229,15 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             .GroupBy(ind => (indicatorMapping[ind.Id].LabId, indicatorMapping[ind.Id].SampleId))
             .ToDictionary(g => g.Key, g => g.Select(ind => ind.Id).ToList());
 
+        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
+        var allTaskIndicators = await _indicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == taskId);
+        var printDate = allTaskIndicators
+            .Select(i => i.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault() ?? DateTime.Now;
+
         // Generate PDFs for each (lab × sample × template) combination
         var results = new List<PrintResultItemDto>();
 
@@ -1172,7 +1259,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                     IndicatorIds = labSampleIndicatorIds,
                     Note = input.Note,
                     TemplateName = templateName,
-                    VicePresidentId = input.VicePresidentId
+                    VicePresidentId = input.VicePresidentId,
+                    PrintDate = printDate
                 });
 
                 results.Add(new PrintResultItemDto
@@ -1200,11 +1288,14 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             }
         }
 
-        // Đánh dấu tất cả indicators đã in (phát hành)
+        // Chỉ set PrintedDate lần đầu
         foreach (var indicator in indicatorsToPrint)
         {
+            if (!indicator.PrintedDate.HasValue)
+            {
+                indicator.PrintedDate = printDate;
+            }
             indicator.IsPrinted = true;
-            indicator.PrintedDate = DateTime.Now;
             await _indicatorRepository.UpdateAsync(indicator);
         }
 
@@ -1446,8 +1537,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return dtos[0];
     }
 
-    // Batch toàn bộ dữ liệu liên quan cho cả trang trong 6 query
-    // (thay vì 6 query cho MỖI task như trước)
+    // Batch toàn bộ dữ liệu liên quan cho cả trang
+    // (thay vì query riêng cho MỖI task)
     private async Task<List<QualityManagementTaskDto>> MapToListDtosAsync(List<QualityManagementTask> tasks)
     {
         var dtos = new List<QualityManagementTaskDto>();
@@ -1485,6 +1576,89 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var allIndicators = await _indicatorRepository.GetListAsync(i => taskIds.Contains(i.QualityManagementTaskId));
         var indicatorsByTask = allIndicators.ToLookup(i => i.QualityManagementTaskId);
 
+        // TotalIndicatorCount hiển thị phải là tổng chỉ tiêu của phiếu yêu cầu,
+        // không phải số chỉ tiêu đã được gửi vào scope QLCL.
+        var allSamples = await _sampleRepository.GetListAsync(s => testRequestIds.Contains(s.TestRequestId));
+        var sampleById = allSamples.ToDictionary(s => s.Id);
+        var allSampleIds = allSamples.Select(s => s.Id).ToList();
+        var allSampleIndicators = allSampleIds.Count == 0
+            ? new List<TestRequestSampleIndicator>()
+            : await _sampleIndicatorRepository.GetListAsync(si => allSampleIds.Contains(si.TestRequestSampleId));
+
+        var allMasterIndicatorIds = allSampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var masterIndicatorById = allMasterIndicatorIds.Count == 0
+            ? new Dictionary<Guid, Indicator>()
+            : (await _masterIndicatorRepository.GetListAsync(i => allMasterIndicatorIds.Contains(i.Id)))
+                .ToDictionary(i => i.Id);
+
+        // Parent của combo chỉ dùng để nhóm hiển thị; tổng thực tế chỉ tính children và standalone.
+        var requestParentKeys = new HashSet<(Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var sampleIndicator in allSampleIndicators)
+        {
+            if (masterIndicatorById.TryGetValue(sampleIndicator.IndicatorId, out var masterIndicator) &&
+                masterIndicator.ParentIndicatorId.HasValue)
+            {
+                requestParentKeys.Add((
+                    sampleIndicator.TestRequestSampleId,
+                    masterIndicator.ParentIndicatorId.Value,
+                    sampleIndicator.TestMethodId));
+            }
+        }
+
+        var activeSampleIndicatorsByRequest = allSampleIndicators
+            .Where(si => sampleById.ContainsKey(si.TestRequestSampleId))
+            .Where(si => !requestParentKeys.Contains((
+                si.TestRequestSampleId,
+                si.IndicatorId,
+                si.TestMethodId)))
+            .ToLookup(si => sampleById[si.TestRequestSampleId].TestRequestId);
+
+        // Pending/Approved cũng áp dụng cùng quy tắc loại parent combo.
+        var qualityLabIndicatorIds = allIndicators
+            .Select(i => i.LaboratoryTaskIndicatorId)
+            .Distinct()
+            .ToList();
+        var qualityLabIndicatorById = qualityLabIndicatorIds.Count == 0
+            ? new Dictionary<Guid, LaboratoryTaskIndicator>()
+            : (await _laboratoryTaskIndicatorRepository.GetListAsync(li => qualityLabIndicatorIds.Contains(li.Id)))
+                .ToDictionary(li => li.Id);
+        var sampleIndicatorById = allSampleIndicators.ToDictionary(si => si.Id);
+
+        var qualityParentKeys = new HashSet<(Guid TaskId, Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var qualityIndicator in allIndicators)
+        {
+            if (!qualityLabIndicatorById.TryGetValue(qualityIndicator.LaboratoryTaskIndicatorId, out var labIndicator) ||
+                !sampleIndicatorById.TryGetValue(labIndicator.TestRequestSampleIndicatorId, out var sampleIndicator) ||
+                !masterIndicatorById.TryGetValue(sampleIndicator.IndicatorId, out var masterIndicator) ||
+                !masterIndicator.ParentIndicatorId.HasValue)
+            {
+                continue;
+            }
+
+            qualityParentKeys.Add((
+                qualityIndicator.QualityManagementTaskId,
+                sampleIndicator.TestRequestSampleId,
+                masterIndicator.ParentIndicatorId.Value,
+                labIndicator.MethodId));
+        }
+
+        var activeQualityIndicatorsByTask = allIndicators
+            .Where(qualityIndicator =>
+            {
+                if (!qualityLabIndicatorById.TryGetValue(qualityIndicator.LaboratoryTaskIndicatorId, out var labIndicator) ||
+                    !sampleIndicatorById.TryGetValue(labIndicator.TestRequestSampleIndicatorId, out var sampleIndicator))
+                {
+                    return true;
+                }
+
+                return !qualityParentKeys.Contains((
+                    qualityIndicator.QualityManagementTaskId,
+                    sampleIndicator.TestRequestSampleId,
+                    sampleIndicator.IndicatorId,
+                    labIndicator.MethodId));
+            })
+            .ToLookup(i => i.QualityManagementTaskId);
+
         foreach (var task in tasks)
         {
             testRequestById.TryGetValue(task.TestRequestId, out var testRequest);
@@ -1507,6 +1681,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
             // Get latest printed date from published indicators
             var indicators = indicatorsByTask[task.Id].ToList();
+            var activeQualityIndicators = activeQualityIndicatorsByTask[task.Id].ToList();
             var latestPrintedDate = indicators
                 .Where(i => i.IsPrinted && i.PrintedDate.HasValue)
                 .Select(i => i.PrintedDate!.Value)
@@ -1526,8 +1701,11 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 ContractNumber = task.ContractNumber,
                 TaskType = task.TaskType,
                 TotalSampleCount = task.TotalSampleCount,
-                TotalIndicatorCount = task.TotalIndicatorCount,
-                PendingApprovalIndicatorCount = indicators.Count(i => i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval),
+                TotalIndicatorCount = activeSampleIndicatorsByRequest[task.TestRequestId].Count(),
+                PendingApprovalIndicatorCount = activeQualityIndicators.Count(i =>
+                    i.ApprovalStatus == QualityIndicatorApprovalStatus.PendingApproval),
+                ApprovedIndicatorCount = activeQualityIndicators.Count(i =>
+                    i.ApprovalStatus == QualityIndicatorApprovalStatus.Approved),
                 LaboratoryNames = labNames,
                 TransferDate = testRequest?.UnderReviewDate,
                 RequestCompletionDate = task.RequestCompletionDate,
@@ -2319,21 +2497,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         var totalPrintedCount = approvedIndicators.Count(i => i.IsPrinted);
-        var totalApproved = approvedIndicators.Count;
 
         if (totalPrintedCount == 0)
         {
             // Chưa in gì - giữ PendingPublish
             return;
         }
-        else if (totalPrintedCount < totalApproved)
+
+        // So sánh với tổng chỉ tiêu thực tế của phiếu yêu cầu (không chỉ QM indicators)
+        var totalExpected = await GetTotalActiveSampleIndicatorCountAsync(task.TestRequestId);
+
+        if (totalPrintedCount < totalExpected)
         {
-            // In 1 phần
             task.Status = QualityManagementStatus.PartialPublished;
         }
         else
         {
-            // In tất cả
             task.Status = QualityManagementStatus.FullyPublished;
         }
 
@@ -2489,6 +2668,37 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         return result;
     }
 
+    private async Task<int> GetTotalActiveSampleIndicatorCountAsync(Guid testRequestId)
+    {
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
+        var sampleIds = samples.Select(s => s.Id).ToList();
+
+        if (!sampleIds.Any()) return 0;
+
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIds.Contains(si.TestRequestSampleId));
+
+        var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var masterIndicators = indicatorIds.Count == 0
+            ? new List<Indicator>()
+            : await _masterIndicatorRepository.GetListAsync(i => indicatorIds.Contains(i.Id));
+        var indicatorMap = masterIndicators.ToDictionary(i => i.Id);
+
+        var parentKeys = new HashSet<(Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var si in sampleIndicators)
+        {
+            if (indicatorMap.TryGetValue(si.IndicatorId, out var master) &&
+                master.ParentIndicatorId.HasValue)
+            {
+                parentKeys.Add((si.TestRequestSampleId, master.ParentIndicatorId.Value, si.TestMethodId));
+            }
+        }
+
+        return sampleIndicators
+            .Where(si => !parentKeys.Contains((si.TestRequestSampleId, si.IndicatorId, si.TestMethodId)))
+            .Count();
+    }
+
     #endregion
 
     #region Sample Assignment Log
@@ -2543,7 +2753,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         ContractNumber = tr.ContractNumber,
                         ContractDate = tr.ContractDate,
                         TestRequestStatus = tr.Status,
-                        RequestCompletionDate = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
+                        RequestCompletionDate = si.RequestDate ?? tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
 
                         // Sample info
                         SampleId = s.Id,
@@ -2564,7 +2774,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                             ? null
                             : (tm != null ? tm.FormattedName : null),
                         Unit = li != null ? li.Unit : null,
-                        TransferDate = tr.UnderReviewDate,
+                        // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
+                        TransferDate = tr.FormPrintedDate,
                         TestDate = li != null ? li.TestDate : null,
                         Result = li != null ? li.Result : null,
 

@@ -43,7 +43,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
         var query = await _repository.GetQueryableAsync();
         if (!isDirector)
-            query = query.Where(t => t.AssignedToId == CurrentUser.Id!.Value);
+            query = query.Where(t => !t.IsPrivate || t.AssignedToId == CurrentUser.Id!.Value);
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
@@ -96,7 +96,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
         var isDirector = await IsDirectorAsync();
         var query = await _repository.GetQueryableAsync();
         if (!isDirector)
-            query = query.Where(t => t.AssignedToId == CurrentUser.Id!.Value);
+            query = query.Where(t => !t.IsPrivate || t.AssignedToId == CurrentUser.Id!.Value);
 
         var today = DateTime.Today;
         return new SupplementaryTaskStatsDto
@@ -130,6 +130,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
             input.DueDate
         );
         task.Description = input.Description;
+        task.IsPrivate = input.IsPrivate;
         task.ImageUrls = input.ImageUrls?.Count > 0
             ? JsonSerializer.Serialize(input.ImageUrls)
             : null;
@@ -154,6 +155,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
         task.Description = input.Description;
         task.DueDate = input.DueDate;
         task.Priority = input.Priority;
+        task.IsPrivate = input.IsPrivate;
         task.ImageUrls = input.ImageUrls?.Count > 0
             ? JsonSerializer.Serialize(input.ImageUrls)
             : null;
@@ -273,6 +275,11 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
     public async Task<List<SupplementaryTaskLogDto>> GetLogsAsync(Guid taskId)
     {
+        var task = await _repository.GetAsync(taskId);
+        var isDirector = await IsDirectorAsync();
+        if (!isDirector && task.IsPrivate && task.AssignedToId != CurrentUser.Id!.Value)
+            throw new UserFriendlyException("Bạn không có quyền xem công việc này.");
+
         var query = (await _logRepository.GetQueryableAsync())
             .Where(l => l.TaskId == taskId)
             .OrderBy(l => l.ChangedAt);

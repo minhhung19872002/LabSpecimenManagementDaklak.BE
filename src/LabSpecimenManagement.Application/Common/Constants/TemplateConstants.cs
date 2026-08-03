@@ -32,6 +32,11 @@ public static class TemplateConstants
     public const string TemplateBM02 = "Form trả KQ tổng hợp - BM02-QT13-BCKQ_3.2.template.docx";
 
     /// <summary>
+    /// BM02 2Lab - Form trả kết quả tổng hợp cho 2 phòng thử nghiệm (Hoá + Vi sinh)
+    /// </summary>
+    public const string TemplateBM02_2Lab = "Form trả KQ tổng hợp - BM02-QT13-BCKQ_3.2.template_2lab.docx";
+
+    /// <summary>
     /// BM05 - Phiếu yêu cầu (request form)
     /// </summary>
     public const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx";
@@ -45,6 +50,11 @@ public static class TemplateConstants
     /// QLNN - Form mẫu quản lý nhà nước
     /// </summary>
     public const string TemplateQLNN = "form mẫu QLNN BM05-QT13-BCKQ_3.2.template.docx";
+
+    /// <summary>
+    /// QLNN 2Lab - Form mẫu quản lý nhà nước cho 2 phòng thử nghiệm (Hoá + Vi sinh)
+    /// </summary>
+    public const string TemplateQLNN_2Lab = "form mẫu QLNN BM05-QT13-BCKQ_3.2.template_2lab.docx";
 
     #endregion
 

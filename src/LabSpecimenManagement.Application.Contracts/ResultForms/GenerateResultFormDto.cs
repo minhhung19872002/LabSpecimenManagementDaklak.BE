@@ -20,6 +20,12 @@ public class GenerateResultFormInput
     /// </summary>
     [Required]
     public Guid SampleId { get; set; }
+
+    /// <summary>
+    /// Ngày in đầu tiên - dùng thay cho DateTime.Now trên form
+    /// Nếu null, sẽ tự lookup từ QualityManagementIndicator.PrintedDate
+    /// </summary>
+    public DateTime? PrintDate { get; set; }
 }
 
 /// <summary>
@@ -65,6 +71,12 @@ public class GenerateBM01ResultFormInput
     /// If null, uses default template (BM01)
     /// </summary>
     public string? TemplateName { get; set; }
+
+    /// <summary>
+    /// Ngày in đầu tiên - dùng thay cho DateTime.Now trên form
+    /// Nếu null, sẽ tự lookup từ QualityManagementIndicator.PrintedDate
+    /// </summary>
+    public DateTime? PrintDate { get; set; }
 }
 
 /// <summary>
@@ -132,6 +144,11 @@ public class GenerateSingleIndicatorInput
     /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
     /// </summary>
     public Guid? VicePresidentId { get; set; }
+
+    /// <summary>
+    /// Ngày in đầu tiên - dùng thay cho DateTime.Now trên form
+    /// </summary>
+    public DateTime? PrintDate { get; set; }
 }
 
 /// <summary>
@@ -166,6 +183,11 @@ public class GenerateMixedIndicatorInput
     /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
     /// </summary>
     public Guid? VicePresidentId { get; set; }
+
+    /// <summary>
+    /// Ngày in đầu tiên - dùng thay cho DateTime.Now trên form
+    /// </summary>
+    public DateTime? PrintDate { get; set; }
 }
 
 /// <summary>
@@ -190,6 +212,12 @@ public class GenerateMixedSamplesResultFormInput
     /// Optional note to include in the result form
     /// </summary>
     public string? Note { get; set; }
+
+    /// <summary>
+    /// Ngày in đầu tiên - dùng thay cho DateTime.Now trên form
+    /// Nếu null, sẽ tự lookup từ QualityManagementIndicator.PrintedDate
+    /// </summary>
+    public DateTime? PrintDate { get; set; }
 }
 
 /// <summary>

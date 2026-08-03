@@ -51,6 +51,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private readonly ILogger<ResultFormAppService> _logger;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
 
     // Template constants are defined in TemplateConstants class
     // Use TemplateConstants.StandardBasedTemplates for single indicator templates
@@ -75,7 +76,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         IPdfConversionService pdfConversionService,
         ILogger<ResultFormAppService> logger,
         IIdentityUserRepository userRepository,
-        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository)
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository)
     {
         _testRequestRepository = testRequestRepository;
         _sampleRepository = sampleRepository;
@@ -97,6 +99,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _logger = logger;
         _userRepository = userRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
+        _laboratoryRepository = laboratoryRepository;
+    }
+
+    /// <summary>
+    /// Lookup ngày in đầu tiên từ QualityManagementIndicator cho toàn bộ test request.
+    /// Trả về PrintedDate sớm nhất nếu có, null nếu chưa từng in.
+    /// </summary>
+    private async Task<DateTime?> GetFirstPrintDateForTestRequestAsync(Guid testRequestId)
+    {
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(
+            x => x.TestRequestId == testRequestId);
+        var qualityTaskIds = qualityTasks.Select(t => t.Id).ToList();
+
+        if (!qualityTaskIds.Any()) return null;
+
+        var qualityIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => qualityTaskIds.Contains(x.QualityManagementTaskId) && x.PrintedDate != null);
+
+        return qualityIndicators
+            .Select(qi => qi.PrintedDate)
+            .Where(d => d.HasValue)
+            .OrderBy(d => d)
+            .FirstOrDefault();
     }
 
     public async Task<GenerateResultFormOutput> GenerateResultFormAsync(GenerateResultFormInput input)
@@ -153,7 +178,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -313,6 +341,45 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         });
 
         return string.Join(", ", managerNames);
+    }
+
+    private record PerLabOfficerResult(string OfficerHoa, string OfficerViSinh);
+
+    private async Task<PerLabOfficerResult> GetOfficerInChargePerLabAsync(
+        List<LaboratoryTask> labTasks,
+        List<LaboratoryTaskIndicator> labTaskIndicators)
+    {
+        var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
+        var labs = await _laboratoryRepository.GetListAsync(x => distinctLabIds.Contains(x.Id));
+        var labsSorted = labs.OrderBy(l => l.SortOrder).ToList();
+
+        var allUsers = (await _userRepository.GetListAsync()).ToList();
+
+        string GetManagerName(Guid labId)
+        {
+            var managerIds = labTasks
+                .Where(lt => lt.LaboratoryId == labId && lt.TechnicalManagerId.HasValue)
+                .Select(lt => lt.TechnicalManagerId!.Value)
+                .Distinct()
+                .ToList();
+
+            var names = allUsers
+                .Where(u => managerIds.Contains(u.Id))
+                .Select(u =>
+                {
+                    var fullName = $"{u.Surname} {u.Name}".Trim();
+                    return string.IsNullOrWhiteSpace(fullName) ? u.UserName : fullName;
+                })
+                .ToList();
+
+            return string.Join(", ", names);
+        }
+
+        // First lab (by SortOrder) → Hoá, second → Vi sinh
+        var officerHoa = labsSorted.Count > 0 ? GetManagerName(labsSorted[0].Id) : "";
+        var officerViSinh = labsSorted.Count > 1 ? GetManagerName(labsSorted[1].Id) : "";
+
+        return new PerLabOfficerResult(officerHoa, officerViSinh);
     }
 
     /// <summary>
@@ -2333,7 +2400,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -2490,12 +2560,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 7. Auto-set FormPrintedDate based on indicator changes
         var sampleIds = samples.Select(s => s.Id).ToList();
-        var allIndicatorIds = (await _sampleIndicatorRepository.GetListAsync(
-                x => sampleIds.Contains(x.TestRequestSampleId)))
+        var allSampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                x => sampleIds.Contains(x.TestRequestSampleId));
+        var allIndicatorIds = allSampleIndicators
             .Select(si => si.Id)
             .OrderBy(id => id)
             .ToList();
         var currentHash = ComputeIndicatorHash(allIndicatorIds);
+
+        // Recalculate TotalCost from indicators (stored value may be stale)
+        var recalculatedTotalCost = allSampleIndicators.Sum(si => si.UnitPrice);
+        if (testRequest.TotalCost != recalculatedTotalCost)
+        {
+            testRequest.TotalCost = recalculatedTotalCost;
+        }
 
         if (!testRequest.FormPrintedDate.HasValue || testRequest.LastPrintedIndicatorHash != currentHash)
         {
@@ -2613,7 +2691,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var totalAmount = actualTotalCost.ToString("N0");
         var totalByText = input.SampleTypeTask
             ? "Không đồng"
-            : (input.TotalCostInWords ?? ConvertNumberToVietnameseWords(input.TotalCost));
+            : ConvertNumberToVietnameseWords(actualTotalCost);
         var receiptNumber = input.ReceiptNumber ?? "";
         var currentDateText = currentDate.ToString("dd/MM/yyyy");
 
@@ -4522,7 +4600,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var totalAmount = actualTotalCost.ToString("N0");
         var totalByText = testRequest.SampleTypeTask
             ? "Không đồng"
-            : (testRequest.TotalCostInWords ?? ConvertNumberToVietnameseWords(testRequest.TotalCost));
+            : ConvertNumberToVietnameseWords(actualTotalCost);
 
         // Receipt number
         var receiptNumber = testRequest.ReceiptNumber ?? "";
@@ -4651,8 +4729,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var intPart = (long)number;
         if (intPart == 0) return "Không đồng";
 
-        var result = ConvertLongToVietnameseWords(intPart);
-        return $"{result} đồng";
+        var result = ConvertLongToVietnameseWords(intPart) + " đồng";
+        return char.ToUpper(result[0]) + result.Substring(1);
     }
 
     private string ConvertLongToVietnameseWords(long number)
@@ -4762,7 +4840,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 3. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -4972,6 +5051,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var labTaskIds = labTaskIndicators.Select(lti => lti.LaboratoryTaskId).Distinct().ToList();
         var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
 
+        // Detect number of distinct laboratories for template selection (1 lab vs 2 lab)
+        var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
+        var is2Lab = distinctLabIds.Count >= 2;
+
         var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
 
@@ -5067,12 +5150,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 4. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var now = DateTime.Now;
+        var printDate = input.PrintDate ?? DateTime.Now;
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
             { "{{SampleCode}}", firstSample?.SampleCode ?? "" },
-            { "{{CurrentDate}}", now.ToString("dd/MM/yyyy") },
+            { "{{CurrentDate}}", printDate.ToString("dd/MM/yyyy") },
             { "{{ContractNo}}", testRequest.ContractNumber ?? "" },
             { "{{Customer}}", testRequest.CustomerName ?? "" },
             { "{{Adrress}}", address },
@@ -5087,9 +5170,9 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{Note}}", input.Note ?? "" },
             // BM02 specific placeholders
             { "{{ContractNumber}}", testRequest.ContractNumber ?? "" },
-            { "{{Date}}", now.Day.ToString("D2") },
-            { "{{Month}}", now.Month.ToString("D2") },
-            { "{{Year}}", now.Year.ToString() },
+            { "{{Date}}", printDate.Day.ToString("D2") },
+            { "{{Month}}", printDate.Month.ToString("D2") },
+            { "{{Year}}", printDate.Year.ToString() },
             { "{{CustomerName}}", testRequest.CustomerName ?? "" },
             { "{{FullAddress}}", address },
             // BM05-QLNN specific placeholders
@@ -5107,13 +5190,45 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var vicePresidentName = await GetVicePresidentFullNameAsync(input.VicePresidentId);
         placeholders.Add("{{VicePresident}}", vicePresidentName);
 
-        // Add Officer In Charge placeholder (QLKT who approved the indicators)
-        // Only shows name if exactly 1 approver, otherwise empty
+        // Add Officer In Charge placeholder(s)
+        // Always compute the combined name as fallback for {{OfficerInCharge}} (used by 1-lab templates)
         var officerInChargeName = await GetOfficerInChargeNameAsync(labTaskIndicators);
         placeholders.Add("{{OfficerInCharge}}", officerInChargeName);
 
+        if (is2Lab)
+        {
+            var perLabOfficers = await GetOfficerInChargePerLabAsync(labTasks, labTaskIndicators);
+            placeholders.Add("{{OfficerInCharge_Hoa}}", perLabOfficers.OfficerHoa);
+            placeholders.Add("{{OfficerInCharge_ViSinh}}", perLabOfficers.OfficerViSinh);
+        }
+        else
+        {
+            placeholders.Add("{{OfficerInCharge_Hoa}}", "");
+            placeholders.Add("{{OfficerInCharge_ViSinh}}", "");
+        }
+
         // Check if template is BM05-QLNN or BM04 and handle Standard/Footnotes logic
-        var templatePath = GetTemplatePath(input.TemplateName, TemplateConstants.TemplateBM02);
+        // 2-lab: force corresponding _2lab template variant
+        var effectiveTemplateName = input.TemplateName;
+        string defaultTemplate;
+        if (is2Lab)
+        {
+            if (IsBM05QLNNTemplate(effectiveTemplateName))
+            {
+                effectiveTemplateName = null;
+                defaultTemplate = TemplateConstants.TemplateQLNN_2Lab;
+            }
+            else
+            {
+                effectiveTemplateName = null;
+                defaultTemplate = TemplateConstants.TemplateBM02_2Lab;
+            }
+        }
+        else
+        {
+            defaultTemplate = TemplateConstants.TemplateBM02;
+        }
+        var templatePath = GetTemplatePath(effectiveTemplateName, defaultTemplate);
         var templateFileName = Path.GetFileName(templatePath);
         var isBM05QLNN = IsBM05QLNNTemplate(templateFileName);
         var isBM04 = IsBM04Template(templateFileName);
@@ -5690,7 +5805,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 2. Prepare placeholder values
         var address = BuildAddress(testRequest);
-        var printDateText = DateTime.Now.ToString("dd/MM/yyyy");
+        var printDate = input.PrintDate
+            ?? await GetFirstPrintDateForTestRequestAsync(input.TestRequestId)
+            ?? DateTime.Now;
+        var printDateText = printDate.ToString("dd/MM/yyyy");
         var contractDateText = testRequest.ContractDate?.ToString("dd/MM/yyyy") ?? "";
         var placeholders = new Dictionary<string, string>
         {
@@ -5927,7 +6045,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 IndicatorIds = sampleGroup.ToList(),
                 Note = input.Note,
                 TemplateName = input.TemplateName,
-                VicePresidentId = input.VicePresidentId
+                VicePresidentId = input.VicePresidentId,
+                PrintDate = input.PrintDate
             };
             var result = await GenerateMixedIndicatorResultFormAsync(perSampleInput);
             results.Add(result);
@@ -6322,6 +6441,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// <summary>
     /// Kiểm tra template có phải BM05-QLNN không
     /// </summary>
+    private static bool IsBM02Template(string? templateName)
+    {
+        if (string.IsNullOrEmpty(templateName)) return false;
+        return templateName.Contains("BM02", StringComparison.OrdinalIgnoreCase);
+    }
+
     private static bool IsBM05QLNNTemplate(string? templateFileName)
     {
         if (string.IsNullOrEmpty(templateFileName)) return false;

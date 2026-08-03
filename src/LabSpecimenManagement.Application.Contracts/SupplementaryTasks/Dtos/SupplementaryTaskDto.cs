@@ -13,6 +13,7 @@ public class SupplementaryTaskDto
     public DateTime? DueDate { get; set; }
     public SupplementaryTaskPriority Priority { get; set; }
     public SupplementaryTaskStatus Status { get; set; }
+    public bool IsPrivate { get; set; }
     public List<string> ImageUrls { get; set; } = new();
     public string? CompletionNote { get; set; }
     public List<string> CompletionImageUrls { get; set; } = new();

@@ -3859,6 +3859,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<string>("FreeTextNote")
+                        .HasColumnType("text");
+
                     b.Property<string>("IndicatorIds")
                         .IsRequired()
                         .HasColumnType("text");
@@ -3889,7 +3892,13 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("SelectedMasterNoteIds")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("VicePresidentId")
                         .HasColumnType("uuid");
 
                     b.HasKey("Id");
@@ -4961,6 +4970,11 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
+
+                    b.Property<bool>("IsPrivate")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")

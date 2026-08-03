@@ -31,6 +31,22 @@ public interface ITestingAppService : IApplicationService
     Task SaveResultsAsync(Guid laboratoryTaskId, SaveResultsInput input);
 
     /// <summary>
+    /// KTV cập nhật phương pháp cho 1 chỉ tiêu (chặn chỉ tiêu đã duyệt/đã hủy)
+    /// </summary>
+    Task<TestingIndicatorDto> UpdateIndicatorMethodAsync(Guid indicatorId, Guid? methodId);
+
+    /// <summary>
+    /// KTV bulk cập nhật phương pháp cho nhiều chỉ tiêu.
+    /// Skip (không throw) chỉ tiêu đã duyệt/đã hủy/không thuộc task/không có quyền chỉnh sửa.
+    /// </summary>
+    Task<List<TestingIndicatorDto>> BulkUpdateIndicatorMethodAsync(Guid laboratoryTaskId, BulkUpdateIndicatorMethodInput input);
+
+    /// <summary>
+    /// KTV cập nhật đơn vị tính cho 1 chỉ tiêu (chặn chỉ tiêu đã duyệt/đã hủy)
+    /// </summary>
+    Task<TestingIndicatorDto> UpdateIndicatorUnitAsync(Guid indicatorId, string? unit);
+
+    /// <summary>
     /// Submit indicators for approval
     /// </summary>
     Task SubmitForApprovalAsync(Guid laboratoryTaskId, SubmitForApprovalInput input);
