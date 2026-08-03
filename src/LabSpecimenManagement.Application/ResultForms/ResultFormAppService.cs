@@ -4721,8 +4721,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var intPart = (long)number;
         if (intPart == 0) return "Không đồng";
 
-        var result = ConvertLongToVietnameseWords(intPart);
-        return $"{result} đồng";
+        var result = ConvertLongToVietnameseWords(intPart) + " đồng";
+        return char.ToUpper(result[0]) + result.Substring(1);
     }
 
     private string ConvertLongToVietnameseWords(long number)
