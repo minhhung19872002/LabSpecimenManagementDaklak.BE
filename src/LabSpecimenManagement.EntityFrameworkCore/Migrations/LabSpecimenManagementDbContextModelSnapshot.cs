@@ -7001,12 +7001,23 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)");
 
+                    b.Property<decimal?>("TotalLineAmount")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
 
                     b.Property<string>("UnitName")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<decimal?>("UnitPrice")
+                        .HasPrecision(18, 2)
+                        .HasColumnType("numeric(18,2)");
+
+                    b.Property<int?>("VatPercent")
+                        .HasColumnType("integer");
 
                     b.Property<Guid>("WarehouseImportReceiptId")
                         .HasColumnType("uuid");

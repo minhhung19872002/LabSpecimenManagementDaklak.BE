@@ -27,6 +27,11 @@ public class WarehouseImportReceiptItem : Entity<Guid>
     public decimal ReceivedBaseQuantity { get; set; }
     public decimal ConsumedBaseQuantity { get; set; }
 
+    // Pricing fields (Nhóm 1 — Vật tư)
+    public decimal? UnitPrice { get; set; }
+    public int? VatPercent { get; set; }
+    public decimal? TotalLineAmount { get; set; }
+
     // Equipment fields (Nhóm 2)
     public bool IsEquipment { get; set; }
     public string? AssetCode { get; set; }

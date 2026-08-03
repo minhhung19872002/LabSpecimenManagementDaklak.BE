@@ -103,6 +103,11 @@ public class WarehouseImportReceiptItemDto : EntityDto<Guid>
     public Guid? StorageWarehouseId { get; set; }
     public string? StorageWarehouseName { get; set; }
 
+    // Pricing fields
+    public decimal? UnitPrice { get; set; }
+    public int? VatPercent { get; set; }
+    public decimal? TotalLineAmount { get; set; }
+
     // Equipment fields (Nhóm 2)
     public bool IsEquipment { get; set; }
     public string? AssetCode { get; set; }
@@ -182,6 +187,11 @@ public class CreateUpdateWarehouseImportReceiptItemDto
     public Guid? StorageWarehouseId { get; set; }
     [StringLength(500)]
     public string? StorageWarehouseName { get; set; }
+
+    // Pricing fields
+    public decimal? UnitPrice { get; set; }
+    public int? VatPercent { get; set; }
+    public decimal? TotalLineAmount { get; set; }
 
     // Equipment fields (Nhóm 2)
     public bool IsEquipment { get; set; }

@@ -735,6 +735,10 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.ReceivedBaseQuantity).HasPrecision(18, 4);
             b.Property(x => x.ConsumedBaseQuantity).HasPrecision(18, 4);
 
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.VatPercent);
+            b.Property(x => x.TotalLineAmount).HasPrecision(18, 2);
+
             b.Property(x => x.IsEquipment).HasDefaultValue(false);
             b.Property(x => x.AssetCode).HasMaxLength(100);
             b.Property(x => x.SerialNumber).HasMaxLength(200);
