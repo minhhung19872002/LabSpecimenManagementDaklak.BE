@@ -2485,21 +2485,22 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         var totalPrintedCount = approvedIndicators.Count(i => i.IsPrinted);
-        var totalApproved = approvedIndicators.Count;
 
         if (totalPrintedCount == 0)
         {
             // Chưa in gì - giữ PendingPublish
             return;
         }
-        else if (totalPrintedCount < totalApproved)
+
+        // So sánh với tổng chỉ tiêu thực tế của phiếu yêu cầu (không chỉ QM indicators)
+        var totalExpected = await GetTotalActiveSampleIndicatorCountAsync(task.TestRequestId);
+
+        if (totalPrintedCount < totalExpected)
         {
-            // In 1 phần
             task.Status = QualityManagementStatus.PartialPublished;
         }
         else
         {
-            // In tất cả
             task.Status = QualityManagementStatus.FullyPublished;
         }
 
@@ -2653,6 +2654,37 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         return result;
+    }
+
+    private async Task<int> GetTotalActiveSampleIndicatorCountAsync(Guid testRequestId)
+    {
+        var samples = await _sampleRepository.GetListAsync(s => s.TestRequestId == testRequestId);
+        var sampleIds = samples.Select(s => s.Id).ToList();
+
+        if (!sampleIds.Any()) return 0;
+
+        var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+            si => sampleIds.Contains(si.TestRequestSampleId));
+
+        var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
+        var masterIndicators = indicatorIds.Count == 0
+            ? new List<Indicator>()
+            : await _masterIndicatorRepository.GetListAsync(i => indicatorIds.Contains(i.Id));
+        var indicatorMap = masterIndicators.ToDictionary(i => i.Id);
+
+        var parentKeys = new HashSet<(Guid SampleId, Guid ParentIndicatorId, Guid? MethodId)>();
+        foreach (var si in sampleIndicators)
+        {
+            if (indicatorMap.TryGetValue(si.IndicatorId, out var master) &&
+                master.ParentIndicatorId.HasValue)
+            {
+                parentKeys.Add((si.TestRequestSampleId, master.ParentIndicatorId.Value, si.TestMethodId));
+            }
+        }
+
+        return sampleIndicators
+            .Where(si => !parentKeys.Contains((si.TestRequestSampleId, si.IndicatorId, si.TestMethodId)))
+            .Count();
     }
 
     #endregion
