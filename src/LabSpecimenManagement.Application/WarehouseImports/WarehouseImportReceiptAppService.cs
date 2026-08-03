@@ -269,6 +269,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 throw new UserFriendlyException($"Số lượng nhận của \"{poLine.ProductName}\" vượt quá số lượng còn lại có thể nhận ({remaining}).");
         }
 
+        var defaultWarehouse = (await _warehouseRepository.GetQueryableAsync())
+            .FirstOrDefault(x => x.IsDefault);
+
         foreach (var item in materialItems.Where(x => x.Status == WarehouseImportLineStatus.Checked))
         {
             var product = await _productRepository.GetAsync(item.ProductId);
@@ -286,6 +289,12 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             await _productRepository.UpdateAsync(product, autoSave: true);
 
             item.ReceivedBaseQuantity = baseQty;
+
+            if (defaultWarehouse != null)
+            {
+                item.StorageWarehouseId = defaultWarehouse.Id;
+                item.StorageWarehouseName = defaultWarehouse.Name;
+            }
         }
 
         // Equipment items: create Equipment entities for received items
