@@ -2560,12 +2560,20 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // 7. Auto-set FormPrintedDate based on indicator changes
         var sampleIds = samples.Select(s => s.Id).ToList();
-        var allIndicatorIds = (await _sampleIndicatorRepository.GetListAsync(
-                x => sampleIds.Contains(x.TestRequestSampleId)))
+        var allSampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                x => sampleIds.Contains(x.TestRequestSampleId));
+        var allIndicatorIds = allSampleIndicators
             .Select(si => si.Id)
             .OrderBy(id => id)
             .ToList();
         var currentHash = ComputeIndicatorHash(allIndicatorIds);
+
+        // Recalculate TotalCost from indicators (stored value may be stale)
+        var recalculatedTotalCost = allSampleIndicators.Sum(si => si.UnitPrice);
+        if (testRequest.TotalCost != recalculatedTotalCost)
+        {
+            testRequest.TotalCost = recalculatedTotalCost;
+        }
 
         if (!testRequest.FormPrintedDate.HasValue || testRequest.LastPrintedIndicatorHash != currentHash)
         {
