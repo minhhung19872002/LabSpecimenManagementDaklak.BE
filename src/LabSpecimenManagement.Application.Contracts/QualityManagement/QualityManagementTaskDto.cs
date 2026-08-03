@@ -240,3 +240,14 @@ public class PrintResultItemDto
     /// </summary>
     public string TemplateName { get; set; } = string.Empty;
 }
+
+/// <summary>
+/// Cấu hình ghi chú từ lần in trước - dùng để pre-populate dialog in
+/// </summary>
+public class PrintNoteConfigDto
+{
+    public List<Guid> SelectedMasterNoteIds { get; set; } = new();
+    public string? FreeTextNote { get; set; }
+    public Guid? VicePresidentId { get; set; }
+    public string? TemplateName { get; set; }
+}

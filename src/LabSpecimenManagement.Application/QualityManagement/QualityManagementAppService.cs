@@ -1004,12 +1004,12 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         };
     }
 
-    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, List<Guid> indicatorIds, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
+    public async Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, PrintMixedDto input)
     {
         var task = await _taskRepository.GetAsync(taskId);
         var indicatorsToPrint = new List<QualityManagementIndicator>();
 
-        foreach (var indicatorId in indicatorIds)
+        foreach (var indicatorId in input.IndicatorIds)
         {
             var indicator = await _indicatorRepository.GetAsync(indicatorId);
             if (indicator.ApprovalStatus != QualityIndicatorApprovalStatus.Approved)
@@ -1032,23 +1032,28 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
         {
             TaskId = taskId,
-            IndicatorIds = indicatorIds,
-            Note = note,
-            TemplateName = templateName,
-            VicePresidentId = vicePresidentId,
+            IndicatorIds = input.IndicatorIds,
+            Note = input.Note,
+            TemplateName = input.TemplateName,
+            VicePresidentId = input.VicePresidentId,
             PrintDate = printDate
         });
 
-        // Tạo record PublishedReport (log lịch sử in)
+        // Tạo record PublishedReport (log lịch sử in) + lưu structured note data
         var publishedReport = new PublishedReport(
             GuidGenerator.Create(),
             task.TestRequestId,
             task.Id,
             result.FileName,
             "Mixed",
-            note,
-            JsonSerializer.Serialize(indicatorIds)
+            input.Note,
+            JsonSerializer.Serialize(input.IndicatorIds)
         );
+        publishedReport.SelectedMasterNoteIds = input.SelectedMasterNoteIds?.Any() == true
+            ? JsonSerializer.Serialize(input.SelectedMasterNoteIds)
+            : null;
+        publishedReport.FreeTextNote = input.FreeTextNote;
+        publishedReport.VicePresidentId = input.VicePresidentId;
         await _publishedReportRepository.InsertAsync(publishedReport);
 
         // Đánh dấu tất cả indicators đã in (phát hành) - chỉ set PrintedDate lần đầu
@@ -1103,6 +1108,10 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             PrintDate = printDate
         });
 
+        var serializedMasterNoteIds = input.SelectedMasterNoteIds?.Any() == true
+            ? JsonSerializer.Serialize(input.SelectedMasterNoteIds)
+            : null;
+
         foreach (var result in results)
         {
             var publishedReport = new PublishedReport(
@@ -1114,6 +1123,9 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 input.Note,
                 JsonSerializer.Serialize(input.IndicatorIds)
             );
+            publishedReport.SelectedMasterNoteIds = serializedMasterNoteIds;
+            publishedReport.FreeTextNote = input.FreeTextNote;
+            publishedReport.VicePresidentId = input.VicePresidentId;
             await _publishedReportRepository.InsertAsync(publishedReport);
         }
 
@@ -1138,6 +1150,31 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 SampleCode = r.SampleCode ?? "",
                 TemplateName = input.TemplateName ?? "QLNN"
             }).ToList()
+        };
+    }
+
+    public async Task<PrintNoteConfigDto?> GetLastPrintNoteConfigAsync(Guid taskId)
+    {
+        var lastReport = (await _publishedReportRepository.GetQueryableAsync())
+            .Where(r => r.QualityManagementTaskId == taskId
+                && (r.ReportType == "Mixed" || r.ReportType == "MixedPerSample"))
+            .OrderByDescending(r => r.CreationTime)
+            .FirstOrDefault();
+
+        if (lastReport == null)
+            return null;
+
+        var masterNoteIds = new List<Guid>();
+        if (!string.IsNullOrEmpty(lastReport.SelectedMasterNoteIds))
+        {
+            masterNoteIds = JsonSerializer.Deserialize<List<Guid>>(lastReport.SelectedMasterNoteIds) ?? new();
+        }
+
+        return new PrintNoteConfigDto
+        {
+            SelectedMasterNoteIds = masterNoteIds,
+            FreeTextNote = lastReport.FreeTextNote,
+            VicePresidentId = lastReport.VicePresidentId,
         };
     }
 

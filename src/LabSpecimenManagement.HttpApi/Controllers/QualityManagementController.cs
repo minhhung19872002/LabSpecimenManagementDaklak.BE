@@ -136,7 +136,7 @@ public class QualityManagementController : LabSpecimenManagementController
     [HttpPost("{taskId}/print-mixed")]
     public virtual Task<PrintResultOutputDto> PrintMixedResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
     {
-        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input.IndicatorIds, input.Note, input.TemplateName, input.VicePresidentId);
+        return _qualityManagementAppService.PrintMixedResultAsync(taskId, input);
     }
 
     /// <summary>
@@ -146,6 +146,15 @@ public class QualityManagementController : LabSpecimenManagementController
     public virtual Task<PrintMultiResultOutputDto> PrintMixedPerSampleResultAsync(Guid taskId, [FromBody] PrintMixedDto input)
     {
         return _qualityManagementAppService.PrintMixedPerSampleResultAsync(taskId, input);
+    }
+
+    /// <summary>
+    /// Lấy cấu hình ghi chú từ lần in hỗn hợp gần nhất
+    /// </summary>
+    [HttpGet("{taskId}/last-print-config")]
+    public virtual Task<PrintNoteConfigDto?> GetLastPrintNoteConfigAsync(Guid taskId)
+    {
+        return _qualityManagementAppService.GetLastPrintNoteConfigAsync(taskId);
     }
 
     /// <summary>

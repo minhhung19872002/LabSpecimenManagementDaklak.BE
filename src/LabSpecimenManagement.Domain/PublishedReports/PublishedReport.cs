@@ -42,6 +42,21 @@ public class PublishedReport : FullAuditedEntity<Guid>
     public string IndicatorIds { get; set; } = "[]";
 
     /// <summary>
+    /// Danh sách Master Data Note IDs đã chọn khi in (JSON array of GUIDs)
+    /// </summary>
+    public string? SelectedMasterNoteIds { get; set; }
+
+    /// <summary>
+    /// Ghi chú tự do (HTML) riêng phần free-text editor
+    /// </summary>
+    public string? FreeTextNote { get; set; }
+
+    /// <summary>
+    /// Phó Giám đốc ký khi in
+    /// </summary>
+    public Guid? VicePresidentId { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequest
     /// </summary>
     public virtual TestRequest TestRequest { get; set; } = null!;

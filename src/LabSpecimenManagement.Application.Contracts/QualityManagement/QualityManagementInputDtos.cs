@@ -60,6 +60,16 @@ public class PrintMixedDto
     /// Optional Vice President user ID - to replace {{VicePresident}} placeholder in PDF
     /// </summary>
     public Guid? VicePresidentId { get; set; }
+
+    /// <summary>
+    /// Danh sách Master Data Note IDs đã chọn (để lưu lại cho lần in sau)
+    /// </summary>
+    public List<Guid>? SelectedMasterNoteIds { get; set; }
+
+    /// <summary>
+    /// Ghi chú tự do (HTML) riêng phần free-text editor (để lưu lại cho lần in sau)
+    /// </summary>
+    public string? FreeTextNote { get; set; }
 }
 
 /// <summary>
