@@ -19,6 +19,8 @@ public class MaterialConsumptionItemDto
     public Guid? UnitId { get; set; }
     public string? UnitName { get; set; }
     public decimal Quantity { get; set; }
+    public int? EstimatedSamplesPerYear { get; set; }
+    public decimal? AvgConsumptionPerSample { get; set; }
 }
 
 public class SaveMaterialConsumptionDto
@@ -36,6 +38,8 @@ public class SaveMaterialConsumptionItemDto
 
     [Range(0.0001, double.MaxValue, ErrorMessage = "Số lượng phải lớn hơn 0")]
     public decimal Quantity { get; set; }
+    public int? EstimatedSamplesPerYear { get; set; }
+    public decimal? AvgConsumptionPerSample { get; set; }
 }
 
 public class CheckConsumptionStatusInput

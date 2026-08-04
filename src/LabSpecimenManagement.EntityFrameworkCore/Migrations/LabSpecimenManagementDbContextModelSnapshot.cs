@@ -1948,8 +1948,15 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<decimal?>("AvgConsumptionPerSample")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)");
+
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
+
+                    b.Property<int?>("EstimatedSamplesPerYear")
+                        .HasColumnType("integer");
 
                     b.Property<Guid?>("ProductId")
                         .HasColumnType("uuid");

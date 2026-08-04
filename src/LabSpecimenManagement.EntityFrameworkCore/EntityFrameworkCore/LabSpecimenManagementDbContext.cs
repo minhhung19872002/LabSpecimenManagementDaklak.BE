@@ -822,6 +822,7 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MaterialConsumptionItems", LabSpecimenManagementConsts.DbSchema);
             b.HasKey(x => x.Id);
             b.Property(x => x.Quantity).HasPrecision(18, 4);
+            b.Property(x => x.AvgConsumptionPerSample).HasPrecision(18, 6);
             b.HasIndex(x => x.TestMethodIndicatorId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);

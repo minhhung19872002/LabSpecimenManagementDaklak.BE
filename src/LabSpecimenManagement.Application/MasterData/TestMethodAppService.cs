@@ -827,6 +827,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 UnitId = item.UnitId,
                 UnitName = unit?.Name,
                 Quantity = item.Quantity,
+                EstimatedSamplesPerYear = item.EstimatedSamplesPerYear,
+                AvgConsumptionPerSample = item.AvgConsumptionPerSample,
             };
         }).ToList();
     }
@@ -851,7 +853,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             item.IsEquipment ? null : item.ProductId,
             item.IsEquipment ? item.EquipmentId : null,
             item.UnitId,
-            item.Quantity
+            item.Quantity,
+            item.EstimatedSamplesPerYear,
+            item.AvgConsumptionPerSample
         )).ToList();
 
         if (newItems.Any())
