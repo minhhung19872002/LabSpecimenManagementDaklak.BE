@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using LabSpecimenManagement.RoleWarehouses;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -80,6 +81,14 @@ public interface IRoleManagementAppService : IApplicationService
     /// Get available users that can be added to a role
     /// </summary>
     Task<List<RoleUserDto>> GetAvailableUsersAsync(Guid roleId, string? filter);
+
+    #endregion
+
+    #region Warehouse Assignments
+
+    Task<List<RoleWarehouseDto>> GetRoleWarehousesAsync(Guid roleId);
+
+    Task AssignRoleWarehousesAsync(Guid roleId, AssignRoleWarehousesInput input);
 
     #endregion
 }

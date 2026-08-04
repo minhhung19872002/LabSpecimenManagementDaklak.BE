@@ -4615,6 +4615,37 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppReportTestResults", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.RoleWarehouses.RoleWarehouse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("RoleId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RoleId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("RoleId", "WarehouseId")
+                        .IsUnique();
+
+                    b.ToTable("AppRoleWarehouses", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.StockAdjustments.StockAdjustment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6764,6 +6795,37 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("TestBatchId");
 
                     b.ToTable("AppTestBatchItems", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.UserWarehouses.UserWarehouse", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("WarehouseId");
+
+                    b.HasIndex("UserId", "WarehouseId")
+                        .IsUnique();
+
+                    b.ToTable("AppUserWarehouses", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.WarehouseImports.WarehouseImportReceipt", b =>

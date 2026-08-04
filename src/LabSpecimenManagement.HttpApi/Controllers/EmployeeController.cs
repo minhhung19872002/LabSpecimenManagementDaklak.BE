@@ -5,6 +5,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Employees;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.RoleManagement;
+using LabSpecimenManagement.UserWarehouses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
@@ -141,6 +142,23 @@ public class EmployeeController : LabSpecimenManagementController
     public virtual Task RemoveRoleFromUserAsync(Guid id, string roleName)
     {
         return _employeeAppService.RemoveRoleFromUserAsync(id, roleName);
+    }
+
+    #endregion
+
+    #region Warehouse Assignments
+
+    [HttpGet("{id}/warehouses")]
+    public virtual Task<List<UserWarehouseDto>> GetUserWarehousesAsync(Guid id)
+    {
+        return _employeeAppService.GetUserWarehousesAsync(id);
+    }
+
+    [HttpPut("{id}/warehouses")]
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public virtual Task AssignUserWarehousesAsync(Guid id, [FromBody] AssignUserWarehousesInput input)
+    {
+        return _employeeAppService.AssignUserWarehousesAsync(id, input);
     }
 
     #endregion

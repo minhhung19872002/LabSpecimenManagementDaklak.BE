@@ -37,6 +37,8 @@ using LabSpecimenManagement.WarehouseImports;
 using LabSpecimenManagement.TemporaryAccess;
 using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.SupplementaryTasks;
+using LabSpecimenManagement.RoleWarehouses;
+using LabSpecimenManagement.UserWarehouses;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -173,6 +175,10 @@ public class LabSpecimenManagementDbContext :
     public DbSet<PreparedSolutionIngredient> PreparedSolutionIngredients { get; set; }
     public DbSet<SupplementaryTask> SupplementaryTasks { get; set; }
     public DbSet<SupplementaryTaskLog> SupplementaryTaskLogs { get; set; }
+
+    // User Warehouse Assignments
+    public DbSet<UserWarehouse> UserWarehouses { get; set; }
+    public DbSet<RoleWarehouse> RoleWarehouses { get; set; }
 
     #region Entities from the modules
 
@@ -1980,6 +1986,26 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Note).HasMaxLength(512);
 
             b.HasIndex(x => x.TaskId);
+        });
+
+        // ============ USER WAREHOUSE CONFIGURATION ============
+        builder.Entity<UserWarehouse>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "UserWarehouses", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.UserId);
+            b.HasIndex(x => x.WarehouseId);
+            b.HasIndex(x => new { x.UserId, x.WarehouseId }).IsUnique();
+        });
+
+        // ============ ROLE WAREHOUSE CONFIGURATION ============
+        builder.Entity<RoleWarehouse>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "RoleWarehouses", LabSpecimenManagementConsts.DbSchema);
+
+            b.HasIndex(x => x.RoleId);
+            b.HasIndex(x => x.WarehouseId);
+            b.HasIndex(x => new { x.RoleId, x.WarehouseId }).IsUnique();
         });
 
     }

@@ -112,6 +112,16 @@ public static class PermissionGroupConfigs
             (LabSpecimenManagementPermissions.LabReport.Export, "Xuất báo cáo thống kê"),
         }),
 
+        // ==================== QUẢN LÝ VẬT TƯ/HÓA CHẤT ====================
+        new PermissionGroupConfig("Products", "Quản lý vật tư/hóa chất", new[]
+        {
+            (LabSpecimenManagementPermissions.Products.Default, "Xem kho"),
+            (LabSpecimenManagementPermissions.Products.View, "Xem chi tiết vật tư"),
+            (LabSpecimenManagementPermissions.Products.Edit, "Chỉnh sửa"),
+            (LabSpecimenManagementPermissions.Products.Create, "Tạo mới"),
+            (LabSpecimenManagementPermissions.Products.Delete, "Xóa"),
+        }),
+
         // ==================== NHÀ THẦU PHỤ ====================
         new PermissionGroupConfig("NhaThauPhu", "Nhà thầu phụ", new[]
         {

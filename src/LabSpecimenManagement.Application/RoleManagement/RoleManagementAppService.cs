@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.RoleWarehouses;
 using LabSpecimenManagement.Shared;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -28,6 +29,8 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
     private readonly IPermissionManager _permissionManager;
     private readonly IPermissionDefinitionManager _permissionDefinitionManager;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<RoleWarehouse, Guid> _roleWarehouseRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
 
     // Use shared permission group configs (single source of truth)
     private static List<PermissionGroupConfig> PermissionGroupConfigs => Shared.PermissionGroupConfigs.All;
@@ -39,7 +42,9 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
         IdentityUserManager userManager,
         IPermissionManager permissionManager,
         IPermissionDefinitionManager permissionDefinitionManager,
-        IRepository<Department, Guid> departmentRepository)
+        IRepository<Department, Guid> departmentRepository,
+        IRepository<RoleWarehouse, Guid> roleWarehouseRepository,
+        IRepository<Warehouse, Guid> warehouseRepository)
     {
         _roleRepository = roleRepository;
         _roleManager = roleManager;
@@ -48,6 +53,8 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
         _permissionManager = permissionManager;
         _permissionDefinitionManager = permissionDefinitionManager;
         _departmentRepository = departmentRepository;
+        _roleWarehouseRepository = roleWarehouseRepository;
+        _warehouseRepository = warehouseRepository;
     }
 
     #region Role CRUD
@@ -508,6 +515,55 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
         }
 
         return availableUsers.OrderBy(u => u.UserName).Take(50).ToList();
+    }
+
+    #endregion
+
+    #region Warehouse Assignments
+
+    public async Task<List<RoleWarehouseDto>> GetRoleWarehousesAsync(Guid roleId)
+    {
+        var rwQuery = await _roleWarehouseRepository.GetQueryableAsync();
+        var whQuery = await _warehouseRepository.GetQueryableAsync();
+
+        var result = (from rw in rwQuery
+                      join wh in whQuery on rw.WarehouseId equals wh.Id
+                      where rw.RoleId == roleId
+                      select new RoleWarehouseDto
+                      {
+                          Id = rw.Id,
+                          RoleId = rw.RoleId,
+                          WarehouseId = rw.WarehouseId,
+                          WarehouseName = wh.Name,
+                          WarehouseCode = wh.Code,
+                          WarehouseLevel = wh.Level
+                      }).ToList();
+
+        return result;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.RoleManagement.ManageUsers)]
+    public async Task AssignRoleWarehousesAsync(Guid roleId, AssignRoleWarehousesInput input)
+    {
+        var role = await _roleRepository.GetAsync(roleId);
+        if (role == null)
+            throw new UserFriendlyException("Không tìm thấy nhóm quyền.");
+
+        var rwQuery = await _roleWarehouseRepository.GetQueryableAsync();
+        var existing = rwQuery.Where(x => x.RoleId == roleId).ToList();
+        var inputIds = input.WarehouseIds.ToHashSet();
+
+        var toDelete = existing.Where(x => !inputIds.Contains(x.WarehouseId)).ToList();
+        foreach (var item in toDelete)
+            await _roleWarehouseRepository.DeleteAsync(item.Id);
+
+        var existingIds = existing.Select(x => x.WarehouseId).ToHashSet();
+        var toAdd = inputIds.Where(id => !existingIds.Contains(id)).ToList();
+        foreach (var warehouseId in toAdd)
+        {
+            await _roleWarehouseRepository.InsertAsync(
+                new RoleWarehouse(GuidGenerator.Create(), roleId, warehouseId));
+        }
     }
 
     #endregion

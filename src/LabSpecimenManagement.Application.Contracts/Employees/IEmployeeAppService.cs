@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.RoleManagement;
+using LabSpecimenManagement.UserWarehouses;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 
@@ -59,6 +60,14 @@ public interface IEmployeeAppService : IApplicationService
     /// Remove a role from user
     /// </summary>
     Task RemoveRoleFromUserAsync(Guid userId, string roleName);
+
+    #endregion
+
+    #region User Warehouse Assignments
+
+    Task<List<UserWarehouseDto>> GetUserWarehousesAsync(Guid userId);
+
+    Task AssignUserWarehousesAsync(Guid userId, AssignUserWarehousesInput input);
 
     #endregion
 }

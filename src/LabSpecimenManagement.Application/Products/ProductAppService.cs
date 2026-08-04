@@ -141,27 +141,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             query = query.Where(x => x.IsDraft == input.IsDraft.Value);
         }
 
-        // Filter by Warehouse (includes child warehouses)
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
-
-        if (input.WarehouseId.HasValue)
-        {
-            var warehouseIds = await GetWarehouseSubtreeIdsAsync(input.WarehouseId.Value);
-
-            var receiptIdsInWarehouse = importReceiptQuery
-                .Where(r => r.WarehouseId.HasValue && warehouseIds.Contains(r.WarehouseId.Value))
-                .Select(r => r.Id);
-
-            var productIdsInWarehouse = importItemQuery
-                .Where(i =>
-                    (i.StorageWarehouseId.HasValue && warehouseIds.Contains(i.StorageWarehouseId.Value)) ||
-                    receiptIdsInWarehouse.Contains(i.WarehouseImportReceiptId))
-                .Select(i => i.ProductId)
-                .Distinct();
-
-            query = query.Where(x => productIdsInWarehouse.Contains(x.Id));
-        }
 
         var totalCount = query.Count();
 
@@ -220,26 +201,12 @@ public class ProductAppService : ApplicationService, IProductAppService
 
     private async Task<PagedResultDto<ProductDto>> GetListByWarehouseAsync(ProductFilterDto input)
     {
-        // 1. BFS warehouse hierarchy
+        // 1. Level-aware warehouse resolution: Lv0 = only self, Lv1+ = BFS subtree
+        var warehouseIds = await GetWarehouseIdSetAsync(input.WarehouseId!.Value);
+
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-        var allWarehouses = warehouseQuery.Where(w => w.IsActive)
-            .Select(w => new { w.Id, w.ParentWarehouseId, w.Name }).ToList();
-
-        var warehouseIds = new HashSet<Guid> { input.WarehouseId!.Value };
-        var queue = new Queue<Guid>();
-        queue.Enqueue(input.WarehouseId.Value);
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
-            {
-                if (warehouseIds.Add(child.Id))
-                    queue.Enqueue(child.Id);
-            }
-        }
-
-        var warehouseNameMap = allWarehouses
-            .Where(w => warehouseIds.Contains(w.Id))
+        var warehouseNameMap = warehouseQuery.Where(w => w.IsActive && warehouseIds.Contains(w.Id))
+            .Select(w => new { w.Id, w.Name })
             .ToDictionary(w => w.Id, w => w.Name);
 
         // 2. Query completed+checked import items in warehouse scope
@@ -931,7 +898,7 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         if (warehouseId.HasValue)
         {
-            var warehouseIds = await GetWarehouseSubtreeIdsAsync(warehouseId.Value);
+            var warehouseIds = await GetWarehouseIdSetAsync(warehouseId.Value);
 
             var importItems = (from item in importItemQuery
                                join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
@@ -1065,7 +1032,7 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         if (input.WarehouseId.HasValue)
         {
-            var warehouseIds = await GetWarehouseSubtreeIdsAsync(input.WarehouseId.Value);
+            var warehouseIds = await GetWarehouseIdSetAsync(input.WarehouseId.Value);
             query = query.Where(x =>
                 (x.item.StorageWarehouseId.HasValue && warehouseIds.Contains(x.item.StorageWarehouseId.Value))
                 || (!x.item.StorageWarehouseId.HasValue && x.receipt.WarehouseId.HasValue && warehouseIds.Contains(x.receipt.WarehouseId.Value)));
@@ -1190,6 +1157,15 @@ public class ProductAppService : ApplicationService, IProductAppService
     }
 
     #region Private Methods
+
+    private async Task<HashSet<Guid>> GetWarehouseIdSetAsync(Guid warehouseId)
+    {
+        var wh = await _warehouseRepository.FindAsync(warehouseId);
+        if (wh == null || wh.Level == 0)
+            return new HashSet<Guid> { warehouseId };
+
+        return await GetWarehouseSubtreeIdsAsync(warehouseId);
+    }
 
     private async Task<HashSet<Guid>> GetWarehouseSubtreeIdsAsync(Guid rootWarehouseId)
     {

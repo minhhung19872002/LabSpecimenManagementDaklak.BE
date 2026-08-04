@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.RoleManagement;
+using LabSpecimenManagement.RoleWarehouses;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
@@ -144,6 +145,23 @@ public class RoleManagementController : LabSpecimenManagementController
     public virtual Task<List<RoleUserDto>> GetAvailableUsersAsync(Guid roleId, [FromQuery] string? filter)
     {
         return _roleManagementAppService.GetAvailableUsersAsync(roleId, filter);
+    }
+
+    #endregion
+
+    #region Warehouse Assignments
+
+    [HttpGet("{roleId:guid}/warehouses")]
+    public virtual Task<List<RoleWarehouseDto>> GetRoleWarehousesAsync(Guid roleId)
+    {
+        return _roleManagementAppService.GetRoleWarehousesAsync(roleId);
+    }
+
+    [HttpPut("{roleId:guid}/warehouses")]
+    [Authorize(LabSpecimenManagementPermissions.RoleManagement.ManageUsers)]
+    public virtual Task AssignRoleWarehousesAsync(Guid roleId, [FromBody] AssignRoleWarehousesInput input)
+    {
+        return _roleManagementAppService.AssignRoleWarehousesAsync(roleId, input);
     }
 
     #endregion

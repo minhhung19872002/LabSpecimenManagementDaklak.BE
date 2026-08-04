@@ -9,6 +9,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Shared;
 using LabSpecimenManagement.TemporaryAccess;
+using LabSpecimenManagement.UserWarehouses;
 using RolePermissionGroupDto = LabSpecimenManagement.RoleManagement.PermissionGroupDto;
 using RolePermissionDto = LabSpecimenManagement.RoleManagement.PermissionDto;
 using Microsoft.AspNetCore.Authorization;
@@ -37,6 +38,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
     private readonly IPermissionManager _permissionManager;
     private readonly IPermissionGrantRepository _permissionGrantRepository;
     private readonly IRepository<TemporaryAccessGrant, Guid> _grantRepository;
+    private readonly IRepository<UserWarehouse, Guid> _userWarehouseRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
 
     public EmployeeAppService(
         IIdentityUserRepository userRepository,
@@ -46,7 +49,9 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         IEmailService emailService,
         IPermissionManager permissionManager,
         IPermissionGrantRepository permissionGrantRepository,
-        IRepository<TemporaryAccessGrant, Guid> grantRepository)
+        IRepository<TemporaryAccessGrant, Guid> grantRepository,
+        IRepository<UserWarehouse, Guid> userWarehouseRepository,
+        IRepository<Warehouse, Guid> warehouseRepository)
     {
         _userRepository = userRepository;
         _userManager = userManager;
@@ -56,6 +61,8 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         _permissionManager = permissionManager;
         _permissionGrantRepository = permissionGrantRepository;
         _grantRepository = grantRepository;
+        _userWarehouseRepository = userWarehouseRepository;
+        _warehouseRepository = warehouseRepository;
     }
 
     public async Task<PagedResultDto<EmployeeDto>> GetListAsync(GetEmployeesInput input)
@@ -844,6 +851,55 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         }
 
         await _userManager.RemoveFromRoleAsync(user, roleName);
+    }
+
+    #endregion
+
+    #region User Warehouse Assignments
+
+    public async Task<List<UserWarehouseDto>> GetUserWarehousesAsync(Guid userId)
+    {
+        var uwQuery = await _userWarehouseRepository.GetQueryableAsync();
+        var whQuery = await _warehouseRepository.GetQueryableAsync();
+
+        var items = (from uw in uwQuery
+                     join wh in whQuery on uw.WarehouseId equals wh.Id
+                     where uw.UserId == userId
+                     select new UserWarehouseDto
+                     {
+                         Id = uw.Id,
+                         UserId = uw.UserId,
+                         WarehouseId = uw.WarehouseId,
+                         WarehouseName = wh.Name,
+                         WarehouseCode = wh.Code,
+                         WarehouseLevel = wh.Level
+                     }).ToList();
+
+        return items;
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Users.ManageRoles)]
+    public async Task AssignUserWarehousesAsync(Guid userId, AssignUserWarehousesInput input)
+    {
+        var user = await _userRepository.GetAsync(userId);
+        if (user == null)
+            throw new UserFriendlyException("Không tìm thấy người dùng.");
+
+        var uwQuery = await _userWarehouseRepository.GetQueryableAsync();
+        var existing = uwQuery.Where(x => x.UserId == userId).ToList();
+        var inputIds = input.WarehouseIds.ToHashSet();
+
+        var toDelete = existing.Where(x => !inputIds.Contains(x.WarehouseId)).ToList();
+        foreach (var item in toDelete)
+            await _userWarehouseRepository.DeleteAsync(item.Id);
+
+        var existingIds = existing.Select(x => x.WarehouseId).ToHashSet();
+        var toAdd = inputIds.Where(id => !existingIds.Contains(id)).ToList();
+        foreach (var warehouseId in toAdd)
+        {
+            await _userWarehouseRepository.InsertAsync(
+                new UserWarehouse(GuidGenerator.Create(), userId, warehouseId));
+        }
     }
 
     #endregion

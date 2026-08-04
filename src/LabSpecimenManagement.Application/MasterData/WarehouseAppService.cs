@@ -4,12 +4,15 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.RoleWarehouses;
+using LabSpecimenManagement.UserWarehouses;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
+using Volo.Abp.Identity;
 
 namespace LabSpecimenManagement.MasterData;
 
@@ -26,13 +29,25 @@ public class WarehouseAppService :
 {
     private const string CodePrefix = "KH";
     private readonly IDataFilter _dataFilter;
+    private readonly IRepository<UserWarehouse, Guid> _userWarehouseRepository;
+    private readonly IRepository<RoleWarehouse, Guid> _roleWarehouseRepository;
+    private readonly IdentityUserManager _userManager;
+    private readonly IIdentityRoleRepository _roleRepository;
 
     public WarehouseAppService(
         IRepository<Warehouse, Guid> repository,
-        IDataFilter dataFilter)
+        IDataFilter dataFilter,
+        IRepository<UserWarehouse, Guid> userWarehouseRepository,
+        IRepository<RoleWarehouse, Guid> roleWarehouseRepository,
+        IdentityUserManager userManager,
+        IIdentityRoleRepository roleRepository)
         : base(repository)
     {
         _dataFilter = dataFilter;
+        _userWarehouseRepository = userWarehouseRepository;
+        _roleWarehouseRepository = roleWarehouseRepository;
+        _userManager = userManager;
+        _roleRepository = roleRepository;
         GetPolicyName = LabSpecimenManagementPermissions.Warehouses.Default;
         GetListPolicyName = LabSpecimenManagementPermissions.Warehouses.Default;
         CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
@@ -176,6 +191,100 @@ public class WarehouseAppService :
             }
         }
         return count;
+    }
+
+    [Authorize]
+    public async Task<ListResultDto<WarehouseDto>> GetActiveWarehousesForCurrentUserAsync()
+    {
+        if (CurrentUser.Id == null)
+            throw new UserFriendlyException("Bạn cần đăng nhập để sử dụng chức năng này.");
+
+        var query = await Repository.GetQueryableAsync();
+        var allActive = query.WhereActive().ToList();
+
+        var uwQuery = await _userWarehouseRepository.GetQueryableAsync();
+        var assignedWarehouseIds = uwQuery
+            .Where(x => x.UserId == CurrentUser.Id.Value)
+            .Select(x => x.WarehouseId)
+            .ToList()
+            .ToHashSet();
+
+        var user = await _userManager.GetByIdAsync(CurrentUser.Id.Value);
+        var roleNames = await _userManager.GetRolesAsync(user);
+        if (roleNames.Count > 0)
+        {
+            var allRoles = await _roleRepository.GetListAsync();
+            var userRoleIds = allRoles
+                .Where(r => roleNames.Contains(r.Name))
+                .Select(r => r.Id)
+                .ToList();
+
+            var rwQuery = await _roleWarehouseRepository.GetQueryableAsync();
+            var roleWarehouseIds = rwQuery
+                .Where(x => userRoleIds.Contains(x.RoleId))
+                .Select(x => x.WarehouseId)
+                .ToList();
+
+            foreach (var id in roleWarehouseIds)
+                assignedWarehouseIds.Add(id);
+        }
+
+        var visibleIds = new HashSet<Guid>();
+
+        foreach (var wh in allActive.Where(w => w.IsDefault))
+            visibleIds.Add(wh.Id);
+
+        foreach (var assignedId in assignedWarehouseIds)
+        {
+            var assignedWh = allActive.FirstOrDefault(w => w.Id == assignedId);
+            if (assignedWh == null) continue;
+
+            visibleIds.Add(assignedId);
+
+            // lv0: chỉ hiện chính nó, không mở rộng con
+            // lv1+: BFS mở rộng tất cả con trong nhánh
+            if (assignedWh.Level >= 1)
+            {
+                var bfsQueue = new Queue<Guid>();
+                bfsQueue.Enqueue(assignedId);
+                while (bfsQueue.Count > 0)
+                {
+                    var parentId = bfsQueue.Dequeue();
+                    foreach (var child in allActive.Where(w => w.ParentWarehouseId == parentId))
+                    {
+                        if (visibleIds.Add(child.Id))
+                            bfsQueue.Enqueue(child.Id);
+                    }
+                }
+            }
+        }
+
+        // Thêm parent nodes cho cấu trúc tree (display only)
+        var structuralParents = new HashSet<Guid>();
+        foreach (var id in visibleIds)
+        {
+            var wh = allActive.FirstOrDefault(w => w.Id == id);
+            var parentId = wh?.ParentWarehouseId;
+            while (parentId.HasValue
+                   && !visibleIds.Contains(parentId.Value)
+                   && structuralParents.Add(parentId.Value))
+            {
+                var parent = allActive.FirstOrDefault(w => w.Id == parentId.Value);
+                parentId = parent?.ParentWarehouseId;
+            }
+        }
+        foreach (var id in structuralParents)
+            visibleIds.Add(id);
+
+        var filtered = allActive
+            .Where(w => visibleIds.Contains(w.Id))
+            .OrderByDescending(w => w.CreationTime)
+            .ToList();
+
+        var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(filtered);
+        await FillParentWarehouseNamesAsync(dtos);
+
+        return new ListResultDto<WarehouseDto>(dtos);
     }
 
     protected override async Task<Warehouse> MapToEntityAsync(CreateUpdateWarehouseDto createInput)

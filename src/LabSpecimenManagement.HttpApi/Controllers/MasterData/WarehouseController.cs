@@ -106,4 +106,11 @@ public class WarehouseController : LabSpecimenManagementController
     {
         return _warehouseAppService.BatchToggleActiveAsync(input.Ids, input.IsActive);
     }
+
+    [HttpGet("active-for-me")]
+    [Authorize]
+    public virtual Task<ListResultDto<WarehouseDto>> GetActiveWarehousesForCurrentUserAsync()
+    {
+        return _warehouseAppService.GetActiveWarehousesForCurrentUserAsync();
+    }
 }

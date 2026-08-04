@@ -96,6 +96,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
 
         // Products Permissions (Quản lý vật tư)
         var productPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.Products.Default, L("Permission:Products"));
+        productPermission.AddChild(LabSpecimenManagementPermissions.Products.View, L("Permission:Products.View"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Create, L("Permission:Products.Create"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Edit, L("Permission:Products.Edit"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Delete, L("Permission:Products.Delete"));

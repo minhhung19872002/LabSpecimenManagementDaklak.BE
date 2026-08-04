@@ -25,4 +25,6 @@ public interface IWarehouseAppService : ICrudAppService<
     Task<int> BatchDeleteAsync(List<Guid> ids);
 
     Task<int> BatchToggleActiveAsync(List<Guid> ids, bool isActive);
+
+    Task<ListResultDto<WarehouseDto>> GetActiveWarehousesForCurrentUserAsync();
 }
