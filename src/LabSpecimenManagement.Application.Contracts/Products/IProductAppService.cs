@@ -22,4 +22,5 @@ public interface IProductAppService : IApplicationService
     Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input);
     Task<ProductDetailDto> GetDetailAsync(Guid id, Guid? warehouseId);
     Task<PagedResultDto<ProductImportHistoryDto>> GetImportHistoryAsync(Guid id, GetProductImportHistoryInput input);
+    Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, GetProductUsageLogInput input);
 }

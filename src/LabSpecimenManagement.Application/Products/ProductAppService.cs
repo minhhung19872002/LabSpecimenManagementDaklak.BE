@@ -4,9 +4,12 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.GoodsReceipts;
+using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Suppliers;
+using LabSpecimenManagement.Testing;
+using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -35,6 +38,17 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
     private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IRepository<StockMovementLog, Guid> _stockMovementLogRepository;
+    private readonly IRepository<TestBatchConsumption, Guid> _testBatchConsumptionRepository;
+    private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
+    private readonly IRepository<TestBatch, Guid> _testBatchRepository;
+    private readonly IRepository<TestBatchItem, Guid> _testBatchItemRepository;
+    private readonly IRepository<LaboratoryTaskIndicator, Guid> _ltiRepository;
+    private readonly IRepository<TestRequestSampleIndicator, Guid> _trsiRepository;
+    private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
+    private readonly IRepository<Indicator, Guid> _indicatorRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUnitConversionResolver _unitConversionResolver;
@@ -53,6 +67,17 @@ public class ProductAppService : ApplicationService, IProductAppService
         IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
         IRepository<Warehouse, Guid> warehouseRepository,
         IRepository<StockMovementLog, Guid> stockMovementLogRepository,
+        IRepository<TestBatchConsumption, Guid> testBatchConsumptionRepository,
+        IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
+        IRepository<TestBatch, Guid> testBatchRepository,
+        IRepository<TestBatchItem, Guid> testBatchItemRepository,
+        IRepository<LaboratoryTaskIndicator, Guid> ltiRepository,
+        IRepository<TestRequestSampleIndicator, Guid> trsiRepository,
+        IRepository<TestRequestSample, Guid> sampleRepository,
+        IRepository<Indicator, Guid> indicatorRepository,
+        IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUnitConversionResolver unitConversionResolver)
@@ -70,6 +95,17 @@ public class ProductAppService : ApplicationService, IProductAppService
         _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
         _warehouseRepository = warehouseRepository;
         _stockMovementLogRepository = stockMovementLogRepository;
+        _testBatchConsumptionRepository = testBatchConsumptionRepository;
+        _indicatorConsumptionRepository = indicatorConsumptionRepository;
+        _testBatchRepository = testBatchRepository;
+        _testBatchItemRepository = testBatchItemRepository;
+        _ltiRepository = ltiRepository;
+        _trsiRepository = trsiRepository;
+        _sampleRepository = sampleRepository;
+        _indicatorRepository = indicatorRepository;
+        _testMethodRepository = testMethodRepository;
+        _specimenTypeRepository = specimenTypeRepository;
+        _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _unitConversionResolver = unitConversionResolver;
@@ -1523,4 +1559,173 @@ public class ProductAppService : ApplicationService, IProductAppService
     }
 
     #endregion
+
+    public async Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, GetProductUsageLogInput input)
+    {
+        var testBatchConsumptionQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var indicatorConsumptionQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var batchQuery = await _testBatchRepository.GetQueryableAsync();
+        var itemQuery = await _testBatchItemRepository.GetQueryableAsync();
+        var ltiQuery = await _ltiRepository.GetQueryableAsync();
+        var trsiQuery = await _trsiRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        var methodQuery = await _testMethodRepository.GetQueryableAsync();
+        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
+
+        // Path 1: TestBatchConsumption → TestBatch → TestBatchItem (batch flow)
+        var batchIds = testBatchConsumptionQuery
+            .Where(c => c.ProductId == id)
+            .Select(c => c.TestBatchId)
+            .Distinct();
+
+        var fromBatchPath = (
+            from batch in batchQuery
+            where batchIds.Contains(batch.Id)
+               && (!input.DateFrom.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate >= input.DateFrom))
+               && (!input.DateTo.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate <= input.DateTo.Value.AddDays(1)))
+            join item in itemQuery on batch.Id equals item.TestBatchId
+            where item.IsSubmitted
+            join lti in ltiQuery on item.LaboratoryTaskIndicatorId equals lti.Id
+            join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+            join sample in sampleQuery on trsi.TestRequestSampleId equals sample.Id
+            join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
+            join method in methodQuery on lti.MethodId equals method.Id into methods
+            from method in methods.DefaultIfEmpty()
+            join st in specimenTypeQuery on trsi.SpecimenTypeId equals st.Id into sts
+            from st in sts.DefaultIfEmpty()
+            select new UsageLogRawItem
+            {
+                LtiId = lti.Id,
+                SampleCode = item.SampleCode ?? sample.SampleCode,
+                SampleName = sample.SampleName,
+                SampleMatrix = st != null ? st.Name : null,
+                IndicatorName = ind.Name,
+                TestMethodName = method != null ? method.Name : (lti.SubContractMethodName ?? ""),
+                TechnicianId = lti.TechnicianId,
+                Result = item.Result ?? lti.Result,
+                ResultSubmissionDate = batch.ConsumptionConfirmedDate,
+            }
+        ).ToList();
+
+        // Path 2: IndicatorConsumption → LaboratoryTaskIndicator (direct indicator submit flow)
+        var ltiIdsFromIC = indicatorConsumptionQuery
+            .Where(c => c.ProductId == id)
+            .Select(c => c.LaboratoryTaskIndicatorId)
+            .Distinct();
+
+        var fromIndicatorPath = (
+            from lti in ltiQuery
+            where ltiIdsFromIC.Contains(lti.Id)
+               && (!input.DateFrom.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate >= input.DateFrom))
+               && (!input.DateTo.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate <= input.DateTo.Value.AddDays(1)))
+            join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
+            join sample in sampleQuery on trsi.TestRequestSampleId equals sample.Id
+            join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
+            join method in methodQuery on lti.MethodId equals method.Id into methods
+            from method in methods.DefaultIfEmpty()
+            join st in specimenTypeQuery on trsi.SpecimenTypeId equals st.Id into sts
+            from st in sts.DefaultIfEmpty()
+            select new UsageLogRawItem
+            {
+                LtiId = lti.Id,
+                SampleCode = sample.SampleCode,
+                SampleName = sample.SampleName,
+                SampleMatrix = st != null ? st.Name : null,
+                IndicatorName = ind.Name,
+                TestMethodName = method != null ? method.Name : (lti.SubContractMethodName ?? ""),
+                TechnicianId = lti.TechnicianId,
+                Result = lti.Result,
+                ResultSubmissionDate = lti.SubmitDate,
+            }
+        ).ToList();
+
+        // Merge both paths, deduplicate by LtiId (batch path takes priority)
+        var seenLtiIds = new HashSet<Guid>(fromBatchPath.Select(x => x.LtiId));
+        var merged = fromBatchPath
+            .Concat(fromIndicatorPath.Where(x => seenLtiIds.Add(x.LtiId)))
+            .OrderByDescending(x => x.ResultSubmissionDate)
+            .ToList();
+
+        var totalCount = merged.Count;
+        var rawResults = merged
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
+            .ToList();
+
+        // Enrich consumption amounts from IndicatorConsumption for this page
+        var pageIds = rawResults.Select(r => r.LtiId).ToList();
+        var icForPage = (await _indicatorConsumptionRepository.GetQueryableAsync())
+            .Where(c => c.ProductId == id && pageIds.Contains(c.LaboratoryTaskIndicatorId))
+            .ToList();
+
+        var icByLti = icForPage
+            .GroupBy(c => c.LaboratoryTaskIndicatorId)
+            .ToDictionary(
+                g => g.Key,
+                g => (Quantity: g.Sum(c => c.ActualQuantity), UnitId: g.First().UnitId));
+
+        var unitIdsNeeded = icByLti.Values
+            .Where(v => v.UnitId.HasValue)
+            .Select(v => v.UnitId!.Value)
+            .Distinct()
+            .ToList();
+
+        var unitNames = new Dictionary<Guid, string>();
+        if (unitIdsNeeded.Any())
+        {
+            var uq = await _unitRepository.GetQueryableAsync();
+            unitNames = uq.Where(u => unitIdsNeeded.Contains(u.Id))
+                          .ToDictionary(u => u.Id, u => u.Name);
+        }
+
+        foreach (var r in rawResults)
+        {
+            if (icByLti.TryGetValue(r.LtiId, out var ic))
+            {
+                r.ConsumptionAmount = ic.Quantity;
+                r.ConsumptionUnitName = ic.UnitId.HasValue
+                    ? unitNames.GetValueOrDefault(ic.UnitId.Value)
+                    : null;
+            }
+        }
+
+        // Enrich technician names
+        await _userNameProvider.EnrichWithUserNamesAsync(
+            rawResults,
+            r => r.TechnicianId,
+            (r, name) => r.TechnicianName = name);
+
+        var items = rawResults.Select(r => new ProductUsageLogItemDto
+        {
+            SampleCode = r.SampleCode ?? "",
+            SampleName = r.SampleName,
+            SampleMatrix = r.SampleMatrix,
+            IndicatorName = r.IndicatorName,
+            TestMethodName = r.TestMethodName,
+            TechnicianName = r.TechnicianName,
+            Result = r.Result,
+            ResultSubmissionDate = r.ResultSubmissionDate,
+            ConsumptionAmount = r.ConsumptionAmount,
+            ConsumptionUnitName = r.ConsumptionUnitName,
+        }).ToList();
+
+        return new PagedResultDto<ProductUsageLogItemDto>(totalCount, items);
+    }
+
+    private class UsageLogRawItem
+    {
+        public Guid LtiId { get; set; }
+        public string? SampleCode { get; set; }
+        public string SampleName { get; set; } = "";
+        public string? SampleMatrix { get; set; }
+        public string IndicatorName { get; set; } = "";
+        public string TestMethodName { get; set; } = "";
+        public Guid? TechnicianId { get; set; }
+        public string? TechnicianName { get; set; }
+        public string? Result { get; set; }
+        public DateTime? ResultSubmissionDate { get; set; }
+        public decimal? ConsumptionAmount { get; set; }
+        public string? ConsumptionUnitName { get; set; }
+    }
 }
