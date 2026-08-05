@@ -2893,7 +2893,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 tmi.SpecimenTypeId,
                 tmi.Unit,
                 tmi.FormattedUnit,
-                tmi.UnitPrice
+                tmi.UnitPrice,
+                tmi.IsSubcontract
             }
         );
         var tmiByIndicatorId = testMethodIndicators
@@ -2912,7 +2913,8 @@ public class ImportAppService : ApplicationService, IImportAppService
             "Chỉ tiêu phụ",
             "Tên phương pháp",
             "Đơn vị tính",
-            "Đơn giá"
+            "Đơn giá",
+            "Hợp đồng phụ"
         };
         for (int i = 0; i < headers.Length; i++)
             worksheet.Cell(1, i + 1).Value = headers[i];
@@ -2972,6 +2974,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
 
                 worksheet.Cell(rowNum, 8).Value = methodLink.UnitPrice;
+                worksheet.Cell(rowNum, 9).Value = methodLink.IsSubcontract == true ? "Y" : "N";
             }
 
             rowNum++;
@@ -2986,9 +2989,6 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             if (groupIndicators.Count == 0)
             {
-                worksheet.Cell(rowNum, 1).Value = group.Name ?? "";
-                worksheet.Cell(rowNum, 2).Value = deptName;
-                rowNum++;
                 continue;
             }
 
@@ -3022,6 +3022,16 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                 }
             }
+        }
+
+        {
+            var validationSheet = workbook.AddWorksheet("_Validation");
+            validationSheet.Cell(1, 1).Value = "Y";
+            validationSheet.Cell(2, 1).Value = "N";
+            validationSheet.Hide();
+
+            var subcontractRange = worksheet.Range(2, 9, 1048576, 9);
+            subcontractRange.CreateDataValidation().List("'_Validation'!$A$1:$A$2", true);
         }
 
         worksheet.Columns().AdjustToContents();
@@ -3136,6 +3146,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 TestMethodName = row.TestMethodName?.Trim() ?? "",
                 Unit = row.Unit?.Trim(),
                 UnitPrice = parsedUnitPrice,
+                IsSubcontract = row.IsSubcontract,
                 IsValid = true
             };
 
@@ -3170,29 +3181,20 @@ public class ImportAppService : ApplicationService, IImportAppService
                 AddRowError(rowErrors, rowNumber, error);
             }
 
-            if (string.IsNullOrWhiteSpace(row.SpecimenTypeName))
+            var hasSpecimen = !string.IsNullOrWhiteSpace(row.SpecimenTypeName);
+            var hasMethod = !string.IsNullOrWhiteSpace(row.TestMethodName);
+            if (hasSpecimen != hasMethod)
             {
                 item.IsValid = false;
-                var error = "Nền mẫu không được để trống";
+                var error = hasSpecimen
+                    ? "Có Nền mẫu nhưng thiếu Tên phương pháp"
+                    : "Có Tên phương pháp nhưng thiếu Nền mẫu";
+                var colName = hasSpecimen ? "Tên phương pháp" : "Nền mẫu";
                 rowErrorMessages.Add(error);
                 validationResult.Errors.Add(new ImportRowError
                 {
                     RowNumber = rowNumber,
-                    ColumnName = "Nền mẫu",
-                    ErrorMessage = error
-                });
-                AddRowError(rowErrors, rowNumber, error);
-            }
-
-            if (string.IsNullOrWhiteSpace(row.TestMethodName))
-            {
-                item.IsValid = false;
-                var error = "Tên phương pháp không được để trống";
-                rowErrorMessages.Add(error);
-                validationResult.Errors.Add(new ImportRowError
-                {
-                    RowNumber = rowNumber,
-                    ColumnName = "Tên phương pháp",
+                    ColumnName = colName,
                     ErrorMessage = error
                 });
                 AddRowError(rowErrors, rowNumber, error);
@@ -3623,6 +3625,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                         existingMethodIndicator.Unit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
                         existingMethodIndicator.FormattedUnit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
                         existingMethodIndicator.UnitPrice = item.UnitPrice;
+                        existingMethodIndicator.IsSubcontract = item.IsSubcontract;
                         existingMethodIndicator.IsActive = true;
                         await _testMethodIndicatorRepository.UpdateAsync(existingMethodIndicator);
                         updatedMethodLinkKeys.Add(methodLinkKey);
@@ -3639,6 +3642,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                             string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit,
                             true
                         );
+                        methodIndicator.IsSubcontract = item.IsSubcontract;
                         await _testMethodIndicatorRepository.InsertAsync(methodIndicator);
                         testMethodIndicatorDict[methodLinkKey] = methodIndicator;
                         createdMethodLinkKeys.Add(methodLinkKey);
@@ -3705,6 +3709,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         int testMethodCol = FindColumnIndex(columnMap, "tên phương pháp", "ten phuong phap", "phương pháp", "phuong phap", "test method", "method");
         int unitCol = FindColumnIndex(columnMap, "đơn vị tính", "don vi tinh", "đơn vị", "don vi", "unit");
         int unitPriceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "unit price", "price");
+        int subcontractCol = FindColumnIndex(columnMap, "hợp đồng phụ", "hop dong phu", "hđ phụ", "hd phu", "subcontract");
 
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
         for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
@@ -3725,7 +3730,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 FormattedSubIndicatorName = subIndicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(subIndicatorCol)) : null,
                 TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
                 Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() : null,
-                UnitPriceText = unitPriceCol > 0 ? row.Cell(unitPriceCol).GetFormattedString()?.Trim() : null
+                UnitPriceText = unitPriceCol > 0 ? row.Cell(unitPriceCol).GetFormattedString()?.Trim() : null,
+                IsSubcontract = subcontractCol > 0 && string.Equals(row.Cell(subcontractCol).GetString()?.Trim(), "Y", StringComparison.OrdinalIgnoreCase)
             };
 
             if (string.IsNullOrWhiteSpace(importRow.IndicatorGroupName) &&
@@ -3764,10 +3770,11 @@ public class ImportAppService : ApplicationService, IImportAppService
         worksheet.Cell(1, 7).Value = "Tên phương pháp";
         worksheet.Cell(1, 8).Value = "Đơn vị tính";
         worksheet.Cell(1, 9).Value = "Đơn giá";
-        worksheet.Cell(1, 10).Value = "Lỗi";
+        worksheet.Cell(1, 10).Value = "Hợp đồng phụ";
+        worksheet.Cell(1, 11).Value = "Lỗi";
 
         // Style headers
-        var headerRange = worksheet.Range(1, 1, 1, 10);
+        var headerRange = worksheet.Range(1, 1, 1, 11);
         headerRange.Style.Font.Bold = true;
         headerRange.Style.Fill.BackgroundColor = XLColor.LightGray;
 
@@ -3787,12 +3794,13 @@ public class ImportAppService : ApplicationService, IImportAppService
             worksheet.Cell(dataRow, 7).Value = row.TestMethodName;
             worksheet.Cell(dataRow, 8).Value = row.Unit ?? "";
             worksheet.Cell(dataRow, 9).Value = row.UnitPriceText ?? "";
+            worksheet.Cell(dataRow, 10).Value = row.IsSubcontract ? "Y" : "N";
 
             if (rowErrors.TryGetValue(rowNumber, out var errorList))
             {
-                worksheet.Cell(dataRow, 10).Value = string.Join("; ", errorList);
+                worksheet.Cell(dataRow, 11).Value = string.Join("; ", errorList);
                 // Highlight error row
-                var errorRow = worksheet.Range(dataRow, 1, dataRow, 10);
+                var errorRow = worksheet.Range(dataRow, 1, dataRow, 11);
                 errorRow.Style.Fill.BackgroundColor = XLColor.LightPink;
             }
         }

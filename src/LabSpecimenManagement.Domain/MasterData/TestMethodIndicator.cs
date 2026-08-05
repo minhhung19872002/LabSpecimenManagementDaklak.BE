@@ -48,6 +48,11 @@ public class TestMethodIndicator : Entity<Guid>
     /// </summary>
     public bool IsActive { get; set; } = true;
 
+    /// <summary>
+    /// Cờ HĐ phụ (hợp đồng phụ / subcontract)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
+
     protected TestMethodIndicator()
     {
     }

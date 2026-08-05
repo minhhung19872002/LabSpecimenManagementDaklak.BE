@@ -36,4 +36,9 @@ public class IndicatorWithPriceDto
     /// </summary>
     [StringLength(500)]
     public string? FormattedUnit { get; set; }
+
+    /// <summary>
+    /// Cờ HĐ phụ (hợp đồng phụ)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }

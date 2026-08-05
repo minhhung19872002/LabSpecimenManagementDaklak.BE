@@ -961,7 +961,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                         SpecimenTypeCode = specimenType?.Code,
                         SpecimenTypeName = specimenType?.Name,
                         Unit = methodIndicator.Unit ?? testMethod.Unit,
-                        FormattedUnit = methodIndicator.FormattedUnit ?? testMethod.FormattedUnit
+                        FormattedUnit = methodIndicator.FormattedUnit ?? testMethod.FormattedUnit,
+                        IsSubcontract = methodIndicator.IsSubcontract
                     });
                 }
             }

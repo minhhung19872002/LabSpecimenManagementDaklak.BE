@@ -279,6 +279,7 @@ public class TestRequestDtoEnricher : ITransientDependency
             TestDate = labTaskIndicator?.TestDate,
             ParentIndicatorId = indicator?.ParentIndicatorId,
             IsSentToQLKT = labTaskIndicator != null,
+            IsSubcontract = indicatorLink.IsSubcontract,
             Images = images.Select(x => new Testing.IndicatorImageDto
             {
                 Id = x.Id,

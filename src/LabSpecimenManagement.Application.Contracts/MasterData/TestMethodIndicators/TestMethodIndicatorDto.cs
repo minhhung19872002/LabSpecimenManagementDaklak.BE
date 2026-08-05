@@ -43,4 +43,9 @@ public class TestMethodIndicatorDto
     /// Đơn vị tính có định dạng HTML
     /// </summary>
     public string? FormattedUnit { get; set; }
+
+    /// <summary>
+    /// Cờ HĐ phụ (hợp đồng phụ)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }

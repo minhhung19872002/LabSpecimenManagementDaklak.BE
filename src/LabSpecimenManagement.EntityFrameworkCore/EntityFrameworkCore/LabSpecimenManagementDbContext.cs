@@ -327,6 +327,8 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestMethodId)
                 .IsRequired(false);
+
+            b.Property(x => x.IsSubcontract).HasDefaultValue(false);
         });
 
         // TestRequestSampleAttachment configuration
@@ -813,6 +815,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Unit).HasMaxLength(100).IsRequired(false);
             b.Property(x => x.FormattedUnit).HasMaxLength(500).IsRequired(false);
             b.Property(x => x.IsActive).HasDefaultValue(true);
+            b.Property(x => x.IsSubcontract).HasDefaultValue(false);
 
             b.HasIndex(x => x.TestMethodId);
             b.HasIndex(x => x.IndicatorId);

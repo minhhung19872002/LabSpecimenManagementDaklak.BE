@@ -272,6 +272,11 @@ public class TestRequestSampleIndicatorDto
     /// true = đã gửi, không thể gửi lại
     /// </summary>
     public bool IsSentToQLKT { get; set; }
+
+    /// <summary>
+    /// Hợp đồng phụ (từ TestMethodIndicator.IsSubcontract)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }
 
 // ============= Workflow Redesign - BPGN Confirmation DTOs =============

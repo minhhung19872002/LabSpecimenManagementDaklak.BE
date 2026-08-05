@@ -271,4 +271,9 @@ public class UpdateTestRequestSampleIndicatorDto
     /// Đã gửi khoa phòng
     /// </summary>
     public bool SentToDepartment { get; set; }
+
+    /// <summary>
+    /// Hợp đồng phụ (snapshot từ TestMethodIndicator)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }

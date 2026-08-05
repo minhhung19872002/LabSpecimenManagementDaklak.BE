@@ -43,12 +43,12 @@ public class IndicatorGroupImportRow
     public string? FormattedSubIndicatorName { get; set; }
 
     /// <summary>
-    /// Nền mẫu (bắt buộc)
+    /// Nền mẫu (không bắt buộc, nhưng nếu có thì phải đi kèm Tên phương pháp)
     /// </summary>
     public string SpecimenTypeName { get; set; } = string.Empty;
 
     /// <summary>
-    /// Tên phương pháp (bắt buộc)
+    /// Tên phương pháp (không bắt buộc, nhưng nếu có thì phải đi kèm Nền mẫu)
     /// </summary>
     public string TestMethodName { get; set; } = string.Empty;
 
@@ -61,6 +61,11 @@ public class IndicatorGroupImportRow
     /// Giá trị text thô của Đơn giá để validate
     /// </summary>
     public string? UnitPriceText { get; set; }
+
+    /// <summary>
+    /// Hợp đồng phụ (Y/N từ Excel → true/false)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }
 
 #endregion
@@ -215,6 +220,11 @@ public class IndicatorGroupImportPreviewItem
     /// False = cập nhật liên kết đã có
     /// </summary>
     public bool IsNewMethodLink { get; set; }
+
+    /// <summary>
+    /// Hợp đồng phụ (Y → true, N/trống → false)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 
     #endregion
 

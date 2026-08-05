@@ -2734,6 +2734,11 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(true);
 
+                    b.Property<bool>("IsSubcontract")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -6403,6 +6408,11 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<bool>("IsSubcontract")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
 
                     b.Property<Guid?>("LaboratoryId")
                         .HasColumnType("uuid");
