@@ -341,7 +341,8 @@ public partial class TestRequestAppService :
                     TestDate = testDate,
                     ParentIndicatorId = indicatorEntity.ParentIndicatorId,
                     Images = indicatorImages,
-                    IsSentToQLKT = labTaskIndicator != null
+                    IsSentToQLKT = labTaskIndicator != null,
+                    IsSubcontract = indicator.IsSubcontract
                 });
                 sampleIndicatorCost += indicator.UnitPrice;
             }
@@ -761,6 +762,7 @@ public partial class TestRequestAppService :
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
                         sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
+                        sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
 
                         await _sampleIndicatorRepository.InsertAsync(sampleIndicator, autoSave: true);
                         sampleIndicatorCost += indicatorDto.UnitPrice;
@@ -1145,6 +1147,7 @@ public partial class TestRequestAppService :
                             indicator.RequestDate = indicatorDto.RequestDate;
                             indicator.SentToDepartment = indicatorDto.SentToDepartment;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                            indicator.IsSubcontract = indicatorDto.IsSubcontract;
 
                             await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
                         }
@@ -2790,6 +2793,7 @@ public partial class TestRequestAppService :
                         indicator.TestMethodId = indicatorDto.TestMethodId;
                         indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
+                        indicator.IsSubcontract = indicatorDto.IsSubcontract;
 
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
 

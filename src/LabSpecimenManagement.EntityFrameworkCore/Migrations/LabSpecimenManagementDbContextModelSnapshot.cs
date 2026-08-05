@@ -4461,6 +4461,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
 
+                    b.Property<bool>("IsSubcontract")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
                     b.Property<Guid?>("LaboratoryId")
                         .HasColumnType("uuid");
 

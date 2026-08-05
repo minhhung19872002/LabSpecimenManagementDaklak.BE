@@ -278,6 +278,8 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.TestMethodId)
                 .IsRequired(false);
+
+            b.Property(x => x.IsSubcontract).HasDefaultValue(false);
         });
 
         // TestRequestSampleAttachment configuration

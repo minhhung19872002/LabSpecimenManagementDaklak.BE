@@ -66,6 +66,11 @@ public class TestRequestSampleIndicator : Entity<Guid>
     public bool SentToDepartment { get; set; }
 
     /// <summary>
+    /// Hợp đồng phụ (snapshot từ TestMethodIndicator.IsSubcontract tại thời điểm tạo)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
+
+    /// <summary>
     /// Navigation property to TestRequestSample
     /// </summary>
     public virtual TestRequestSample TestRequestSample { get; set; } = null!;

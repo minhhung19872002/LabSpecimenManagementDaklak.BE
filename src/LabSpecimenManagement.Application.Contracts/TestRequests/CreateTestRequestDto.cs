@@ -258,6 +258,11 @@ public class CreateTestRequestSampleIndicatorDto
     /// Đã gửi khoa phòng
     /// </summary>
     public bool SentToDepartment { get; set; }
+
+    /// <summary>
+    /// Hợp đồng phụ (snapshot từ TestMethodIndicator)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }
 
 /// <summary>
@@ -304,4 +309,5 @@ public class IndicatorChangeDto
     public decimal UnitPrice { get; set; }
     public decimal? OriginalUnitPrice { get; set; }
     public string? Notes { get; set; }
+    public bool IsSubcontract { get; set; }
 }
