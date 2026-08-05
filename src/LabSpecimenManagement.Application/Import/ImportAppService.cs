@@ -1092,10 +1092,17 @@ public class ImportAppService : ApplicationService, IImportAppService
         if (subscript) text = $"<sub>{text}</sub>";
         if (superscript) text = $"<sup>{text}</sup>";
         if (underline) text = $"<u>{text}</u>";
-        if (italic) text = $"<i>{text}</i>";
-        if (bold) text = $"<b>{text}</b>";
+        if (italic) text = $"<em>{text}</em>";
+        if (bold) text = $"<strong>{text}</strong>";
 
         return text;
+    }
+
+    private string NormalizeHtmlTags(string html)
+    {
+        return html
+            .Replace("<i>", "<em>").Replace("</i>", "</em>")
+            .Replace("<b>", "<strong>").Replace("</b>", "</strong>");
     }
 
     /// <summary>
@@ -3995,7 +4002,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             item.NewFormattedName = resolvedNewName;
 
-            item.IsChanged = item.CurrentFormattedName != resolvedNewName;
+            item.IsChanged = NormalizeHtmlTags(item.CurrentFormattedName ?? "") != NormalizeHtmlTags(resolvedNewName ?? "");
 
             result.Items.Add(item);
         }
