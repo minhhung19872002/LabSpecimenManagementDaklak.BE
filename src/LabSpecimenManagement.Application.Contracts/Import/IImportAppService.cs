@@ -183,6 +183,18 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
+    #region Admin Indicator Name Import (simplified — chỉ cập nhật tên chỉ tiêu theo ID)
+
+    Task<byte[]> GetAdminIndicatorGroupTemplateAsync();
+
+    [DisableValidation]
+    Task<AdminIndicatorNamePreviewDto> PreviewAdminIndicatorGroupsAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportAdminIndicatorGroupsAsync(byte[] fileBytes);
+
+    #endregion
+
     #region Specimen for TestRequest Import
 
     /// <summary>

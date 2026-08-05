@@ -66,6 +66,30 @@ public class IndicatorGroupImportRow
     /// Hợp đồng phụ (Y/N từ Excel → true/false)
     /// </summary>
     public bool IsSubcontract { get; set; }
+
+    #region Admin Import (ID-based)
+
+    /// <summary>
+    /// ID nhóm chỉ tiêu từ Excel (admin template) — dùng để match by ID thay vì tên
+    /// </summary>
+    public Guid? IndicatorGroupId { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu (cha) từ Excel (admin template) — dùng để match by ID thay vì tên
+    /// </summary>
+    public Guid? IndicatorId { get; set; }
+
+    /// <summary>
+    /// ID chỉ tiêu phụ từ Excel (admin template) — dùng để match by ID thay vì tên
+    /// </summary>
+    public Guid? SubIndicatorId { get; set; }
+
+    #endregion
+
+    /// <summary>
+    /// Đơn vị tính có định dạng HTML (bold, italic, underline từ Excel rich text)
+    /// </summary>
+    public string? FormattedUnit { get; set; }
 }
 
 #endregion
@@ -211,6 +235,11 @@ public class IndicatorGroupImportPreviewItem
     public string? Unit { get; set; }
 
     /// <summary>
+    /// Đơn vị tính có định dạng HTML (bold, italic, underline từ Excel rich text)
+    /// </summary>
+    public string? FormattedUnit { get; set; }
+
+    /// <summary>
     /// Đơn giá theo dòng import (default = 0)
     /// </summary>
     public decimal UnitPrice { get; set; }
@@ -225,6 +254,30 @@ public class IndicatorGroupImportPreviewItem
     /// Hợp đồng phụ (Y → true, N/trống → false)
     /// </summary>
     public bool IsSubcontract { get; set; }
+
+    #endregion
+
+    #region Change tracking (admin import)
+
+    /// <summary>
+    /// True nếu nhóm chỉ tiêu có thay đổi so với DB (default true cho backward compat)
+    /// </summary>
+    public bool IsGroupChanged { get; set; } = true;
+
+    /// <summary>
+    /// True nếu chỉ tiêu có thay đổi so với DB (default true cho backward compat)
+    /// </summary>
+    public bool IsIndicatorChanged { get; set; } = true;
+
+    /// <summary>
+    /// True nếu chỉ tiêu phụ có thay đổi so với DB (default true cho backward compat)
+    /// </summary>
+    public bool IsSubIndicatorChanged { get; set; } = true;
+
+    /// <summary>
+    /// True nếu liên kết phương pháp có thay đổi so với DB (default true cho backward compat)
+    /// </summary>
+    public bool IsMethodLinkChanged { get; set; } = true;
 
     #endregion
 
@@ -330,6 +383,33 @@ public class IndicatorGroupImportPreviewDto
     public string? ErrorFileName { get; set; }
 
     #endregion
+}
+
+#endregion
+
+#region Admin Indicator Name Import (simplified — chỉ cập nhật tên chỉ tiêu)
+
+public class AdminIndicatorNamePreviewItem
+{
+    public int RowNumber { get; set; }
+    public Guid IndicatorId { get; set; }
+    public string GroupName { get; set; } = string.Empty;
+    public string CurrentFormattedName { get; set; } = string.Empty;
+    public string NewFormattedName { get; set; } = string.Empty;
+    public bool IsChanged { get; set; }
+    public bool IsValid { get; set; }
+    public List<string> Errors { get; set; } = new();
+}
+
+public class AdminIndicatorNamePreviewDto
+{
+    public int TotalRows { get; set; }
+    public int ChangedRows { get; set; }
+    public int UnchangedRows { get; set; }
+    public int ErrorRows { get; set; }
+    public List<AdminIndicatorNamePreviewItem> Items { get; set; } = new();
+    public string? ErrorFileBase64 { get; set; }
+    public string? ErrorFileName { get; set; }
 }
 
 #endregion
