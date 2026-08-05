@@ -3920,10 +3920,11 @@ public class ImportAppService : ApplicationService, IImportAppService
             worksheet.Cell(rowNum, 2).Value = groupDict[ind.IndicatorGroupId];
             worksheet.Cell(rowNum, 2).Style.Fill.BackgroundColor = XLColor.FromArgb(240, 240, 240);
 
-            if (!string.IsNullOrEmpty(ind.FormattedName) && ind.FormattedName.Contains('<'))
-                WriteHtmlToCell(worksheet.Cell(rowNum, 3), ind.FormattedName);
+            var nameToExport = ind.FormattedName ?? ind.Name ?? "";
+            if (nameToExport.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 3), nameToExport);
             else
-                worksheet.Cell(rowNum, 3).Value = ind.Name ?? "";
+                worksheet.Cell(rowNum, 3).Value = nameToExport;
 
             rowNum++;
         }
@@ -4002,7 +4003,8 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             item.NewFormattedName = resolvedNewName;
 
-            item.IsChanged = NormalizeHtmlTags(item.CurrentFormattedName ?? "") != NormalizeHtmlTags(resolvedNewName ?? "");
+            item.IsChanged = NormalizeHtmlTags(item.CurrentFormattedName ?? "").Normalize(System.Text.NormalizationForm.FormC)
+                          != NormalizeHtmlTags(resolvedNewName ?? "").Normalize(System.Text.NormalizationForm.FormC);
 
             result.Items.Add(item);
         }
