@@ -202,6 +202,14 @@ public class WarehouseAppService :
         var query = await Repository.GetQueryableAsync();
         var allActive = query.WhereActive().ToList();
 
+        if (CurrentUser.IsInRole(AppConstants.RoleAdmin))
+        {
+            var allDtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(
+                allActive.OrderByDescending(w => w.CreationTime).ToList());
+            await FillParentWarehouseNamesAsync(allDtos);
+            return new ListResultDto<WarehouseDto>(allDtos);
+        }
+
         var uwQuery = await _userWarehouseRepository.GetQueryableAsync();
         var assignedWarehouseIds = uwQuery
             .Where(x => x.UserId == CurrentUser.Id.Value)
