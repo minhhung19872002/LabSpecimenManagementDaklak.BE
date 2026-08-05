@@ -1011,15 +1011,14 @@ public class ImportAppService : ApplicationService, IImportAppService
         if (cell.IsEmpty()) return null;
 
         // Check if cell has rich text
-        if (!cell.HasRichText || cell.GetRichText().Count <= 1)
+        if (!cell.HasRichText)
         {
-            // Single format - check if the whole cell has formatting
+            // Plain text cell - check cell-level formatting
             var font = cell.Style.Font;
             var text = cell.GetString()?.Trim() ?? "";
 
             if (string.IsNullOrEmpty(text)) return null;
 
-            // Apply formatting if exists
             var hasFormatting = font.Bold || font.Italic || font.Underline != XLFontUnderlineValues.None ||
                                font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript ||
                                font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript;
@@ -1030,6 +1029,32 @@ public class ImportAppService : ApplicationService, IImportAppService
                 font.Underline != XLFontUnderlineValues.None,
                 font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript,
                 font.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript);
+        }
+
+        if (cell.GetRichText().Count <= 1)
+        {
+            // Single rich text run — formatting is on the RUN, not cell.Style.Font
+            var singleRun = cell.GetRichText().FirstOrDefault();
+            if (singleRun == null)
+            {
+                var text = cell.GetString()?.Trim() ?? "";
+                return string.IsNullOrEmpty(text) ? null : text;
+            }
+
+            var runText = singleRun.Text?.Trim() ?? "";
+            if (string.IsNullOrEmpty(runText)) return null;
+
+            var runHasFormatting = singleRun.Bold || singleRun.Italic ||
+                                  singleRun.Underline != XLFontUnderlineValues.None ||
+                                  singleRun.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript ||
+                                  singleRun.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript;
+
+            if (!runHasFormatting) return runText;
+
+            return ApplyHtmlFormatting(runText, singleRun.Bold, singleRun.Italic,
+                singleRun.Underline != XLFontUnderlineValues.None,
+                singleRun.VerticalAlignment == XLFontVerticalTextAlignmentValues.Subscript,
+                singleRun.VerticalAlignment == XLFontVerticalTextAlignmentValues.Superscript);
         }
 
         // Multiple rich text runs
