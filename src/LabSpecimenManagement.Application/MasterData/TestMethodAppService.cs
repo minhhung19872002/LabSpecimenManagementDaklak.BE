@@ -487,7 +487,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 item.FormattedUnit ?? testMethod.FormattedUnit
             )
             {
-                SortOrder = sortOrder
+                SortOrder = sortOrder,
+                IsSubcontract = item.IsSubcontract
             };
 
             newItems.Add(entity);
@@ -567,6 +568,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         entity.UnitPrice = input.UnitPrice;
         entity.Unit = input.Unit;
         entity.FormattedUnit = input.FormattedUnit;
+        entity.IsSubcontract = input.IsSubcontract;
 
         await _testMethodIndicatorRepository.UpdateAsync(entity);
 
@@ -601,7 +603,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
             SpecimenTypeCode = specimenType?.Code,
             SpecimenTypeName = specimenType?.Name,
             Unit = entity.Unit ?? testMethod?.Unit,
-            FormattedUnit = entity.FormattedUnit ?? testMethod?.FormattedUnit
+            FormattedUnit = entity.FormattedUnit ?? testMethod?.FormattedUnit,
+            IsSubcontract = entity.IsSubcontract
         };
     }
 

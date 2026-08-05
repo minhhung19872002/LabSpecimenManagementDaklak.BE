@@ -32,4 +32,9 @@ public class UpdateTestMethodIndicatorDto
     /// Nền mẫu mới (nếu muốn đổi). Dùng Guid.Empty để set null.
     /// </summary>
     public Guid? NewSpecimenTypeId { get; set; }
+
+    /// <summary>
+    /// Cờ HĐ phụ (hợp đồng phụ)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }

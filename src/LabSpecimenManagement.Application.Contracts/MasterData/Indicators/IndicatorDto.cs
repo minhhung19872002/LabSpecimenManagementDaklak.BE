@@ -295,4 +295,9 @@ public class IndicatorMethodDto
     /// </summary>
     public string? Unit { get; set; }
     public string? FormattedUnit { get; set; }
+
+    /// <summary>
+    /// Cờ HĐ phụ (hợp đồng phụ)
+    /// </summary>
+    public bool IsSubcontract { get; set; }
 }
