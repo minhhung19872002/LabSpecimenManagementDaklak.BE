@@ -3139,6 +3139,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 SpecimenTypeName = row.SpecimenTypeName?.Trim() ?? "",
                 TestMethodName = row.TestMethodName?.Trim() ?? "",
                 Unit = row.Unit?.Trim(),
+                FormattedUnit = row.FormattedUnit,
                 UnitPrice = parsedUnitPrice,
                 IsSubcontract = row.IsSubcontract,
                 IsValid = true
@@ -3617,7 +3618,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                     if (testMethodIndicatorDict.TryGetValue(methodLinkKey, out var existingMethodIndicator))
                     {
                         existingMethodIndicator.Unit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
-                        existingMethodIndicator.FormattedUnit = string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit;
+                        existingMethodIndicator.FormattedUnit = !string.IsNullOrWhiteSpace(item.FormattedUnit) ? item.FormattedUnit
+                            : (!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : null);
                         existingMethodIndicator.UnitPrice = item.UnitPrice;
                         existingMethodIndicator.IsSubcontract = item.IsSubcontract;
                         existingMethodIndicator.IsActive = true;
@@ -3626,6 +3628,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                     else
                     {
+                        var resolvedFormattedUnit = !string.IsNullOrWhiteSpace(item.FormattedUnit) ? item.FormattedUnit
+                            : (!string.IsNullOrWhiteSpace(item.Unit) ? item.Unit : null);
                         var methodIndicator = new TestMethodIndicator(
                             _guidGenerator.Create(),
                             item.TestMethodId.Value,
@@ -3633,7 +3637,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                             item.UnitPrice,
                             item.SpecimenTypeId,
                             string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit,
-                            string.IsNullOrWhiteSpace(item.Unit) ? null : item.Unit,
+                            resolvedFormattedUnit,
                             true
                         );
                         methodIndicator.IsSubcontract = item.IsSubcontract;
@@ -3705,6 +3709,11 @@ public class ImportAppService : ApplicationService, IImportAppService
         int unitPriceCol = FindColumnIndex(columnMap, "đơn giá", "don gia", "unit price", "price");
         int subcontractCol = FindColumnIndex(columnMap, "hợp đồng phụ", "hop dong phu", "hđ phụ", "hd phu", "subcontract");
 
+        // Admin template ID columns (optional — not present in normal templates)
+        int groupIdCol = FindColumnIndex(columnMap, "id nhóm chỉ tiêu", "id nhom chi tieu", "indicator group id", "group id");
+        int indicatorIdCol = FindColumnIndex(columnMap, "id chỉ tiêu", "id chi tieu", "indicator id");
+        int subIndicatorIdCol = FindColumnIndex(columnMap, "id chỉ tiêu phụ", "id chi tieu phu", "sub indicator id");
+
         var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
         for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
         {
@@ -3724,8 +3733,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                 FormattedSubIndicatorName = subIndicatorCol > 0 ? GetCellRichTextAsHtml(row.Cell(subIndicatorCol)) : null,
                 TestMethodName = testMethodCol > 0 ? row.Cell(testMethodCol).GetString()?.Trim() ?? "" : "",
                 Unit = unitCol > 0 ? row.Cell(unitCol).GetString()?.Trim() : null,
+                FormattedUnit = unitCol > 0 ? GetCellRichTextAsHtml(row.Cell(unitCol)) : null,
                 UnitPriceText = unitPriceCol > 0 ? row.Cell(unitPriceCol).GetFormattedString()?.Trim() : null,
-                IsSubcontract = subcontractCol > 0 && string.Equals(row.Cell(subcontractCol).GetString()?.Trim(), "Y", StringComparison.OrdinalIgnoreCase)
+                IsSubcontract = subcontractCol > 0 && string.Equals(row.Cell(subcontractCol).GetString()?.Trim(), "Y", StringComparison.OrdinalIgnoreCase),
+                IndicatorGroupId = groupIdCol > 0 && Guid.TryParse(row.Cell(groupIdCol).GetString()?.Trim(), out var gId) ? gId : null,
+                IndicatorId = indicatorIdCol > 0 && Guid.TryParse(row.Cell(indicatorIdCol).GetString()?.Trim(), out var iId) ? iId : null,
+                SubIndicatorId = subIndicatorIdCol > 0 && Guid.TryParse(row.Cell(subIndicatorIdCol).GetString()?.Trim(), out var sId) ? sId : null,
             };
 
             if (string.IsNullOrWhiteSpace(importRow.IndicatorGroupName) &&
@@ -3830,6 +3843,208 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         var normalized = raw.Replace(".", "").Replace(",", ".");
         return decimal.TryParse(normalized, NumberStyles.Number, CultureInfo.InvariantCulture, out value);
+    }
+
+    #endregion
+
+    #region Admin Indicator Name Import (simplified — chỉ cập nhật tên chỉ tiêu theo ID)
+
+    public async Task<byte[]> GetAdminIndicatorGroupTemplateAsync()
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        var groups = await _indicatorGroupRepository.GetListAsync();
+        var groupDict = groups.Where(g => g.IsActive).ToDictionary(g => g.Id, g => g.Name ?? "");
+
+        var indicators = (await _indicatorRepository.GetListAsync())
+            .Where(i => i.IsActive && groupDict.ContainsKey(i.IndicatorGroupId))
+            .OrderBy(i => i.IndicatorGroupId).ThenBy(i => i.SortOrder).ThenBy(i => i.Name)
+            .ToList();
+
+        using var workbook = new XLWorkbook();
+        var worksheet = workbook.Worksheets.Add("Data");
+
+        worksheet.Cell(1, 1).Value = "ID chỉ tiêu";
+        worksheet.Cell(1, 2).Value = "Nhóm chỉ tiêu";
+        worksheet.Cell(1, 3).Value = "Tên chỉ tiêu";
+        for (int c = 1; c <= 3; c++)
+        {
+            worksheet.Cell(1, c).Style.Font.Bold = true;
+            worksheet.Cell(1, c).Style.Fill.BackgroundColor = XLColor.LightGray;
+        }
+
+        var rowNum = 2;
+        foreach (var ind in indicators)
+        {
+            worksheet.Cell(rowNum, 1).Value = ind.Id.ToString();
+            worksheet.Cell(rowNum, 1).Style.Fill.BackgroundColor = XLColor.FromArgb(240, 240, 240);
+            worksheet.Cell(rowNum, 2).Value = groupDict[ind.IndicatorGroupId];
+            worksheet.Cell(rowNum, 2).Style.Fill.BackgroundColor = XLColor.FromArgb(240, 240, 240);
+
+            if (!string.IsNullOrEmpty(ind.FormattedName) && ind.FormattedName.Contains('<'))
+                WriteHtmlToCell(worksheet.Cell(rowNum, 3), ind.FormattedName);
+            else
+                worksheet.Cell(rowNum, 3).Value = ind.Name ?? "";
+
+            rowNum++;
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var stream = new MemoryStream();
+        workbook.SaveAs(stream);
+        return stream.ToArray();
+    }
+
+    public async Task<AdminIndicatorNamePreviewDto> PreviewAdminIndicatorGroupsAsync(byte[] fileBytes)
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewAdminIndicatorNamesInternalAsync(memoryStream);
+    }
+
+    private async Task<AdminIndicatorNamePreviewDto> PreviewAdminIndicatorNamesInternalAsync(MemoryStream memoryStream)
+    {
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheets.First();
+        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorById = indicators.ToDictionary(x => x.Id);
+
+        var groups = await _indicatorGroupRepository.GetListAsync();
+        var groupNameById = groups.ToDictionary(g => g.Id, g => g.Name ?? "");
+
+        var result = new AdminIndicatorNamePreviewDto();
+
+        for (int rowIdx = 2; rowIdx <= lastRow; rowIdx++)
+        {
+            var idCell = worksheet.Cell(rowIdx, 1).GetString()?.Trim();
+            var newFormattedName = GetCellRichTextAsHtml(worksheet.Cell(rowIdx, 3));
+            var newPlainName = worksheet.Cell(rowIdx, 3).GetString()?.Trim() ?? "";
+
+            if (string.IsNullOrWhiteSpace(idCell) && string.IsNullOrWhiteSpace(newPlainName))
+                continue;
+
+            var item = new AdminIndicatorNamePreviewItem { RowNumber = rowIdx, IsValid = true };
+
+            if (!Guid.TryParse(idCell, out var indicatorId))
+            {
+                item.IsValid = false;
+                item.Errors.Add($"ID chỉ tiêu '{idCell}' không hợp lệ");
+                result.Items.Add(item);
+                continue;
+            }
+
+            item.IndicatorId = indicatorId;
+
+            if (!indicatorById.TryGetValue(indicatorId, out var existingIndicator))
+            {
+                item.IsValid = false;
+                item.Errors.Add($"ID chỉ tiêu '{indicatorId}' không tồn tại trong hệ thống");
+                result.Items.Add(item);
+                continue;
+            }
+
+            item.GroupName = groupNameById.TryGetValue(existingIndicator.IndicatorGroupId, out var gName) ? gName : "";
+            item.CurrentFormattedName = existingIndicator.FormattedName ?? existingIndicator.Name ?? "";
+
+            var resolvedNewName = !string.IsNullOrWhiteSpace(newFormattedName) ? newFormattedName : newPlainName;
+
+            if (string.IsNullOrWhiteSpace(resolvedNewName) || string.IsNullOrWhiteSpace(System.Text.RegularExpressions.Regex.Replace(resolvedNewName, "<[^>]+>", "").Trim()))
+            {
+                item.IsValid = false;
+                item.Errors.Add("Tên chỉ tiêu không được để trống");
+                result.Items.Add(item);
+                continue;
+            }
+
+            item.NewFormattedName = resolvedNewName;
+
+            item.IsChanged = item.CurrentFormattedName != resolvedNewName;
+
+            result.Items.Add(item);
+        }
+
+        result.TotalRows = result.Items.Count;
+        result.ChangedRows = result.Items.Count(i => i.IsValid && i.IsChanged);
+        result.UnchangedRows = result.Items.Count(i => i.IsValid && !i.IsChanged);
+        result.ErrorRows = result.Items.Count(i => !i.IsValid);
+
+        return result;
+    }
+
+    public async Task<ImportResultDto> ImportAdminIndicatorGroupsAsync(byte[] fileBytes)
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewAdminIndicatorNamesInternalAsync(memoryStream);
+
+        if (preview.ErrorRows > 0)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Có {preview.ErrorRows} dòng lỗi. Vui lòng sửa và thử lại."
+            };
+        }
+
+        var changedItems = preview.Items.Where(i => i.IsValid && i.IsChanged).ToList();
+        if (changedItems.Count == 0)
+        {
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = 0,
+                Message = "Không có chỉ tiêu nào thay đổi tên."
+            };
+        }
+
+        try
+        {
+            var indicatorIds = changedItems.Select(i => i.IndicatorId).ToHashSet();
+            var indicators = (await _indicatorRepository.GetListAsync())
+                .Where(i => indicatorIds.Contains(i.Id))
+                .ToDictionary(i => i.Id);
+
+            var updatedCount = 0;
+            foreach (var item in changedItems)
+            {
+                if (!indicators.TryGetValue(item.IndicatorId, out var indicator)) continue;
+
+                indicator.FormattedName = item.NewFormattedName;
+                var plainName = System.Text.RegularExpressions.Regex.Replace(item.NewFormattedName, "<[^>]+>", "").Trim();
+                if (!string.IsNullOrWhiteSpace(plainName))
+                    indicator.Name = plainName;
+
+                await _indicatorRepository.UpdateAsync(indicator);
+                updatedCount++;
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = updatedCount,
+                Message = $"[Admin] Cập nhật thành công {updatedCount} tên chỉ tiêu."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
     }
 
     #endregion

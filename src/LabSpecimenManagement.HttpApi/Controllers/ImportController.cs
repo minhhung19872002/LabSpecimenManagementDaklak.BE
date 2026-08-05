@@ -342,6 +342,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Admin IndicatorGroup + Indicator Import (ID-based matching)
+
+    [HttpGet("indicator-groups/admin-template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    public virtual async Task<IActionResult> GetAdminIndicatorGroupTemplateAsync()
+    {
+        var bytes = await _importAppService.GetAdminIndicatorGroupTemplateAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "AdminTemplate_NhomChiTieu.xlsx");
+    }
+
+    [HttpPost("indicator-groups/admin-preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<AdminIndicatorNamePreviewDto> PreviewAdminIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewAdminIndicatorGroupsAsync(fileBytes);
+    }
+
+    [HttpPost("indicator-groups/admin")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportAdminIndicatorGroupsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportAdminIndicatorGroupsAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Specimen Import for TestRequestForm
 
     /// <summary>
