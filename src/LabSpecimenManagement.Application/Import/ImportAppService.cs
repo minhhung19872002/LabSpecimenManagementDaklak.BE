@@ -1099,6 +1099,12 @@ public class ImportAppService : ApplicationService, IImportAppService
             .Replace("<b>", "<strong>").Replace("</b>", "</strong>");
     }
 
+    private string NormalizeForComparison(string html)
+    {
+        return System.Web.HttpUtility.HtmlDecode(NormalizeHtmlTags(html))
+            .Normalize(System.Text.NormalizationForm.FormC);
+    }
+
     /// <summary>
     /// Write HTML-formatted text to Excel cell as rich text.
     /// Reverse of GetCellRichTextAsHtml: converts HTML tags (b, i, u, sub, sup) to Excel formatting.
@@ -3997,8 +4003,8 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             item.NewFormattedName = resolvedNewName;
 
-            item.IsChanged = NormalizeHtmlTags(item.CurrentFormattedName ?? "").Normalize(System.Text.NormalizationForm.FormC)
-                          != NormalizeHtmlTags(resolvedNewName ?? "").Normalize(System.Text.NormalizationForm.FormC);
+            item.IsChanged = NormalizeForComparison(item.CurrentFormattedName ?? "")
+                          != NormalizeForComparison(resolvedNewName ?? "");
 
             result.Items.Add(item);
         }
