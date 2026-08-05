@@ -239,7 +239,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                         SpecimenTypeCode = specimenType?.Code,
                         SpecimenTypeName = specimenType?.Name,
                         Unit = effectiveUnit,
-                        FormattedUnit = effectiveFormattedUnit
+                        FormattedUnit = effectiveFormattedUnit,
+                        IsSubcontract = tmi.IsSubcontract
                     });
 
                     // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
@@ -266,7 +267,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                             SpecimenTypeCode = specimenType?.Code,
                             SpecimenTypeName = specimenType?.Name,
                             Unit = effectiveUnit,
-                            FormattedUnit = effectiveFormattedUnit
+                            FormattedUnit = effectiveFormattedUnit,
+                            IsSubcontract = tmi.IsSubcontract
                         });
                     }
                 }
@@ -326,7 +328,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 SpecimenTypeCode = specimenType?.Code,
                 SpecimenTypeName = specimenType?.Name,
                 Unit = effectiveUnit,
-                FormattedUnit = effectiveFormattedUnit
+                FormattedUnit = effectiveFormattedUnit,
+                IsSubcontract = tmi.IsSubcontract
             });
 
             // Add sub-indicators of this parent
@@ -353,7 +356,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     SpecimenTypeCode = specimenType?.Code,
                     SpecimenTypeName = specimenType?.Name,
                     Unit = effectiveUnit,
-                    FormattedUnit = effectiveFormattedUnit
+                    FormattedUnit = effectiveFormattedUnit,
+                    IsSubcontract = tmi.IsSubcontract
                 });
             }
         }
