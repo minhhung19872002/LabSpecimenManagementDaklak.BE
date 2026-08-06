@@ -320,6 +320,7 @@ public class ProductDetailDto
     public string? PackagingUnitName { get; set; }
     public int? PackagingQuantity { get; set; }
     public decimal ConsumableImportedQuantity { get; set; }
+    public int? VolumePerUnit { get; set; }
     public string? VolumeUnitName { get; set; }
 }
 

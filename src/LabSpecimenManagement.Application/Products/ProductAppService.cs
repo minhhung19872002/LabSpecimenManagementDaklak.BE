@@ -1009,6 +1009,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                     : null,
             PackagingQuantity = product.PackagingQuantity,
             ConsumableImportedQuantity = consumableQty,
+            VolumePerUnit = product.VolumePerUnit
+                ?? (productSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue && detailSystemMfgIds.Contains(s.ManufacturerId))
+                   ?? productSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue))?.VolumePerUnit,
             VolumeUnitName = product.VolumeUnitId.HasValue
                 ? unitMap.GetValueOrDefault(product.VolumeUnitId.Value)
                 : (productSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue && detailSystemMfgIds.Contains(s.ManufacturerId))
@@ -1437,6 +1440,13 @@ public class ProductAppService : ApplicationService, IProductAppService
                         ?? volFallbackSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue);
                 if (vSku != null)
                     dto.VolumeUnitName = unitMap.GetValueOrDefault(vSku.VolumeUnitId!.Value);
+            }
+            if (!dto.VolumePerUnit.HasValue && skuMap.TryGetValue(product.Id, out var vpuFallbackSkus))
+            {
+                var vpuSku = vpuFallbackSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue && systemMfgIds.Contains(s.ManufacturerId))
+                          ?? vpuFallbackSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue);
+                if (vpuSku != null)
+                    dto.VolumePerUnit = vpuSku.VolumePerUnit;
             }
             dto.StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
