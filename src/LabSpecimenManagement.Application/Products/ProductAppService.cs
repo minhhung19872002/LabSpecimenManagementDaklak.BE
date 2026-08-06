@@ -1634,18 +1634,13 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToList();
 
         var totalCount = merged.Count;
-        var rawResults = merged
-            .Skip(input.SkipCount)
-            .Take(input.MaxResultCount)
+
+        // Enrich consumption amounts for ALL entries (needed for running balance)
+        var icAll = (await _indicatorConsumptionRepository.GetQueryableAsync())
+            .Where(c => c.ProductId == id)
             .ToList();
 
-        // Enrich consumption amounts from IndicatorConsumption for this page
-        var pageIds = rawResults.Select(r => r.LtiId).ToList();
-        var icForPage = (await _indicatorConsumptionRepository.GetQueryableAsync())
-            .Where(c => c.ProductId == id && pageIds.Contains(c.LaboratoryTaskIndicatorId))
-            .ToList();
-
-        var icByLti = icForPage
+        var icByLti = icAll
             .GroupBy(c => c.LaboratoryTaskIndicatorId)
             .ToDictionary(
                 g => g.Key,
@@ -1657,6 +1652,15 @@ public class ProductAppService : ApplicationService, IProductAppService
             .Distinct()
             .ToList();
 
+        var product = await _productRepository.GetAsync(id);
+        var productSkusForLog = (await _skuRepository.GetQueryableAsync())
+            .Where(s => s.ProductId == id).ToList();
+
+        var volumeUnitId = product.VolumeUnitId
+            ?? productSkusForLog.FirstOrDefault(s => s.VolumeUnitId.HasValue)?.VolumeUnitId;
+        if (volumeUnitId.HasValue && !unitIdsNeeded.Contains(volumeUnitId.Value))
+            unitIdsNeeded.Add(volumeUnitId.Value);
+
         var unitNames = new Dictionary<Guid, string>();
         if (unitIdsNeeded.Any())
         {
@@ -1665,7 +1669,11 @@ public class ProductAppService : ApplicationService, IProductAppService
                           .ToDictionary(u => u.Id, u => u.Name);
         }
 
-        foreach (var r in rawResults)
+        string? consumableUnitName = volumeUnitId.HasValue
+            ? unitNames.GetValueOrDefault(volumeUnitId.Value)
+            : null;
+
+        foreach (var r in merged)
         {
             if (icByLti.TryGetValue(r.LtiId, out var ic))
             {
@@ -1676,7 +1684,57 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
         }
 
-        // Enrich technician names
+        // Compute current consumable stock (in volume units) for running balance
+        var logImportItemQ = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var logImportReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var lotItems = (from item in logImportItemQ
+                        join receipt in logImportReceiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                        where item.ProductId == id
+                              && receipt.Status == WarehouseImportReceiptStatus.Completed
+                              && item.Status == WarehouseImportLineStatus.Checked
+                        select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId })
+                        .ToList();
+
+        decimal currentConsumable = 0;
+        foreach (var lot in lotItems)
+        {
+            var remaining = lot.ReceivedBaseQuantity - lot.ConsumedBaseQuantity;
+            if (remaining <= 0) continue;
+
+            int? vpu = null;
+            if (lot.SkuId.HasValue)
+            {
+                var sku = productSkusForLog.FirstOrDefault(s => s.Id == lot.SkuId.Value);
+                if (sku?.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
+            }
+            if (!vpu.HasValue && product.VolumePerUnit > 0)
+                vpu = product.VolumePerUnit;
+
+            if (vpu.HasValue && vpu.Value > 0)
+                currentConsumable += remaining * vpu.Value;
+        }
+
+        // Running balance: merged is sorted DESC (newest first), accumulate backwards
+        if (currentConsumable > 0 && consumableUnitName != null)
+        {
+            decimal running = currentConsumable;
+            for (int i = 0; i < merged.Count; i++)
+            {
+                if (merged[i].ConsumptionAmount.HasValue && merged[i].ConsumptionAmount > 0)
+                    running += merged[i].ConsumptionAmount.Value;
+                merged[i].ConsumableStockBefore = running;
+                merged[i].ConsumableStockUnitName = consumableUnitName;
+            }
+        }
+
+        // Paginate
+        var rawResults = merged
+            .Skip(input.SkipCount)
+            .Take(input.MaxResultCount)
+            .ToList();
+
+        // Enrich technician names (page only)
         await _userNameProvider.EnrichWithUserNamesAsync(
             rawResults,
             r => r.TechnicianId,
@@ -1692,6 +1750,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             TechnicianName = r.TechnicianName,
             Result = r.Result,
             ResultSubmissionDate = r.ResultSubmissionDate,
+            ConsumableStockBefore = r.ConsumableStockBefore,
+            ConsumableStockUnitName = r.ConsumableStockUnitName,
             ConsumptionAmount = r.ConsumptionAmount,
             ConsumptionUnitName = r.ConsumptionUnitName,
         }).ToList();
@@ -1711,6 +1771,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         public string? TechnicianName { get; set; }
         public string? Result { get; set; }
         public DateTime? ResultSubmissionDate { get; set; }
+        public decimal? ConsumableStockBefore { get; set; }
+        public string? ConsumableStockUnitName { get; set; }
         public decimal? ConsumptionAmount { get; set; }
         public string? ConsumptionUnitName { get; set; }
     }

@@ -20,6 +20,8 @@ public class ProductUsageLogItemDto
     public string? TechnicianName { get; set; }
     public string? Result { get; set; }
     public DateTime? ResultSubmissionDate { get; set; }
+    public decimal? ConsumableStockBefore { get; set; }
+    public string? ConsumableStockUnitName { get; set; }
     public decimal? ConsumptionAmount { get; set; }
     public string? ConsumptionUnitName { get; set; }
 }
