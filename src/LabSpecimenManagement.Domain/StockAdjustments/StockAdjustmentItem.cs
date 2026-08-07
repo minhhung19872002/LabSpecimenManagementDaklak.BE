@@ -13,6 +13,12 @@ public class StockAdjustmentItem : Entity<Guid>
     public decimal QuantityBefore { get; set; }
     public decimal ActualQuantity { get; set; }
     public decimal AdjustmentQuantity { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
+    public Guid? ActualUnitId { get; set; }
+    public string? ActualUnitName { get; set; }
+    public string? Reason { get; set; }
+    public decimal? ExpectedStock { get; set; }
 
     protected StockAdjustmentItem()
     {

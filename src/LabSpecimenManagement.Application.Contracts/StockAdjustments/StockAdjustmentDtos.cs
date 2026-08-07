@@ -12,6 +12,8 @@ public class StockAdjustmentListDto : EntityDto<Guid>
     public string? CreatorName { get; set; }
     public StockAdjustmentStatus Status { get; set; }
     public DateTime CreationTime { get; set; }
+    public DateTime InventoryDate { get; set; }
+    public string? InventoryUserName { get; set; }
 }
 
 public class StockAdjustmentDto : EntityDto<Guid>
@@ -21,6 +23,9 @@ public class StockAdjustmentDto : EntityDto<Guid>
     public StockAdjustmentStatus Status { get; set; }
     public string? Notes { get; set; }
     public DateTime CreationTime { get; set; }
+    public DateTime InventoryDate { get; set; }
+    public Guid? InventoryUserId { get; set; }
+    public string? InventoryUserName { get; set; }
     public List<StockAdjustmentItemDto> Items { get; set; } = new();
 }
 
@@ -34,12 +39,20 @@ public class StockAdjustmentItemDto
     public decimal QuantityBefore { get; set; }
     public decimal ActualQuantity { get; set; }
     public decimal AdjustmentQuantity { get; set; }
+    public Guid? WarehouseId { get; set; }
+    public string? WarehouseName { get; set; }
+    public Guid? ActualUnitId { get; set; }
+    public string? ActualUnitName { get; set; }
+    public string? Reason { get; set; }
+    public decimal? ExpectedStock { get; set; }
 }
 
 public class CreateUpdateStockAdjustmentDto
 {
     [StringLength(2000)]
     public string? Notes { get; set; }
+
+    public DateTime? InventoryDate { get; set; }
 
     [Required]
     public List<CreateUpdateStockAdjustmentItemDto> Items { get; set; } = new();
@@ -53,6 +66,15 @@ public class CreateUpdateStockAdjustmentItemDto
     public Guid ProductId { get; set; }
 
     public decimal ActualQuantity { get; set; }
+
+    public Guid? WarehouseId { get; set; }
+
+    public Guid? ActualUnitId { get; set; }
+
+    [StringLength(1000)]
+    public string? Reason { get; set; }
+
+    public decimal? ExpectedStock { get; set; }
 }
 
 public class GetStockAdjustmentListInput : PagedRequestDto

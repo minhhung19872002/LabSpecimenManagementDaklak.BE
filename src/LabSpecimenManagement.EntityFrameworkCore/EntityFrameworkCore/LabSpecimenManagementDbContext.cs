@@ -94,6 +94,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
     public DbSet<StockAdjustmentItem> StockAdjustmentItems { get; set; }
     public DbSet<StockMovementLog> StockMovementLogs { get; set; }
+    public DbSet<ProductWarehouseInventory> ProductWarehouseInventories { get; set; }
     public DbSet<Equipment> Equipments { get; set; }
     public DbSet<EquipmentAttachment> EquipmentAttachments { get; set; }
     public DbSet<EquipmentCostConfig> EquipmentCostConfigs { get; set; }
@@ -1668,6 +1669,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.Code).IsRequired().HasMaxLength(50);
             b.Property(x => x.Notes).HasMaxLength(2000);
+            b.Property(x => x.InventoryUserName).HasMaxLength(256);
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.Status);
@@ -1684,8 +1686,20 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.QuantityBefore).HasPrecision(18, 4);
             b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
             b.Property(x => x.AdjustmentQuantity).HasPrecision(18, 4);
+            b.Property(x => x.WarehouseName).HasMaxLength(256);
+            b.Property(x => x.ActualUnitName).HasMaxLength(100);
+            b.Property(x => x.Reason).HasMaxLength(1000);
 
             b.HasIndex(x => x.StockAdjustmentId);
+            b.HasIndex(x => x.ProductId);
+        });
+
+        builder.Entity<ProductWarehouseInventory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ProductWarehouseInventories", LabSpecimenManagementConsts.DbSchema);
+            b.HasKey(x => x.Id);
+
+            b.HasIndex(x => new { x.ProductId, x.WarehouseId }).IsUnique();
             b.HasIndex(x => x.ProductId);
         });
 

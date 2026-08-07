@@ -4651,6 +4651,30 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppRoleWarehouses", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.StockAdjustments.ProductWarehouseInventory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("LastInventoryDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("ProductId", "WarehouseId")
+                        .IsUnique();
+
+                    b.ToTable("AppProductWarehouseInventories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.StockAdjustments.StockAdjustment", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4688,6 +4712,16 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasColumnType("text")
                         .HasColumnName("ExtraProperties");
+
+                    b.Property<DateTime>("InventoryDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("InventoryUserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("InventoryUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<bool>("IsDeleted")
                         .ValueGeneratedOnAdd()
@@ -4732,9 +4766,19 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<Guid?>("ActualUnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ActualUnitName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<decimal>("AdjustmentQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("ExpectedStock")
+                        .HasColumnType("numeric");
 
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
@@ -4748,6 +4792,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("Reason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
+
                     b.Property<Guid>("StockAdjustmentId")
                         .HasColumnType("uuid");
 
@@ -4758,6 +4806,13 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WarehouseName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.HasKey("Id");
 

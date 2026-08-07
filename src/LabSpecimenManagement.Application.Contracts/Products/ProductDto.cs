@@ -75,6 +75,8 @@ public class ProductDto : FullAuditedEntityDto<Guid>
 
     public decimal TotalConsumedQuantity { get; set; }
     public decimal StorageTotalConsumedQuantity { get; set; }
+    public decimal TheoreticalConsumption { get; set; }
+    public decimal ExpectedStockConsumable { get; set; }
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
     public List<ProductSkuDto> Skus { get; set; } = new();

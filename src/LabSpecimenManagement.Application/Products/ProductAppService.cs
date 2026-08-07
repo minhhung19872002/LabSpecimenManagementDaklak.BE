@@ -7,6 +7,7 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.TestRequests;
@@ -48,6 +49,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -80,7 +82,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
-        IUnitConversionResolver unitConversionResolver)
+        IUnitConversionResolver unitConversionResolver,
+        IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository)
     {
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
@@ -109,6 +112,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _unitConversionResolver = unitConversionResolver;
+        _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
     }
 
     public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
@@ -1368,6 +1372,49 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToList()
             .ToDictionary(x => x.ProductId, x => x.Total);
 
+        // Theoretical consumption: sum RecommendedQuantity from both consumption flows, filtered by lastInventoryDate
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        var lastInventoryByProduct = pwiQuery
+            .Where(pwi => productIds.Contains(pwi.ProductId))
+            .GroupBy(pwi => pwi.ProductId)
+            .Select(g => new { ProductId = g.Key, LastDate = g.Max(pwi => pwi.LastInventoryDate) })
+            .ToList()
+            .ToDictionary(x => x.ProductId, x => x.LastDate);
+
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
+        var theoreticalFromIC = (from ic in icQuery
+                                 join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                 where ic.ProductId.HasValue
+                                       && productIds.Contains(ic.ProductId!.Value)
+                                       && ic.IsDeducted
+                                 select new { ic.ProductId, ic.RecommendedQuantity, lti.SubmitDate })
+                                .ToList()
+                                .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                             || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
+                                .GroupBy(x => x.ProductId!.Value)
+                                .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+        var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var tbQuery = await _testBatchRepository.GetQueryableAsync();
+        var theoreticalFromTBC = (from tbc in tbcQuery
+                                  join tb in tbQuery on tbc.TestBatchId equals tb.Id
+                                  where tbc.ProductId.HasValue
+                                        && productIds.Contains(tbc.ProductId!.Value)
+                                        && tbc.IsDeducted
+                                  select new { tbc.ProductId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
+                                 .ToList()
+                                 .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                              || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
+                                 .GroupBy(x => x.ProductId!.Value)
+                                 .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+        var theoreticalByProduct = new Dictionary<Guid, decimal>();
+        foreach (var kvp in theoreticalFromIC)
+            theoreticalByProduct[kvp.Key] = kvp.Value;
+        foreach (var kvp in theoreticalFromTBC)
+            theoreticalByProduct[kvp.Key] = theoreticalByProduct.GetValueOrDefault(kvp.Key) + kvp.Value;
+
         // Consumable quantity = remaining lot volume (ReceivedBase - Consumed) × VolumePerUnit
         var consumableImportItems = (from item in importItemQuery
                                      join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
@@ -1469,6 +1516,10 @@ public class ProductAppService : ApplicationService, IProductAppService
             dto.StorageTotalConsumedQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
                 ? consumed * product.PackagingQuantity.Value
                 : consumed;
+
+            // Theoretical consumption & expected stock
+            dto.TheoreticalConsumption = theoreticalByProduct.GetValueOrDefault(product.Id);
+            dto.ExpectedStockConsumable = dto.ConsumableImportedQuantity - dto.TheoreticalConsumption;
 
             // Map attachments
             if (attachmentMap.TryGetValue(product.Id, out var productAttachments))

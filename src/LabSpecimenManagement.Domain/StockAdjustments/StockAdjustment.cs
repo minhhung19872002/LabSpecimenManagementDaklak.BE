@@ -9,6 +9,9 @@ public class StockAdjustment : FullAuditedAggregateRoot<Guid>
     public string Code { get; set; }
     public StockAdjustmentStatus Status { get; set; }
     public string? Notes { get; set; }
+    public DateTime InventoryDate { get; set; }
+    public Guid? InventoryUserId { get; set; }
+    public string? InventoryUserName { get; set; }
 
     public ICollection<StockAdjustmentItem> Items { get; set; }
 

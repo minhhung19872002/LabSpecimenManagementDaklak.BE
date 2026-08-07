@@ -1239,17 +1239,18 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
                 var storageQty = consumption.ActualQuantity / unitsPerStorage.Value;
 
-                var deductions = await _fifoStockService.DeductAsync(
-                    product, storageQty,
-                    StockMovementType.MaterialConsumption,
-                    consumption.TestBatchId, null,
-                    "Tiêu hao thử nghiệm");
-
-                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-                {
-                    var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                    await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-                }
+                // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
+                // var deductions = await _fifoStockService.DeductAsync(
+                //     product, storageQty,
+                //     StockMovementType.MaterialConsumption,
+                //     consumption.TestBatchId, null,
+                //     "Tiêu hao thử nghiệm");
+                //
+                // if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                // {
+                //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+                // }
             }
         }
 

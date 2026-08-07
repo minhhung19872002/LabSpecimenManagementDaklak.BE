@@ -432,17 +432,18 @@ public partial class TestingAppService
 
                 var storageQty = line.ActualQuantity / unitsPerStorage.Value;
 
-                var deductions = await _fifoStockService.DeductAsync(
-                    product, storageQty,
-                    StockMovementType.MaterialConsumption,
-                    laboratoryTaskId, null,
-                    "Tiêu hao thử nghiệm (bulk)");
-
-                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-                {
-                    var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                    await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-                }
+                // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
+                // var deductions = await _fifoStockService.DeductAsync(
+                //     product, storageQty,
+                //     StockMovementType.MaterialConsumption,
+                //     laboratoryTaskId, null,
+                //     "Tiêu hao thử nghiệm (bulk)");
+                //
+                // if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                // {
+                //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+                // }
             }
         }
 
@@ -520,17 +521,18 @@ public partial class TestingAppService
 
                 var storageQty = consumption.ActualQuantity / unitsPerStorage.Value;
 
-                var deductions = await _fifoStockService.DeductAsync(
-                    product, storageQty,
-                    StockMovementType.MaterialConsumption,
-                    laboratoryTaskId, null,
-                    "Tiêu hao thử nghiệm");
-
-                if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-                {
-                    var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                    await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-                }
+                // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
+                // var deductions = await _fifoStockService.DeductAsync(
+                //     product, storageQty,
+                //     StockMovementType.MaterialConsumption,
+                //     laboratoryTaskId, null,
+                //     "Tiêu hao thử nghiệm");
+                //
+                // if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
+                // {
+                //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+                // }
             }
         }
 
