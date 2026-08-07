@@ -23,6 +23,7 @@ public class AuditLogDto : EntityDto<Guid>
     public string? HttpMethod { get; set; }
     public string? Url { get; set; }
     public int? HttpStatusCode { get; set; }
+    public string? Exceptions { get; set; }
     public string? Comments { get; set; }
     public List<AuditLogActionDto> Actions { get; set; } = new();
     public List<EntityChangeDto> EntityChanges { get; set; } = new();

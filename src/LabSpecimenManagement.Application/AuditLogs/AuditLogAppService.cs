@@ -133,6 +133,8 @@ public class AuditLogAppService : ApplicationService, IAuditLogAppService
 
         if (includeDetails)
         {
+            dto.Exceptions = auditLog.Exceptions;
+
             dto.Actions = auditLog.Actions.Select(a => new AuditLogActionDto
             {
                 Id = a.Id,
