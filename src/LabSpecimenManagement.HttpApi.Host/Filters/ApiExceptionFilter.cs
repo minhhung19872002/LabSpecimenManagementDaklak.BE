@@ -12,25 +12,27 @@ using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Volo.Abp;
+using Volo.Abp.Auditing;
 using Volo.Abp.Authorization;
 using Volo.Abp.Domain.Entities;
 using Volo.Abp.Validation;
 
 namespace LabSpecimenManagement.Filters;
 
-/// <summary>
-/// Filter to handle exceptions and return them in standard ApiResponse format
-/// Supports custom BusinessException hierarchy and ABP exceptions
-/// </summary>
 public class ApiExceptionFilter : IAsyncExceptionFilter
 {
     private readonly ILogger<ApiExceptionFilter> _logger;
     private readonly IHostEnvironment _environment;
+    private readonly IAuditingManager _auditingManager;
 
-    public ApiExceptionFilter(ILogger<ApiExceptionFilter> logger, IHostEnvironment environment)
+    public ApiExceptionFilter(
+        ILogger<ApiExceptionFilter> logger,
+        IHostEnvironment environment,
+        IAuditingManager auditingManager)
     {
         _logger = logger;
         _environment = environment;
+        _auditingManager = auditingManager;
     }
 
     public Task OnExceptionAsync(ExceptionContext context)
@@ -46,9 +48,32 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
             Errors = errors
         };
 
+        var request = context.HttpContext.Request;
+        var errorsFlat = string.Join("; ", errors.SelectMany(e => e.Value.Select(v => $"{e.Key}: {v}")));
+
+        if (statusCode >= 500)
+        {
+            _logger.LogError(exception,
+                "HTTP {StatusCode} {Method} {Path} — {Errors}",
+                statusCode, request.Method, request.Path, errorsFlat);
+        }
+        else if (statusCode >= 400)
+        {
+            _logger.LogWarning(
+                "HTTP {StatusCode} {Method} {Path} — {Errors}",
+                statusCode, request.Method, request.Path, errorsFlat);
+        }
+
+        // Lưu exception vào ABP audit log để tra cứu sau
+        var auditLogScope = _auditingManager.Current;
+        if (auditLogScope?.Log != null)
+        {
+            auditLogScope.Log.Exceptions.Add(exception);
+        }
+
         context.Result = new ObjectResult(response)
         {
-            StatusCode = statusCode // Return actual HTTP status code
+            StatusCode = statusCode
         };
         context.ExceptionHandled = true;
 
@@ -178,7 +203,6 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
             case System.InvalidOperationException sysInvalidOpEx:
                 statusCode = (int)HttpStatusCode.BadRequest;
                 AddError(errors, "operation", sysInvalidOpEx.Message);
-                _logger.LogWarning(sysInvalidOpEx, "Invalid operation exception");
                 break;
 
             case NotImplementedException:
@@ -202,7 +226,6 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
                     ? exception.Message
                     : "Đã xảy ra lỗi không mong muốn, vui lòng thử lại sau";
                 AddError(errors, "server", errorMessage);
-                _logger.LogError(exception, "Unhandled exception occurred: {Message}", exception.Message);
                 break;
         }
 
@@ -230,7 +253,6 @@ public class ApiExceptionFilter : IAsyncExceptionFilter
 
     private static string GetFriendlyEntityName(string entityTypeName)
     {
-        // Map entity names to Vietnamese friendly names
         return entityTypeName switch
         {
             "TestRequest" => "Phiếu yêu cầu",
