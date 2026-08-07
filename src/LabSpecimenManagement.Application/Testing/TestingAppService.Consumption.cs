@@ -352,7 +352,27 @@ public partial class TestingAppService
         await CurrentUnitOfWork.SaveChangesAsync();
 
         if (submittedIndicators.Any() && input.ConsumptionLines.Any())
+        {
+            // Create IndicatorConsumption records so TheoreticalConsumption is tracked
+            var anchorIndicatorId = submittedIndicators.First().Id;
+            foreach (var line in input.ConsumptionLines)
+            {
+                var consumption = new IndicatorConsumption(
+                    GuidGenerator.Create(),
+                    anchorIndicatorId,
+                    line.ProductId,
+                    line.EquipmentId,
+                    line.UnitId,
+                    line.RecommendedQuantity);
+                consumption.ActualQuantity = line.ActualQuantity;
+                consumption.IsDeducted = true;
+                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+            }
+
+            await CurrentUnitOfWork.SaveChangesAsync();
+
             await DeductStockFromConsumptionLineInputsAsync(input.ConsumptionLines, laboratoryTaskId);
+        }
 
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
 
