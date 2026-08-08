@@ -6,4 +6,5 @@ public enum StockMovementType
     StockAdjustment = 1,
     MaterialConsumption = 2,
     PreparedSolutionProduction = 3,
+    MaterialTransfer = 4,
 }

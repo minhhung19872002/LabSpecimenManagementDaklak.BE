@@ -352,3 +352,31 @@ public class GetProductImportHistoryInput : PagedRequestDto
     public DateTime? ToDate { get; set; }
     public Guid? WarehouseId { get; set; }
 }
+
+public class ProductMaterialReceiptHistoryDto
+{
+    public Guid MaterialReceiptId { get; set; }
+    public string ReceiptCode { get; set; } = string.Empty;
+    public DateTime ReceiptDate { get; set; }
+    public Guid ReceivingWarehouseId { get; set; }
+    public string? ReceivingWarehouseName { get; set; }
+    public decimal ReceivedQuantity { get; set; }
+    public string? UnitName { get; set; }
+    public Guid? ManufacturerId { get; set; }
+    public string? ManufacturerName { get; set; }
+    public string? LotNumber { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+    public List<string> Barcodes { get; set; } = new();
+    public decimal? StockBeforeBaseQuantity { get; set; }
+    public decimal? StockAfterBaseQuantity { get; set; }
+    public string? StorageUnitName { get; set; }
+    public string? ConsumableUnitName { get; set; }
+    public int? VolumePerUnit { get; set; }
+}
+
+public class GetProductMaterialReceiptHistoryInput : PagedRequestDto
+{
+    public DateTime? FromDate { get; set; }
+    public DateTime? ToDate { get; set; }
+    public Guid? WarehouseId { get; set; }
+}

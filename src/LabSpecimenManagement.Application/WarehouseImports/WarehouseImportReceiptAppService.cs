@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
+using System.Text;
+using System.Text.Json;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Equipments;
@@ -37,6 +40,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
+    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
 
     public WarehouseImportReceiptAppService(
         IRepository<WarehouseImportReceipt, Guid> receiptRepository,
@@ -53,7 +57,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         IUnitConversionResolver unitConversionResolver,
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
-        IRepository<Equipment, Guid> equipmentRepository)
+        IRepository<Equipment, Guid> equipmentRepository,
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository)
     {
         _receiptRepository = receiptRepository;
         _itemRepository = itemRepository;
@@ -70,6 +75,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         _productSkuRepository = productSkuRepository;
         _manufacturerRepository = manufacturerRepository;
         _equipmentRepository = equipmentRepository;
+        _inventoryBarcodeRepository = inventoryBarcodeRepository;
     }
 
     private static readonly GoodsReceiptOrderStatus[] EligibleOrderStatuses =
@@ -280,6 +286,12 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             {
                 var sku = await _productSkuRepository.GetAsync(item.SkuId.Value);
                 baseQty = ResolveSkuQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+                item.ManufacturerId ??= sku.ManufacturerId;
+                if (string.IsNullOrWhiteSpace(item.ManufacturerName))
+                {
+                    var manufacturer = await _manufacturerRepository.FindAsync(sku.ManufacturerId);
+                    item.ManufacturerName = manufacturer?.Name;
+                }
             }
             else
             {
@@ -294,7 +306,37 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             {
                 item.StorageWarehouseId = defaultWarehouse.Id;
                 item.StorageWarehouseName = defaultWarehouse.Name;
+                var barcodeCount = Math.Max(1, (int)Math.Ceiling(baseQty));
+                var barcodeCodes = new List<string>();
+                for (var sequence = 1; sequence <= barcodeCount; sequence++)
+                {
+                    var code = BuildInventoryBarcodeCode(
+                        item.LotNumber,
+                        product.IdentificationCode,
+                        receipt.ActualImportDate,
+                        receipt.Code,
+                        sequence);
+                    var uniqueCode = code;
+                    var suffix = 1;
+                    while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                        uniqueCode = $"{code}-{suffix++:D2}";
+
+                    var barcode = new InventoryBarcode(
+                        GuidGenerator.Create(),
+                        uniqueCode,
+                        item.ProductId,
+                        item.Id,
+                        defaultWarehouse.Id)
+                    {
+                        SkuId = item.SkuId
+                    };
+                    await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                    barcodeCodes.Add(uniqueCode);
+                }
+                item.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
             }
+
+            await _itemRepository.UpdateAsync(item, autoSave: true);
         }
 
         // Equipment items: create Equipment entities for received items
@@ -905,6 +947,29 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         }
 
         return quantity;
+    }
+
+    private static string BuildInventoryBarcodeCode(
+        string? lotNumber,
+        string? identificationCode,
+        DateTime importDate,
+        string receiptCode,
+        int sequence)
+    {
+        var parts = new[]
+        {
+            lotNumber,
+            identificationCode,
+            importDate.ToString("ddMMyyyy"),
+            receiptCode,
+            sequence.ToString("D3")
+        }.Where(x => !string.IsNullOrWhiteSpace(x));
+
+        var normalized = string.Join("-", parts).Normalize(NormalizationForm.FormD);
+        return new string(normalized
+            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            .Where(c => c >= 32 && c <= 126)
+            .ToArray());
     }
 
     // Converts stored ActualReceivedQuantity (in selected unit) → purchase/order unit (same unit as poLine.Quantity)

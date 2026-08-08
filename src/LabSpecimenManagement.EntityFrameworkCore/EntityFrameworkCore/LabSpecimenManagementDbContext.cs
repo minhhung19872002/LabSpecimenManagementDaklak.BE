@@ -91,9 +91,12 @@ public class LabSpecimenManagementDbContext :
     public DbSet<WarehouseImportReceiptItem> WarehouseImportReceiptItems { get; set; }
     public DbSet<Manufacturer> Manufacturers { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
+    public DbSet<MaterialReceipts.MaterialReceipt> MaterialReceipts { get; set; }
+    public DbSet<MaterialReceipts.MaterialReceiptItem> MaterialReceiptItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
     public DbSet<StockAdjustmentItem> StockAdjustmentItems { get; set; }
     public DbSet<StockMovementLog> StockMovementLogs { get; set; }
+    public DbSet<InventoryBarcode> InventoryBarcodes { get; set; }
     public DbSet<ProductWarehouseInventory> ProductWarehouseInventories { get; set; }
     public DbSet<Equipment> Equipments { get; set; }
     public DbSet<EquipmentAttachment> EquipmentAttachments { get; set; }
@@ -720,8 +723,14 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.GoodsReceiptId);
+            b.HasIndex(x => x.MaterialReceiptId);
             b.HasIndex(x => x.WarehouseId);
             b.HasIndex(x => x.Status);
+
+            b.HasOne<MaterialReceipts.MaterialReceipt>()
+             .WithMany()
+             .HasForeignKey(x => x.MaterialReceiptId)
+             .OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<WarehouseImportReceiptItem>(b =>
@@ -743,6 +752,9 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.StorageWarehouseName).HasMaxLength(500);
             b.Property(x => x.ReceivedBaseQuantity).HasPrecision(18, 4);
             b.Property(x => x.ConsumedBaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.BarcodeValues).HasColumnType("text");
+            b.Property(x => x.StockBeforeBaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.StockAfterBaseQuantity).HasPrecision(18, 4);
 
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
             b.Property(x => x.VatPercent);
@@ -759,6 +771,20 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.WarehouseImportReceiptId);
             b.HasIndex(x => x.GoodsReceiptItemId);
             b.HasIndex(x => x.ProductId);
+        });
+
+        builder.Entity<InventoryBarcode>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "InventoryBarcodes", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(200);
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.SkuId);
+            b.HasIndex(x => x.OriginWarehouseImportReceiptItemId);
+            b.HasIndex(x => x.CurrentWarehouseId);
+            b.HasIndex(x => x.LastMaterialReceiptId);
         });
 
         // SpecimenType configuration
@@ -1975,6 +2001,42 @@ public class LabSpecimenManagementDbContext :
 
             b.HasIndex(x => x.PreparedSolutionBatchId);
             b.HasIndex(x => x.ProductId);
+        });
+
+        // ============ MATERIAL RECEIPT CONFIGURATION ============
+        builder.Entity<MaterialReceipts.MaterialReceipt>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MaterialReceipts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.Code).IsRequired().HasMaxLength(50);
+            b.Property(x => x.ReceiverName).IsRequired().HasMaxLength(256);
+            b.Property(x => x.Notes).HasMaxLength(2000);
+
+            b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
+            b.HasIndex(x => x.Status);
+            b.HasIndex(x => x.ReceiptDate);
+
+            b.HasMany(x => x.Items)
+             .WithOne()
+             .HasForeignKey(i => i.MaterialReceiptId)
+             .IsRequired();
+        });
+
+        builder.Entity<MaterialReceipts.MaterialReceiptItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MaterialReceiptItems", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.UnitName).HasMaxLength(100);
+            b.Property(x => x.Quantity).HasPrecision(18, 4);
+            b.Property(x => x.BaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ReceivingWarehouseName).IsRequired().HasMaxLength(500);
+
+            b.HasIndex(x => x.MaterialReceiptId);
+            b.HasIndex(x => x.ProductId);
+            b.HasIndex(x => x.ReceivingWarehouseId);
         });
 
         // ============ SUPPLEMENTARY TASK CONFIGURATION ============

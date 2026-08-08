@@ -307,6 +307,12 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Edit, L("Permission:TemporaryAccess.Edit"));
         temporaryAccessPermission.AddChild(LabSpecimenManagementPermissions.TemporaryAccess.Expire, L("Permission:TemporaryAccess.Expire"));
 
+        // Material Receipts (Phiếu nhận vật tư)
+        var materialReceiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.MaterialReceipts.Default, L("Permission:MaterialReceipts"));
+        materialReceiptPermission.AddChild(LabSpecimenManagementPermissions.MaterialReceipts.Create, L("Permission:MaterialReceipts.Create"));
+        materialReceiptPermission.AddChild(LabSpecimenManagementPermissions.MaterialReceipts.Confirm, L("Permission:MaterialReceipts.Confirm"));
+        materialReceiptPermission.AddChild(LabSpecimenManagementPermissions.MaterialReceipts.Delete, L("Permission:MaterialReceipts.Delete"));
+
         var preparedSolutionsPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.PreparedSolutions.Default, L("Permission:PreparedSolutions"));
         preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Create, L("Permission:PreparedSolutions.Create"));
         preparedSolutionsPermission.AddChild(LabSpecimenManagementPermissions.PreparedSolutions.Edit, L("Permission:PreparedSolutions.Edit"));

@@ -18,6 +18,7 @@ using LabSpecimenManagement.Subcontractors;
 using LabSpecimenManagement.Tasks;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.TestResults;
+using LabSpecimenManagement.MaterialReceipts;
 using LabSpecimenManagement.SupplementaryTasks;
 using LabSpecimenManagement.SupplementaryTasks.Dtos;
 
@@ -201,7 +202,11 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
                     return new List<DeliveryDocumentFileDto> { new DeliveryDocumentFileDto { FileId = src.DeliveryDocumentFileId, FileName = src.DeliveryDocumentFileName ?? "", FileSize = src.DeliveryDocumentFileSize } };
                 return new List<DeliveryDocumentFileDto>();
             }));
-        CreateMap<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>();
+        CreateMap<WarehouseImportReceiptItem, WarehouseImportReceiptItemDto>()
+            .ForMember(dest => dest.BarcodeValues, opt => opt.MapFrom((src, dest) =>
+                string.IsNullOrWhiteSpace(src.BarcodeValues)
+                    ? new List<string>()
+                    : System.Text.Json.JsonSerializer.Deserialize<List<string>>(src.BarcodeValues) ?? new List<string>()));
 
         // Indicator mappings
         CreateMap<Indicator, IndicatorDto>()
@@ -224,6 +229,21 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
         CreateMap<SupplementaryTask, SupplementaryTaskDto>()
             .ForMember(dest => dest.ImageUrls, opt => opt.Ignore())
             .ForMember(dest => dest.CompletionImageUrls, opt => opt.Ignore());
+
+        // MaterialReceipt mappings
+        CreateMap<MaterialReceipts.MaterialReceipt, MaterialReceiptListDto>()
+            .ForMember(dest => dest.ItemCount, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore());
+        CreateMap<MaterialReceipts.MaterialReceipt, MaterialReceiptDto>()
+            .ForMember(dest => dest.Items, opt => opt.Ignore())
+            .ForMember(dest => dest.CreatorName, opt => opt.Ignore());
+        CreateMap<MaterialReceiptItem, MaterialReceiptItemDto>()
+            .ForMember(dest => dest.IdentificationCode, opt => opt.Ignore())
+            .ForMember(dest => dest.TechnicalSpec, opt => opt.Ignore())
+            .ForMember(dest => dest.CASNumber, opt => opt.Ignore())
+            .ForMember(dest => dest.NearestExpiryDate, opt => opt.Ignore())
+            .ForMember(dest => dest.ProductType, opt => opt.Ignore())
+            .ForMember(dest => dest.AvailableUnits, opt => opt.Ignore());
 
         // ApprovalProcess mappings
         CreateMap<ApprovalProcess, ApprovalProcessDto>();

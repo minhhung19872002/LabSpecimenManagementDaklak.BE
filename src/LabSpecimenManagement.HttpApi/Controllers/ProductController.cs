@@ -99,6 +99,13 @@ public class ProductController : LabSpecimenManagementController
         return _productAppService.GetImportHistoryAsync(id, input);
     }
 
+    [HttpGet("{id}/material-receipt-history")]
+    public virtual Task<PagedResultDto<ProductMaterialReceiptHistoryDto>> GetMaterialReceiptHistoryAsync(
+        Guid id, [FromQuery] GetProductMaterialReceiptHistoryInput input)
+    {
+        return _productAppService.GetMaterialReceiptHistoryAsync(id, input);
+    }
+
     [HttpGet("{id}/usage-log")]
     public virtual Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, [FromQuery] GetProductUsageLogInput input)
     {

@@ -448,6 +448,15 @@ public static class LabSpecimenManagementPermissions
         public const string Expire = Default + ".Expire";
     }
 
+    // Material Receipts (Phiếu nhận vật tư)
+    public static class MaterialReceipts
+    {
+        public const string Default = GroupName + ".MaterialReceipts";
+        public const string Create = Default + ".Create";
+        public const string Confirm = Default + ".Confirm";
+        public const string Delete = Default + ".Delete";
+    }
+
     // Prepared Solution Permissions (Dung dịch đã pha)
     public static class PreparedSolutions
     {

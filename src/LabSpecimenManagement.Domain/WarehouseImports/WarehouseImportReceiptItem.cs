@@ -26,6 +26,9 @@ public class WarehouseImportReceiptItem : Entity<Guid>
     public string? StorageWarehouseName { get; set; }
     public decimal ReceivedBaseQuantity { get; set; }
     public decimal ConsumedBaseQuantity { get; set; }
+    public string? BarcodeValues { get; set; }
+    public decimal? StockBeforeBaseQuantity { get; set; }
+    public decimal? StockAfterBaseQuantity { get; set; }
 
     // Pricing fields (Nhóm 1 — Vật tư)
     public decimal? UnitPrice { get; set; }

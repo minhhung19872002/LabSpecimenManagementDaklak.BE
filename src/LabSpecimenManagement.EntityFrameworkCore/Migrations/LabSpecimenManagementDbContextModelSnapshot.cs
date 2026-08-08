@@ -3047,6 +3047,145 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppWarehouses", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MaterialReceipts.MaterialReceipt", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Notes")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("ReceiptDate")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid?>("ReceiverId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReceiverName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid?>("SyntheticWarehouseReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("ReceiptDate");
+
+                    b.HasIndex("Status");
+
+                    b.ToTable("AppMaterialReceipts", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MaterialReceipts.MaterialReceiptItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal>("BaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("MaterialReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ProductName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<Guid>("ReceivingWarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ReceivingWarehouseName")
+                        .IsRequired()
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<Guid?>("SkuId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("UnitName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MaterialReceiptId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("ReceivingWarehouseId");
+
+                    b.ToTable("AppMaterialReceiptItems", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.NCRs.NCR", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3437,6 +3576,57 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.ToTable("AppPreparedSolutionIngredients", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.Products.InventoryBarcode", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("CurrentWarehouseId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("LastMaterialReceiptId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("OriginWarehouseImportReceiptItemId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("SkuId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("CurrentWarehouseId");
+
+                    b.HasIndex("LastMaterialReceiptId");
+
+                    b.HasIndex("OriginWarehouseImportReceiptItemId");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("SkuId");
+
+                    b.ToTable("AppInventoryBarcodes", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.Products.Product", b =>
@@ -6973,6 +7163,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<Guid?>("MaterialReceiptId")
+                        .HasColumnType("uuid");
+
                     b.Property<string>("Notes")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
@@ -7018,6 +7211,8 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("GoodsReceiptId");
 
+                    b.HasIndex("MaterialReceiptId");
+
                     b.HasIndex("Status");
 
                     b.HasIndex("WarehouseId");
@@ -7037,6 +7232,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("AssetCode")
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
+
+                    b.Property<string>("BarcodeValues")
+                        .HasColumnType("text");
 
                     b.Property<decimal>("ConsumedBaseQuantity")
                         .HasPrecision(18, 4)
@@ -7127,6 +7325,14 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<int>("Status")
                         .HasColumnType("integer");
+
+                    b.Property<decimal?>("StockAfterBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
+                    b.Property<decimal?>("StockBeforeBaseQuantity")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
 
                     b.Property<Guid?>("StorageWarehouseId")
                         .HasColumnType("uuid");
@@ -9077,6 +9283,15 @@ namespace LabSpecimenManagement.Migrations
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MaterialReceipts.MaterialReceiptItem", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MaterialReceipts.MaterialReceipt", null)
+                        .WithMany("Items")
+                        .HasForeignKey("MaterialReceiptId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionIngredient", b =>
                 {
                     b.HasOne("LabSpecimenManagement.PreparedSolutions.PreparedSolutionBatch", null)
@@ -9433,6 +9648,14 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.WarehouseImports.WarehouseImportReceipt", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MaterialReceipts.MaterialReceipt", null)
+                        .WithMany()
+                        .HasForeignKey("MaterialReceiptId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.WarehouseImports.WarehouseImportReceiptItem", b =>
                 {
                     b.HasOne("LabSpecimenManagement.WarehouseImports.WarehouseImportReceipt", null)
@@ -9620,6 +9843,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Navigation("MethodChangeHistories");
 
                     b.Navigation("RejectionHistories");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MaterialReceipts.MaterialReceipt", b =>
+                {
+                    b.Navigation("Items");
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.PreparedSolutions.PreparedSolutionBatch", b =>

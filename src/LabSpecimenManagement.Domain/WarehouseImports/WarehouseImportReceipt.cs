@@ -10,6 +10,7 @@ public class WarehouseImportReceipt : FullAuditedAggregateRoot<Guid>
     public WarehouseImportReceiptType ReceiptType { get; set; }
     public Guid? GoodsReceiptId { get; set; }
     public string? GoodsReceiptCode { get; set; }
+    public Guid? MaterialReceiptId { get; set; }
     public DateTime ActualImportDate { get; set; }
     public Guid? WarehouseKeeperId { get; set; }
     public string? WarehouseKeeperName { get; set; }
