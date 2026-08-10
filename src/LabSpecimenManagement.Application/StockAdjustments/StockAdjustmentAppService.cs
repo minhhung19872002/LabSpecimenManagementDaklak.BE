@@ -227,13 +227,18 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             item.AdjustmentQuantity = quantityBefore - actualInBaseUnit;
             await _itemRepository.UpdateAsync(item, autoSave: true);
 
+            var adjustWhIds = item.WarehouseId.HasValue
+                ? new List<Guid> { item.WarehouseId.Value }
+                : null;
+
             if (actualInBaseUnit < quantityBefore)
             {
                 var diff = quantityBefore - actualInBaseUnit;
                 await _fifoStockService.DeductAsync(
                     product, diff,
                     StockMovementType.StockAdjustment,
-                    adjustment.Id, adjustment.Code, null);
+                    adjustment.Id, adjustment.Code, null,
+                    adjustWhIds);
             }
             else if (actualInBaseUnit > quantityBefore)
             {
@@ -248,7 +253,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     actualInBaseUnit,
                     StockMovementType.StockAdjustment,
                     adjustment.Id,
-                    adjustment.Code);
+                    adjustment.Code,
+                    null,
+                    item.WarehouseId);
                 await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
             }
 

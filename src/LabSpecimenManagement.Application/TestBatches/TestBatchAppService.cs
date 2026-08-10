@@ -46,7 +46,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
+    private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
+    private readonly IRepository<Warehouse, Guid> _warehouseRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -74,7 +76,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
+        IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
+        IRepository<Warehouse, Guid> warehouseRepository,
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
@@ -101,7 +105,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _productSkuRepository = productSkuRepository;
         _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
+        _importReceiptRepository = importReceiptRepository;
         _indicatorConsumptionRepository = indicatorConsumptionRepository;
+        _warehouseRepository = warehouseRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
@@ -576,6 +582,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var submittedItemCount = (await _testBatchItemRepository.GetListAsync(x => x.TestBatchId == batch.Id && x.IsSubmitted)).Count;
 
+        var productIdsForWh = consumptionItems
+            .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
         foreach (var consumptionItem in consumptionItems)
         {
             var batchConsumption = new TestBatchConsumption(
@@ -585,6 +595,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 consumptionItem.EquipmentId,
                 consumptionItem.UnitId,
                 consumptionItem.Quantity * submittedItemCount);
+            if (consumptionItem.ProductId.HasValue)
+                batchConsumption.WarehouseId = warehouseMap.GetValueOrDefault(consumptionItem.ProductId.Value);
 
             batch.Consumptions.Add(batchConsumption);
         }
@@ -727,6 +739,30 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
+        var perWhAvailable = new Dictionary<Guid, decimal>();
+        if (productIds.Any())
+        {
+            var itemQ = await _importReceiptItemRepository.GetQueryableAsync();
+            var receiptQ = await _importReceiptRepository.GetQueryableAsync();
+            perWhAvailable = (from item in itemQ
+                join receipt in receiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                where productIds.Contains(item.ProductId)
+                      && receipt.Status == WarehouseImportReceiptStatus.Completed
+                      && item.Status == WarehouseImportLineStatus.Checked
+                      && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                select new
+                {
+                    item.ProductId,
+                    EffWh = item.StorageWarehouseId ?? receipt.WarehouseId,
+                    Qty = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity
+                })
+                .ToList()
+                .Where(x => warehouseMap.TryGetValue(x.ProductId, out var wh) && wh.HasValue && x.EffWh == wh.Value)
+                .GroupBy(x => x.ProductId)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Qty));
+        }
+
         foreach (var line in lines)
         {
             if (line.ProductId.HasValue && productMap.TryGetValue(line.ProductId.Value, out var product))
@@ -735,20 +771,18 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 line.ProductCode = product.Code;
                 line.ProductType = (int)product.ProductType;
 
-                // AvailableQuantity is stored in storage units (PackagingUnit)
-                line.StorageAvailableQuantity = product.AvailableQuantity;
+                line.StorageAvailableQuantity = perWhAvailable.GetValueOrDefault(product.Id, product.AvailableQuantity);
                 var storageUnitId = product.PackagingUnitId ?? product.BaseUnitId;
                 if (storageUnitId.HasValue && unitMap.TryGetValue(storageUnitId.Value, out var suName))
                     line.StorageUnitName = suName;
 
-                // Convert storage qty to consumption unit
-                var availableInUnit = product.AvailableQuantity;
+                var whAvailable = perWhAvailable.GetValueOrDefault(product.Id, product.AvailableQuantity);
+                var availableInUnit = whAvailable;
                 if (line.UnitId.HasValue)
                 {
                     var consumeUnitId = line.UnitId.Value;
                     decimal? factor = null;
 
-                    // 1. Product-level units
                     if (consumeUnitId == product.PackagingUnitId)
                         factor = 1;
                     else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
@@ -756,7 +790,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
                         factor = 1m / product.PackagingQuantity.Value;
 
-                    // 2. SKU-level units
                     if (factor == null && skuByProduct.TryGetValue(product.Id, out var pSkus))
                     {
                         foreach (var sku in pSkus)
@@ -767,12 +800,11 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                         }
                     }
 
-                    // 3. ProductUnitConversion table
                     if (factor == null && conversionMap.TryGetValue((product.Id, consumeUnitId), out var conv) && conv.Quantity > 0)
                         factor = conv.ConvertedQuantity / conv.Quantity;
 
                     if (factor.HasValue)
-                        availableInUnit = product.AvailableQuantity * factor.Value;
+                        availableInUnit = whAvailable * factor.Value;
                 }
                 line.AvailableQuantity = availableInUnit;
                 line.ExceedsStock = line.ActualQuantity > availableInUnit;
@@ -810,6 +842,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
+            var productIdsForWh = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
             foreach (var line in input.ConsumptionLines)
             {
                 var consumption = new TestBatchConsumption(
@@ -820,6 +856,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     line.UnitId,
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
+                if (line.ProductId.HasValue)
+                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
                 batch.Consumptions.Add(consumption);
             }
         }
@@ -905,6 +943,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 await _testBatchConsumptionRepository.DeleteManyAsync(nonDeducted);
             }
 
+            var productIdsForWh = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
             foreach (var line in input.ConsumptionLines)
             {
                 var consumption = new TestBatchConsumption(
@@ -915,6 +957,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     line.UnitId,
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
+                if (line.ProductId.HasValue)
+                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
 
                 batch.Consumptions.Add(consumption);
             }
@@ -1294,6 +1338,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (consumptionItems.Count == 0) return;
 
+        var productIdsForWh = consumptionItems
+            .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
         foreach (var submittedItem in submittedItems)
         {
             foreach (var item in consumptionItems)
@@ -1308,6 +1356,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     item.AvgConsumptionPerSample.Value);
                 consumption.IsDeducted = true;
                 consumption.SubmitDate = Clock.Now;
+                if (item.ProductId.HasValue)
+                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(item.ProductId.Value);
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }
@@ -1317,14 +1367,15 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var equipmentItems = consumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
 
         if (productItems.Count > 0)
-            await DeductProductConsumptionsAsync(productItems, submittedCount, batch.Id);
+            await DeductProductConsumptionsAsync(productItems, submittedCount, batch.Id, warehouseMap);
 
         if (equipmentItems.Count > 0)
             await IncrementEquipmentUsageAsync(equipmentItems, submittedCount);
     }
 
     private async Task DeductProductConsumptionsAsync(
-        List<MaterialConsumptionItem> productItems, int submittedCount, Guid sourceId)
+        List<MaterialConsumptionItem> productItems, int submittedCount, Guid sourceId,
+        Dictionary<Guid, Guid?> warehouseMap)
     {
         var productIds = productItems.Select(c => c.ProductId!.Value).Distinct().ToList();
         var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
@@ -1347,11 +1398,15 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
             if (baseQty == null) continue;
 
+            var whId = warehouseMap.GetValueOrDefault(item.ProductId!.Value);
+            var whIds = whId.HasValue ? new List<Guid> { whId.Value } : null;
+
             var deductions = await _fifoStockService.DeductAsync(
                 product, baseQty.Value,
                 StockMovementType.MaterialConsumption,
                 sourceId, null,
-                "Tiêu hao tự động theo mẻ thử nghiệm");
+                "Tiêu hao tự động theo mẻ thử nghiệm",
+                whIds);
 
             if (product.ProductType == ProductType.PreparedSolution && deductions.Count > 0)
             {
@@ -1585,4 +1640,41 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     }
 
     #endregion
+
+    private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(IEnumerable<Guid> productIds)
+    {
+        var ids = productIds.Distinct().ToList();
+        if (!ids.Any()) return new Dictionary<Guid, Guid?>();
+
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var rootWarehouseIds = warehouseQuery
+            .Where(w => w.Level == 0)
+            .Select(w => w.Id)
+            .ToHashSet();
+
+        var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
+        var receiptQuery = await _importReceiptRepository.GetQueryableAsync();
+
+        var lots = (from item in itemQuery
+                    join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                    where ids.Contains(item.ProductId)
+                          && receipt.Status == WarehouseImportReceiptStatus.Completed
+                          && item.Status == WarehouseImportLineStatus.Checked
+                          && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                    orderby item.LotExpiryDate == null ? 1 : 0,
+                            item.LotExpiryDate,
+                            receipt.ActualImportDate
+                    select new
+                    {
+                        item.ProductId,
+                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+                    })
+                    .ToList()
+                    .Where(l => l.EffectiveWarehouseId.HasValue
+                                && !rootWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
+
+        return ids.ToDictionary(
+            id => id,
+            id => lots.FirstOrDefault(l => l.ProductId == id)?.EffectiveWarehouseId);
+    }
 }

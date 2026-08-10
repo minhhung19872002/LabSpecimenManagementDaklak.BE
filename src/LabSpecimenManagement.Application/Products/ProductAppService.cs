@@ -354,6 +354,65 @@ public class ProductAppService : ApplicationService, IProductAppService
         var productsForPage = pagedItems.Select(x => productMap[x.ProductId]).ToList();
         var dtos = await MapToProductDtosAsync(productsForPage);
 
+        // 10. Per-warehouse consumption overrides (grouped by ProductId+WarehouseId to match stock rows)
+        var pagedProductIds = productsForPage.Select(p => p.Id).ToList();
+
+        // 10a. "Sử dụng" per (product, warehouse) — from StockMovementLog
+        var movementQuery = await _stockMovementLogRepository.GetQueryableAsync();
+        var whUsageByProductWh = movementQuery
+            .Where(l => pagedProductIds.Contains(l.ProductId)
+                && l.MovementType == StockMovementType.MaterialConsumption
+                && l.WarehouseId.HasValue && warehouseIds.Contains(l.WarehouseId.Value))
+            .GroupBy(l => new { l.ProductId, WarehouseId = l.WarehouseId!.Value })
+            .Select(g => new { g.Key.ProductId, g.Key.WarehouseId, Total = g.Sum(l => Math.Abs(l.ChangeQuantity)) })
+            .ToList()
+            .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.Total);
+
+        // 10b. "Tiêu hao lý thuyết" per (product, warehouse) — from IndicatorConsumption + TestBatchConsumption
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        var lastInventoryByProduct = pwiQuery
+            .Where(pwi => pagedProductIds.Contains(pwi.ProductId))
+            .GroupBy(pwi => pwi.ProductId)
+            .Select(g => new { ProductId = g.Key, LastDate = g.Max(pwi => pwi.LastInventoryDate) })
+            .ToList()
+            .ToDictionary(x => x.ProductId, x => x.LastDate);
+
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
+        var whTheoreticalFromIC = (from ic in icQuery
+                                   join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                   where ic.ProductId.HasValue
+                                         && pagedProductIds.Contains(ic.ProductId!.Value)
+                                         && ic.IsDeducted
+                                         && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
+                                   select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, lti.SubmitDate })
+                                  .ToList()
+                                  .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                               || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
+                                  .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
+                                  .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+        var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var tbQuery = await _testBatchRepository.GetQueryableAsync();
+        var whTheoreticalFromTBC = (from tbc in tbcQuery
+                                    join tb in tbQuery on tbc.TestBatchId equals tb.Id
+                                    where tbc.ProductId.HasValue
+                                          && pagedProductIds.Contains(tbc.ProductId!.Value)
+                                          && tbc.IsDeducted
+                                          && tbc.WarehouseId.HasValue && warehouseIds.Contains(tbc.WarehouseId.Value)
+                                    select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
+                                   .ToList()
+                                   .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                                || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
+                                   .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
+                                   .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+        var whTheoreticalByProductWh = new Dictionary<(Guid, Guid), decimal>();
+        foreach (var kvp in whTheoreticalFromIC)
+            whTheoreticalByProductWh[kvp.Key] = kvp.Value;
+        foreach (var kvp in whTheoreticalFromTBC)
+            whTheoreticalByProductWh[kvp.Key] = whTheoreticalByProductWh.GetValueOrDefault(kvp.Key) + kvp.Value;
+
         for (int i = 0; i < dtos.Count; i++)
         {
             var entry = pagedItems[i];
@@ -363,6 +422,15 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ? entry.BaseQty * product.PackagingQuantity.Value
                 : entry.BaseQty;
             dtos[i].ConsumableImportedQuantity = entry.VolumeQty;
+
+            var key = (product.Id, entry.WarehouseId);
+            var whConsumed = whUsageByProductWh.GetValueOrDefault(key);
+            dtos[i].TotalConsumedQuantity = whConsumed;
+            dtos[i].StorageTotalConsumedQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
+                ? whConsumed * product.PackagingQuantity.Value
+                : whConsumed;
+
+            dtos[i].TheoreticalConsumption = whTheoreticalByProductWh.GetValueOrDefault(key);
             dtos[i].ExpectedStockConsumable = dtos[i].ConsumableImportedQuantity - dtos[i].TheoreticalConsumption;
             dtos[i].WarehouseName = entry.WarehouseName;
             dtos[i].StockWarehouseId = entry.WarehouseId;
@@ -1841,9 +1909,17 @@ public class ProductAppService : ApplicationService, IProductAppService
         var methodQuery = await _testMethodRepository.GetQueryableAsync();
         var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
+        // Consumption filter: only the selected warehouse, not subtree
+        HashSet<Guid>? usageLogWarehouseIds = null;
+        if (input.WarehouseId.HasValue)
+            usageLogWarehouseIds = new HashSet<Guid> { input.WarehouseId.Value };
+
         // Path 1: TestBatchConsumption → TestBatch → TestBatchItem (batch flow)
-        var batchIds = testBatchConsumptionQuery
-            .Where(c => c.ProductId == id)
+        var tbcFiltered = testBatchConsumptionQuery.Where(c => c.ProductId == id);
+        if (usageLogWarehouseIds != null)
+            tbcFiltered = tbcFiltered.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+
+        var batchIds = tbcFiltered
             .Select(c => c.TestBatchId)
             .Distinct();
 
@@ -1878,8 +1954,11 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         // Path 2: IndicatorConsumption → LaboratoryTaskIndicator (direct indicator submit flow)
         // One row per (LtiId, SubmitDate) so each re-submit shows as a separate row
-        var icSubmissions = indicatorConsumptionQuery
-            .Where(c => c.ProductId == id)
+        var icFiltered = indicatorConsumptionQuery.Where(c => c.ProductId == id);
+        if (usageLogWarehouseIds != null)
+            icFiltered = icFiltered.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+
+        var icSubmissions = icFiltered
             .Select(c => new { c.LaboratoryTaskIndicatorId, c.SubmitDate })
             .Distinct()
             .ToList();
@@ -1949,9 +2028,11 @@ public class ProductAppService : ApplicationService, IProductAppService
         var totalCount = merged.Count;
 
         // Enrich consumption amounts for ALL entries (needed for running balance)
-        var icAll = (await _indicatorConsumptionRepository.GetQueryableAsync())
-            .Where(c => c.ProductId == id)
-            .ToList();
+        var icAllQuery = (await _indicatorConsumptionRepository.GetQueryableAsync())
+            .Where(c => c.ProductId == id);
+        if (usageLogWarehouseIds != null)
+            icAllQuery = icAllQuery.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+        var icAll = icAllQuery.ToList();
 
         var icByLtiSubmit = icAll
             .GroupBy(c => (c.LaboratoryTaskIndicatorId, c.SubmitDate))
@@ -2021,12 +2102,11 @@ public class ProductAppService : ApplicationService, IProductAppService
                              && item.Status == WarehouseImportLineStatus.Checked
                        select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId };
 
-        if (input.WarehouseId.HasValue)
+        if (usageLogWarehouseIds != null)
         {
-            var warehouseIds = await GetWarehouseIdSetAsync(input.WarehouseId.Value);
             lotQuery = lotQuery.Where(x =>
-                (x.StorageWarehouseId.HasValue && warehouseIds.Contains(x.StorageWarehouseId.Value))
-                || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && warehouseIds.Contains(x.WarehouseId.Value)));
+                (x.StorageWarehouseId.HasValue && usageLogWarehouseIds.Contains(x.StorageWarehouseId.Value))
+                || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && usageLogWarehouseIds.Contains(x.WarehouseId.Value)));
         }
 
         var lotItems = lotQuery.ToList();

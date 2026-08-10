@@ -1873,6 +1873,7 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.TestBatchId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
+            b.HasIndex(x => x.WarehouseId);
         });
 
         builder.Entity<IndicatorConsumption>(b =>
@@ -1886,6 +1887,7 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.LaboratoryTaskIndicatorId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
+            b.HasIndex(x => x.WarehouseId);
         });
 
         builder.Entity<ApprovalProcess>(b =>

@@ -557,6 +557,15 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         {
             sourceWarehouseIds = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
         }
+        else
+        {
+            var nonRootWarehouses = (await _warehouseRepository.GetQueryableAsync())
+                .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
+                .Select(w => w.Id)
+                .ToHashSet();
+            if (nonRootWarehouses.Any())
+                sourceWarehouseIds = nonRootWarehouses;
+        }
 
         var productIds = inputIngredients.Select(i => i.ProductId).Distinct().ToList();
         var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);

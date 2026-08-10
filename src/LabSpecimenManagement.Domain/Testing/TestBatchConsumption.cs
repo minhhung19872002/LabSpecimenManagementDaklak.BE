@@ -19,6 +19,8 @@ public class TestBatchConsumption : Entity<Guid>
 
     public bool IsDeducted { get; set; }
 
+    public Guid? WarehouseId { get; set; }
+
     protected TestBatchConsumption() { }
 
     public TestBatchConsumption(

@@ -12,6 +12,7 @@ public class IndicatorConsumption : Entity<Guid>
     public decimal RecommendedQuantity { get; set; }
     public decimal ActualQuantity { get; set; }
     public bool IsDeducted { get; set; }
+    public Guid? WarehouseId { get; set; }
     public DateTime? SubmitDate { get; set; }
 
     protected IndicatorConsumption() { }

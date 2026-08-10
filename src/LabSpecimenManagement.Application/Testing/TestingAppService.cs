@@ -1799,6 +1799,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
 
         var consumptionByTmi = new Dictionary<Guid, List<MaterialConsumptionItem>>();
+        var consumptionRecords = new List<(LaboratoryTaskIndicator Indicator, MaterialConsumptionItem Item)>();
 
         foreach (var indicator in indicatorsWithMethod)
         {
@@ -1823,22 +1824,39 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             foreach (var item in consumptionItems)
             {
                 if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0) continue;
-                var consumption = new IndicatorConsumption(
-                    GuidGenerator.Create(),
-                    indicator.Id,
-                    item.ProductId,
-                    item.EquipmentId,
-                    item.UnitId,
-                    item.AvgConsumptionPerSample.Value);
-                consumption.IsDeducted = true;
-                consumption.SubmitDate = Clock.Now;
-                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                consumptionRecords.Add((indicator, item));
             }
+        }
+
+        var productIdsForWh = consumptionRecords
+            .Where(r => r.Item.ProductId.HasValue)
+            .Select(r => r.Item.ProductId!.Value)
+            .Distinct();
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
+        foreach (var (indicator, item) in consumptionRecords)
+        {
+            var consumption = new IndicatorConsumption(
+                GuidGenerator.Create(),
+                indicator.Id,
+                item.ProductId,
+                item.EquipmentId,
+                item.UnitId,
+                item.AvgConsumptionPerSample!.Value);
+            consumption.IsDeducted = true;
+            consumption.SubmitDate = Clock.Now;
+            if (item.ProductId.HasValue)
+                consumption.WarehouseId = warehouseMap.GetValueOrDefault(item.ProductId.Value);
+            await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
         }
 
         var allConsumptionItems = consumptionByTmi.Values.SelectMany(x => x).ToList();
 
         if (!allConsumptionItems.Any()) return;
+
+        var indicatorCountPerItem = consumptionRecords
+            .GroupBy(r => r.Item.Id)
+            .ToDictionary(g => g.Key, g => g.Count());
 
         var productItems = allConsumptionItems.Where(c => c.ProductId.HasValue).ToList();
         var equipmentItems = allConsumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
@@ -1862,7 +1880,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0)
                     continue;
 
-                var deductQty = item.AvgConsumptionPerSample.Value;
+                var multiplier = indicatorCountPerItem.GetValueOrDefault(item.Id, 1);
+                var deductQty = item.AvgConsumptionPerSample.Value * multiplier;
                 decimal baseQty;
                 var consumeUnitId = item.UnitId;
 
@@ -1905,11 +1924,15 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     baseQty = deductQty / factor.Value;
                 }
 
+                var whId = warehouseMap.GetValueOrDefault(item.ProductId!.Value);
+                var whIds = whId.HasValue ? new List<Guid> { whId.Value } : null;
+
                 var deductions = await _fifoStockService.DeductAsync(
                     product, baseQty,
                     StockMovementType.MaterialConsumption,
                     taskId, null,
-                    "Tiêu hao tự động theo chỉ tiêu");
+                    "Tiêu hao tự động theo chỉ tiêu",
+                    whIds);
 
                 if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
                 {

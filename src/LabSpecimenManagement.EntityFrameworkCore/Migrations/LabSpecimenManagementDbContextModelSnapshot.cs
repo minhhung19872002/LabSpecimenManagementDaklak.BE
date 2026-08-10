@@ -6852,6 +6852,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EquipmentId");
@@ -6859,6 +6862,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("LaboratoryTaskIndicatorId");
 
                     b.HasIndex("ProductId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("AppIndicatorConsumptions", (string)null);
                 });
@@ -6998,6 +7003,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WarehouseId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EquipmentId");
@@ -7005,6 +7013,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("TestBatchId");
+
+                    b.HasIndex("WarehouseId");
 
                     b.ToTable("AppTestBatchConsumptions", (string)null);
                 });

@@ -28,6 +28,12 @@ public partial class TestingAppService
     private IRepository<Unit, Guid> _unitRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<Unit, Guid>>();
 
+    private IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository =>
+        LazyServiceProvider.LazyGetRequiredService<IRepository<WarehouseImportReceipt, Guid>>();
+
+    private IRepository<Warehouse, Guid> _warehouseRepository =>
+        LazyServiceProvider.LazyGetRequiredService<IRepository<Warehouse, Guid>>();
+
     // -------------------------------------------------------------------------
     // Public methods
     // -------------------------------------------------------------------------
@@ -144,6 +150,10 @@ public partial class TestingAppService
         // Handle consumption lines for this round
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
+            var productIdsForWh = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
             var newConsumptions = new List<IndicatorConsumption>();
             foreach (var line in input.ConsumptionLines)
             {
@@ -156,6 +166,8 @@ public partial class TestingAppService
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
                 consumption.SubmitDate = Clock.Now;
+                if (line.ProductId.HasValue)
+                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 newConsumptions.Add(consumption);
             }
@@ -207,6 +219,10 @@ public partial class TestingAppService
 
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
+            var productIdsForWh = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
             foreach (var line in input.ConsumptionLines)
             {
                 var consumption = new IndicatorConsumption(
@@ -218,6 +234,8 @@ public partial class TestingAppService
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
                 consumption.SubmitDate = Clock.Now;
+                if (line.ProductId.HasValue)
+                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }
@@ -355,20 +373,29 @@ public partial class TestingAppService
 
         if (submittedIndicators.Any() && input.ConsumptionLines.Any())
         {
-            var anchorIndicatorId = submittedIndicators.First().Id;
-            foreach (var line in input.ConsumptionLines)
+            var productIdsForWh = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+
+            var indicatorCount = submittedIndicators.Count;
+            foreach (var indicator in submittedIndicators)
             {
-                var consumption = new IndicatorConsumption(
-                    GuidGenerator.Create(),
-                    anchorIndicatorId,
-                    line.ProductId,
-                    line.EquipmentId,
-                    line.UnitId,
-                    line.RecommendedQuantity);
-                consumption.ActualQuantity = line.ActualQuantity;
-                consumption.IsDeducted = true;
-                consumption.SubmitDate = Clock.Now;
-                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                foreach (var line in input.ConsumptionLines)
+                {
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(),
+                        indicator.Id,
+                        line.ProductId,
+                        line.EquipmentId,
+                        line.UnitId,
+                        line.RecommendedQuantity / indicatorCount);
+                    consumption.ActualQuantity = line.ActualQuantity / indicatorCount;
+                    consumption.IsDeducted = true;
+                    consumption.SubmitDate = Clock.Now;
+                    if (line.ProductId.HasValue)
+                        consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                }
             }
 
             await CurrentUnitOfWork.SaveChangesAsync();
@@ -601,6 +628,30 @@ public partial class TestingAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
+        var perWhAvailable = new Dictionary<Guid, decimal>();
+        if (productIds.Any())
+        {
+            var itemQ = await _importReceiptItemRepository.GetQueryableAsync();
+            var receiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
+            perWhAvailable = (from item in itemQ
+                join receipt in receiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                where productIds.Contains(item.ProductId)
+                      && receipt.Status == WarehouseImportReceiptStatus.Completed
+                      && item.Status == WarehouseImportLineStatus.Checked
+                      && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                select new
+                {
+                    item.ProductId,
+                    EffWh = item.StorageWarehouseId ?? receipt.WarehouseId,
+                    Qty = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity
+                })
+                .ToList()
+                .Where(x => warehouseMap.TryGetValue(x.ProductId, out var wh) && wh.HasValue && x.EffWh == wh.Value)
+                .GroupBy(x => x.ProductId)
+                .ToDictionary(g => g.Key, g => g.Sum(x => x.Qty));
+        }
+
         foreach (var line in lines)
         {
             if (line.ProductId.HasValue && productMap.TryGetValue(line.ProductId.Value, out var product))
@@ -608,12 +659,13 @@ public partial class TestingAppService
                 line.ProductName = product.Name;
                 line.ProductCode = product.Code;
                 line.ProductType = (int)product.ProductType;
-                line.StorageAvailableQuantity = product.AvailableQuantity;
+                line.StorageAvailableQuantity = perWhAvailable.GetValueOrDefault(product.Id, product.AvailableQuantity);
                 var storageUnitId = product.PackagingUnitId ?? product.BaseUnitId;
                 if (storageUnitId.HasValue && unitMap.TryGetValue(storageUnitId.Value, out var suName))
                     line.StorageUnitName = suName;
 
-                var availableInUnit = product.AvailableQuantity;
+                var whAvailable = perWhAvailable.GetValueOrDefault(product.Id, product.AvailableQuantity);
+                var availableInUnit = whAvailable;
                 if (line.UnitId.HasValue)
                 {
                     var consumeUnitId = line.UnitId.Value;
@@ -640,7 +692,7 @@ public partial class TestingAppService
                         factor = conv.ConvertedQuantity / conv.Quantity;
 
                     if (factor.HasValue)
-                        availableInUnit = product.AvailableQuantity * factor.Value;
+                        availableInUnit = whAvailable * factor.Value;
                 }
                 line.AvailableQuantity = availableInUnit;
                 line.ExceedsStock = line.ActualQuantity > availableInUnit;
@@ -650,5 +702,42 @@ public partial class TestingAppService
             if (line.UnitId.HasValue && unitMap.TryGetValue(line.UnitId.Value, out var unitName))
                 line.UnitName = unitName;
         }
+    }
+
+    private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(IEnumerable<Guid> productIds)
+    {
+        var ids = productIds.Distinct().ToList();
+        if (!ids.Any()) return new Dictionary<Guid, Guid?>();
+
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var rootWarehouseIds = warehouseQuery
+            .Where(w => w.Level == 0)
+            .Select(w => w.Id)
+            .ToHashSet();
+
+        var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
+        var receiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var lots = (from item in itemQuery
+                    join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                    where ids.Contains(item.ProductId)
+                          && receipt.Status == WarehouseImportReceiptStatus.Completed
+                          && item.Status == WarehouseImportLineStatus.Checked
+                          && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                    orderby item.LotExpiryDate == null ? 1 : 0,
+                            item.LotExpiryDate,
+                            receipt.ActualImportDate
+                    select new
+                    {
+                        item.ProductId,
+                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+                    })
+                    .ToList()
+                    .Where(l => l.EffectiveWarehouseId.HasValue
+                                && !rootWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
+
+        return ids.ToDictionary(
+            id => id,
+            id => lots.FirstOrDefault(l => l.ProductId == id)?.EffectiveWarehouseId);
     }
 }
