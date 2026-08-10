@@ -1384,6 +1384,12 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var skus = await _productSkuRepository.GetListAsync(s => productIds.Contains(s.ProductId));
         var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
 
+        var whQuery = await _warehouseRepository.GetQueryableAsync();
+        var deductibleWhIds = whQuery
+            .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
+            .Select(w => w.Id)
+            .ToList();
+
         foreach (var item in productItems)
         {
             if (!productMap.TryGetValue(item.ProductId!.Value, out var product))
@@ -1399,7 +1405,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             if (baseQty == null) continue;
 
             var whId = warehouseMap.GetValueOrDefault(item.ProductId!.Value);
-            var whIds = whId.HasValue ? new List<Guid> { whId.Value } : null;
+            var whIds = whId.HasValue
+                ? new List<Guid> { whId.Value }
+                : deductibleWhIds;
 
             var deductions = await _fifoStockService.DeductAsync(
                 product, baseQty.Value,
@@ -1647,8 +1655,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         if (!ids.Any()) return new Dictionary<Guid, Guid?>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-        var rootWarehouseIds = warehouseQuery
-            .Where(w => w.Level == 0)
+        var excludedWarehouseIds = warehouseQuery
+            .Where(w => w.Level == 0 || w.IsDefault)
             .Select(w => w.Id)
             .ToHashSet();
 
@@ -1671,7 +1679,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     })
                     .ToList()
                     .Where(l => l.EffectiveWarehouseId.HasValue
-                                && !rootWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
+                                && !excludedWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
 
         return ids.ToDictionary(
             id => id,

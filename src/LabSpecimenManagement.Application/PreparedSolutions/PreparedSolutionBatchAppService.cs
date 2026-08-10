@@ -563,8 +563,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                 .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
                 .Select(w => w.Id)
                 .ToHashSet();
-            if (nonRootWarehouses.Any())
-                sourceWarehouseIds = nonRootWarehouses;
+            sourceWarehouseIds = nonRootWarehouses;
         }
 
         var productIds = inputIngredients.Select(i => i.ProductId).Distinct().ToList();

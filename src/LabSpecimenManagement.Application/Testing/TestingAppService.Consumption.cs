@@ -710,8 +710,8 @@ public partial class TestingAppService
         if (!ids.Any()) return new Dictionary<Guid, Guid?>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-        var rootWarehouseIds = warehouseQuery
-            .Where(w => w.Level == 0)
+        var excludedWarehouseIds = warehouseQuery
+            .Where(w => w.Level == 0 || w.IsDefault)
             .Select(w => w.Id)
             .ToHashSet();
 
@@ -734,7 +734,7 @@ public partial class TestingAppService
                     })
                     .ToList()
                     .Where(l => l.EffectiveWarehouseId.HasValue
-                                && !rootWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
+                                && !excludedWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
 
         return ids.ToDictionary(
             id => id,

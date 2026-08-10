@@ -1834,6 +1834,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             .Distinct();
         var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
 
+        var whQuery = await _warehouseRepository.GetQueryableAsync();
+        var deductibleWhIds = whQuery
+            .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
+            .Select(w => w.Id)
+            .ToList();
+
         foreach (var (indicator, item) in consumptionRecords)
         {
             var consumption = new IndicatorConsumption(
@@ -1925,7 +1931,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 }
 
                 var whId = warehouseMap.GetValueOrDefault(item.ProductId!.Value);
-                var whIds = whId.HasValue ? new List<Guid> { whId.Value } : null;
+                var whIds = whId.HasValue
+                    ? new List<Guid> { whId.Value }
+                    : deductibleWhIds;
 
                 var deductions = await _fifoStockService.DeductAsync(
                     product, baseQty,

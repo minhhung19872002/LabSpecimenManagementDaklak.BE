@@ -227,9 +227,18 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             item.AdjustmentQuantity = quantityBefore - actualInBaseUnit;
             await _itemRepository.UpdateAsync(item, autoSave: true);
 
-            var adjustWhIds = item.WarehouseId.HasValue
-                ? new List<Guid> { item.WarehouseId.Value }
-                : null;
+            List<Guid> adjustWhIds;
+            if (item.WarehouseId.HasValue)
+            {
+                adjustWhIds = new List<Guid> { item.WarehouseId.Value };
+            }
+            else
+            {
+                adjustWhIds = (await _warehouseRepository.GetQueryableAsync())
+                    .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
+                    .Select(w => w.Id)
+                    .ToList();
+            }
 
             if (actualInBaseUnit < quantityBefore)
             {
