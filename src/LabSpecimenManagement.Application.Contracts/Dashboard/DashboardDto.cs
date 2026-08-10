@@ -214,4 +214,24 @@ public class CustomerNameDto
     public string CustomerName { get; set; } = string.Empty;
 }
 
+/// <summary>
+/// Revenue by contact person DTO
+/// </summary>
+public class RevenueByContactDto
+{
+    public string ContactPerson { get; set; } = string.Empty;
+    public int TotalSamples { get; set; }
+    public int TotalIndicators { get; set; }
+    public decimal Revenue { get; set; }
+}
+
+/// <summary>
+/// Paged result for revenue by contact person
+/// </summary>
+public class RevenueByContactPagedResultDto
+{
+    public List<RevenueByContactDto> Items { get; set; } = new();
+    public int TotalCount { get; set; }
+}
+
 #endregion
