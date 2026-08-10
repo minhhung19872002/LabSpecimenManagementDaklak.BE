@@ -370,12 +370,11 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         // 10b. "Tiêu hao lý thuyết" per (product, warehouse) — from IndicatorConsumption + TestBatchConsumption
         var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
-        var lastInventoryByProduct = pwiQuery
-            .Where(pwi => pagedProductIds.Contains(pwi.ProductId))
-            .GroupBy(pwi => pwi.ProductId)
-            .Select(g => new { ProductId = g.Key, LastDate = g.Max(pwi => pwi.LastInventoryDate) })
+        var lastInventoryByProductWh = pwiQuery
+            .Where(pwi => pagedProductIds.Contains(pwi.ProductId)
+                          && warehouseIds.Contains(pwi.WarehouseId))
             .ToList()
-            .ToDictionary(x => x.ProductId, x => x.LastDate);
+            .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.LastInventoryDate);
 
         var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
         var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
@@ -387,7 +386,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                          && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
                                    select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, lti.SubmitDate })
                                   .ToList()
-                                  .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                  .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
                                                || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
                                   .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
                                   .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
@@ -402,7 +401,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                           && tbc.WarehouseId.HasValue && warehouseIds.Contains(tbc.WarehouseId.Value)
                                     select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
                                    .ToList()
-                                   .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                   .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
                                                 || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
                                    .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
                                    .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
@@ -1673,12 +1672,10 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         // Theoretical consumption: sum RecommendedQuantity from both consumption flows, filtered by lastInventoryDate
         var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
-        var lastInventoryByProduct = pwiQuery
+        var lastInventoryMap = pwiQuery
             .Where(pwi => productIds.Contains(pwi.ProductId))
-            .GroupBy(pwi => pwi.ProductId)
-            .Select(g => new { ProductId = g.Key, LastDate = g.Max(pwi => pwi.LastInventoryDate) })
             .ToList()
-            .ToDictionary(x => x.ProductId, x => x.LastDate);
+            .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.LastInventoryDate);
 
         var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
         var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
@@ -1687,9 +1684,10 @@ public class ProductAppService : ApplicationService, IProductAppService
                                  where ic.ProductId.HasValue
                                        && productIds.Contains(ic.ProductId!.Value)
                                        && ic.IsDeducted
-                                 select new { ic.ProductId, ic.RecommendedQuantity, lti.SubmitDate })
+                                 select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, lti.SubmitDate })
                                 .ToList()
-                                .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                .Where(x => !x.WarehouseId.HasValue
+                                             || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
                                              || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
                                 .GroupBy(x => x.ProductId!.Value)
                                 .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
@@ -1701,9 +1699,10 @@ public class ProductAppService : ApplicationService, IProductAppService
                                   where tbc.ProductId.HasValue
                                         && productIds.Contains(tbc.ProductId!.Value)
                                         && tbc.IsDeducted
-                                  select new { tbc.ProductId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
+                                  select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
                                  .ToList()
-                                 .Where(x => !lastInventoryByProduct.TryGetValue(x.ProductId!.Value, out var lid)
+                                 .Where(x => !x.WarehouseId.HasValue
+                                              || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
                                               || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
                                  .GroupBy(x => x.ProductId!.Value)
                                  .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
