@@ -329,6 +329,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         };
 
         var stockSnapshots = new Dictionary<(Guid ProductId, Guid WarehouseId, Guid? ManufacturerId), decimal>();
+        var syntheticItems = new List<WarehouseImportReceiptItem>();
 
         foreach (var item in items)
         {
@@ -422,13 +423,12 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                         MidpointRounding.AwayFromZero);
                 remainingActualQuantity -= actualQuantityForLot;
 
-                var syntheticItem = new WarehouseImportReceiptItem(
+                syntheticItems.Add(new WarehouseImportReceiptItem(
                     _guidGenerator.Create(),
                     syntheticReceipt.Id,
                     item.ProductId,
                     item.ProductName)
                 {
-                    // ActualReceivedQuantity luôn theo UnitId/UnitName user đã chọn.
                     ActualReceivedQuantity = actualQuantityForLot,
                     ReceivedBaseQuantity = lot.DeductedBaseQty,
                     ConsumedBaseQuantity = 0,
@@ -445,13 +445,13 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                     StockBeforeBaseQuantity = stockBefore,
                     StockAfterBaseQuantity = stockAfter,
                     Status = WarehouseImportLineStatus.Checked
-                };
-
-                syntheticReceipt.Items.Add(syntheticItem);
+                });
             }
         }
 
         await _warehouseImportReceiptRepository.InsertAsync(syntheticReceipt, autoSave: true);
+        foreach (var syntheticItem in syntheticItems)
+            await _warehouseImportItemRepository.InsertAsync(syntheticItem, autoSave: true);
 
         receipt.SyntheticWarehouseReceiptId = syntheticReceipt.Id;
         receipt.Status = MaterialReceiptStatus.Confirmed;
@@ -943,8 +943,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         {
             var sku = await _productSkuRepository.GetAsync(inputItem.SkuId!.Value);
             if (sku.ProductId != inputItem.ProductId ||
-                (inputItem.UnitId != sku.PackagingUnitId &&
-                 inputItem.UnitId != sku.VolumeUnitId))
+                inputItem.UnitId != sku.PackagingUnitId)
             {
                 throw new UserFriendlyException(
                     "Đơn vị hoặc cấu hình SKU của vật tư không hợp lệ.");
@@ -976,16 +975,6 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                     UnitId = sku.PackagingUnitId.Value,
                     UnitName = unitMap.GetValueOrDefault(sku.PackagingUnitId.Value) ?? "",
                     IsConsumable = false
-                };
-            }
-
-            if (sku.VolumeUnitId.HasValue && !units.ContainsKey(sku.VolumeUnitId.Value))
-            {
-                units[sku.VolumeUnitId.Value] = new ProductUnitOptionDto
-                {
-                    UnitId = sku.VolumeUnitId.Value,
-                    UnitName = unitMap.GetValueOrDefault(sku.VolumeUnitId.Value) ?? "",
-                    IsConsumable = true
                 };
             }
         }

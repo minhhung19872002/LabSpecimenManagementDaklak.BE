@@ -1192,6 +1192,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                         MaterialReceiptId = receipt.MaterialReceiptId!.Value,
                         receipt.Code,
                         receipt.ActualImportDate,
+                        receipt.CreationTime,
                         WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId ?? Guid.Empty,
                         WarehouseName = item.StorageWarehouseName ?? receipt.WarehouseName,
                         item.ActualReceivedQuantity,
@@ -1226,9 +1227,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 x.MaterialReceiptId,
                 x.Code,
                 x.ActualImportDate,
+                x.CreationTime,
                 x.WarehouseId,
                 x.WarehouseName,
-                x.UnitId,
                 x.UnitName,
                 x.ManufacturerId,
                 x.ManufacturerName,
@@ -1243,6 +1244,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 MaterialReceiptId = g.Key.MaterialReceiptId,
                 ReceiptCode = g.Key.Code,
                 ReceiptDate = g.Key.ActualImportDate,
+                CreationTime = g.Key.CreationTime,
                 ReceivingWarehouseId = g.Key.WarehouseId,
                 ReceivingWarehouseName = g.Key.WarehouseName,
                 ReceivedQuantity = g.Sum(x => x.ActualReceivedQuantity),
@@ -1261,7 +1263,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             return new PagedResultDto<ProductMaterialReceiptHistoryDto>(0, new List<ProductMaterialReceiptHistoryDto>());
 
         var pageRows = await AsyncExecuter.ToListAsync(groupedQuery
-            .OrderByDescending(x => x.ReceiptDate)
+            .OrderByDescending(x => x.CreationTime)
+            .ThenByDescending(x => x.ReceiptDate)
             .ThenBy(x => x.ManufacturerName)
             .ThenBy(x => x.LotExpiryDate)
             .Skip(input.SkipCount)
@@ -1279,11 +1282,36 @@ public class ProductAppService : ApplicationService, IProductAppService
                 (await _unitRepository.GetQueryableAsync()).Where(x => unitIds.Contains(x.Id))))
                 .ToDictionary(x => x.Id, x => x.Name);
 
-        // Barcode JSON is read only for receipts represented on the requested page.
-        // This keeps the expensive JSON parsing bounded by the page instead of the full history.
         var pageReceiptIds = pageRows.Select(x => x.MaterialReceiptId).Distinct().ToList();
-        var pageBarcodeRows = await AsyncExecuter.ToListAsync(
-            query.Where(x => pageReceiptIds.Contains(x.MaterialReceiptId)));
+        var barcodeQuery = from item in importItemQuery
+                           join receipt in importReceiptQuery
+                               on item.WarehouseImportReceiptId equals receipt.Id
+                           join skuCandidate in skuQuery
+                               on item.SkuId equals (Guid?)skuCandidate.Id into skuGroup
+                           from sku in skuGroup.DefaultIfEmpty()
+                           where item.ProductId == id
+                                 && receipt.ReceiptType == WarehouseImportReceiptType.MaterialReceipt
+                                 && receipt.MaterialReceiptId.HasValue
+                                 && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                 && item.Status == WarehouseImportLineStatus.Checked
+                                 && pageReceiptIds.Contains(receipt.MaterialReceiptId.Value)
+                           select new
+                           {
+                               MaterialReceiptId = receipt.MaterialReceiptId.Value,
+                               WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId ?? Guid.Empty,
+                               ManufacturerId = item.ManufacturerId ?? (sku == null ? (Guid?)null : sku.ManufacturerId),
+                               item.LotNumber,
+                               item.LotExpiryDate,
+                               StorageUnitId = sku == null
+                                   ? product.PackagingUnitId ?? product.BaseUnitId
+                                   : sku.PackagingUnitId,
+                               ConsumableUnitId = sku == null ? product.VolumeUnitId : sku.VolumeUnitId,
+                               VolumePerUnit = sku == null ? product.VolumePerUnit : sku.VolumePerUnit,
+                               item.BarcodeValues,
+                               item.StockBeforeBaseQuantity,
+                               item.StockAfterBaseQuantity
+                           };
+        var pageBarcodeRows = await AsyncExecuter.ToListAsync(barcodeQuery);
 
         var items = pageRows.Select(row =>
         {
@@ -1291,7 +1319,6 @@ public class ProductAppService : ApplicationService, IProductAppService
                 .Where(x =>
                     x.MaterialReceiptId == row.MaterialReceiptId &&
                     x.WarehouseId == row.ReceivingWarehouseId &&
-                    x.UnitId == row.UnitId &&
                     x.ManufacturerId == row.ManufacturerId &&
                     x.LotNumber == row.LotNumber &&
                     x.LotExpiryDate == row.LotExpiryDate &&
@@ -2008,10 +2035,10 @@ public class ProductAppService : ApplicationService, IProductAppService
         public Guid MaterialReceiptId { get; set; }
         public string ReceiptCode { get; set; } = string.Empty;
         public DateTime ReceiptDate { get; set; }
+        public DateTime CreationTime { get; set; }
         public Guid ReceivingWarehouseId { get; set; }
         public string? ReceivingWarehouseName { get; set; }
         public decimal ReceivedQuantity { get; set; }
-        public Guid? UnitId { get; set; }
         public string? UnitName { get; set; }
         public Guid? ManufacturerId { get; set; }
         public string? ManufacturerName { get; set; }

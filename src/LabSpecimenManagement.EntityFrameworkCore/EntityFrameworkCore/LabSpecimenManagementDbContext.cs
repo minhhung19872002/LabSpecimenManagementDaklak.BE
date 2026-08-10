@@ -727,6 +727,11 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.WarehouseId);
             b.HasIndex(x => x.Status);
 
+            b.HasMany(x => x.Items)
+             .WithOne()
+             .HasForeignKey(x => x.WarehouseImportReceiptId)
+             .IsRequired();
+
             b.HasOne<MaterialReceipts.MaterialReceipt>()
              .WithMany()
              .HasForeignKey(x => x.MaterialReceiptId)
