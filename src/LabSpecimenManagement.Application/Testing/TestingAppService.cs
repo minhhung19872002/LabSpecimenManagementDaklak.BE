@@ -1831,6 +1831,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     item.UnitId,
                     item.AvgConsumptionPerSample.Value);
                 consumption.IsDeducted = true;
+                consumption.SubmitDate = Clock.Now;
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }

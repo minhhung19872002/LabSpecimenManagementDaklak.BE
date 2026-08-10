@@ -6,6 +6,7 @@ public class GetProductUsageLogInput
 {
     public DateTime? DateFrom { get; set; }
     public DateTime? DateTo { get; set; }
+    public Guid? WarehouseId { get; set; }
     public int SkipCount { get; set; } = 0;
     public int MaxResultCount { get; set; } = 20;
 }

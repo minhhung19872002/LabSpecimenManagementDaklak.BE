@@ -363,6 +363,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ? entry.BaseQty * product.PackagingQuantity.Value
                 : entry.BaseQty;
             dtos[i].ConsumableImportedQuantity = entry.VolumeQty;
+            dtos[i].ExpectedStockConsumable = dtos[i].ConsumableImportedQuantity - dtos[i].TheoreticalConsumption;
             dtos[i].WarehouseName = entry.WarehouseName;
             dtos[i].StockWarehouseId = entry.WarehouseId;
         }
@@ -1851,16 +1852,27 @@ public class ProductAppService : ApplicationService, IProductAppService
         ).ToList();
 
         // Path 2: IndicatorConsumption → LaboratoryTaskIndicator (direct indicator submit flow)
-        var ltiIdsFromIC = indicatorConsumptionQuery
+        // One row per (LtiId, SubmitDate) so each re-submit shows as a separate row
+        var icSubmissions = indicatorConsumptionQuery
             .Where(c => c.ProductId == id)
-            .Select(c => c.LaboratoryTaskIndicatorId)
-            .Distinct();
+            .Select(c => new { c.LaboratoryTaskIndicatorId, c.SubmitDate })
+            .Distinct()
+            .ToList();
 
-        var fromIndicatorPath = (
+        if (input.DateFrom.HasValue)
+            icSubmissions = icSubmissions
+                .Where(s => s.SubmitDate.HasValue && s.SubmitDate >= input.DateFrom.Value)
+                .ToList();
+        if (input.DateTo.HasValue)
+            icSubmissions = icSubmissions
+                .Where(s => s.SubmitDate.HasValue && s.SubmitDate <= input.DateTo.Value.AddDays(1))
+                .ToList();
+
+        var ltiIdsFromIC = icSubmissions.Select(s => s.LaboratoryTaskIndicatorId).Distinct().ToList();
+
+        var ltiDetailMap = (
             from lti in ltiQuery
             where ltiIdsFromIC.Contains(lti.Id)
-               && (!input.DateFrom.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate >= input.DateFrom))
-               && (!input.DateTo.HasValue || (lti.SubmitDate.HasValue && lti.SubmitDate <= input.DateTo.Value.AddDays(1)))
             join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
             join sample in sampleQuery on trsi.TestRequestSampleId equals sample.Id
             join ind in indicatorQuery on trsi.IndicatorId equals ind.Id
@@ -1868,7 +1880,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             from method in methods.DefaultIfEmpty()
             join st in specimenTypeQuery on trsi.SpecimenTypeId equals st.Id into sts
             from st in sts.DefaultIfEmpty()
-            select new UsageLogRawItem
+            select new
             {
                 LtiId = lti.Id,
                 SampleCode = sample.SampleCode,
@@ -1878,14 +1890,34 @@ public class ProductAppService : ApplicationService, IProductAppService
                 TestMethodName = method != null ? method.Name : (lti.SubContractMethodName ?? ""),
                 TechnicianId = lti.TechnicianId,
                 Result = lti.Result,
-                ResultSubmissionDate = lti.SubmitDate,
             }
-        ).ToList();
+        ).ToDictionary(x => x.LtiId);
 
-        // Merge both paths, deduplicate by LtiId (batch path takes priority)
-        var seenLtiIds = new HashSet<Guid>(fromBatchPath.Select(x => x.LtiId));
+        var fromIndicatorPath = icSubmissions
+            .Where(s => ltiDetailMap.ContainsKey(s.LaboratoryTaskIndicatorId))
+            .Select(s =>
+            {
+                var d = ltiDetailMap[s.LaboratoryTaskIndicatorId];
+                return new UsageLogRawItem
+                {
+                    LtiId = d.LtiId,
+                    SubmitDate = s.SubmitDate,
+                    SampleCode = d.SampleCode,
+                    SampleName = d.SampleName,
+                    SampleMatrix = d.SampleMatrix,
+                    IndicatorName = d.IndicatorName,
+                    TestMethodName = d.TestMethodName,
+                    TechnicianId = d.TechnicianId,
+                    Result = d.Result,
+                    ResultSubmissionDate = s.SubmitDate,
+                };
+            })
+            .ToList();
+
+        // Merge both paths. Batch path takes priority — exclude indicator path entries whose LtiId appears in batch path
+        var batchLtiIds = new HashSet<Guid>(fromBatchPath.Select(x => x.LtiId));
         var merged = fromBatchPath
-            .Concat(fromIndicatorPath.Where(x => seenLtiIds.Add(x.LtiId)))
+            .Concat(fromIndicatorPath.Where(x => !batchLtiIds.Contains(x.LtiId)))
             .OrderByDescending(x => x.ResultSubmissionDate)
             .ToList();
 
@@ -1896,13 +1928,13 @@ public class ProductAppService : ApplicationService, IProductAppService
             .Where(c => c.ProductId == id)
             .ToList();
 
-        var icByLti = icAll
-            .GroupBy(c => c.LaboratoryTaskIndicatorId)
+        var icByLtiSubmit = icAll
+            .GroupBy(c => (c.LaboratoryTaskIndicatorId, c.SubmitDate))
             .ToDictionary(
                 g => g.Key,
                 g => (Quantity: g.Sum(c => c.ActualQuantity), UnitId: g.First().UnitId));
 
-        var unitIdsNeeded = icByLti.Values
+        var unitIdsNeeded = icByLtiSubmit.Values
             .Where(v => v.UnitId.HasValue)
             .Select(v => v.UnitId!.Value)
             .Distinct()
@@ -1931,12 +1963,25 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         foreach (var r in merged)
         {
-            if (icByLti.TryGetValue(r.LtiId, out var ic))
+            if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate), out var ic))
             {
                 r.ConsumptionAmount = ic.Quantity;
                 r.ConsumptionUnitName = ic.UnitId.HasValue
                     ? unitNames.GetValueOrDefault(ic.UnitId.Value)
                     : null;
+            }
+            else if (r.SubmitDate == null)
+            {
+                // Batch path or old records without SubmitDate: sum all consumption for this LTI
+                var ltiConsumptions = icAll.Where(c => c.LaboratoryTaskIndicatorId == r.LtiId).ToList();
+                if (ltiConsumptions.Any())
+                {
+                    r.ConsumptionAmount = ltiConsumptions.Sum(c => c.ActualQuantity);
+                    var unitId = ltiConsumptions.First().UnitId;
+                    r.ConsumptionUnitName = unitId.HasValue
+                        ? unitNames.GetValueOrDefault(unitId.Value)
+                        : null;
+                }
             }
         }
 
@@ -1944,13 +1989,22 @@ public class ProductAppService : ApplicationService, IProductAppService
         var logImportItemQ = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var logImportReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
 
-        var lotItems = (from item in logImportItemQ
-                        join receipt in logImportReceiptQ on item.WarehouseImportReceiptId equals receipt.Id
-                        where item.ProductId == id
-                              && receipt.Status == WarehouseImportReceiptStatus.Completed
-                              && item.Status == WarehouseImportLineStatus.Checked
-                        select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId })
-                        .ToList();
+        var lotQuery = from item in logImportItemQ
+                       join receipt in logImportReceiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                       where item.ProductId == id
+                             && receipt.Status == WarehouseImportReceiptStatus.Completed
+                             && item.Status == WarehouseImportLineStatus.Checked
+                       select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId };
+
+        if (input.WarehouseId.HasValue)
+        {
+            var warehouseIds = await GetWarehouseIdSetAsync(input.WarehouseId.Value);
+            lotQuery = lotQuery.Where(x =>
+                (x.StorageWarehouseId.HasValue && warehouseIds.Contains(x.StorageWarehouseId.Value))
+                || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && warehouseIds.Contains(x.WarehouseId.Value)));
+        }
+
+        var lotItems = lotQuery.ToList();
 
         decimal currentConsumable = 0;
         foreach (var lot in lotItems)
@@ -2052,6 +2106,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private class UsageLogRawItem
     {
         public Guid LtiId { get; set; }
+        public DateTime? SubmitDate { get; set; }
         public string? SampleCode { get; set; }
         public string SampleName { get; set; } = "";
         public string? SampleMatrix { get; set; }

@@ -155,6 +155,7 @@ public partial class TestingAppService
                     line.UnitId,
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
+                consumption.SubmitDate = Clock.Now;
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 newConsumptions.Add(consumption);
             }
@@ -216,6 +217,7 @@ public partial class TestingAppService
                     line.UnitId,
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
+                consumption.SubmitDate = Clock.Now;
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }
@@ -353,7 +355,6 @@ public partial class TestingAppService
 
         if (submittedIndicators.Any() && input.ConsumptionLines.Any())
         {
-            // Create IndicatorConsumption records so TheoreticalConsumption is tracked
             var anchorIndicatorId = submittedIndicators.First().Id;
             foreach (var line in input.ConsumptionLines)
             {
@@ -366,6 +367,7 @@ public partial class TestingAppService
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
                 consumption.IsDeducted = true;
+                consumption.SubmitDate = Clock.Now;
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
 

@@ -6846,6 +6846,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<DateTime?>("SubmitDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
 
