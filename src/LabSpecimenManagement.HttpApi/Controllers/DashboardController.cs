@@ -122,5 +122,27 @@ public class DashboardController : LabSpecimenManagementController
         return _dashboardAppService.GetCustomerNamesAsync();
     }
 
+    [HttpGet("revenue-by-contact")]
+    public virtual Task<RevenueByContactPagedResultDto> GetRevenueByContactAsync(
+        [FromQuery] int skipCount = 0,
+        [FromQuery] int maxResultCount = 10)
+    {
+        return _dashboardAppService.GetRevenueByContactAsync(skipCount, maxResultCount);
+    }
+
+    [HttpGet("monthly-revenue-by-contact")]
+    public virtual Task<List<MonthlyRevenueDto>> GetMonthlyRevenueByContactAsync(
+        [FromQuery] string contactPerson,
+        [FromQuery] int year)
+    {
+        return _dashboardAppService.GetMonthlyRevenueByContactAsync(contactPerson, year);
+    }
+
+    [HttpGet("contact-person-names")]
+    public virtual Task<List<string>> GetContactPersonNamesAsync()
+    {
+        return _dashboardAppService.GetContactPersonNamesAsync();
+    }
+
     #endregion
 }

@@ -686,5 +686,124 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             .ToList();
     }
 
+    public async Task<RevenueByContactPagedResultDto> GetRevenueByContactAsync(int skipCount, int maxResultCount)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var completedRequests = testRequestQuery
+            .Where(x => (x.Status == TestRequestStatus.Completed
+                      || x.Status == TestRequestStatus.ReportPublished)
+                     && !string.IsNullOrEmpty(x.ContactPerson))
+            .ToList();
+
+        var contactGroups = completedRequests
+            .GroupBy(x => x.ContactPerson)
+            .Select(g => new
+            {
+                ContactPerson = g.Key!,
+                Revenue = g.Sum(x => x.TotalCost),
+                RequestIds = g.Select(x => x.Id).ToList()
+            })
+            .OrderByDescending(x => x.Revenue)
+            .ToList();
+
+        var totalCount = contactGroups.Count;
+
+        var pagedGroups = contactGroups
+            .Skip(skipCount)
+            .Take(maxResultCount)
+            .ToList();
+
+        var items = new List<RevenueByContactDto>();
+
+        var allRequestIds = pagedGroups.SelectMany(g => g.RequestIds).Distinct().ToList();
+        var samples = sampleQuery.Where(s => allRequestIds.Contains(s.TestRequestId)).ToList();
+        var sampleIds = samples.Select(s => s.Id).ToList();
+        var indicators = indicatorQuery.Where(i => sampleIds.Contains(i.TestRequestSampleId)).ToList();
+
+        foreach (var group in pagedGroups)
+        {
+            var sampleCount = samples.Count(s => group.RequestIds.Contains(s.TestRequestId));
+            var groupSampleIds = samples.Where(s => group.RequestIds.Contains(s.TestRequestId)).Select(s => s.Id).ToList();
+            var indicatorCount = indicators.Count(i => groupSampleIds.Contains(i.TestRequestSampleId));
+
+            items.Add(new RevenueByContactDto
+            {
+                ContactPerson = group.ContactPerson,
+                TotalSamples = sampleCount,
+                TotalIndicators = indicatorCount,
+                Revenue = group.Revenue
+            });
+        }
+
+        return new RevenueByContactPagedResultDto
+        {
+            Items = items,
+            TotalCount = totalCount
+        };
+    }
+
+    public async Task<List<MonthlyRevenueDto>> GetMonthlyRevenueByContactAsync(string contactPerson, int year)
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+        var sampleQuery = await _sampleRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+
+        var allRequests = testRequestQuery
+            .Where(x => x.ContactPerson == contactPerson &&
+                        (x.Status == TestRequestStatus.Completed
+                         || x.Status == TestRequestStatus.ReportPublished) &&
+                        (x.CompletedDate.HasValue || x.ReportPublishedDate.HasValue))
+            .ToList()
+            .Where(x => (x.CompletedDate ?? x.ReportPublishedDate)!.Value.Year == year)
+            .ToList();
+
+        var allRequestIds = allRequests.Select(x => x.Id).ToList();
+        var allSamples = sampleQuery.Where(s => allRequestIds.Contains(s.TestRequestId)).ToList();
+        var allSampleIds = allSamples.Select(s => s.Id).ToList();
+        var allIndicators = indicatorQuery.Where(i => allSampleIds.Contains(i.TestRequestSampleId)).ToList();
+
+        var result = new List<MonthlyRevenueDto>();
+
+        for (int month = 1; month <= 12; month++)
+        {
+            var monthRequests = allRequests
+                .Where(x => (x.CompletedDate ?? x.ReportPublishedDate)!.Value.Month == month)
+                .ToList();
+
+            var requestIds = monthRequests.Select(x => x.Id).ToList();
+
+            var sampleCount = allSamples.Count(s => requestIds.Contains(s.TestRequestId));
+            var monthSampleIds = allSamples.Where(s => requestIds.Contains(s.TestRequestId)).Select(s => s.Id).ToList();
+            var indicatorCount = allIndicators.Count(i => monthSampleIds.Contains(i.TestRequestSampleId));
+
+            result.Add(new MonthlyRevenueDto
+            {
+                Month = month,
+                MonthName = MonthNames[month - 1],
+                ContractCount = monthRequests.Count,
+                TotalSamples = sampleCount,
+                TotalIndicators = indicatorCount,
+                Revenue = monthRequests.Sum(x => x.TotalCost)
+            });
+        }
+
+        return result;
+    }
+
+    public async Task<List<string>> GetContactPersonNamesAsync()
+    {
+        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
+
+        return testRequestQuery
+            .Where(x => !string.IsNullOrEmpty(x.ContactPerson))
+            .Select(x => x.ContactPerson!)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToList();
+    }
+
     #endregion
 }

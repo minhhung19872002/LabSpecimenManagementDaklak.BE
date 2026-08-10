@@ -50,5 +50,20 @@ public interface IDashboardAppService : IApplicationService
     /// </summary>
     Task<List<string>> GetCustomerNamesAsync();
 
+    /// <summary>
+    /// Get revenue grouped by contact person
+    /// </summary>
+    Task<RevenueByContactPagedResultDto> GetRevenueByContactAsync(int skipCount, int maxResultCount);
+
+    /// <summary>
+    /// Get monthly revenue for a specific contact person
+    /// </summary>
+    Task<List<MonthlyRevenueDto>> GetMonthlyRevenueByContactAsync(string contactPerson, int year);
+
+    /// <summary>
+    /// Get all unique contact person names for filter dropdown
+    /// </summary>
+    Task<List<string>> GetContactPersonNamesAsync();
+
     #endregion
 }
