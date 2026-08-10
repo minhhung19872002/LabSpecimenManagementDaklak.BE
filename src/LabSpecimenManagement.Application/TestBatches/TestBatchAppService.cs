@@ -46,6 +46,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
+    private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -73,6 +74,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
+        IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
         IUserNameProvider userNameProvider,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
@@ -99,6 +101,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _productSkuRepository = productSkuRepository;
         _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
+        _indicatorConsumptionRepository = indicatorConsumptionRepository;
         _userNameProvider = userNameProvider;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
@@ -455,7 +458,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         await UpdateTaskStatusesAsync(submittableItems);
 
-        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems.Count);
+        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems);
 
         return await MapToDetailDtoAsync(batch);
     }
@@ -529,7 +532,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         await UpdateTaskStatusesAsync(submittableItems);
 
-        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems.Count);
+        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems);
 
         return await MapToDetailDtoAsync(batch);
     }
@@ -1274,7 +1277,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         }
     }
 
-    private async Task DeductStockForSubmittedBatchItemsAsync(TestBatch batch, int submittedCount)
+    private async Task DeductStockForSubmittedBatchItemsAsync(TestBatch batch, List<TestBatchItem> submittedItems)
     {
         var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
         var tmi = await AsyncExecuter.FirstOrDefaultAsync(
@@ -1291,20 +1294,24 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (consumptionItems.Count == 0) return;
 
-        foreach (var item in consumptionItems)
+        foreach (var submittedItem in submittedItems)
         {
-            if (item.AvgConsumptionPerSample is null or 0) continue;
-            var consumption = new TestBatchConsumption(
-                GuidGenerator.Create(),
-                batch.Id,
-                item.ProductId,
-                item.EquipmentId,
-                item.UnitId,
-                item.AvgConsumptionPerSample.Value * submittedCount);
-            consumption.IsDeducted = true;
-            await _testBatchConsumptionRepository.InsertAsync(consumption, autoSave: false);
+            foreach (var item in consumptionItems)
+            {
+                if (item.AvgConsumptionPerSample is null or 0) continue;
+                var consumption = new IndicatorConsumption(
+                    GuidGenerator.Create(),
+                    submittedItem.LaboratoryTaskIndicatorId,
+                    item.ProductId,
+                    item.EquipmentId,
+                    item.UnitId,
+                    item.AvgConsumptionPerSample.Value);
+                consumption.IsDeducted = true;
+                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+            }
         }
 
+        var submittedCount = submittedItems.Count;
         var productItems = consumptionItems.Where(c => c.ProductId.HasValue).ToList();
         var equipmentItems = consumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
 

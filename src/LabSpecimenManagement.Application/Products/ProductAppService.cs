@@ -1950,10 +1950,10 @@ public class ProductAppService : ApplicationService, IProductAppService
             decimal running = currentConsumable;
             for (int i = 0; i < merged.Count; i++)
             {
-                if (merged[i].ConsumptionAmount.HasValue && merged[i].ConsumptionAmount > 0)
-                    running += merged[i].ConsumptionAmount.Value;
                 merged[i].ConsumableStockBefore = running;
                 merged[i].ConsumableStockUnitName = consumableUnitName;
+                if (merged[i].ConsumptionAmount.HasValue && merged[i].ConsumptionAmount > 0)
+                    running += merged[i].ConsumptionAmount.Value;
             }
         }
 
