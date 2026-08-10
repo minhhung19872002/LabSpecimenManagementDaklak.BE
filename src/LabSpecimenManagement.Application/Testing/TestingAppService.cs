@@ -1798,8 +1798,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
         var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
 
-        var allConsumptionItems = new List<MaterialConsumptionItem>();
-        var processedTmiIds = new HashSet<Guid>();
+        var consumptionByTmi = new Dictionary<Guid, List<MaterialConsumptionItem>>();
 
         foreach (var indicator in indicatorsWithMethod)
         {
@@ -1812,13 +1811,31 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     x.IndicatorId == sampleIndicator.IndicatorId &&
                     x.SpecimenTypeId == sampleIndicator.SpecimenTypeId));
 
-            if (tmi == null || !processedTmiIds.Add(tmi.Id)) continue;
+            if (tmi == null) continue;
 
-            var consumptionItems = await AsyncExecuter.ToListAsync(
-                consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+            if (!consumptionByTmi.TryGetValue(tmi.Id, out var consumptionItems))
+            {
+                consumptionItems = await AsyncExecuter.ToListAsync(
+                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+                consumptionByTmi[tmi.Id] = consumptionItems;
+            }
 
-            allConsumptionItems.AddRange(consumptionItems);
+            foreach (var item in consumptionItems)
+            {
+                if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0) continue;
+                var consumption = new IndicatorConsumption(
+                    GuidGenerator.Create(),
+                    indicator.Id,
+                    item.ProductId,
+                    item.EquipmentId,
+                    item.UnitId,
+                    item.AvgConsumptionPerSample.Value);
+                consumption.IsDeducted = true;
+                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+            }
         }
+
+        var allConsumptionItems = consumptionByTmi.Values.SelectMany(x => x).ToList();
 
         if (!allConsumptionItems.Any()) return;
 
@@ -1841,16 +1858,20 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 if (!productMap.TryGetValue(item.ProductId!.Value, out var product))
                     continue;
 
+                if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0)
+                    continue;
+
+                var deductQty = item.AvgConsumptionPerSample.Value;
                 decimal baseQty;
                 var consumeUnitId = item.UnitId;
 
                 // 1. Product-level units
                 if (consumeUnitId == product.PackagingUnitId)
-                    baseQty = item.Quantity;
+                    baseQty = deductQty;
                 else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
-                    baseQty = item.Quantity / product.VolumePerUnit.Value;
+                    baseQty = deductQty / product.VolumePerUnit.Value;
                 else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
-                    baseQty = item.Quantity * product.PackagingQuantity.Value;
+                    baseQty = deductQty * product.PackagingQuantity.Value;
                 else
                 {
                     decimal? factor = null;
@@ -1880,7 +1901,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     if (factor == null || factor.Value == 0)
                         continue;
 
-                    baseQty = item.Quantity / factor.Value;
+                    baseQty = deductQty / factor.Value;
                 }
 
                 var deductions = await _fifoStockService.DeductAsync(

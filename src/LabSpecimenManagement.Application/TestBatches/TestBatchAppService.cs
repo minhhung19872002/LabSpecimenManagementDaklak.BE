@@ -455,6 +455,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         await UpdateTaskStatusesAsync(submittableItems);
 
+        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems.Count);
+
         return await MapToDetailDtoAsync(batch);
     }
 
@@ -526,6 +528,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         await _testBatchRepository.UpdateAsync(batch, autoSave: true);
 
         await UpdateTaskStatusesAsync(submittableItems);
+
+        await DeductStockForSubmittedBatchItemsAsync(batch, submittableItems.Count);
 
         return await MapToDetailDtoAsync(batch);
     }
@@ -1267,6 +1271,140 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 equipment.UsageCount += usageByEquipment[equipment.Id];
                 await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
             }
+        }
+    }
+
+    private async Task DeductStockForSubmittedBatchItemsAsync(TestBatch batch, int submittedCount)
+    {
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var tmi = await AsyncExecuter.FirstOrDefaultAsync(
+            tmiQuery.Where(x =>
+                x.TestMethodId == batch.MethodId &&
+                x.IndicatorId == batch.IndicatorId &&
+                x.SpecimenTypeId == batch.SpecimenTypeId));
+
+        if (tmi == null) return;
+
+        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
+        var consumptionItems = await AsyncExecuter.ToListAsync(
+            consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+
+        if (consumptionItems.Count == 0) return;
+
+        foreach (var item in consumptionItems)
+        {
+            if (item.AvgConsumptionPerSample is null or 0) continue;
+            var consumption = new TestBatchConsumption(
+                GuidGenerator.Create(),
+                batch.Id,
+                item.ProductId,
+                item.EquipmentId,
+                item.UnitId,
+                item.AvgConsumptionPerSample.Value * submittedCount);
+            consumption.IsDeducted = true;
+            await _testBatchConsumptionRepository.InsertAsync(consumption, autoSave: false);
+        }
+
+        var productItems = consumptionItems.Where(c => c.ProductId.HasValue).ToList();
+        var equipmentItems = consumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
+
+        if (productItems.Count > 0)
+            await DeductProductConsumptionsAsync(productItems, submittedCount, batch.Id);
+
+        if (equipmentItems.Count > 0)
+            await IncrementEquipmentUsageAsync(equipmentItems, submittedCount);
+    }
+
+    private async Task DeductProductConsumptionsAsync(
+        List<MaterialConsumptionItem> productItems, int submittedCount, Guid sourceId)
+    {
+        var productIds = productItems.Select(c => c.ProductId!.Value).Distinct().ToList();
+        var products = await _productRepository.GetListAsync(p => productIds.Contains(p.Id));
+        var productMap = products.ToDictionary(p => p.Id);
+
+        var skus = await _productSkuRepository.GetListAsync(s => productIds.Contains(s.ProductId));
+        var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        foreach (var item in productItems)
+        {
+            if (!productMap.TryGetValue(item.ProductId!.Value, out var product))
+                continue;
+
+            if (item.AvgConsumptionPerSample is null or 0)
+                continue;
+
+            var deductQty = item.AvgConsumptionPerSample.Value * submittedCount;
+            var baseQty = await ResolveBaseQuantityAsync(
+                deductQty, item.UnitId, item.ProductId, product, skuByProduct);
+
+            if (baseQty == null) continue;
+
+            var deductions = await _fifoStockService.DeductAsync(
+                product, baseQty.Value,
+                StockMovementType.MaterialConsumption,
+                sourceId, null,
+                "Tiêu hao tự động theo mẻ thử nghiệm");
+
+            if (product.ProductType == ProductType.PreparedSolution && deductions.Count > 0)
+            {
+                var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+                await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+            }
+        }
+    }
+
+    private async Task<decimal?> ResolveBaseQuantityAsync(
+        decimal quantity, Guid? consumeUnitId, Guid? productId,
+        Product product, Dictionary<Guid, List<ProductSku>> skuByProduct)
+    {
+        if (consumeUnitId == product.PackagingUnitId)
+            return quantity;
+        if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            return quantity / product.VolumePerUnit.Value;
+        if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            return quantity * product.PackagingQuantity.Value;
+
+        decimal? factor = null;
+
+        if (skuByProduct.TryGetValue(product.Id, out var pSkus))
+        {
+            foreach (var sku in pSkus)
+            {
+                if (consumeUnitId == sku.PackagingUnitId) { factor = 1; break; }
+                if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { factor = (decimal)sku.VolumePerUnit.Value; break; }
+                if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { factor = 1m / sku.PackagingQuantity.Value; break; }
+            }
+        }
+
+        if (factor == null && consumeUnitId.HasValue)
+        {
+            var conversionQuery = await _productUnitConversionRepository.GetQueryableAsync();
+            var conversion = await AsyncExecuter.FirstOrDefaultAsync(
+                conversionQuery.Where(c =>
+                    c.ProductId == productId && c.ConvertedUnitId == consumeUnitId.Value));
+
+            if (conversion != null && conversion.ConvertedQuantity > 0)
+                factor = conversion.ConvertedQuantity / conversion.Quantity;
+        }
+
+        if (factor is null or 0) return null;
+
+        return quantity / factor.Value;
+    }
+
+    private async Task IncrementEquipmentUsageAsync(
+        List<MaterialConsumptionItem> equipmentItems, int submittedCount)
+    {
+        var usageByEquipment = equipmentItems
+            .GroupBy(c => c.EquipmentId!.Value)
+            .ToDictionary(g => g.Key, g => (int)g.Sum(c => c.Quantity) * submittedCount);
+
+        var equipments = await _equipmentRepository.GetListAsync(e => usageByEquipment.Keys.Contains(e.Id));
+
+        foreach (var equipment in equipments)
+        {
+            equipment.UsageCount += usageByEquipment[equipment.Id];
+            await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
         }
     }
 
