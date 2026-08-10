@@ -1175,6 +1175,14 @@ public class ProductAppService : ApplicationService, IProductAppService
         var manufacturerQuery = await _manufacturerRepository.GetQueryableAsync();
         var product = await _productRepository.GetAsync(id);
 
+        // Source for material receipts is always the central (default) warehouse
+        var centralWarehouse = (await _warehouseRepository.GetQueryableAsync())
+            .Where(w => w.IsDefault && w.IsActive)
+            .Select(w => new { w.Id, w.Name })
+            .FirstOrDefault();
+        var centralId = centralWarehouse?.Id;
+        var centralName = centralWarehouse?.Name;
+
         var query = from item in importItemQuery
                     join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                     join skuCandidate in skuQuery on item.SkuId equals (Guid?)skuCandidate.Id into skuGroup
@@ -1196,6 +1204,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                         receipt.CreationTime,
                         WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId ?? Guid.Empty,
                         WarehouseName = item.StorageWarehouseName ?? receipt.WarehouseName,
+                        SourceWarehouseId = centralId,
+                        SourceWarehouseName = centralName,
                         item.ActualReceivedQuantity,
                         item.UnitId,
                         item.UnitName,
@@ -1215,7 +1225,16 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         if (input.WarehouseId.HasValue)
         {
-            query = query.Where(x => x.WarehouseId == input.WarehouseId.Value);
+            var isViewingFromCentral = centralId.HasValue && centralId.Value == input.WarehouseId.Value;
+            if (isViewingFromCentral)
+            {
+                // From central: show all material receipts (they all originate from central)
+            }
+            else
+            {
+                // From child: show only items stored in this warehouse
+                query = query.Where(x => x.WarehouseId == input.WarehouseId.Value);
+            }
         }
         if (input.FromDate.HasValue)
             query = query.Where(x => x.ActualImportDate >= input.FromDate.Value.Date);
@@ -1231,6 +1250,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 x.CreationTime,
                 x.WarehouseId,
                 x.WarehouseName,
+                x.SourceWarehouseId,
+                x.SourceWarehouseName,
                 x.UnitName,
                 x.ManufacturerId,
                 x.ManufacturerName,
@@ -1248,6 +1269,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 CreationTime = g.Key.CreationTime,
                 ReceivingWarehouseId = g.Key.WarehouseId,
                 ReceivingWarehouseName = g.Key.WarehouseName,
+                SourceWarehouseId = g.Key.SourceWarehouseId,
+                SourceWarehouseName = g.Key.SourceWarehouseName,
                 ReceivedQuantity = g.Sum(x => x.ActualReceivedQuantity),
                 UnitName = g.Key.UnitName,
                 ManufacturerId = g.Key.ManufacturerId,
@@ -1349,6 +1372,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ReceiptDate = row.ReceiptDate,
                 ReceivingWarehouseId = row.ReceivingWarehouseId,
                 ReceivingWarehouseName = row.ReceivingWarehouseName,
+                SourceWarehouseId = row.SourceWarehouseId,
+                SourceWarehouseName = row.SourceWarehouseName,
                 ReceivedQuantity = row.ReceivedQuantity,
                 UnitName = row.UnitName,
                 ManufacturerId = row.ManufacturerId,
@@ -2092,6 +2117,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         public DateTime CreationTime { get; set; }
         public Guid ReceivingWarehouseId { get; set; }
         public string? ReceivingWarehouseName { get; set; }
+        public Guid? SourceWarehouseId { get; set; }
+        public string? SourceWarehouseName { get; set; }
         public decimal ReceivedQuantity { get; set; }
         public string? UnitName { get; set; }
         public Guid? ManufacturerId { get; set; }

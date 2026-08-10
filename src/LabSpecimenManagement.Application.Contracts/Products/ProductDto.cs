@@ -360,6 +360,8 @@ public class ProductMaterialReceiptHistoryDto
     public DateTime ReceiptDate { get; set; }
     public Guid ReceivingWarehouseId { get; set; }
     public string? ReceivingWarehouseName { get; set; }
+    public Guid? SourceWarehouseId { get; set; }
+    public string? SourceWarehouseName { get; set; }
     public decimal ReceivedQuantity { get; set; }
     public string? UnitName { get; set; }
     public Guid? ManufacturerId { get; set; }
