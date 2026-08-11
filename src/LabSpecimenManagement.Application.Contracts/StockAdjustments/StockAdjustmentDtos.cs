@@ -45,6 +45,9 @@ public class StockAdjustmentItemDto
     public string? ActualUnitName { get; set; }
     public string? Reason { get; set; }
     public decimal? ExpectedStock { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public string? VolumeUnitName { get; set; }
 }
 
 public class CreateUpdateStockAdjustmentDto

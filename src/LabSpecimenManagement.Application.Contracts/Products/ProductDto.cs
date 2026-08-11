@@ -324,6 +324,8 @@ public class ProductDetailDto
     public decimal ConsumableImportedQuantity { get; set; }
     public int? VolumePerUnit { get; set; }
     public string? VolumeUnitName { get; set; }
+    public decimal TheoreticalConsumption { get; set; }
+    public decimal ExpectedStockConsumable { get; set; }
 }
 
 public class ProductImportHistoryDto

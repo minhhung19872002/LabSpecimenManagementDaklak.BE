@@ -1409,18 +1409,19 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 ? new List<Guid> { whId.Value }
                 : deductibleWhIds;
 
-            var deductions = await _fifoStockService.DeductAsync(
-                product, baseQty.Value,
-                StockMovementType.MaterialConsumption,
-                sourceId, null,
-                "Tiêu hao tự động theo mẻ thử nghiệm",
-                whIds);
+            // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
+            // var deductions = await _fifoStockService.DeductAsync(
+            //     product, baseQty.Value,
+            //     StockMovementType.MaterialConsumption,
+            //     sourceId, null,
+            //     "Tiêu hao tự động theo mẻ thử nghiệm",
+            //     whIds);
 
-            if (product.ProductType == ProductType.PreparedSolution && deductions.Count > 0)
-            {
-                var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-            }
+            // if (product.ProductType == ProductType.PreparedSolution && deductions.Count > 0)
+            // {
+            //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
+            //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
+            // }
         }
     }
 

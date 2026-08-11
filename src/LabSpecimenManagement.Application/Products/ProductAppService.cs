@@ -384,7 +384,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                          && pagedProductIds.Contains(ic.ProductId!.Value)
                                          && ic.IsDeducted
                                          && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
-                                   select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, lti.SubmitDate })
+                                   select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
                                   .ToList()
                                   .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
                                                || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
@@ -1058,6 +1058,49 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
         }
 
+        // Compute TheoreticalConsumption for the detail view
+        decimal theoreticalConsumption = 0;
+        {
+            var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+            DateTime? lastInventoryDate = null;
+
+            if (warehouseId.HasValue)
+            {
+                lastInventoryDate = pwiQuery
+                    .Where(pwi => pwi.ProductId == id && pwi.WarehouseId == warehouseId.Value)
+                    .Select(pwi => pwi.LastInventoryDate)
+                    .FirstOrDefault();
+            }
+
+            var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+            var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
+            var icItems = (from ic in icQuery
+                           join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                           where ic.ProductId == id && ic.IsDeducted
+                           where !warehouseId.HasValue
+                                 || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value)
+                           select new { ic.RecommendedQuantity, ic.SubmitDate })
+                          .ToList()
+                          .Where(x => !lastInventoryDate.HasValue
+                                       || (x.SubmitDate.HasValue && x.SubmitDate.Value > lastInventoryDate.Value))
+                          .Sum(x => x.RecommendedQuantity);
+
+            var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+            var tbQuery = await _testBatchRepository.GetQueryableAsync();
+            var tbcItems = (from tbc in tbcQuery
+                            join tb in tbQuery on tbc.TestBatchId equals tb.Id
+                            where tbc.ProductId == id && tbc.IsDeducted
+                            where !warehouseId.HasValue
+                                  || (tbc.WarehouseId.HasValue && tbc.WarehouseId == warehouseId.Value)
+                            select new { tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
+                           .ToList()
+                           .Where(x => !lastInventoryDate.HasValue
+                                        || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lastInventoryDate.Value))
+                           .Sum(x => x.RecommendedQuantity);
+
+            theoreticalConsumption = icItems + tbcItems;
+        }
+
         var detailSystemMfgIds = (await _manufacturerRepository.GetQueryableAsync())
             .Where(m => m.IsSystem).Select(m => m.Id).ToHashSet();
 
@@ -1091,6 +1134,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                    ?? productSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue))?.VolumeUnitId is { } skuVolId
                     ? unitMap.GetValueOrDefault(skuVolId)
                     : null,
+            TheoreticalConsumption = theoreticalConsumption,
+            ExpectedStockConsumable = consumableQty - theoreticalConsumption,
         };
     }
 
@@ -1684,7 +1729,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                  where ic.ProductId.HasValue
                                        && productIds.Contains(ic.ProductId!.Value)
                                        && ic.IsDeducted
-                                 select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, lti.SubmitDate })
+                                 select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
                                 .ToList()
                                 .Where(x => !x.WarehouseId.HasValue
                                              || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
@@ -1784,7 +1829,10 @@ public class ProductAppService : ApplicationService, IProductAppService
                 var vSku = volFallbackSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue && systemMfgIds.Contains(s.ManufacturerId))
                         ?? volFallbackSkus.FirstOrDefault(s => s.VolumeUnitId.HasValue);
                 if (vSku != null)
+                {
+                    dto.VolumeUnitId = vSku.VolumeUnitId;
                     dto.VolumeUnitName = unitMap.GetValueOrDefault(vSku.VolumeUnitId!.Value);
+                }
             }
             if (!dto.VolumePerUnit.HasValue && skuMap.TryGetValue(product.Id, out var vpuFallbackSkus))
             {
@@ -2071,6 +2119,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate), out var ic))
             {
                 r.ConsumptionAmount = ic.Quantity;
+                r.ConsumptionUnitId = ic.UnitId;
                 r.ConsumptionUnitName = ic.UnitId.HasValue
                     ? unitNames.GetValueOrDefault(ic.UnitId.Value)
                     : null;
@@ -2083,6 +2132,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 {
                     r.ConsumptionAmount = ltiConsumptions.Sum(c => c.ActualQuantity);
                     var unitId = ltiConsumptions.First().UnitId;
+                    r.ConsumptionUnitId = unitId;
                     r.ConsumptionUnitName = unitId.HasValue
                         ? unitNames.GetValueOrDefault(unitId.Value)
                         : null;
@@ -2129,16 +2179,35 @@ public class ProductAppService : ApplicationService, IProductAppService
                 currentConsumable += remaining * vpu.Value;
         }
 
-        // Running balance: merged is sorted DESC (newest first), accumulate backwards
+        // Running balance: "Tồn kho tạm tính" = currentConsumable minus cumulative consumption.
+        // merged is sorted DESC (newest first). Newest = lowest stock, oldest = highest.
         if (currentConsumable > 0 && consumableUnitName != null)
         {
+            var conversions = await _conversionRepository
+                .GetListAsync(c => c.ProductId == id);
+            var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+
+            int defaultVpu = productSkusForLog.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
+                             ?? product.VolumePerUnit ?? 0;
+
+            var consumeVolumes = new decimal[merged.Count];
+            for (int i = 0; i < merged.Count; i++)
+            {
+                if (merged[i].ConsumptionAmount.HasValue && merged[i].ConsumptionAmount > 0)
+                {
+                    consumeVolumes[i] = ConvertConsumptionToVolume(
+                        merged[i].ConsumptionAmount.Value,
+                        merged[i].ConsumptionUnitId,
+                        product, productSkusForLog, conversionMap, defaultVpu);
+                }
+            }
+
             decimal running = currentConsumable;
             for (int i = 0; i < merged.Count; i++)
             {
                 merged[i].ConsumableStockBefore = running;
                 merged[i].ConsumableStockUnitName = consumableUnitName;
-                if (merged[i].ConsumptionAmount.HasValue && merged[i].ConsumptionAmount > 0)
-                    running += merged[i].ConsumptionAmount.Value;
+                running += consumeVolumes[i];
             }
         }
 
@@ -2226,5 +2295,49 @@ public class ProductAppService : ApplicationService, IProductAppService
         public string? ConsumableStockUnitName { get; set; }
         public decimal? ConsumptionAmount { get; set; }
         public string? ConsumptionUnitName { get; set; }
+        public Guid? ConsumptionUnitId { get; set; }
+    }
+
+    private static decimal ConvertConsumptionToVolume(
+        decimal amount,
+        Guid? consumeUnitId,
+        Product product,
+        List<ProductSku> skus,
+        Dictionary<(Guid ProductId, Guid ConvertedUnitId), ProductUnitConversion> conversionMap,
+        int defaultVpu)
+    {
+        if (!consumeUnitId.HasValue || defaultVpu <= 0)
+            return amount;
+
+        decimal? unitsPerStorage = null;
+
+        if (consumeUnitId == product.PackagingUnitId)
+            unitsPerStorage = 1;
+        else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            unitsPerStorage = product.VolumePerUnit.Value;
+        else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            unitsPerStorage = 1m / product.PackagingQuantity.Value;
+
+        if (unitsPerStorage == null)
+        {
+            foreach (var sku in skus)
+            {
+                if (consumeUnitId == sku.PackagingUnitId) { unitsPerStorage = 1; break; }
+                if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { unitsPerStorage = sku.VolumePerUnit.Value; break; }
+                if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { unitsPerStorage = 1m / sku.PackagingQuantity.Value; break; }
+            }
+        }
+
+        if (unitsPerStorage == null
+            && conversionMap.TryGetValue((product.Id, consumeUnitId.Value), out var conv)
+            && conv.ConvertedQuantity > 0)
+        {
+            unitsPerStorage = conv.ConvertedQuantity / conv.Quantity;
+        }
+
+        if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+            return amount;
+
+        return (amount / unitsPerStorage.Value) * defaultVpu;
     }
 }
