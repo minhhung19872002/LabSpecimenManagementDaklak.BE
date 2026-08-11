@@ -80,7 +80,7 @@ public class TaskAssignmentAppService :
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var filter = input.Filter.ToLower();
+            var filter = input.Filter.Trim().ToLower();
             query = query.Where(x =>
                 x.TaskNumber.ToLower().Contains(filter) ||
                 x.Title.ToLower().Contains(filter));

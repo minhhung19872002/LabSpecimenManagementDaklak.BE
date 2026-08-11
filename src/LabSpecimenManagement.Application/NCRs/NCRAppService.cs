@@ -46,7 +46,7 @@ public class NCRAppService :
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var search = input.Search.ToLower();
+            var search = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 x.NCRNumber.ToLower().Contains(search) ||
                 x.Title.ToLower().Contains(search) ||

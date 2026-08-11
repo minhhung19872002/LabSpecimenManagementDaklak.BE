@@ -93,7 +93,7 @@ public class SubcontractorAppService :
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var filter = input.Filter.ToLower();
+            var filter = input.Filter.Trim().ToLower();
             query = query.Where(x =>
                 x.Code.ToLower().Contains(filter) ||
                 x.Name.ToLower().Contains(filter) ||

@@ -47,7 +47,7 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
 
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var filter = input.Filter.ToLower();
+            var filter = input.Filter.Trim().ToLower();
             query = query.Where(x => x.EmployeeFullName.ToLower().Contains(filter)
                 || (x.EmployeeEmail != null && x.EmployeeEmail.ToLower().Contains(filter)));
         }

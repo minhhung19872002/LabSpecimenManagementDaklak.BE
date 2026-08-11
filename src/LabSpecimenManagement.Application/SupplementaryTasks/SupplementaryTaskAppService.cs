@@ -47,7 +47,7 @@ public class SupplementaryTaskAppService : ApplicationService, ISupplementaryTas
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var s = input.Search.ToLower();
+            var s = input.Search.Trim().ToLower();
             query = query.Where(t =>
                 t.Title.ToLower().Contains(s) ||
                 t.AssignedToName.ToLower().Contains(s) ||

@@ -34,7 +34,7 @@ public class NoteAppService : ApplicationService, INoteAppService
         // Apply search filter
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 x.Code.ToLower().Contains(searchLower) ||
                 x.Content.ToLower().Contains(searchLower)

@@ -60,7 +60,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         // Filter
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var filter = input.Filter.ToLower();
+            var filter = input.Filter.Trim().ToLower();
             query = query.Where(x =>
                 x.QuotationNumber.ToLower().Contains(filter) ||
                 (x.CustomerName != null && x.CustomerName.ToLower().Contains(filter)));

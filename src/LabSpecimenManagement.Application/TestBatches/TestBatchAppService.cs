@@ -121,7 +121,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            query = query.Where(x => x.Code.Contains(input.Filter) || x.Name.Contains(input.Filter));
+            var filter = input.Filter.Trim().ToLower();
+            query = query.Where(x => x.Code.ToLower().Contains(filter) || x.Name.ToLower().Contains(filter));
         }
 
         if (input.Status.HasValue)

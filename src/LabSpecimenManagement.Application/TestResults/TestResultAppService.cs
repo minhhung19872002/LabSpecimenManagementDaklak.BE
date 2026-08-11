@@ -204,10 +204,11 @@ public class TestResultAppService : CrudAppService<
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
+            var search = input.Search.Trim().ToLower();
             queryable = queryable.Where(x =>
-                x.Parameter.Contains(input.Search) ||
-                x.Value.Contains(input.Search) ||
-                x.Unit.Contains(input.Search)
+                x.Parameter.ToLower().Contains(search) ||
+                x.Value.ToLower().Contains(search) ||
+                x.Unit.ToLower().Contains(search)
             );
         }
 

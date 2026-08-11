@@ -119,7 +119,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         // Filter by search
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            query = query.Where(t => t.ContractNumber.Contains(input.Search));
+            var search = input.Search.Trim().ToLower();
+            query = query.Where(t => t.ContractNumber != null && t.ContractNumber.ToLower().Contains(search));
         }
 
         // Filter by status
@@ -2801,7 +2802,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||

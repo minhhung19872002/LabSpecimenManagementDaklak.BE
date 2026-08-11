@@ -75,7 +75,7 @@ public class SpecimenHistoryAppService : CrudAppService<
         // Apply search filter
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var search = input.Search.ToLower();
+            var search = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 (x.Specimen != null && x.Specimen.Code.ToLower().Contains(search)) ||
                 x.Action.ToLower().Contains(search) ||

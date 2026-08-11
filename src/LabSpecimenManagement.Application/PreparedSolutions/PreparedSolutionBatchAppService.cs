@@ -63,7 +63,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var s = input.Search.ToLower();
+            var s = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 x.SolutionProductName.ToLower().Contains(s) ||
                 x.LotCode.ToLower().Contains(s) ||

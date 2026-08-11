@@ -507,7 +507,8 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
         // Filter by customer name if provided
         if (!string.IsNullOrWhiteSpace(customerName))
         {
-            query = query.Where(x => x.CustomerName.Contains(customerName));
+            var searchName = customerName.Trim().ToLower();
+            query = query.Where(x => x.CustomerName.ToLower().Contains(searchName));
         }
 
         // Order by PendingDate descending (most recent first)

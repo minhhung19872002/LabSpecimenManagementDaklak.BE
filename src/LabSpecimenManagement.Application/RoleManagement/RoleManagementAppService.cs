@@ -67,7 +67,7 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
         // Filter by search text
         if (!string.IsNullOrWhiteSpace(input.Filter))
         {
-            var filter = input.Filter.ToLowerInvariant();
+            var filter = input.Filter.Trim().ToLowerInvariant();
             roles = roles.Where(r => r.Name.ToLowerInvariant().Contains(filter)).ToList();
         }
 

@@ -72,7 +72,7 @@ public class SpecimenAppService :
         // Apply search filter
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var search = input.Search.ToLower();
+            var search = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 x.Code.ToLower().Contains(search) ||
                 x.Name.ToLower().Contains(search) ||

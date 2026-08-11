@@ -222,7 +222,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Apply search filter (Contract Number)
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             taskQuery = taskQuery.Where(x =>
                 x.Task.ContractNumber != null && x.Task.ContractNumber.ToLower().Contains(searchLower));
         }
@@ -2986,7 +2986,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
@@ -3221,7 +3221,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Apply same filters as GetSampleAssignmentLogAsync (except Results)
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||

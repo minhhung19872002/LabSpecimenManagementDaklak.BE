@@ -156,12 +156,14 @@ public class LaboratoryAppService :
 
     public override async Task<LaboratoryDto> CreateAsync(CreateUpdateLaboratoryDto input)
     {
+        var trimmedCode = input.Code.Trim();
+
         // Validate Code unique
         await _validationService.ValidateUniqueAsync(
             Repository,
-            x => x.Code == input.Code,
+            x => x.Code.ToLower() == trimmedCode.ToLower(),
             "code",
-            $"Mã khoa phòng '{input.Code}' đã tồn tại");
+            $"Mã khoa phòng '{trimmedCode}' đã tồn tại");
 
         // Validate Department exists
         var department = await _departmentRepository.FindAsync(input.DepartmentId);
@@ -183,12 +185,14 @@ public class LaboratoryAppService :
 
     public override async Task<LaboratoryDto> UpdateAsync(Guid id, CreateUpdateLaboratoryDto input)
     {
+        var trimmedCode = input.Code.Trim();
+
         // Validate Code unique (exclude current)
         await _validationService.ValidateUniqueAsync(
             Repository,
-            x => x.Code == input.Code,
+            x => x.Code.ToLower() == trimmedCode.ToLower(),
             "code",
-            $"Mã khoa phòng '{input.Code}' đã tồn tại",
+            $"Mã khoa phòng '{trimmedCode}' đã tồn tại",
             excludeId: id);
 
         // Validate Department exists

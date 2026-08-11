@@ -64,7 +64,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             var matchingGroupIds = groupQuery
                 .Where(g => g.Name.ToLower().Contains(searchLower))
                 .Select(g => g.Id)

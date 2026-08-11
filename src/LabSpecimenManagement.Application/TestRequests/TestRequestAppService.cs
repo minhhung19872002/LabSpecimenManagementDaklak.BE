@@ -421,7 +421,7 @@ public partial class TestRequestAppService :
         // Apply search filter
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var search = input.Search.ToLower();
+            var search = input.Search.Trim().ToLower();
             queryable = queryable.Where(x =>
                 x.RequestNumber.ToLower().Contains(search) ||
                 x.CustomerName.ToLower().Contains(search) ||

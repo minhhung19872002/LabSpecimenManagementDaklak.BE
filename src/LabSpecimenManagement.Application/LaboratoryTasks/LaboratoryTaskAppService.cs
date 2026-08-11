@@ -3302,7 +3302,7 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
         // Apply filters
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
-            var searchLower = input.Search.ToLower();
+            var searchLower = input.Search.Trim().ToLower();
             query = query.Where(x =>
                 (x.ContractNumber != null && x.ContractNumber.ToLower().Contains(searchLower)) ||
                 (x.SampleCode != null && x.SampleCode.ToLower().Contains(searchLower)) ||
