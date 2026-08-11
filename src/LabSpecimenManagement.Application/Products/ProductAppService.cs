@@ -2094,8 +2094,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 currentConsumable += remaining * vpu.Value;
         }
 
-        // Running balance: "Tồn kho tạm tính" = currentConsumable minus cumulative consumption.
-        // merged is sorted DESC (newest first). Newest = lowest stock, oldest = highest.
+        // Running balance: "Tồn kho tạm tính" = currentConsumable (Tồn kho hiện tại) minus cumulative consumption.
+        // merged is sorted DESC (newest first). Process oldest→newest: oldest = currentConsumable, subtract forward.
         if (currentConsumable > 0 && consumableUnitName != null)
         {
             var conversions = await _conversionRepository
@@ -2118,11 +2118,11 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
 
             decimal running = currentConsumable;
-            for (int i = 0; i < merged.Count; i++)
+            for (int i = merged.Count - 1; i >= 0; i--)
             {
                 merged[i].ConsumableStockBefore = running;
                 merged[i].ConsumableStockUnitName = consumableUnitName;
-                running += consumeVolumes[i];
+                running -= consumeVolumes[i];
             }
         }
 
