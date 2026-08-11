@@ -450,7 +450,7 @@ public partial class TestRequestAppService :
         // Apply customer name filter
         if (!string.IsNullOrWhiteSpace(input.CustomerName))
         {
-            var customerName = input.CustomerName.ToLower();
+            var customerName = input.CustomerName.Trim().ToLower();
             queryable = queryable.Where(x => x.CustomerName.ToLower().Contains(customerName));
         }
 

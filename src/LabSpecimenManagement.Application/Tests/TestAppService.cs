@@ -80,7 +80,7 @@ public class TestAppService :
                 (x.Specimen != null && x.Specimen.Code.ToLower().Contains(search!)))
             .WhereIf(input.Status.HasValue, x => x.Status == input.Status!.Value)
             .WhereIf(input.SpecimenId.HasValue, x => x.SpecimenId == input.SpecimenId!.Value)
-            .WhereIf(!string.IsNullOrWhiteSpace(input.Method), x => x.Method == input.Method)
+            .WhereIf(!string.IsNullOrWhiteSpace(input.Method), x => x.Method.ToLower() == input.Method!.Trim().ToLower())
             .WhereIf(input.AssigneeId.HasValue, x => x.AssigneeId == input.AssigneeId!.Value);
 
         var totalCount = await AsyncExecuter.CountAsync(query);

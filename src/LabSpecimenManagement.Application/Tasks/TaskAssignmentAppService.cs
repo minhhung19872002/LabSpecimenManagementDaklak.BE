@@ -93,7 +93,7 @@ public class TaskAssignmentAppService :
 
         if (!string.IsNullOrWhiteSpace(input.Department))
         {
-            query = query.Where(x => x.Department == input.Department);
+            query = query.Where(x => x.Department.ToLower() == input.Department!.Trim().ToLower());
         }
 
         if (input.Priority.HasValue)

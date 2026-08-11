@@ -89,7 +89,7 @@ public class SpecimenAppService :
         // Apply type filter
         if (!string.IsNullOrWhiteSpace(input.Type))
         {
-            query = query.Where(x => x.Type == input.Type);
+            query = query.Where(x => x.Type.ToLower() == input.Type!.Trim().ToLower());
         }
 
         // Apply test request filter

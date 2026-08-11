@@ -490,7 +490,7 @@ public class RoleManagementAppService : ApplicationService, IRoleManagementAppSe
             // Filter by search text
             if (!string.IsNullOrWhiteSpace(filter))
             {
-                var filterLower = filter.ToLowerInvariant();
+                var filterLower = filter.Trim().ToLowerInvariant();
                 if (!user.UserName!.ToLowerInvariant().Contains(filterLower) &&
                     !fullName.ToLowerInvariant().Contains(filterLower) &&
                     !(user.Email?.ToLowerInvariant().Contains(filterLower) ?? false))

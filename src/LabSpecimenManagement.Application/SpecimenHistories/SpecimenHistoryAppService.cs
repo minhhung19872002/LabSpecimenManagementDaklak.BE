@@ -98,7 +98,7 @@ public class SpecimenHistoryAppService : CrudAppService<
         // Apply action filter
         if (!string.IsNullOrWhiteSpace(input.Action))
         {
-            query = query.Where(x => x.Action == input.Action);
+            query = query.Where(x => x.Action.ToLower() == input.Action!.Trim().ToLower());
         }
 
         // Get total count
