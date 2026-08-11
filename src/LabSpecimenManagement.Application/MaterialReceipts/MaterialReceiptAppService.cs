@@ -796,30 +796,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             await _inventoryBarcodeRepository.UpdateAsync(barcode, autoSave: true);
         }
 
-        var transferredCodes = selected.Select(x => x.Code).ToList();
-        if (transferPlan.CreateSplitBarcode)
-        {
-            var baseCode = $"SPLIT-{materialReceiptId:N}-{originalLotItem.Id:N}";
-            var splitCode = baseCode;
-            var suffix = 1;
-            while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == splitCode))
-                splitCode = $"{baseCode}-{suffix++:D3}";
-
-            var splitBarcode = new InventoryBarcode(
-                _guidGenerator.Create(),
-                splitCode,
-                originalLotItem.ProductId,
-                originalLotItem.Id,
-                receivingWarehouseId)
-            {
-                SkuId = originalLotItem.SkuId,
-                LastMaterialReceiptId = materialReceiptId
-            };
-            await _inventoryBarcodeRepository.InsertAsync(splitBarcode, autoSave: true);
-            transferredCodes.Add(splitCode);
-        }
-
-        return transferredCodes;
+        return selected.Select(x => x.Code).ToList();
     }
 
     internal static BarcodeTransferPlan CalculateBarcodeTransferPlan(
@@ -827,27 +804,17 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         decimal remainingBaseQuantity)
     {
         if (deductedBaseQuantity <= 0)
-            return new BarcodeTransferPlan(0, false, 0);
+            return new BarcodeTransferPlan(0, 0);
 
         var wholeUnitCount = (int)Math.Floor(deductedBaseQuantity);
         var hasFraction = deductedBaseQuantity > wholeUnitCount;
+        var sourceBarcodesToMove = wholeUnitCount + (hasFraction ? 1 : 0);
 
-        // Nếu phần tách lẻ làm hết lô, chuyển luôn barcode gốc cuối cùng.
-        // Nếu lô vẫn còn hàng, giữ barcode gốc tại kho nguồn và tạo barcode dẫn xuất cho phần tách.
-        var moveLastSourceBarcode = hasFraction && remainingBaseQuantity <= 0;
-        var createSplitBarcode = hasFraction && !moveLastSourceBarcode;
-        var sourceBarcodesToMove = wholeUnitCount + (moveLastSourceBarcode ? 1 : 0);
-        var requiredSourceBarcodeCount = sourceBarcodesToMove + (createSplitBarcode ? 1 : 0);
-
-        return new BarcodeTransferPlan(
-            sourceBarcodesToMove,
-            createSplitBarcode,
-            requiredSourceBarcodeCount);
+        return new BarcodeTransferPlan(sourceBarcodesToMove, sourceBarcodesToMove);
     }
 
     internal readonly record struct BarcodeTransferPlan(
         int SourceBarcodesToMove,
-        bool CreateSplitBarcode,
         int RequiredSourceBarcodeCount);
 
     private async Task MapItemsAsync(MaterialReceipt receipt, List<CreateUpdateMaterialReceiptItemDto> inputItems)

@@ -34,23 +34,19 @@ public abstract class ProductMaterialReceiptHistory_Tests<TStartupModule>
     {
         var wholeUnits = MaterialReceiptAppService.CalculateBarcodeTransferPlan(2m, 3m);
         wholeUnits.SourceBarcodesToMove.ShouldBe(2);
-        wholeUnits.CreateSplitBarcode.ShouldBeFalse();
         wholeUnits.RequiredSourceBarcodeCount.ShouldBe(2);
 
-        var splitWithRemainder = MaterialReceiptAppService.CalculateBarcodeTransferPlan(0.25m, 0.75m);
-        splitWithRemainder.SourceBarcodesToMove.ShouldBe(0);
-        splitWithRemainder.CreateSplitBarcode.ShouldBeTrue();
-        splitWithRemainder.RequiredSourceBarcodeCount.ShouldBe(1);
+        var fractionWithRemainder = MaterialReceiptAppService.CalculateBarcodeTransferPlan(0.25m, 0.75m);
+        fractionWithRemainder.SourceBarcodesToMove.ShouldBe(1);
+        fractionWithRemainder.RequiredSourceBarcodeCount.ShouldBe(1);
 
-        var splitTakingAllRemainder = MaterialReceiptAppService.CalculateBarcodeTransferPlan(0.25m, 0m);
-        splitTakingAllRemainder.SourceBarcodesToMove.ShouldBe(1);
-        splitTakingAllRemainder.CreateSplitBarcode.ShouldBeFalse();
-        splitTakingAllRemainder.RequiredSourceBarcodeCount.ShouldBe(1);
+        var fractionTakingAll = MaterialReceiptAppService.CalculateBarcodeTransferPlan(0.25m, 0m);
+        fractionTakingAll.SourceBarcodesToMove.ShouldBe(1);
+        fractionTakingAll.RequiredSourceBarcodeCount.ShouldBe(1);
 
-        var wholeAndSplit = MaterialReceiptAppService.CalculateBarcodeTransferPlan(1.5m, 0.5m);
-        wholeAndSplit.SourceBarcodesToMove.ShouldBe(1);
-        wholeAndSplit.CreateSplitBarcode.ShouldBeTrue();
-        wholeAndSplit.RequiredSourceBarcodeCount.ShouldBe(2);
+        var wholeAndFraction = MaterialReceiptAppService.CalculateBarcodeTransferPlan(1.5m, 0.5m);
+        wholeAndFraction.SourceBarcodesToMove.ShouldBe(2);
+        wholeAndFraction.RequiredSourceBarcodeCount.ShouldBe(2);
     }
 
     [Fact]
