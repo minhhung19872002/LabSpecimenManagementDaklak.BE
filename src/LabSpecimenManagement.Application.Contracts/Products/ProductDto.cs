@@ -331,28 +331,25 @@ public class ProductDetailDto
 public class ProductImportHistoryDto
 {
     public Guid WarehouseImportReceiptId { get; set; }
-    public string ReceiptCode { get; set; } = null!;
-    public DateTime? ActualImportDate { get; set; }
+    public string WarehouseImportReceiptCode { get; set; } = null!;
+    public DateTime ActualImportDate { get; set; }
     public string? SupplierName { get; set; }
     public decimal OrderedQuantity { get; set; }
-    public string? PurchaseUnitName { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
     public string? UnitName { get; set; }
     public string? ManufacturerName { get; set; }
     public string? LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }
-    public decimal? TotalAmount { get; set; }
-    public string? QualityDocumentFileId { get; set; }
-    public string? QualityDocumentFileName { get; set; }
-    public string? QualityDocumentFilePath { get; set; }
-    public List<WarehouseImports.DeliveryDocumentFileDto>? DeliveryDocumentFiles { get; set; }
+    public string? StorageWarehouseName { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public int? VatPercent { get; set; }
+    public decimal? TotalLineAmount { get; set; }
 }
 
 public class GetProductImportHistoryInput : PagedRequestDto
 {
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
-    public Guid? WarehouseId { get; set; }
 }
 
 public class ProductMaterialReceiptHistoryDto
