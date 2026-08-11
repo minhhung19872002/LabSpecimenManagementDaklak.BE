@@ -593,22 +593,6 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
             await _ingredientRepository.InsertAsync(ingredient, autoSave: true);
 
-            // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
-            // if (!isEquipment)
-            // {
-            //     var baseQty = ToBaseQty(vpu, inp.QuantityUsed);
-            //     var deductions = await _fifoStockService.DeductAsync(
-            //         product, baseQty,
-            //         StockMovementType.MaterialConsumption,
-            //         batchId, lotCode,
-            //         "Pha dung dịch",
-            //         sourceWarehouseIds);
-
-            //     if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-            //     {
-            //         await UpdateSourceBatchRemainingVolumeAsync(product, vpu, deductions);
-            //     }
-            // }
         }
     }
 

@@ -1935,19 +1935,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     ? new List<Guid> { whId.Value }
                     : deductibleWhIds;
 
-                // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
-                // var deductions = await _fifoStockService.DeductAsync(
-                //     product, baseQty,
-                //     StockMovementType.MaterialConsumption,
-                //     taskId, null,
-                //     "Tiêu hao tự động theo chỉ tiêu",
-                //     whIds);
-
-                // if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-                // {
-                //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-                // }
             }
         }
 

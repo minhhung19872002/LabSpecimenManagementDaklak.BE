@@ -1290,18 +1290,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
                 var storageQty = consumption.ActualQuantity / unitsPerStorage.Value;
 
-                // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
-                // var deductions = await _fifoStockService.DeductAsync(
-                //     product, storageQty,
-                //     StockMovementType.MaterialConsumption,
-                //     consumption.TestBatchId, null,
-                //     "Tiêu hao thử nghiệm");
-                //
-                // if (product.ProductType == ProductType.PreparedSolution && deductions.Any())
-                // {
-                //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-                //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-                // }
             }
         }
 
@@ -1409,19 +1397,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 ? new List<Guid> { whId.Value }
                 : deductibleWhIds;
 
-            // BA: tạm thời comment out auto-deduction, chỉ hiện số nhập thực tế
-            // var deductions = await _fifoStockService.DeductAsync(
-            //     product, baseQty.Value,
-            //     StockMovementType.MaterialConsumption,
-            //     sourceId, null,
-            //     "Tiêu hao tự động theo mẻ thử nghiệm",
-            //     whIds);
-
-            // if (product.ProductType == ProductType.PreparedSolution && deductions.Count > 0)
-            // {
-            //     var productSkus = skuByProduct.GetValueOrDefault(product.Id);
-            //     await UpdatePreparedSolutionRemainingVolumeAsync(product, productSkus, deductions);
-            // }
         }
     }
 
