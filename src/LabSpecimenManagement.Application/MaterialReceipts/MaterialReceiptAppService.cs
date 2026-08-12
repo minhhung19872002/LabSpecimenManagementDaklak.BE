@@ -8,6 +8,7 @@ using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Units;
+using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -41,6 +42,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
     private readonly IUserNameProvider _userNameProvider;
     private readonly IDataFilter _dataFilter;
     private readonly IGuidGenerator _guidGenerator;
+    private readonly IRepository<StockAdjustment, Guid> _stockAdjustmentRepository;
+    private readonly IRepository<StockAdjustmentItem, Guid> _stockAdjustmentItemRepository;
     private readonly IAsyncQueryableExecuter _asyncExecuter;
 
     public MaterialReceiptAppService(
@@ -60,7 +63,9 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         IUserNameProvider userNameProvider,
         IDataFilter dataFilter,
         IGuidGenerator guidGenerator,
-        IAsyncQueryableExecuter asyncExecuter)
+        IAsyncQueryableExecuter asyncExecuter,
+        IRepository<StockAdjustment, Guid> stockAdjustmentRepository,
+        IRepository<StockAdjustmentItem, Guid> stockAdjustmentItemRepository)
     {
         _receiptRepository = receiptRepository;
         _receiptItemRepository = receiptItemRepository;
@@ -79,6 +84,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         _dataFilter = dataFilter;
         _guidGenerator = guidGenerator;
         _asyncExecuter = asyncExecuter;
+        _stockAdjustmentRepository = stockAdjustmentRepository;
+        _stockAdjustmentItemRepository = stockAdjustmentItemRepository;
     }
 
     public async Task<PagedResultDto<MaterialReceiptListDto>> GetListAsync(GetMaterialReceiptListInput input)
@@ -397,7 +404,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 var stockKey = (item.ProductId, item.ReceivingWarehouseId, manufacturerId);
                 if (!stockSnapshots.TryGetValue(stockKey, out var stockBefore))
                 {
-                    stockBefore = await GetWarehouseManufacturerStockAsync(
+                    stockBefore = await GetReceiptChainStockAsync(
                         item.ProductId,
                         item.ReceivingWarehouseId,
                         manufacturerId);
@@ -746,6 +753,114 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 lotManufacturerId = skuManufacturers.GetValueOrDefault(x.SkuId.Value);
             return lotManufacturerId == manufacturerId;
         }).Sum(x => x.Remaining);
+    }
+
+    /// <summary>
+    /// Hybrid stock: receipt chain + stock adjustment baseline.
+    /// Default: MAX(StockAfter) from receipt chain (immune to FIFO consumption deductions).
+    /// If a confirmed stock adjustment is more recent than the latest receipt: uses adjusted stock as baseline.
+    /// </summary>
+    private async Task<decimal> GetReceiptChainStockAsync(
+        Guid productId,
+        Guid warehouseId,
+        Guid? manufacturerId)
+    {
+        var itemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
+        var receiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var candidates = await _asyncExecuter.ToListAsync(
+            from item in itemQuery
+            join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+            where item.ProductId == productId
+                  && receipt.ReceiptType == WarehouseImportReceiptType.MaterialReceipt
+                  && receipt.Status == WarehouseImportReceiptStatus.Completed
+                  && item.Status == WarehouseImportLineStatus.Checked
+                  && item.StockAfterBaseQuantity.HasValue
+            let effectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+            where effectiveWarehouseId == warehouseId
+            select new
+            {
+                item.StockAfterBaseQuantity,
+                item.ReceivedBaseQuantity,
+                item.ManufacturerId,
+                item.SkuId,
+                receipt.CreationTime
+            });
+
+        var skuIds = candidates.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuManufacturers = skuIds.Count == 0
+            ? new Dictionary<Guid, Guid>()
+            : (await _asyncExecuter.ToListAsync(
+                (await _productSkuRepository.GetQueryableAsync()).Where(x => skuIds.Contains(x.Id))))
+                .ToDictionary(x => x.Id, x => x.ManufacturerId);
+
+        Guid? ResolveMfr(Guid? mfrId, Guid? skuId)
+        {
+            if (mfrId.HasValue) return mfrId;
+            if (skuId.HasValue && skuManufacturers.TryGetValue(skuId.Value, out var mfr)) return mfr;
+            return null;
+        }
+
+        var matched = candidates
+            .Where(x => ResolveMfr(x.ManufacturerId, x.SkuId) == manufacturerId).ToList();
+        var chainStock = matched.Count > 0
+            ? matched.Max(x => x.StockAfterBaseQuantity!.Value) : 0m;
+        var latestReceiptTime = matched.Count > 0
+            ? matched.Max(x => (DateTime?)x.CreationTime) : null;
+
+        var adjItemQ = await _stockAdjustmentItemRepository.GetQueryableAsync();
+        var adjQ = await _stockAdjustmentRepository.GetQueryableAsync();
+
+        var adjCandidates = await _asyncExecuter.ToListAsync(
+            from adjItem in adjItemQ
+            join adj in adjQ on adjItem.StockAdjustmentId equals adj.Id
+            where adjItem.ProductId == productId
+                  && adjItem.WarehouseId == warehouseId
+                  && adj.Status == StockAdjustmentStatus.Confirmed
+            select new
+            {
+                adjItem.QuantityBefore,
+                adjItem.AdjustmentQuantity,
+                adj.LastModificationTime,
+                adj.CreationTime
+            });
+
+        var latestAdj = adjCandidates
+            .Select(a => new
+            {
+                a.QuantityBefore,
+                a.AdjustmentQuantity,
+                AdjTime = a.LastModificationTime ?? a.CreationTime
+            })
+            .Where(a => !latestReceiptTime.HasValue || a.AdjTime > latestReceiptTime.Value)
+            .OrderByDescending(a => a.AdjTime)
+            .FirstOrDefault();
+
+        if (latestAdj == null)
+            return chainStock;
+
+        var adjustedTotal = latestAdj.QuantityBefore - latestAdj.AdjustmentQuantity;
+
+        var preAdjGroups = candidates
+            .Where(x => x.CreationTime <= latestAdj.AdjTime)
+            .GroupBy(x => ResolveMfr(x.ManufacturerId, x.SkuId))
+            .Select(g => new { Mfr = g.Key, MaxStock = g.Max(x => x.StockAfterBaseQuantity!.Value) })
+            .ToList();
+
+        var totalChainBeforeAdj = preAdjGroups.Sum(g => g.MaxStock);
+        var mfrChainBeforeAdj = preAdjGroups
+            .FirstOrDefault(g => g.Mfr == manufacturerId)?.MaxStock ?? 0m;
+        decimal allocatedStock;
+        if (totalChainBeforeAdj > 0 && mfrChainBeforeAdj > 0)
+            allocatedStock = adjustedTotal * mfrChainBeforeAdj / totalChainBeforeAdj;
+        else
+            allocatedStock = adjustedTotal;
+
+        var receiptsAfterAdj = matched
+            .Where(x => x.CreationTime > latestAdj.AdjTime)
+            .Sum(x => x.ReceivedBaseQuantity);
+
+        return Math.Max(0, allocatedStock + receiptsAfterAdj);
     }
 
     private async Task<List<string>> MoveInventoryBarcodesAsync(
