@@ -1148,6 +1148,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                     join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                     where item.ProductId == id
                           && receipt.Status == WarehouseImportReceiptStatus.Completed
+                          && receipt.ReceiptType != WarehouseImportReceiptType.MaterialReceipt
                           && !receipt.IsDeleted
                     select new { item, receipt };
 
