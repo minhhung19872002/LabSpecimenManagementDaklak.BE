@@ -65,6 +65,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
+    private readonly InventoryBarcodeStatusService _barcodeStatusService;
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -100,7 +101,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
-        IFifoStockDeductionService fifoStockService)
+        IFifoStockDeductionService fifoStockService,
+        InventoryBarcodeStatusService barcodeStatusService)
     {
         _laboratoryTaskRepository = laboratoryTaskRepository;
         _laboratoryTaskIndicatorRepository = laboratoryTaskIndicatorRepository;
@@ -136,6 +138,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _importReceiptItemRepository = importReceiptItemRepository;
         _productSkuRepository = productSkuRepository;
         _fifoStockService = fifoStockService;
+        _barcodeStatusService = barcodeStatusService;
     }
 
     public async Task<PagedResultDto<TestingListDto>> GetListAsync(GetTestingListInput input)
@@ -1961,6 +1964,15 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
             }
         }
+
+        await CurrentUnitOfWork.SaveChangesAsync();
+
+        var barcodeTargets = consumptionRecords
+            .Where(r => r.Item.ProductId.HasValue)
+            .Select(r => (r.Item.ProductId!.Value, warehouseMap.GetValueOrDefault(r.Item.ProductId!.Value)))
+            .Where(t => t.Item2.HasValue)
+            .Select(t => (t.Item1, t.Item2!.Value));
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
     }
 
     private async Task UpdatePreparedSolutionRemainingVolumeAsync(

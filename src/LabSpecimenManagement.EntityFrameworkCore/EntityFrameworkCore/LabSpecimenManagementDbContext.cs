@@ -790,6 +790,8 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.OriginWarehouseImportReceiptItemId);
             b.HasIndex(x => x.CurrentWarehouseId);
             b.HasIndex(x => x.LastMaterialReceiptId);
+            b.Property(x => x.Status).HasDefaultValue(InventoryBarcodeStatus.NotUsed);
+            b.HasIndex(x => x.Status);
         });
 
         // SpecimenType configuration

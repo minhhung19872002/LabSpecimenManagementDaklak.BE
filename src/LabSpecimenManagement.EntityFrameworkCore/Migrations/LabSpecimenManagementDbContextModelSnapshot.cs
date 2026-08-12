@@ -3611,6 +3611,11 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("SkuId")
                         .HasColumnType("uuid");
 
+                    b.Property<int>("Status")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(2);
+
                     b.HasKey("Id");
 
                     b.HasIndex("Code")
@@ -3625,6 +3630,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("SkuId");
+
+                    b.HasIndex("Status");
 
                     b.ToTable("AppInventoryBarcodes", (string)null);
                 });

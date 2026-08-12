@@ -615,6 +615,17 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
                 TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
             });
 
+        // Barcode expiration: mark barcodes with expired lots as Expired
+        // CRON: "30 1 * * *" = At 01:30 every day (Vietnam time)
+        RecurringJob.AddOrUpdate<BarcodeExpirationJob>(
+            "barcode-expiration-job",
+            job => job.ExecuteAsync(),
+            "30 1 * * *",
+            new RecurringJobOptions
+            {
+                TimeZone = TimeZoneInfo.FindSystemTimeZoneById("SE Asia Standard Time")
+            });
+
         // Goods receipt status auto-update: Ordering -> WaitingReceipt when ExpectedDeliveryDate <= today
         // CRON: "0 0 * * *" = At 00:00 every day (midnight Vietnam time)
         // RecurringJob.AddOrUpdate<GoodsReceiptStatusUpdateJob>(

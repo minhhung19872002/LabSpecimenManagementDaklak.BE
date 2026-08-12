@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
@@ -110,5 +111,11 @@ public class ProductController : LabSpecimenManagementController
     public virtual Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, [FromQuery] GetProductUsageLogInput input)
     {
         return _productAppService.GetUsageLogAsync(id, input);
+    }
+
+    [HttpGet("{id}/barcode-lot-history")]
+    public virtual Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, [FromQuery] Guid? warehouseId)
+    {
+        return _productAppService.GetBarcodeLotHistoryAsync(id, warehouseId);
     }
 }

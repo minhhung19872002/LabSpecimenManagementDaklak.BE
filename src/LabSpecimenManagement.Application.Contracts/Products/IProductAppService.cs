@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -25,4 +26,5 @@ public interface IProductAppService : IApplicationService
     Task<PagedResultDto<ProductMaterialReceiptHistoryDto>> GetMaterialReceiptHistoryAsync(
         Guid id, GetProductMaterialReceiptHistoryInput input);
     Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, GetProductUsageLogInput input);
+    Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, Guid? warehouseId);
 }

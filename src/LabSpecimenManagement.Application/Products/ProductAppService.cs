@@ -51,6 +51,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
+    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -84,7 +85,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUnitConversionResolver unitConversionResolver,
-        IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository)
+        IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository)
     {
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
@@ -114,6 +116,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _dataFilter = dataFilter;
         _unitConversionResolver = unitConversionResolver;
         _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
+        _inventoryBarcodeRepository = inventoryBarcodeRepository;
     }
 
     public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
@@ -2272,5 +2275,51 @@ public class ProductAppService : ApplicationService, IProductAppService
             return amount;
 
         return (amount / unitsPerStorage.Value) * defaultVpu;
+    }
+
+    public async Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, Guid? warehouseId)
+    {
+        var barcodeQuery = await _inventoryBarcodeRepository.GetQueryableAsync();
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+
+        var barcodesForProduct = barcodeQuery.Where(b => b.ProductId == id);
+        if (warehouseId.HasValue)
+        {
+            barcodesForProduct = barcodesForProduct.Where(b => b.CurrentWarehouseId == warehouseId.Value);
+        }
+
+        var barcodeRows = await AsyncExecuter.ToListAsync(
+            from barcode in barcodesForProduct
+            join item in importItemQuery
+                on barcode.OriginWarehouseImportReceiptItemId equals item.Id
+            orderby barcode.CreationTime
+            select new
+            {
+                barcode.Code,
+                barcode.Status,
+                barcode.OriginWarehouseImportReceiptItemId,
+                item.LotNumber,
+                item.LotExpiryDate,
+            });
+
+        if (barcodeRows.Count == 0)
+            return new List<BarcodeLotGroupDto>();
+
+        return barcodeRows
+            .GroupBy(b => (b.LotNumber, LotExpiryDate: b.LotExpiryDate?.Date))
+            .OrderBy(g => g.Key.LotExpiryDate == null ? 1 : 0)
+            .ThenBy(g => g.Key.LotExpiryDate)
+            .Select(g => new BarcodeLotGroupDto
+            {
+                WarehouseImportReceiptItemId = g.First().OriginWarehouseImportReceiptItemId,
+                LotNumber = g.Key.LotNumber,
+                LotExpiryDate = g.First().LotExpiryDate,
+                Barcodes = g.Select(b => new BarcodeLotItemDto
+                {
+                    Code = b.Code,
+                    Status = b.Status,
+                }).ToList(),
+            })
+            .ToList();
     }
 }

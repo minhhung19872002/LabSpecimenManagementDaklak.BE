@@ -55,6 +55,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IAsyncQueryableExecuter AsyncExecuter;
     private readonly IFifoStockDeductionService _fifoStockService;
     private readonly IConsumableStockCalculator _consumableStockCalculator;
+    private readonly InventoryBarcodeStatusService _barcodeStatusService;
 
     public TestBatchAppService(
         IRepository<TestBatch, Guid> testBatchRepository,
@@ -85,7 +86,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IDataFilter dataFilter,
         IAsyncQueryableExecuter asyncQueryableExecuter,
         IFifoStockDeductionService fifoStockService,
-        IConsumableStockCalculator consumableStockCalculator)
+        IConsumableStockCalculator consumableStockCalculator,
+        InventoryBarcodeStatusService barcodeStatusService)
     {
         _testBatchRepository = testBatchRepository;
         _testBatchItemRepository = testBatchItemRepository;
@@ -116,6 +118,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         AsyncExecuter = asyncQueryableExecuter;
         _fifoStockService = fifoStockService;
         _consumableStockCalculator = consumableStockCalculator;
+        _barcodeStatusService = barcodeStatusService;
     }
 
     public async Task<PagedResultDto<TestBatchListDto>> GetListAsync(GetTestBatchListInput input)
@@ -977,6 +980,13 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 consumption.IsDeducted = true;
                 await _testBatchConsumptionRepository.UpdateAsync(consumption, autoSave: false);
             }
+
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            var barcodeTargets = newConsumptions
+                .Where(c => c.ProductId.HasValue && c.WarehouseId.HasValue)
+                .Select(c => (c.ProductId!.Value, c.WarehouseId!.Value));
+            await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
 
             // Mark confirmed on first round (informational only, not used as a guard)
             if (!batch.ConsumptionConfirmed)

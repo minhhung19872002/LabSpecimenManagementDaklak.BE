@@ -11,6 +11,7 @@ public class InventoryBarcode : CreationAuditedEntity<Guid>
     public Guid OriginWarehouseImportReceiptItemId { get; set; }
     public Guid CurrentWarehouseId { get; set; }
     public Guid? LastMaterialReceiptId { get; set; }
+    public InventoryBarcodeStatus Status { get; set; } = InventoryBarcodeStatus.NotUsed;
 
     protected InventoryBarcode()
     {

@@ -191,6 +191,13 @@ public partial class TestingAppService
                 c.IsDeducted = true;
                 await _indicatorConsumptionRepository.UpdateAsync(c, autoSave: false);
             }
+
+            await CurrentUnitOfWork.SaveChangesAsync();
+
+            var barcodeTargets = newConsumptions
+                .Where(c => c.ProductId.HasValue && c.WarehouseId.HasValue)
+                .Select(c => (c.ProductId!.Value, c.WarehouseId!.Value));
+            await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
         }
 
         // Update task status
@@ -417,6 +424,13 @@ public partial class TestingAppService
             await CurrentUnitOfWork.SaveChangesAsync();
 
             await DeductStockFromConsumptionLineInputsAsync(input.ConsumptionLines, laboratoryTaskId);
+
+            var barcodeTargets = input.ConsumptionLines
+                .Where(l => l.ProductId.HasValue)
+                .Select(l => (l.ProductId!.Value, warehouseMap.GetValueOrDefault(l.ProductId!.Value)))
+                .Where(t => t.Item2.HasValue)
+                .Select(t => (t.Item1, t.Item2!.Value));
+            await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
         }
 
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);

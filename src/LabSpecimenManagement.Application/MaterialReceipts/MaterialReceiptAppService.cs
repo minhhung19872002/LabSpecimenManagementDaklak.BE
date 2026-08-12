@@ -45,6 +45,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
     private readonly IRepository<StockAdjustment, Guid> _stockAdjustmentRepository;
     private readonly IRepository<StockAdjustmentItem, Guid> _stockAdjustmentItemRepository;
     private readonly IAsyncQueryableExecuter _asyncExecuter;
+    private readonly InventoryBarcodeStatusService _barcodeStatusService;
 
     public MaterialReceiptAppService(
         IRepository<MaterialReceipt, Guid> receiptRepository,
@@ -65,7 +66,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         IGuidGenerator guidGenerator,
         IAsyncQueryableExecuter asyncExecuter,
         IRepository<StockAdjustment, Guid> stockAdjustmentRepository,
-        IRepository<StockAdjustmentItem, Guid> stockAdjustmentItemRepository)
+        IRepository<StockAdjustmentItem, Guid> stockAdjustmentItemRepository,
+        InventoryBarcodeStatusService barcodeStatusService)
     {
         _receiptRepository = receiptRepository;
         _receiptItemRepository = receiptItemRepository;
@@ -86,6 +88,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         _asyncExecuter = asyncExecuter;
         _stockAdjustmentRepository = stockAdjustmentRepository;
         _stockAdjustmentItemRepository = stockAdjustmentItemRepository;
+        _barcodeStatusService = barcodeStatusService;
     }
 
     public async Task<PagedResultDto<MaterialReceiptListDto>> GetListAsync(GetMaterialReceiptListInput input)
@@ -463,6 +466,14 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         receipt.SyntheticWarehouseReceiptId = syntheticReceipt.Id;
         receipt.Status = MaterialReceiptStatus.Confirmed;
         await _receiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        var barcodeTargets = items
+            .SelectMany(item => new[]
+            {
+                (item.ProductId, centralWarehouse.Id),
+                (item.ProductId, item.ReceivingWarehouseId),
+            });
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
 
         return await GetAsync(receipt.Id);
     }
