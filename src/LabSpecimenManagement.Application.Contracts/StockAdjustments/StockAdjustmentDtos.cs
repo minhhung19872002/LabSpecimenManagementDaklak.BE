@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.Products;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.StockAdjustments;
@@ -48,6 +49,8 @@ public class StockAdjustmentItemDto
     public int? VolumePerUnit { get; set; }
     public string? PackagingUnitName { get; set; }
     public string? VolumeUnitName { get; set; }
+    public ProductType? ProductType { get; set; }
+    public string? BaseUnitName { get; set; }
 }
 
 public class CreateUpdateStockAdjustmentDto

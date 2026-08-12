@@ -505,7 +505,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var productIds = items.Select(i => i.ProductId).Distinct().ToList();
         var products = (await _productRepository.GetQueryableAsync())
             .Where(p => productIds.Contains(p.Id))
-            .Select(p => new { p.Id, p.VolumePerUnit, p.PackagingUnitId, p.VolumeUnitId })
+            .Select(p => new { p.Id, p.VolumePerUnit, p.PackagingUnitId, p.VolumeUnitId, p.ProductType, p.BaseUnitId })
             .ToList();
 
         var skus = (await _skuRepository.GetQueryableAsync())
@@ -515,7 +515,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var skuLookup = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.First());
 
         var unitIds = products
-            .SelectMany(p => new[] { p.PackagingUnitId, p.VolumeUnitId })
+            .SelectMany(p => new Guid?[] { p.PackagingUnitId, p.VolumeUnitId, p.BaseUnitId })
             .Concat(skus.SelectMany(s => new[] { s.PackagingUnitId, s.VolumeUnitId }))
             .Where(id => id.HasValue)
             .Select(id => id!.Value)
@@ -577,6 +577,10 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                         itemDto.PackagingUnitName = packagingName;
                     if (volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var volumeName))
                         itemDto.VolumeUnitName = volumeName;
+
+                    itemDto.ProductType = prod.ProductType;
+                    if (prod.BaseUnitId.HasValue && unitNames.TryGetValue(prod.BaseUnitId.Value, out var baseUnitName))
+                        itemDto.BaseUnitName = baseUnitName;
                 }
                 return itemDto;
             }).ToList(),
