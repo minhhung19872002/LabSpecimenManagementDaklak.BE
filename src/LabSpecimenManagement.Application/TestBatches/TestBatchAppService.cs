@@ -54,6 +54,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IDataFilter _dataFilter;
     private readonly IAsyncQueryableExecuter AsyncExecuter;
     private readonly IFifoStockDeductionService _fifoStockService;
+    private readonly IConsumableStockCalculator _consumableStockCalculator;
 
     public TestBatchAppService(
         IRepository<TestBatch, Guid> testBatchRepository,
@@ -83,7 +84,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IAsyncQueryableExecuter asyncQueryableExecuter,
-        IFifoStockDeductionService fifoStockService)
+        IFifoStockDeductionService fifoStockService,
+        IConsumableStockCalculator consumableStockCalculator)
     {
         _testBatchRepository = testBatchRepository;
         _testBatchItemRepository = testBatchItemRepository;
@@ -113,6 +115,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _dataFilter = dataFilter;
         AsyncExecuter = asyncQueryableExecuter;
         _fifoStockService = fifoStockService;
+        _consumableStockCalculator = consumableStockCalculator;
     }
 
     public async Task<PagedResultDto<TestBatchListDto>> GetListAsync(GetTestBatchListInput input)
@@ -1330,6 +1333,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var productIdsForWh = consumptionItems
             .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
         var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+        var consumableProductWhMap = productIdsForWh
+            .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+        var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
         foreach (var submittedItem in submittedItems)
         {
@@ -1346,7 +1352,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 consumption.IsDeducted = true;
                 consumption.SubmitDate = Clock.Now;
                 if (item.ProductId.HasValue)
+                {
                     consumption.WarehouseId = warehouseMap.GetValueOrDefault(item.ProductId.Value);
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(item.ProductId.Value);
+                }
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }

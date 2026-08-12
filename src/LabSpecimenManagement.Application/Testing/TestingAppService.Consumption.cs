@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Equipments;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
@@ -24,6 +25,9 @@ public partial class TestingAppService
 
     private IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<IndicatorConsumption, Guid>>();
+
+    private IConsumableStockCalculator _consumableStockCalculator =>
+        LazyServiceProvider.LazyGetRequiredService<IConsumableStockCalculator>();
 
     private IRepository<Unit, Guid> _unitRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<Unit, Guid>>();
@@ -153,6 +157,9 @@ public partial class TestingAppService
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
             var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var consumableProductWhMap = productIdsForWh
+                .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+            var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var newConsumptions = new List<IndicatorConsumption>();
             foreach (var line in input.ConsumptionLines)
@@ -167,7 +174,10 @@ public partial class TestingAppService
                 consumption.ActualQuantity = line.ActualQuantity;
                 consumption.SubmitDate = Clock.Now;
                 if (line.ProductId.HasValue)
+                {
                     consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                }
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 newConsumptions.Add(consumption);
             }
@@ -376,6 +386,9 @@ public partial class TestingAppService
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
             var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var consumableProductWhMap = productIdsForWh
+                .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+            var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var indicatorCount = submittedIndicators.Count;
             foreach (var indicator in submittedIndicators)
@@ -393,7 +406,10 @@ public partial class TestingAppService
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
                     if (line.ProductId.HasValue)
+                    {
                         consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
+                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    }
                     await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 }
             }

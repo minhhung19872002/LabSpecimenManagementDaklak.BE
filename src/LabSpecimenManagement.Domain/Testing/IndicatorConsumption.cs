@@ -14,6 +14,7 @@ public class IndicatorConsumption : Entity<Guid>
     public bool IsDeducted { get; set; }
     public Guid? WarehouseId { get; set; }
     public DateTime? SubmitDate { get; set; }
+    public decimal? ConsumableStockBefore { get; set; }
 
     protected IndicatorConsumption() { }
 

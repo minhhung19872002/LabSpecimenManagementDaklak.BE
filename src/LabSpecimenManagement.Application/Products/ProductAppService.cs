@@ -2000,7 +2000,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             .GroupBy(c => (c.LaboratoryTaskIndicatorId, c.SubmitDate))
             .ToDictionary(
                 g => g.Key,
-                g => (Quantity: g.Sum(c => c.ActualQuantity), UnitId: g.First().UnitId));
+                g => (Quantity: g.Sum(c => c.ActualQuantity), UnitId: g.First().UnitId,
+                      StoredConsumableStock: g.FirstOrDefault(c => c.ConsumableStockBefore.HasValue)?.ConsumableStockBefore));
 
         var unitIdsNeeded = icByLtiSubmit.Values
             .Where(v => v.UnitId.HasValue)
@@ -2038,6 +2039,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 r.ConsumptionUnitName = ic.UnitId.HasValue
                     ? unitNames.GetValueOrDefault(ic.UnitId.Value)
                     : null;
+                r.StoredConsumableStockBefore = ic.StoredConsumableStock;
             }
             else if (r.SubmitDate == null)
             {
@@ -2051,6 +2053,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                     r.ConsumptionUnitName = unitId.HasValue
                         ? unitNames.GetValueOrDefault(unitId.Value)
                         : null;
+                    r.StoredConsumableStockBefore = ltiConsumptions
+                        .FirstOrDefault(c => c.ConsumableStockBefore.HasValue)?.ConsumableStockBefore;
                 }
             }
         }
@@ -2094,9 +2098,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 currentConsumable += remaining * vpu.Value;
         }
 
-        // Running balance: "Tồn kho tạm tính" = currentConsumable (Tồn kho hiện tại) minus cumulative consumption.
-        // merged is sorted DESC (newest first). Process oldest→newest: oldest = currentConsumable, subtract forward.
-        if (currentConsumable > 0 && consumableUnitName != null)
+        // Running balance: anchor = currentConsumable + totalConsumed (stock BEFORE any consumption in list).
+        // Walk oldest→newest subtracting each consumption. Stored values override the running anchor.
+        if (consumableUnitName != null)
         {
             var conversions = await _conversionRepository
                 .GetListAsync(c => c.ProductId == id);
@@ -2117,9 +2121,21 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }
             }
 
-            decimal running = currentConsumable;
+            decimal totalConsumedInList = 0;
+            for (int j = 0; j < consumeVolumes.Length; j++)
+                totalConsumedInList += consumeVolumes[j];
+
+            decimal running = currentConsumable + totalConsumedInList;
+            decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
+                var stored = merged[i].StoredConsumableStockBefore;
+                if (stored.HasValue && stored.Value != lastAnchor)
+                {
+                    running = stored.Value;
+                    lastAnchor = stored.Value;
+                }
+
                 merged[i].ConsumableStockBefore = running;
                 merged[i].ConsumableStockUnitName = consumableUnitName;
                 running -= consumeVolumes[i];
@@ -2207,6 +2223,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         public string? Result { get; set; }
         public DateTime? ResultSubmissionDate { get; set; }
         public decimal? ConsumableStockBefore { get; set; }
+        public decimal? StoredConsumableStockBefore { get; set; }
         public string? ConsumableStockUnitName { get; set; }
         public decimal? ConsumptionAmount { get; set; }
         public string? ConsumptionUnitName { get; set; }

@@ -34,6 +34,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
     private readonly IFifoStockDeductionService _fifoStockService;
+    private readonly IConsumableStockCalculator _consumableStockCalculator;
 
     public StockAdjustmentAppService(
         IRepository<StockAdjustment, Guid> repository,
@@ -49,7 +50,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider,
-        IFifoStockDeductionService fifoStockService)
+        IFifoStockDeductionService fifoStockService,
+        IConsumableStockCalculator consumableStockCalculator)
     {
         _repository = repository;
         _itemRepository = itemRepository;
@@ -65,6 +67,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
         _fifoStockService = fifoStockService;
+        _consumableStockCalculator = consumableStockCalculator;
     }
 
     public async Task<PagedResultDto<StockAdjustmentListDto>> GetListAsync(GetStockAdjustmentListInput input)
@@ -212,6 +215,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var items = (await _itemRepository.GetQueryableAsync())
             .Where(x => x.StockAdjustmentId == id)
             .ToList();
+
+        var affectedProductIds = items.Select(x => x.ProductId).Distinct();
+        await _consumableStockCalculator.FreezeAsync(affectedProductIds);
 
         var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
         var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();

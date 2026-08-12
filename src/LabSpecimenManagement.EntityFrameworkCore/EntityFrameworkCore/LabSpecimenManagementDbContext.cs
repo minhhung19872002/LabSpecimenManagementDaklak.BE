@@ -1883,6 +1883,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
             b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ConsumableStockBefore).HasPrecision(18, 4);
 
             b.HasIndex(x => x.LaboratoryTaskIndicatorId);
             b.HasIndex(x => x.ProductId);

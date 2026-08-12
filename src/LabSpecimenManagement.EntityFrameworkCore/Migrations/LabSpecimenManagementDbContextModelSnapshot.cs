@@ -6830,6 +6830,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<decimal?>("ConsumableStockBefore")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)");
+
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
 
