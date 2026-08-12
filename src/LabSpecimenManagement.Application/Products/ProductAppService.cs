@@ -1889,7 +1889,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             from batch in batchQuery
             where batchIds.Contains(batch.Id)
                && (!input.DateFrom.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate >= input.DateFrom))
-               && (!input.DateTo.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate <= input.DateTo.Value.AddDays(1)))
+               && (!input.DateTo.HasValue || (batch.ConsumptionConfirmedDate.HasValue && batch.ConsumptionConfirmedDate <= input.DateTo))
             join item in itemQuery on batch.Id equals item.TestBatchId
             where item.IsSubmitted
             join lti in ltiQuery on item.LaboratoryTaskIndicatorId equals lti.Id
@@ -1931,7 +1931,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 .ToList();
         if (input.DateTo.HasValue)
             icSubmissions = icSubmissions
-                .Where(s => s.SubmitDate.HasValue && s.SubmitDate <= input.DateTo.Value.AddDays(1))
+                .Where(s => s.SubmitDate.HasValue && s.SubmitDate <= input.DateTo.Value)
                 .ToList();
 
         var ltiIdsFromIC = icSubmissions.Select(s => s.LaboratoryTaskIndicatorId).Distinct().ToList();
