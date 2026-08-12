@@ -311,10 +311,9 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 for (var sequence = 1; sequence <= barcodeCount; sequence++)
                 {
                     var code = BuildInventoryBarcodeCode(
-                        item.LotNumber,
                         product.IdentificationCode,
                         receipt.ActualImportDate,
-                        receipt.Code,
+                        item.LotNumber,
                         sequence);
                     var uniqueCode = code;
                     var suffix = 1;
@@ -950,22 +949,20 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     }
 
     private static string BuildInventoryBarcodeCode(
-        string? lotNumber,
         string? identificationCode,
         DateTime importDate,
-        string receiptCode,
+        string? lotNumber,
         int sequence)
     {
         var parts = new[]
         {
-            lotNumber,
             identificationCode,
             importDate.ToString("ddMMyyyy"),
-            receiptCode,
-            sequence.ToString("D3")
+            lotNumber,
+            sequence.ToString("D4")
         }.Where(x => !string.IsNullOrWhiteSpace(x));
 
-        var normalized = string.Join("-", parts).Normalize(NormalizationForm.FormD);
+        var normalized = string.Concat(parts).Normalize(NormalizationForm.FormD);
         return new string(normalized
             .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
             .Where(c => c >= 32 && c <= 126)
