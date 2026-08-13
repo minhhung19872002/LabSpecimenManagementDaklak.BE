@@ -403,17 +403,18 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return await MapToDtosAsync(items);
     }
 
-    public async Task<List<IndicatorDto>> GetActiveIndicatorsAsync()
+    public async Task<List<IndicatorDto>> GetActiveIndicatorsAsync(bool includeInactive = false)
     {
         var query = await _indicatorRepository.GetQueryableAsync();
-        // Only get parent indicators (no parentIndicatorId)
-        var parentIndicators = query
-            .Where(x => x.ParentIndicatorId == null)
-            .WhereActive()
+        var parentQuery = query.Where(x => x.ParentIndicatorId == null);
+        if (!includeInactive)
+        {
+            parentQuery = parentQuery.WhereActive();
+        }
+        var parentIndicators = parentQuery
             .OrderByThenBy(x => x.SortOrder, x => x.Name)
             .ToList();
 
-        // Map with sub-indicators included
         return await MapToDtosWithSubIndicatorsAsync(parentIndicators);
     }
 

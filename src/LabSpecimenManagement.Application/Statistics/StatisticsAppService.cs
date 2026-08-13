@@ -372,7 +372,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
         var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
 
-        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var labs = await _laboratoryRepository.GetListAsync();
         var departments = await _departmentRepository.GetListAsync();
         var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
 
@@ -425,7 +425,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
         var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
 
-        var labs = await _laboratoryRepository.GetListAsync(l => l.IsActive);
+        var labs = await _laboratoryRepository.GetListAsync();
         var departments = await _departmentRepository.GetListAsync();
         var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
 

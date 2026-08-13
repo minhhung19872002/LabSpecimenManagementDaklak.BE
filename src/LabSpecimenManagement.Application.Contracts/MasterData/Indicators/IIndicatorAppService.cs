@@ -60,7 +60,7 @@ public interface IIndicatorAppService : IApplicationService
     /// <summary>
     /// Lấy danh sách chỉ tiêu đang hoạt động
     /// </summary>
-    Task<List<IndicatorDto>> GetActiveIndicatorsAsync();
+    Task<List<IndicatorDto>> GetActiveIndicatorsAsync(bool includeInactive = false);
 
     /// <summary>
     /// Import chỉ tiêu từ Excel
