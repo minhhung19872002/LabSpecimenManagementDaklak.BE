@@ -6188,7 +6188,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var noteIds = ParseNoteIds(labTaskIndicator.MasterDataNoteIds);
                 if (noteIds.Any())
                 {
-                    var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id) && x.IsActive);
+                    var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id));
                     foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
                         labNote.Add(note.Content?.Trim() ?? "");
@@ -6263,7 +6263,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             // Fetch and add master data notes (distinct)
             if (allMasterNoteIds.Any())
             {
-                var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id) && x.IsActive);
+                var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id));
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
                     .Select(x => x.Content?.Trim() ?? "")

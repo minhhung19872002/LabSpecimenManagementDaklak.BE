@@ -458,9 +458,10 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .ToDictionary(g => g.Key, g => g.First());
 
         // StandardIndicator — dùng cho Giới hạn phát hiện (không dùng cho Nền mẫu)
+        // Không filter IsActive vì báo cáo cần hiển thị giới hạn của phiếu cũ kể cả khi đã ngưng
         var siData = indicatorIds.Any()
             ? await AsyncExecuter.ToListAsync(
-                siQuery.Where(si => indicatorIds.Contains(si.IndicatorId) && si.IsActive))
+                siQuery.Where(si => indicatorIds.Contains(si.IndicatorId)))
             : new List<StandardIndicator>();
 
         var siByStdAndInd = siData

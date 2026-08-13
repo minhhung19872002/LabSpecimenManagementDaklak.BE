@@ -212,8 +212,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         // ToLookup giữ nguyên thứ tự nguồn nên kết quả sort không đổi
         var indicatorById = indicators.ToDictionary(i => i.Id);
         var tmIndicatorsByMethod = testMethodIndicators.ToLookup(tmi => tmi.TestMethodId);
-        var activeSubIndicatorsByParent = indicators
-            .Where(i => i.ParentIndicatorId.HasValue && i.IsActive)
+        var subIndicatorsByParent = indicators
+            .Where(i => i.ParentIndicatorId.HasValue)
             .ToLookup(i => i.ParentIndicatorId!.Value);
 
         var result = testMethods
@@ -259,7 +259,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                     });
 
                     // Add sub-indicators of this parent (from Indicator table, not stored in TestMethodIndicator)
-                    var subIndicators = activeSubIndicatorsByParent[tmi.IndicatorId]
+                    var subIndicators = subIndicatorsByParent[tmi.IndicatorId]
                         .OrderBy(i => i.SortOrder)
                         .ToList();
 
@@ -349,7 +349,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
             // Add sub-indicators of this parent
             var subIndicators = allIndicators
-                .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                .Where(i => i.ParentIndicatorId == tmi.IndicatorId)
                 .OrderBy(i => i.SortOrder)
                 .ToList();
 
@@ -431,7 +431,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
             // Add sub-indicators of this parent
             var subIndicators = allIndicators
-                .Where(i => i.ParentIndicatorId == tmi.IndicatorId && i.IsActive)
+                .Where(i => i.ParentIndicatorId == tmi.IndicatorId)
                 .OrderBy(i => i.SortOrder)
                 .ToList();
 
