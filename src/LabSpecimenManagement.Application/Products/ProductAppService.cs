@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using ClosedXML.Excel;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.LaboratoryTasks;
@@ -14,9 +16,11 @@ using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.TestRequests;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.Extensions.Hosting;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Content;
 using Volo.Abp.Data;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Guids;
@@ -56,6 +60,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUnitConversionResolver _unitConversionResolver;
+    private readonly IHostEnvironment _hostEnvironment;
 
     public ProductAppService(
         IRepository<Product, Guid> productRepository,
@@ -86,7 +91,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IDataFilter dataFilter,
         IUnitConversionResolver unitConversionResolver,
         IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository)
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IHostEnvironment hostEnvironment)
     {
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
@@ -117,6 +123,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _unitConversionResolver = unitConversionResolver;
         _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
+        _hostEnvironment = hostEnvironment;
     }
 
     public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
@@ -2321,5 +2328,370 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }).ToList(),
             })
             .ToList();
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Export)]
+    public async Task<IRemoteStreamContent> ExportInventoryAsync(ProductFilterDto input)
+    {
+        if (!input.WarehouseId.HasValue)
+            throw new UserFriendlyException("Phải chọn kho để xuất file kiểm kê.");
+
+        var warehouseIds = await GetWarehouseIdSetAsync(input.WarehouseId.Value);
+
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var warehouseNameMap = warehouseQuery
+            .Where(w => w.IsActive && warehouseIds.Contains(w.Id))
+            .Select(w => new { w.Id, w.Name })
+            .ToDictionary(w => w.Id, w => w.Name);
+
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var importItemsRaw = (from item in importItemQuery
+                              join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                              where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                    && item.Status == WarehouseImportLineStatus.Checked
+                              where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                              select new
+                              {
+                                  item.ProductId,
+                                  item.ProductName,
+                                  EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                                  item.StorageWarehouseName,
+                                  ReceiptWarehouseName = receipt.WarehouseName,
+                                  item.ReceivedBaseQuantity,
+                                  item.ConsumedBaseQuantity,
+                                  item.SkuId
+                              })
+                              .ToList();
+
+        var importItems = importItemsRaw.Where(x => x.EffectiveWarehouseId.HasValue).ToList();
+
+        var productIdsInScope = importItems.Select(x => x.ProductId).Distinct().ToList();
+        var productQuery = await _productRepository.GetQueryableAsync();
+        productQuery = productQuery.Where(x => productIdsInScope.Contains(x.Id));
+
+        if (input.ProductType.HasValue)
+            productQuery = productQuery.Where(x => x.ProductType == input.ProductType.Value);
+        if (!string.IsNullOrWhiteSpace(input.Search))
+        {
+            var search = input.Search.Trim().ToLower();
+            productQuery = productQuery.Where(x =>
+                x.Code.ToLower().Contains(search) || x.Name.ToLower().Contains(search));
+        }
+        if (input.IsDraft.HasValue)
+            productQuery = productQuery.Where(x => x.IsDraft == input.IsDraft.Value);
+
+        var filteredProducts = productQuery.ToList();
+        var filteredProductIds = filteredProducts.Select(p => p.Id).ToHashSet();
+        var productMap = filteredProducts.ToDictionary(p => p.Id);
+
+        var filteredImportItems = importItems.Where(x => filteredProductIds.Contains(x.ProductId)).ToList();
+
+        var skuIds = filteredImportItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuQueryable = await _skuRepository.GetQueryableAsync();
+        var skus = skuIds.Any() ? skuQueryable.Where(s => skuIds.Contains(s.Id)).ToList() : new List<ProductSku>();
+        var skuLookup = skus.ToDictionary(s => s.Id);
+
+        var entries = new List<WarehouseStockEntry>();
+        foreach (var item in filteredImportItems)
+        {
+            var remainingBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+            var product = productMap[item.ProductId];
+
+            int? vpu = null;
+            if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku) && sku.VolumePerUnit > 0)
+                vpu = sku.VolumePerUnit;
+            else if (product.VolumePerUnit > 0)
+                vpu = product.VolumePerUnit;
+
+            decimal volumeQty = vpu.HasValue && vpu.Value > 0 ? remainingBase * vpu.Value : 0;
+
+            var whName = warehouseNameMap.GetValueOrDefault(
+                item.EffectiveWarehouseId!.Value,
+                item.StorageWarehouseName ?? item.ReceiptWarehouseName ?? "");
+
+            entries.Add(new WarehouseStockEntry
+            {
+                ProductId = item.ProductId,
+                WarehouseId = item.EffectiveWarehouseId!.Value,
+                WarehouseName = whName,
+                BaseQty = remainingBase,
+                VolumeQty = volumeQty
+            });
+        }
+
+        var grouped = entries
+            .GroupBy(x => new { x.ProductId, x.WarehouseId })
+            .Select(g => new WarehouseStockEntry
+            {
+                ProductId = g.Key.ProductId,
+                WarehouseId = g.Key.WarehouseId,
+                WarehouseName = g.First().WarehouseName,
+                BaseQty = g.Sum(x => x.BaseQty),
+                VolumeQty = g.Sum(x => x.VolumeQty)
+            })
+            .OrderBy(x => x.WarehouseName)
+            .ThenBy(x => productMap[x.ProductId].Name)
+            .ToList();
+
+        var allProducts = grouped.Select(x => productMap[x.ProductId]).ToList();
+        var dtos = allProducts.Any() ? await MapToProductDtosAsync(allProducts) : new List<ProductDto>();
+
+        if (dtos.Any())
+        {
+            var allProductIds = allProducts.Select(p => p.Id).ToList();
+
+            var movementQuery = await _stockMovementLogRepository.GetQueryableAsync();
+            var whUsageByProductWh = movementQuery
+                .Where(l => allProductIds.Contains(l.ProductId)
+                    && l.MovementType == StockMovementType.MaterialConsumption
+                    && l.WarehouseId.HasValue && warehouseIds.Contains(l.WarehouseId.Value))
+                .GroupBy(l => new { l.ProductId, WarehouseId = l.WarehouseId!.Value })
+                .Select(g => new { g.Key.ProductId, g.Key.WarehouseId, Total = g.Sum(l => Math.Abs(l.ChangeQuantity)) })
+                .ToList()
+                .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.Total);
+
+            var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+            var lastInventoryByProductWh = pwiQuery
+                .Where(pwi => allProductIds.Contains(pwi.ProductId)
+                              && warehouseIds.Contains(pwi.WarehouseId))
+                .ToList()
+                .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.LastInventoryDate);
+
+            var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+            var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
+            var whTheoreticalFromIC = (from ic in icQuery
+                                       join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                       where ic.ProductId.HasValue
+                                             && allProductIds.Contains(ic.ProductId!.Value)
+                                             && ic.IsDeducted
+                                             && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
+                                       select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
+                                      .ToList()
+                                      .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
+                                                   || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
+                                      .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
+                                      .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+            var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+            var tbQuery = await _testBatchRepository.GetQueryableAsync();
+            var whTheoreticalFromTBC = (from tbc in tbcQuery
+                                        join tb in tbQuery on tbc.TestBatchId equals tb.Id
+                                        where tbc.ProductId.HasValue
+                                              && allProductIds.Contains(tbc.ProductId!.Value)
+                                              && tbc.IsDeducted
+                                              && tbc.WarehouseId.HasValue && warehouseIds.Contains(tbc.WarehouseId.Value)
+                                        select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
+                                       .ToList()
+                                       .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
+                                                    || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
+                                       .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
+                                       .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
+
+            var whTheoreticalByProductWh = new Dictionary<(Guid, Guid), decimal>();
+            foreach (var kvp in whTheoreticalFromIC)
+                whTheoreticalByProductWh[kvp.Key] = kvp.Value;
+            foreach (var kvp in whTheoreticalFromTBC)
+                whTheoreticalByProductWh[kvp.Key] = whTheoreticalByProductWh.GetValueOrDefault(kvp.Key) + kvp.Value;
+
+            for (int i = 0; i < dtos.Count; i++)
+            {
+                var entry = grouped[i];
+                var product = allProducts[i];
+                dtos[i].AvailableQuantity = entry.BaseQty;
+                dtos[i].StorageAvailableQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
+                    ? entry.BaseQty * product.PackagingQuantity.Value
+                    : entry.BaseQty;
+                dtos[i].ConsumableImportedQuantity = entry.VolumeQty;
+
+                var key = (product.Id, entry.WarehouseId);
+                var whConsumed = whUsageByProductWh.GetValueOrDefault(key);
+                dtos[i].TotalConsumedQuantity = whConsumed;
+                dtos[i].StorageTotalConsumedQuantity = product.BaseUnitId.HasValue && product.PackagingQuantity > 0
+                    ? whConsumed * product.PackagingQuantity.Value
+                    : whConsumed;
+
+                dtos[i].TheoreticalConsumption = whTheoreticalByProductWh.GetValueOrDefault(key);
+                dtos[i].ExpectedStockConsumable = dtos[i].ConsumableImportedQuantity - dtos[i].TheoreticalConsumption;
+                dtos[i].WarehouseName = entry.WarehouseName;
+                dtos[i].StockWarehouseId = entry.WarehouseId;
+            }
+        }
+
+        var templatePath = Path.Combine(
+            _hostEnvironment.ContentRootPath,
+            "wwwroot", "templates", "Meta Data Template", "Template Kho.xlsx");
+
+        if (!File.Exists(templatePath))
+            throw new UserFriendlyException("Không tìm thấy file template kiểm kê kho.");
+
+        using var workbook = new XLWorkbook(templatePath);
+        var ws = workbook.Worksheet(1);
+
+        var lastRow = ws.LastRowUsed()?.RowNumber() ?? 3;
+        for (var r = lastRow; r >= 4; r--)
+            ws.Row(r).Delete();
+
+        var warehouseGroups = grouped
+            .Select((entry, i) => (entry, dto: dtos[i]))
+            .GroupBy(x => x.entry.WarehouseId)
+            .OrderBy(g => warehouseNameMap.GetValueOrDefault(g.Key, ""))
+            .ToList();
+
+        var currentRow = 4;
+        var warehouseIndex = 0;
+
+        foreach (var warehouseGroup in warehouseGroups)
+        {
+            warehouseIndex++;
+            var warehouseName = warehouseNameMap.GetValueOrDefault(warehouseGroup.Key, "");
+
+            WriteInventoryCategoryRow(ws, currentRow, warehouseIndex, warehouseName);
+            currentRow++;
+
+            var stt = 0;
+            foreach (var (_, dto) in warehouseGroup)
+            {
+                stt++;
+                WriteInventoryDataRow(ws, currentRow, stt, dto);
+                currentRow++;
+            }
+        }
+
+        var ms = new MemoryStream();
+        workbook.SaveAs(ms);
+        ms.Position = 0;
+
+        var fileName = $"KiemKeKho_{DateTime.Now:ddMMyyyy}.xlsx";
+        return new RemoteStreamContent(
+            ms, fileName,
+            "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    }
+
+    private static void WriteInventoryCategoryRow(IXLWorksheet ws, int row, int index, string warehouseName)
+    {
+        var indexCell = ws.Cell(row, 1);
+        indexCell.Value = ToRoman(index);
+        ApplyInventoryCellStyle(indexCell.Style, true);
+        indexCell.Style.Font.Bold = true;
+
+        var nameRange = ws.Range(row, 2, row, 27);
+        nameRange.Merge();
+        nameRange.FirstCell().Value = $"Danh mục kho {warehouseName}";
+        foreach (var cell in nameRange.Cells())
+            ApplyInventoryCellStyle(cell.Style, false);
+        nameRange.FirstCell().Style.Font.Bold = true;
+
+        ApplyInventoryCellStyle(ws.Cell(row, 28).Style, true);
+    }
+
+    private static void WriteInventoryDataRow(IXLWorksheet ws, int row, int stt, ProductDto dto)
+    {
+        void WriteCell(int col, string? value, bool center = false)
+        {
+            var cell = ws.Cell(row, col);
+            cell.Value = value ?? "";
+            ApplyInventoryCellStyle(cell.Style, center);
+        }
+
+        void WriteNumericCell(int col, decimal value, bool center = false)
+        {
+            var cell = ws.Cell(row, col);
+            if (value != 0)
+                cell.Value = value;
+            ApplyInventoryCellStyle(cell.Style, center);
+        }
+
+        void WriteDateCell(int col, DateTime? date)
+        {
+            var cell = ws.Cell(row, col);
+            cell.Value = date?.ToString("dd/MM/yyyy") ?? "";
+            ApplyInventoryCellStyle(cell.Style, true);
+        }
+
+        var storageUnit = dto.PackagingUnitName ?? dto.BaseUnitName ?? "";
+        var consumableUnit = dto.VolumeUnitName ?? dto.BaseUnitName ?? "";
+        var consumableQty = dto.ConsumableImportedQuantity > 0
+            ? dto.ConsumableImportedQuantity
+            : dto.AvailableQuantity;
+
+        WriteCell(1, stt.ToString(), true);
+        WriteCell(2, dto.Name);
+        WriteCell(3, dto.ChemicalFormula);
+        WriteCell(4, dto.AnalysisGrade ?? dto.Concentration);
+        WriteCell(5, "");
+        WriteCell(6, "");
+        WriteCell(7, dto.IdentificationCode);
+        WriteDateCell(8, dto.EarliestReceivedDate);
+
+        WriteNumericCell(9, dto.StorageAvailableQuantity);
+        WriteCell(10, storageUnit, true);
+        WriteNumericCell(11, consumableQty);
+        WriteCell(12, consumableUnit, true);
+
+        WriteNumericCell(13, dto.StorageTotalConsumedQuantity);
+        WriteCell(14, storageUnit, true);
+        WriteNumericCell(15, dto.TheoreticalConsumption);
+        WriteCell(16, consumableUnit, true);
+
+        WriteDateCell(17, dto.EarliestLotExpiryDate);
+        WriteCell(18, FormatStorageConditions(dto.StorageConditions));
+        WriteDateCell(19, dto.EarliestReceivedDate);
+        WriteCell(20, "");
+
+        WriteNumericCell(21, dto.StorageAvailableQuantity - dto.StorageTotalConsumedQuantity);
+        WriteCell(22, storageUnit, true);
+        WriteNumericCell(23, dto.ExpectedStockConsumable);
+        WriteCell(24, consumableUnit, true);
+
+        WriteCell(25, dto.EarliestLotNumber);
+        WriteCell(26, dto.Manufacturer);
+        WriteCell(27, dto.EarliestLotNotes);
+        WriteCell(28, "");
+    }
+
+    private static void ApplyInventoryCellStyle(IXLStyle style, bool center)
+    {
+        style.Font.FontName = "Times New Roman";
+        style.Font.FontSize = 11;
+        style.Alignment.Vertical = XLAlignmentVerticalValues.Center;
+        style.Alignment.WrapText = true;
+        style.Alignment.Horizontal = center
+            ? XLAlignmentHorizontalValues.Center
+            : XLAlignmentHorizontalValues.Left;
+        style.Border.OutsideBorder = XLBorderStyleValues.Thin;
+    }
+
+    private static string FormatStorageConditions(string? storageConditions)
+    {
+        if (string.IsNullOrWhiteSpace(storageConditions))
+            return "";
+        try
+        {
+            var items = JsonSerializer.Deserialize<string[]>(storageConditions);
+            return items != null ? string.Join(", ", items) : storageConditions;
+        }
+        catch
+        {
+            return storageConditions;
+        }
+    }
+
+    private static string ToRoman(int number)
+    {
+        var romanNumerals = new[]
+        {
+            (1000, "M"), (900, "CM"), (500, "D"), (400, "CD"),
+            (100, "C"), (90, "XC"), (50, "L"), (40, "XL"),
+            (10, "X"), (9, "IX"), (5, "V"), (4, "IV"), (1, "I")
+        };
+        var result = "";
+        foreach (var (val, sym) in romanNumerals)
+        {
+            while (number >= val) { result += sym; number -= val; }
+        }
+        return result;
     }
 }

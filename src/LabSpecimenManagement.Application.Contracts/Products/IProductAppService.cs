@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
+using Volo.Abp.Content;
 
 namespace LabSpecimenManagement.Products;
 
@@ -27,4 +28,5 @@ public interface IProductAppService : IApplicationService
         Guid id, GetProductMaterialReceiptHistoryInput input);
     Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, GetProductUsageLogInput input);
     Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, Guid? warehouseId);
+    Task<IRemoteStreamContent> ExportInventoryAsync(ProductFilterDto input);
 }

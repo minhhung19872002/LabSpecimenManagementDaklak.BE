@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
+using Volo.Abp.Content;
 
 namespace LabSpecimenManagement.Controllers;
 
@@ -117,5 +118,13 @@ public class ProductController : LabSpecimenManagementController
     public virtual Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, [FromQuery] Guid? warehouseId)
     {
         return _productAppService.GetBarcodeLotHistoryAsync(id, warehouseId);
+    }
+
+    [HttpGet("export-inventory")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Export)]
+    public virtual async Task<IActionResult> ExportInventoryAsync([FromQuery] ProductFilterDto input)
+    {
+        var result = await _productAppService.ExportInventoryAsync(input);
+        return File(result.GetStream(), result.ContentType, result.FileName);
     }
 }

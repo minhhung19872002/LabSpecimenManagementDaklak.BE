@@ -100,6 +100,7 @@ public class LabSpecimenManagementPermissionDefinitionProvider : PermissionDefin
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Create, L("Permission:Products.Create"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Edit, L("Permission:Products.Edit"));
         productPermission.AddChild(LabSpecimenManagementPermissions.Products.Delete, L("Permission:Products.Delete"));
+        productPermission.AddChild(LabSpecimenManagementPermissions.Products.Export, L("Permission:Products.Export"));
 
         // Goods Receipts (Phiếu nhập hàng)
         var goodsReceiptPermission = myGroup.AddPermission(LabSpecimenManagementPermissions.GoodsReceipts.Default, L("Permission:GoodsReceipts"));
