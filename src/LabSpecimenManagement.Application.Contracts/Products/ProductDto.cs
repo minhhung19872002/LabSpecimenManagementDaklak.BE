@@ -337,6 +337,7 @@ public class ProductImportHistoryDto
     public decimal OrderedQuantity { get; set; }
     public decimal ActualReceivedQuantity { get; set; }
     public string? UnitName { get; set; }
+    public string? PurchaseUnitName { get; set; }
     public string? ManufacturerName { get; set; }
     public string? LotNumber { get; set; }
     public DateTime? LotExpiryDate { get; set; }

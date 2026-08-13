@@ -1153,14 +1153,17 @@ public class ProductAppService : ApplicationService, IProductAppService
     {
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+        var goodsReceiptItemQuery = await _goodsReceiptItemRepository.GetQueryableAsync();
 
         var query = from item in importItemQuery
                     join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                    join poItem in goodsReceiptItemQuery on item.GoodsReceiptItemId equals poItem.Id into poItemJoin
+                    from poItem in poItemJoin.DefaultIfEmpty()
                     where item.ProductId == id
                           && receipt.Status == WarehouseImportReceiptStatus.Completed
                           && receipt.ReceiptType != WarehouseImportReceiptType.MaterialReceipt
                           && !receipt.IsDeleted
-                    select new { item, receipt };
+                    select new { item, receipt, poItem };
 
         if (input.FromDate.HasValue)
             query = query.Where(x => x.receipt.ActualImportDate >= input.FromDate.Value.Date);
@@ -1191,6 +1194,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 OrderedQuantity = x.item.OrderedQuantity,
                 ActualReceivedQuantity = x.item.ActualReceivedQuantity,
                 UnitName = x.item.UnitName,
+                PurchaseUnitName = x.poItem != null ? x.poItem.UnitName : null,
                 ManufacturerName = x.item.ManufacturerName,
                 LotNumber = x.item.LotNumber,
                 LotExpiryDate = x.item.LotExpiryDate,
