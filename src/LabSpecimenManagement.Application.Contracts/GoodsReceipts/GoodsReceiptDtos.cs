@@ -246,3 +246,8 @@ public class CreateGoodsReceiptPaymentDto
 
     public List<InvoiceFileInfoDto> InvoiceFiles { get; set; } = new();
 }
+
+public class GeneratePurchaseRequestOutput
+{
+    public string FileName { get; set; } = string.Empty;
+}

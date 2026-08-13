@@ -43,6 +43,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
+    private readonly IPurchaseRequestDocxGenerator _purchaseRequestDocxGenerator;
 
     public GoodsReceiptAppService(
         IRepository<GoodsReceipt, Guid> goodsReceiptRepository,
@@ -62,7 +63,8 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         INotificationCreator notificationCreator,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
-        IUserNameProvider userNameProvider)
+        IUserNameProvider userNameProvider,
+        IPurchaseRequestDocxGenerator purchaseRequestDocxGenerator)
     {
         _goodsReceiptRepository = goodsReceiptRepository;
         _itemRepository = itemRepository;
@@ -82,6 +84,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
+        _purchaseRequestDocxGenerator = purchaseRequestDocxGenerator;
     }
 
     public async Task<PagedResultDto<GoodsReceiptListDto>> GetListAsync(GetGoodsReceiptListInput input)
@@ -986,4 +989,42 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
     }
 
     #endregion
+
+    public async Task<GeneratePurchaseRequestOutput> GeneratePurchaseRequestAsync(Guid id)
+    {
+        var receipt = await _goodsReceiptRepository.GetAsync(id);
+        var items = (await _itemRepository.GetQueryableAsync())
+            .Where(x => x.GoodsReceiptId == id)
+            .OrderBy(x => x.Id)
+            .ToList();
+
+        var productIds = items
+            .Where(x => x.ProductId.HasValue)
+            .Select(x => x.ProductId!.Value)
+            .Distinct()
+            .ToList();
+        var products = (await _productRepository.GetQueryableAsync())
+            .Where(p => productIds.Contains(p.Id))
+            .ToList()
+            .ToDictionary(p => p.Id);
+
+        var requestItems = items.Select(item =>
+        {
+            var product = item.ProductId.HasValue && products.TryGetValue(item.ProductId.Value, out var p) ? p : null;
+            return new PurchaseRequestItemData
+            {
+                ProductName = item.ProductName,
+                UnitName = item.UnitName,
+                Quantity = item.Quantity,
+                ProductType = product?.ProductType ?? ProductType.Chemical,
+                CASNumber = product?.CASNumber,
+                ChemicalFormula = product?.ChemicalFormula,
+                Concentration = product?.Concentration,
+                Manufacturer = item.Manufacturer ?? product?.Manufacturer,
+            };
+        }).ToList();
+
+        var fileName = await _purchaseRequestDocxGenerator.GenerateAsync(requestItems);
+        return new GeneratePurchaseRequestOutput { FileName = fileName };
+    }
 }

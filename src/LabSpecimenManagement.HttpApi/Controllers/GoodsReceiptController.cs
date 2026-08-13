@@ -113,4 +113,10 @@ public class GoodsReceiptController : LabSpecimenManagementController
     {
         return _goodsReceiptAppService.GetNextCodeAsync();
     }
+
+    [HttpPost("{id}/purchase-request")]
+    public virtual Task<GeneratePurchaseRequestOutput> GeneratePurchaseRequestAsync(Guid id)
+    {
+        return _goodsReceiptAppService.GeneratePurchaseRequestAsync(id);
+    }
 }
