@@ -367,6 +367,71 @@ public class ProductAppService : ApplicationService, IProductAppService
         // 10. Per-warehouse consumption overrides (grouped by ProductId+WarehouseId to match stock rows)
         var pagedProductIds = productsForPage.Select(p => p.Id).ToList();
 
+        // 10x. Per-packaging-unit stock breakdown (warehouse-scoped)
+        var whUnitBreakdown = new Dictionary<(Guid ProductId, Guid WarehouseId, Guid? PackUnitId), (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
+        foreach (var item in filteredImportItems.Where(x => pagedProductIds.Contains(x.ProductId)))
+        {
+            var rem = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+            if (rem <= 0) continue;
+
+            var product = productMap[item.ProductId];
+            Guid? packUnitId = null;
+            int? vpu = null;
+            Guid? vuId = null;
+
+            if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var sku))
+            {
+                packUnitId = sku.PackagingUnitId;
+                if (sku.VolumePerUnit > 0) { vpu = sku.VolumePerUnit; vuId = sku.VolumeUnitId; }
+            }
+            if (!packUnitId.HasValue)
+            {
+                packUnitId = product.PackagingUnitId;
+                if (vpu == null && product.VolumePerUnit > 0) { vpu = product.VolumePerUnit; vuId = product.VolumeUnitId; }
+            }
+
+            bool hasConsumed = item.ConsumedBaseQuantity > 0;
+            var bKey = (item.ProductId, item.EffectiveWarehouseId!.Value, packUnitId);
+            if (whUnitBreakdown.TryGetValue(bKey, out var ex))
+                whUnitBreakdown[bKey] = (ex.Rem + rem, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+            else
+                whUnitBreakdown[bKey] = (rem, hasConsumed, vpu, vuId);
+        }
+
+        // Build unit name map from already-resolved DTO Skus
+        var localUnitNameMap = new Dictionary<Guid, string>();
+        foreach (var d in dtos)
+        {
+            if (d.PackagingUnitId.HasValue && d.PackagingUnitName != null)
+                localUnitNameMap.TryAdd(d.PackagingUnitId.Value, d.PackagingUnitName);
+            if (d.VolumeUnitId.HasValue && d.VolumeUnitName != null)
+                localUnitNameMap.TryAdd(d.VolumeUnitId.Value, d.VolumeUnitName);
+            foreach (var s in d.Skus)
+            {
+                if (s.PackagingUnitId.HasValue && s.PackagingUnitName != null)
+                    localUnitNameMap.TryAdd(s.PackagingUnitId.Value, s.PackagingUnitName);
+                if (s.VolumeUnitId.HasValue && s.VolumeUnitName != null)
+                    localUnitNameMap.TryAdd(s.VolumeUnitId.Value, s.VolumeUnitName);
+            }
+        }
+
+        var whStockByUnitsMap = whUnitBreakdown
+            .Where(x => x.Key.PackUnitId.HasValue)
+            .GroupBy(x => (x.Key.ProductId, x.Key.WarehouseId))
+            .Where(g => g.Select(x => x.Key.PackUnitId).Distinct().Count() >= 2)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderByDescending(x => x.Value.Consumed)
+                      .ThenByDescending(x => x.Value.Rem)
+                      .Select(x => new StockByUnitDto
+                      {
+                          PackagingUnitName = localUnitNameMap.GetValueOrDefault(x.Key.PackUnitId!.Value),
+                          Quantity = x.Value.Rem,
+                          VolumePerUnit = x.Value.Vpu,
+                          VolumeUnitName = x.Value.VuId.HasValue ? localUnitNameMap.GetValueOrDefault(x.Value.VuId.Value) : null,
+                      })
+                      .ToList());
+
         // 10a. "Sử dụng" per (product, warehouse) — from StockMovementLog
         var movementQuery = await _stockMovementLogRepository.GetQueryableAsync();
         var whUsageByProductWh = movementQuery
@@ -443,6 +508,11 @@ public class ProductAppService : ApplicationService, IProductAppService
             dtos[i].ExpectedStockConsumable = dtos[i].ConsumableImportedQuantity - dtos[i].TheoreticalConsumption;
             dtos[i].WarehouseName = entry.WarehouseName;
             dtos[i].StockWarehouseId = entry.WarehouseId;
+
+            if (whStockByUnitsMap.TryGetValue((product.Id, entry.WarehouseId), out var whStockByUnits))
+                dtos[i].StockByUnits = whStockByUnits;
+            else
+                dtos[i].StockByUnits = new List<StockByUnitDto>();
         }
 
         return new PagedResultDto<ProductDto>(totalCount, dtos);
@@ -1698,6 +1768,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                      {
                                          item.ProductId,
                                          item.SkuId,
+                                         item.ConsumedBaseQuantity,
                                          RemainingBase = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity
                                      })
                                      .ToList();
@@ -1722,6 +1793,58 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             if (cQty > 0)
                 consumableByProduct[ci.ProductId] = consumableByProduct.GetValueOrDefault(ci.ProductId) + cQty;
+        }
+
+        // Per-packaging-unit stock breakdown (for multi-unit display)
+        var stockByUnitsMap = new Dictionary<Guid, List<StockByUnitDto>>();
+        var unitBreakdown = new Dictionary<(Guid ProductId, Guid? PackUnitId), (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
+        foreach (var ci in consumableImportItems)
+        {
+            if (ci.RemainingBase <= 0) continue;
+
+            Guid? packUnitId = null;
+            int? vpu = null;
+            Guid? vuId = null;
+
+            if (ci.SkuId.HasValue && skuMap.TryGetValue(ci.ProductId, out var bSkus))
+            {
+                var sku = bSkus.FirstOrDefault(s => s.Id == ci.SkuId.Value);
+                if (sku != null)
+                {
+                    packUnitId = sku.PackagingUnitId;
+                    if (sku.VolumePerUnit > 0) { vpu = sku.VolumePerUnit; vuId = sku.VolumeUnitId; }
+                }
+            }
+            if (!packUnitId.HasValue)
+            {
+                var prod = products.FirstOrDefault(p => p.Id == ci.ProductId);
+                packUnitId = prod?.PackagingUnitId;
+                if (vpu == null && prod?.VolumePerUnit > 0) { vpu = prod.VolumePerUnit; vuId = prod.VolumeUnitId; }
+            }
+
+            bool hasConsumed = ci.ConsumedBaseQuantity > 0;
+            var key = (ci.ProductId, packUnitId);
+            if (unitBreakdown.TryGetValue(key, out var ex))
+                unitBreakdown[key] = (ex.Rem + ci.RemainingBase, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+            else
+                unitBreakdown[key] = (ci.RemainingBase, hasConsumed, vpu, vuId);
+        }
+        foreach (var grp in unitBreakdown.GroupBy(x => x.Key.ProductId))
+        {
+            var withUnit = grp.Where(x => x.Key.PackUnitId.HasValue).ToList();
+            if (withUnit.Select(x => x.Key.PackUnitId).Distinct().Count() < 2) continue;
+
+            stockByUnitsMap[grp.Key] = withUnit
+                .OrderByDescending(x => x.Value.Consumed)
+                .ThenByDescending(x => x.Value.Rem)
+                .Select(x => new StockByUnitDto
+                {
+                    PackagingUnitName = unitMap.GetValueOrDefault(x.Key.PackUnitId!.Value),
+                    Quantity = x.Value.Rem,
+                    VolumePerUnit = x.Value.Vpu,
+                    VolumeUnitName = x.Value.VuId.HasValue ? unitMap.GetValueOrDefault(x.Value.VuId.Value) : null,
+                })
+                .ToList();
         }
 
         // Load all unit names for conversions
@@ -1775,6 +1898,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
             dto.ConsumableImportedQuantity = consumableByProduct.GetValueOrDefault(product.Id);
+            if (stockByUnitsMap.TryGetValue(product.Id, out var stockByUnits))
+                dto.StockByUnits = stockByUnits;
             dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
 
             // Nearest-expiry lot data

@@ -80,6 +80,15 @@ public class ProductDto : FullAuditedEntityDto<Guid>
     public List<ProductAttachmentDto> Attachments { get; set; } = new();
     public List<ProductUnitConversionDto> UnitConversions { get; set; } = new();
     public List<ProductSkuDto> Skus { get; set; } = new();
+    public List<StockByUnitDto> StockByUnits { get; set; } = new();
+}
+
+public class StockByUnitDto
+{
+    public string? PackagingUnitName { get; set; }
+    public decimal Quantity { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public string? VolumeUnitName { get; set; }
 }
 
 /// <summary>
