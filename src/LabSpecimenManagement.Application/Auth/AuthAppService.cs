@@ -35,6 +35,16 @@ public class AuthAppService : ApplicationService, IAuthAppService
     private readonly IHttpContextAccessor _httpContextAccessor;
     private readonly IRepository<TemporaryAccessGrant, Guid> _temporaryAccessRepository;
 
+    // Dùng chung một HttpClient cho mọi lần lấy/làm mới token.
+    // Tạo mới mỗi request sẽ đốt socket và có lúc không xin được kết nối nữa.
+    private static readonly HttpClient TokenHttpClient = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5)
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(30)
+    };
+
     public AuthAppService(
         IdentityUserManager userManager,
         IConfiguration configuration,
@@ -324,18 +334,8 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
     public async Task<LoginResultDto> RefreshTokenAsync(string refreshToken)
     {
-        // Get base URL from current request context instead of config (same as login)
-        var request = _httpContextAccessor.HttpContext?.Request;
-        var authority = request != null
-            ? $"{request.Scheme}://{request.Host}"
-            : _configuration["AuthServer:Authority"];
         var clientId = _configuration["AuthServer:ClientId"] ?? "LabSpecimenManagement_App";
 
-        // Create HttpClient that bypasses SSL certificate validation for development
-        var handler = new HttpClientHandler();
-        handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-
-        using var client = new HttpClient(handler);
         var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             { "grant_type", "refresh_token" },
@@ -346,7 +346,8 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
         try
         {
-            var response = await client.PostAsync($"{authority}/connect/token", content);
+            using var tokenRequest = BuildTokenRequest(content);
+            var response = await TokenHttpClient.SendAsync(tokenRequest);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -393,18 +394,8 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
     private async Task<LoginResultDto> GetTokenAsync(string username, string password)
     {
-        // Get base URL from current request context instead of config
-        var request = _httpContextAccessor.HttpContext?.Request;
-        var authority = request != null
-            ? $"{request.Scheme}://{request.Host}"
-            : _configuration["AuthServer:Authority"];
         var clientId = _configuration["AuthServer:ClientId"] ?? "LabSpecimenManagement_App";
 
-        // Create HttpClient that bypasses SSL certificate validation for development
-        var handler = new HttpClientHandler();
-        handler.ServerCertificateCustomValidationCallback = HttpClientHandler.DangerousAcceptAnyServerCertificateValidator;
-
-        using var client = new HttpClient(handler);
         var content = new FormUrlEncodedContent(new Dictionary<string, string>
         {
             { "grant_type", "password" },
@@ -416,7 +407,8 @@ public class AuthAppService : ApplicationService, IAuthAppService
 
         try
         {
-            var response = await client.PostAsync($"{authority}/connect/token", content);
+            using var tokenRequest = BuildTokenRequest(content);
+            var response = await TokenHttpClient.SendAsync(tokenRequest);
 
             if (!response.IsSuccessStatusCode)
             {
@@ -453,13 +445,51 @@ public class AuthAppService : ApplicationService, IAuthAppService
         }
         catch (Exception ex)
         {
-            Logger.LogError(ex, "Error getting token from {Authority}", authority);
+            Logger.LogError(ex, "Error getting token from {Authority}", GetInternalAuthority());
             return new LoginResultDto
             {
                 Success = false,
                 ErrorMessage = $"Lỗi kết nối đến server xác thực: {ex.Message}"
             };
         }
+    }
+
+    /// <summary>
+    /// Địa chỉ nội bộ để tự gọi endpoint token của chính process này.
+    /// </summary>
+    private string GetInternalAuthority()
+    {
+        return (_configuration["AuthServer:InternalAuthority"] ?? "http://127.0.0.1:5002").TrimEnd('/');
+    }
+
+    /// <summary>
+    /// Dựng request tới /connect/token đi thẳng vào chính process này thay vì vòng ra
+    /// địa chỉ public rồi quay lại qua nginx. Địa chỉ public được giữ lại trong các
+    /// header X-Forwarded-* nên OpenIddict vẫn phát token với issuer y như cũ
+    /// (vd https://tihelab.vn/) — token cũ của user không bị mất hiệu lực.
+    /// </summary>
+    private HttpRequestMessage BuildTokenRequest(FormUrlEncodedContent content)
+    {
+        var message = new HttpRequestMessage(HttpMethod.Post, $"{GetInternalAuthority()}/connect/token")
+        {
+            Content = content
+        };
+
+        var httpRequest = _httpContextAccessor.HttpContext?.Request;
+        var publicAuthority = httpRequest != null
+            ? $"{httpRequest.Scheme}://{httpRequest.Host}"
+            : _configuration["AuthServer:Authority"];
+
+        if (!string.IsNullOrWhiteSpace(publicAuthority)
+            && Uri.TryCreate(publicAuthority, UriKind.Absolute, out var publicUri))
+        {
+            message.Headers.Host = publicUri.Authority;
+            message.Headers.TryAddWithoutValidation("X-Forwarded-Proto", publicUri.Scheme);
+            message.Headers.TryAddWithoutValidation("X-Forwarded-Host", publicUri.Authority);
+            message.Headers.TryAddWithoutValidation("X-Forwarded-For", "127.0.0.1");
+        }
+
+        return message;
     }
 
     private async Task<CurrentUserDto> BuildCurrentUserDtoAsync(Volo.Abp.Identity.IdentityUser user)
