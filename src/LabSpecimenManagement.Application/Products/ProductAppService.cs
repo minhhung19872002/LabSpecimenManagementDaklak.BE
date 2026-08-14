@@ -1048,6 +1048,7 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+        var detailUnitBreakdown = new Dictionary<Guid, (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
 
         if (warehouseId.HasValue)
         {
@@ -1082,14 +1083,23 @@ public class ProductAppService : ApplicationService, IProductAppService
                     if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
                         sku = skuVal;
 
+                    Guid? packUnitId = sku?.PackagingUnitId ?? product.PackagingUnitId;
                     int? vpu = null;
-                    if (sku?.VolumePerUnit > 0)
-                        vpu = sku.VolumePerUnit;
-                    else if (product.VolumePerUnit > 0)
-                        vpu = product.VolumePerUnit;
+                    Guid? vuId = null;
+                    if (sku?.VolumePerUnit > 0) { vpu = sku.VolumePerUnit; vuId = sku.VolumeUnitId; }
+                    else if (product.VolumePerUnit > 0) { vpu = product.VolumePerUnit; vuId = product.VolumeUnitId; }
 
                     if (vpu.HasValue && vpu.Value > 0)
                         consumableQty += remaining * vpu.Value;
+
+                    if (packUnitId.HasValue)
+                    {
+                        bool hasConsumed = item.ConsumedBaseQuantity > 0;
+                        if (detailUnitBreakdown.TryGetValue(packUnitId.Value, out var ex))
+                            detailUnitBreakdown[packUnitId.Value] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+                        else
+                            detailUnitBreakdown[packUnitId.Value] = (remaining, hasConsumed, vpu, vuId);
+                    }
                 }
             }
             else
@@ -1126,16 +1136,41 @@ public class ProductAppService : ApplicationService, IProductAppService
                     if (item.SkuId.HasValue && skuLookup.TryGetValue(item.SkuId.Value, out var skuVal))
                         sku = skuVal;
 
+                    Guid? packUnitId = sku?.PackagingUnitId ?? product.PackagingUnitId;
                     int? vpu = null;
-                    if (sku?.VolumePerUnit > 0)
-                        vpu = sku.VolumePerUnit;
-                    else if (product.VolumePerUnit > 0)
-                        vpu = product.VolumePerUnit;
+                    Guid? vuId = null;
+                    if (sku?.VolumePerUnit > 0) { vpu = sku.VolumePerUnit; vuId = sku.VolumeUnitId; }
+                    else if (product.VolumePerUnit > 0) { vpu = product.VolumePerUnit; vuId = product.VolumeUnitId; }
 
                     if (vpu.HasValue && vpu.Value > 0)
                         consumableQty += remaining * vpu.Value;
+
+                    if (packUnitId.HasValue)
+                    {
+                        bool hasConsumed = item.ConsumedBaseQuantity > 0;
+                        if (detailUnitBreakdown.TryGetValue(packUnitId.Value, out var ex))
+                            detailUnitBreakdown[packUnitId.Value] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+                        else
+                            detailUnitBreakdown[packUnitId.Value] = (remaining, hasConsumed, vpu, vuId);
+                    }
                 }
             }
+        }
+
+        var detailStockByUnits = new List<StockByUnitDto>();
+        if (detailUnitBreakdown.Count >= 2)
+        {
+            detailStockByUnits = detailUnitBreakdown
+                .OrderByDescending(x => x.Value.Consumed)
+                .ThenByDescending(x => x.Value.Rem)
+                .Select(x => new StockByUnitDto
+                {
+                    PackagingUnitName = unitMap.GetValueOrDefault(x.Key),
+                    Quantity = x.Value.Rem,
+                    VolumePerUnit = x.Value.Vpu,
+                    VolumeUnitName = x.Value.VuId.HasValue ? unitMap.GetValueOrDefault(x.Value.VuId.Value) : null,
+                })
+                .ToList();
         }
 
         // Compute TheoreticalConsumption for the detail view
@@ -1216,6 +1251,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                     : null,
             TheoreticalConsumption = theoreticalConsumption,
             ExpectedStockConsumable = consumableQty - theoreticalConsumption,
+            StockByUnits = detailStockByUnits,
         };
     }
 

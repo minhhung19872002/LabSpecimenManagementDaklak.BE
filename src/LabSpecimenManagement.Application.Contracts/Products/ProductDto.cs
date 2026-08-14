@@ -335,6 +335,7 @@ public class ProductDetailDto
     public string? VolumeUnitName { get; set; }
     public decimal TheoreticalConsumption { get; set; }
     public decimal ExpectedStockConsumable { get; set; }
+    public List<StockByUnitDto> StockByUnits { get; set; } = new();
 }
 
 public class ProductImportHistoryDto
