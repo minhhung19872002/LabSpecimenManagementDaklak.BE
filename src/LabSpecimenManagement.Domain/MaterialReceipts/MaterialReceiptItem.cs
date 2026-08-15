@@ -15,6 +15,8 @@ public class MaterialReceiptItem : Entity<Guid>
     public Guid? SkuId { get; set; }
     public Guid ReceivingWarehouseId { get; set; }
     public string ReceivingWarehouseName { get; set; }
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
 
     protected MaterialReceiptItem()
     {

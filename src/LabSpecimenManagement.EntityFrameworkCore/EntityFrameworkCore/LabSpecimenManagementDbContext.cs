@@ -2043,6 +2043,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Quantity).HasPrecision(18, 4);
             b.Property(x => x.BaseQuantity).HasPrecision(18, 4);
             b.Property(x => x.ReceivingWarehouseName).IsRequired().HasMaxLength(500);
+            b.Property(x => x.LotNumber).HasMaxLength(200);
+            b.Property(x => x.ManufacturerName).HasMaxLength(500);
 
             b.HasIndex(x => x.MaterialReceiptId);
             b.HasIndex(x => x.ProductId);

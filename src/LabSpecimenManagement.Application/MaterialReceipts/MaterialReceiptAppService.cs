@@ -195,6 +195,17 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
         var centralWarehouse = await GetCentralWarehouseAsync();
 
+        // Cho confirmed receipt: lấy lot/manufacturer từ synthetic receipt items
+        var syntheticItemsByProduct = new Dictionary<Guid, List<(string? LotNumber, string? ManufacturerName)>>();
+        if (receipt.Status == MaterialReceiptStatus.Confirmed && receipt.SyntheticWarehouseReceiptId.HasValue)
+        {
+            var synItemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
+            var synItems = await _asyncExecuter.ToListAsync(
+                synItemQuery.Where(x => x.WarehouseImportReceiptId == receipt.SyntheticWarehouseReceiptId.Value));
+            syntheticItemsByProduct = synItems.GroupBy(x => x.ProductId)
+                .ToDictionary(g => g.Key, g => g.Select(x => (x.LotNumber, x.ManufacturerName)).Distinct().ToList());
+        }
+
         dto.Items = new List<MaterialReceiptItemDto>();
         foreach (var item in receiptItems)
         {
@@ -216,6 +227,15 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             if (skusByProduct.TryGetValue(item.ProductId, out var productSkus))
             {
                 itemDto.AvailableUnits = BuildAvailableUnits(productSkus, unitMap);
+            }
+
+            // Lot/manufacturer: entity first, fallback to synthetic receipt
+            if (string.IsNullOrWhiteSpace(itemDto.LotNumber) &&
+                syntheticItemsByProduct.TryGetValue(item.ProductId, out var synLots) && synLots.Count > 0)
+            {
+                var firstLot = synLots.FirstOrDefault(x => !string.IsNullOrWhiteSpace(x.LotNumber));
+                itemDto.LotNumber = firstLot.LotNumber;
+                itemDto.ManufacturerName = firstLot.ManufacturerName;
             }
 
             dto.Items.Add(itemDto);
@@ -539,8 +559,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
         var productIds = products.Select(p => p.Id).ToList();
 
-        // Lấy stock data từ kho trung tâm (nếu có)
-        var stockByProduct = new Dictionary<Guid, (decimal TotalBaseQty, DateTime? NearestExpiry)>();
+        // Lấy stock data per lot từ kho trung tâm (nếu có)
+        var lotGroupsByProduct = new Dictionary<Guid, List<(string? LotNumber, decimal TotalBaseQty, DateTime? LotExpiryDate, string? ManufacturerName)>>();
         if (centralWarehouse != null)
         {
             var importItemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
@@ -554,17 +574,21 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                                  && productIds.Contains(item.ProductId)
                            let effectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
                            where effectiveWarehouseId == centralWarehouse.Id
-                           select new { item.ProductId, Remaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity, item.LotExpiryDate };
+                           select new { item.ProductId, Remaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity, item.LotNumber, item.LotExpiryDate, item.ManufacturerName };
 
             var lotData = await _asyncExecuter.ToListAsync(lotQuery);
-            stockByProduct = lotData.GroupBy(x => x.ProductId)
-                .ToDictionary(g => g.Key, g => (
-                    TotalBaseQty: g.Sum(x => x.Remaining),
-                    NearestExpiry: g.Where(x => x.LotExpiryDate.HasValue)
-                        .OrderBy(x => x.LotExpiryDate)
-                        .Select(x => x.LotExpiryDate)
-                        .FirstOrDefault()
-                ));
+            lotGroupsByProduct = lotData.GroupBy(x => x.ProductId)
+                .ToDictionary(g => g.Key, g => g.GroupBy(x => x.LotNumber ?? "")
+                    .Select(lg => (
+                        LotNumber: lg.Key == "" ? (string?)null : lg.Key,
+                        TotalBaseQty: lg.Sum(x => x.Remaining),
+                        LotExpiryDate: lg.Where(x => x.LotExpiryDate.HasValue)
+                            .OrderBy(x => x.LotExpiryDate)
+                            .Select(x => x.LotExpiryDate)
+                            .FirstOrDefault(),
+                        ManufacturerName: lg.Select(x => x.ManufacturerName)
+                            .FirstOrDefault(x => !string.IsNullOrWhiteSpace(x))
+                    )).ToList());
         }
 
         var skuQuery = await _productSkuRepository.GetQueryableAsync();
@@ -578,13 +602,38 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         var units = await _asyncExecuter.ToListAsync(unitQuery.Where(u => unitIds.Contains(u.Id)));
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
 
-        return products.Select(p =>
+        // Fallback: manufacturer names từ SKU cho hàng nhập cũ không có ManufacturerName trên lot
+        var manufacturerIds = allSkus.Select(s => s.ManufacturerId).Distinct().ToList();
+        var manufacturerQuery = await _manufacturerRepository.GetQueryableAsync();
+        var manufacturers = manufacturerIds.Count > 0
+            ? await _asyncExecuter.ToListAsync(manufacturerQuery.Where(m => manufacturerIds.Contains(m.Id)))
+            : new List<Manufacturer>();
+        var manufacturerNameMap = manufacturers.ToDictionary(m => m.Id, m => m.Name);
+        var skuManufacturerByProduct = skusByProduct.ToDictionary(
+            kvp => kvp.Key,
+            kvp => kvp.Value
+                .Select(s => manufacturerNameMap.GetValueOrDefault(s.ManufacturerId))
+                .FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)));
+
+        var result = new List<CentralWarehouseProductDto>();
+        foreach (var p in products)
         {
-            stockByProduct.TryGetValue(p.Id, out var stock);
             var productSkus = skusByProduct.GetValueOrDefault(p.Id) ?? new List<ProductSku>();
             var firstSku = productSkus.FirstOrDefault();
+            var availableUnits = BuildAvailableUnits(productSkus, unitMap);
+            var skuDtos = productSkus.Select(s => new CentralWarehouseProductSkuDto
+            {
+                SkuId = s.Id,
+                StorageUnitId = s.PackagingUnitId,
+                StorageUnitName = s.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(s.PackagingUnitId.Value) : null,
+                ConsumableUnitId = s.VolumeUnitId,
+                ConsumableUnitName = s.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(s.VolumeUnitId.Value) : null,
+                VolumePerUnit = s.VolumePerUnit,
+                PackagingQuantity = s.PackagingQuantity
+            }).ToList();
 
-            return new CentralWarehouseProductDto
+            CentralWarehouseProductDto BuildDto(decimal stockQty, DateTime? lotExpiryDate,
+                string? lotNumber, string? manufacturerName) => new()
             {
                 ProductId = p.Id,
                 ProductName = p.Name,
@@ -593,26 +642,32 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 TechnicalSpec = p.MainTechnicalSpecs,
                 CASNumber = p.CASNumber,
                 ProductType = (int)p.ProductType,
-                CentralStockBaseQty = stock.TotalBaseQty,
-                NearestExpiryDate = stock.NearestExpiry,
+                CentralStockBaseQty = stockQty,
+                NearestExpiryDate = lotExpiryDate,
+                LotNumber = lotNumber,
+                LotExpiryDate = lotExpiryDate,
+                ManufacturerName = manufacturerName
+                    ?? skuManufacturerByProduct.GetValueOrDefault(p.Id),
                 StorageUnitName = firstSku?.PackagingUnitId.HasValue == true
                     ? unitMap.GetValueOrDefault(firstSku.PackagingUnitId!.Value) : null,
                 ConsumableUnitName = firstSku?.VolumeUnitId.HasValue == true
                     ? unitMap.GetValueOrDefault(firstSku.VolumeUnitId!.Value) : null,
                 VolumePerUnit = firstSku?.VolumePerUnit,
-                AvailableUnits = BuildAvailableUnits(productSkus, unitMap),
-                Skus = productSkus.Select(s => new CentralWarehouseProductSkuDto
-                {
-                    SkuId = s.Id,
-                    StorageUnitId = s.PackagingUnitId,
-                    StorageUnitName = s.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(s.PackagingUnitId.Value) : null,
-                    ConsumableUnitId = s.VolumeUnitId,
-                    ConsumableUnitName = s.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(s.VolumeUnitId.Value) : null,
-                    VolumePerUnit = s.VolumePerUnit,
-                    PackagingQuantity = s.PackagingQuantity
-                }).ToList()
+                AvailableUnits = availableUnits,
+                Skus = skuDtos
             };
-        }).ToList();
+
+            if (lotGroupsByProduct.TryGetValue(p.Id, out var lots) && lots.Count > 0)
+            {
+                foreach (var lot in lots)
+                    result.Add(BuildDto(lot.TotalBaseQty, lot.LotExpiryDate, lot.LotNumber, lot.ManufacturerName));
+            }
+            else
+            {
+                result.Add(BuildDto(0, null, null, null));
+            }
+        }
+        return result;
     }
 
     public async Task<ReceivingWarehouseStockDto> GetReceivingWarehouseStockAsync(
@@ -987,6 +1042,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
             var warehouse = await _warehouseRepository.GetAsync(inputItem.ReceivingWarehouseId);
             item.ReceivingWarehouseName = warehouse.Name;
+            item.LotNumber = inputItem.LotNumber;
+            item.ManufacturerName = inputItem.ManufacturerName;
 
             if (inputItem.Id.HasValue)
                 await _receiptItemRepository.UpdateAsync(item, autoSave: true);

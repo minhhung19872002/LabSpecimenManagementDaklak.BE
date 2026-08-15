@@ -60,6 +60,8 @@ public class MaterialReceiptItemDto : EntityDto<Guid>
     public string? TechnicalSpec { get; set; }
     public string? CASNumber { get; set; }
     public DateTime? NearestExpiryDate { get; set; }
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
     public int? ProductType { get; set; }
     public List<ProductUnitOptionDto> AvailableUnits { get; set; } = new();
 }
@@ -94,6 +96,9 @@ public class CreateUpdateMaterialReceiptItemDto
 
     [Required]
     public Guid ReceivingWarehouseId { get; set; }
+
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
 }
 
 public class CentralWarehouseProductDto
@@ -107,6 +112,9 @@ public class CentralWarehouseProductDto
     public int ProductType { get; set; }
     public decimal CentralStockBaseQty { get; set; }
     public DateTime? NearestExpiryDate { get; set; }
+    public string? LotNumber { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+    public string? ManufacturerName { get; set; }
 
     public string? StorageUnitName { get; set; }
     public string? ConsumableUnitName { get; set; }
