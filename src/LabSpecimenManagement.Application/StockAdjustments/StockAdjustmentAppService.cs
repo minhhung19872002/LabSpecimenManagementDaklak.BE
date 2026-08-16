@@ -35,6 +35,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     private readonly IUserNameProvider _userNameProvider;
     private readonly IFifoStockDeductionService _fifoStockService;
     private readonly IConsumableStockCalculator _consumableStockCalculator;
+    private readonly InventoryBarcodeStatusService _barcodeStatusService;
 
     public StockAdjustmentAppService(
         IRepository<StockAdjustment, Guid> repository,
@@ -51,7 +52,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider,
         IFifoStockDeductionService fifoStockService,
-        IConsumableStockCalculator consumableStockCalculator)
+        IConsumableStockCalculator consumableStockCalculator,
+        InventoryBarcodeStatusService barcodeStatusService)
     {
         _repository = repository;
         _itemRepository = itemRepository;
@@ -68,6 +70,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         _userNameProvider = userNameProvider;
         _fifoStockService = fifoStockService;
         _consumableStockCalculator = consumableStockCalculator;
+        _barcodeStatusService = barcodeStatusService;
     }
 
     public async Task<PagedResultDto<StockAdjustmentListDto>> GetListAsync(GetStockAdjustmentListInput input)
@@ -246,6 +249,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             }
         }
 
+        var barcodeTargets = new List<(Guid ProductId, Guid WarehouseId)>();
+
         foreach (var item in items)
         {
             var product = await _productRepository.GetAsync(item.ProductId);
@@ -338,7 +343,12 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 await UpsertProductWarehouseInventoryAsync(
                     item.ProductId, item.WarehouseId.Value, Clock.Now);
             }
+
+            foreach (var whId in adjustWhIds)
+                barcodeTargets.Add((item.ProductId, whId));
         }
+
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
 
         adjustment.Status = StockAdjustmentStatus.Confirmed;
         await _repository.UpdateAsync(adjustment, autoSave: true);
