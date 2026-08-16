@@ -4982,6 +4982,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<decimal?>("ConsumableQuantityBefore")
+                        .HasColumnType("numeric");
+
                     b.Property<decimal?>("ExpectedStock")
                         .HasColumnType("numeric");
 

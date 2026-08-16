@@ -19,6 +19,7 @@ public class StockAdjustmentItem : Entity<Guid>
     public string? ActualUnitName { get; set; }
     public string? Reason { get; set; }
     public decimal? ExpectedStock { get; set; }
+    public decimal? ConsumableQuantityBefore { get; set; }
 
     protected StockAdjustmentItem()
     {

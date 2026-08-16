@@ -222,11 +222,12 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
         var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
 
-        foreach (var item in items)
+        // Global sync: run ONCE per product BEFORE the loop to prevent drift,
+        // so surplus/deficit changes in the loop are not overwritten by a re-sync.
+        var distinctProductIds = items.Select(x => x.ProductId).Distinct().ToList();
+        foreach (var productId in distinctProductIds)
         {
-            var product = await _productRepository.GetAsync(item.ProductId);
-
-            // Sync product.AvailableQuantity with ALL lot data (global, prevents drift)
+            var product = await _productRepository.GetAsync(productId);
             var allLotData = (from ii in importItemQ
                               join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
                               where ii.ProductId == product.Id
@@ -238,27 +239,19 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             {
                 var globalLotQty = allLotData.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
                 if (product.AvailableQuantity != globalLotQty)
+                {
                     product.AvailableQuantity = globalLotQty;
+                    await _productRepository.UpdateAsync(product, autoSave: true);
+                }
             }
+        }
 
-            // quantityBefore = warehouse-filtered lot remaining (not global)
-            decimal quantityBefore;
-            if (item.WarehouseId.HasValue)
-            {
-                var whLotData = (from ii in importItemQ
-                                 join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
-                                 where ii.ProductId == product.Id
-                                       && ir.Status == WarehouseImportReceiptStatus.Completed
-                                       && ii.Status == WarehouseImportLineStatus.Checked
-                                 where (ii.StorageWarehouseId.HasValue && ii.StorageWarehouseId == item.WarehouseId.Value)
-                                       || (!ii.StorageWarehouseId.HasValue && ir.WarehouseId.HasValue && ir.WarehouseId == item.WarehouseId.Value)
-                                 select new { ii.ReceivedBaseQuantity, ii.ConsumedBaseQuantity }).ToList();
-                quantityBefore = whLotData.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
-            }
-            else
-            {
-                quantityBefore = product.AvailableQuantity;
-            }
+        foreach (var item in items)
+        {
+            var product = await _productRepository.GetAsync(item.ProductId);
+
+            var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
+                importItemQ, importReceiptQ, product, item.WarehouseId);
 
             var actualInBaseUnit = item.ActualQuantity;
             if (item.ActualUnitId.HasValue && item.ActualUnitId != product.BaseUnitId)
@@ -292,6 +285,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             }
 
             item.QuantityBefore = quantityBefore;
+            item.ConsumableQuantityBefore = consumableQuantityBefore;
             item.AdjustmentQuantity = quantityBefore - actualInBaseUnit;
             await _itemRepository.UpdateAsync(item, autoSave: true);
 
@@ -321,7 +315,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             {
                 if (actualInBaseUnit > quantityBefore)
                 {
-                    product.AvailableQuantity = actualInBaseUnit;
+                    product.AvailableQuantity += (actualInBaseUnit - quantityBefore);
                     await _productRepository.UpdateAsync(product, autoSave: true);
                 }
 
@@ -365,10 +359,14 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
         var result = new ConfirmPreviewDto();
 
+        var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
+
         foreach (var item in items)
         {
             var product = await _productRepository.GetAsync(item.ProductId);
-            var currentQty = product.AvailableQuantity;
+            var (currentQty, _) = await ComputeWarehouseStockAsync(
+                importItemQ, importReceiptQ, product, item.WarehouseId);
             var changed = currentQty != item.QuantityBefore;
             if (changed) result.HasChanges = true;
 
@@ -404,6 +402,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     {
         var unitQuery = await _unitRepository.GetQueryableAsync();
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
 
         foreach (var itemInput in inputItems)
         {
@@ -427,6 +427,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     .Select(u => u.Name)
                     .FirstOrDefault();
             }
+
+            var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
+                importItemQ, importReceiptQ, product, itemInput.WarehouseId);
 
             var actualInBaseUnit = itemInput.ActualQuantity;
             if (itemInput.ActualUnitId.HasValue && itemInput.ActualUnitId != product.BaseUnitId)
@@ -466,7 +469,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 product.Name,
                 product.BaseUnitId ?? Guid.Empty,
                 unitName,
-                product.AvailableQuantity,
+                quantityBefore,
                 actualInBaseUnit)
             {
                 WarehouseId = itemInput.WarehouseId,
@@ -476,10 +479,61 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 ActualQuantity = itemInput.ActualQuantity,
                 Reason = itemInput.Reason,
                 ExpectedStock = itemInput.ExpectedStock,
+                ConsumableQuantityBefore = consumableQuantityBefore,
             };
 
             await _itemRepository.InsertAsync(item, autoSave: true);
         }
+    }
+
+    private async Task<(decimal baseQty, decimal volumeQty)> ComputeWarehouseStockAsync(
+        IQueryable<WarehouseImportReceiptItem> importItemQ,
+        IQueryable<WarehouseImportReceipt> importReceiptQ,
+        Product product,
+        Guid? warehouseId)
+    {
+        var baseLotQuery = from ii in importItemQ
+                           join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                           where ii.ProductId == product.Id
+                                 && ir.Status == WarehouseImportReceiptStatus.Completed
+                                 && ii.Status == WarehouseImportLineStatus.Checked
+                           select new { ii, ir };
+
+        if (warehouseId.HasValue)
+        {
+            baseLotQuery = baseLotQuery.Where(x =>
+                (x.ii.StorageWarehouseId.HasValue && x.ii.StorageWarehouseId == warehouseId.Value)
+                || (!x.ii.StorageWarehouseId.HasValue && x.ir.WarehouseId.HasValue && x.ir.WarehouseId == warehouseId.Value));
+        }
+
+        var lotData = baseLotQuery
+            .Select(x => new { x.ii.ReceivedBaseQuantity, x.ii.ConsumedBaseQuantity, x.ii.SkuId })
+            .ToList();
+
+        decimal baseQty = lotData.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
+
+        var skuIds = lotData.Where(l => l.SkuId.HasValue).Select(l => l.SkuId!.Value).Distinct().ToList();
+        var skuVpuMap = skuIds.Count > 0
+            ? (await _skuRepository.GetQueryableAsync())
+                .Where(s => skuIds.Contains(s.Id) && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0)
+                .ToDictionary(s => s.Id, s => s.VolumePerUnit)
+            : new Dictionary<Guid, int?>();
+
+        decimal volumeQty = 0;
+        foreach (var lot in lotData)
+        {
+            var remaining = Math.Max(0, lot.ReceivedBaseQuantity - lot.ConsumedBaseQuantity);
+            int? vpu = null;
+            if (lot.SkuId.HasValue && skuVpuMap.TryGetValue(lot.SkuId.Value, out var skuVpu) && skuVpu > 0)
+                vpu = skuVpu;
+            else if (product.VolumePerUnit > 0)
+                vpu = product.VolumePerUnit;
+
+            if (vpu.HasValue && vpu.Value > 0)
+                volumeQty += remaining * vpu.Value;
+        }
+
+        return (baseQty, volumeQty);
     }
 
     private async Task UpsertProductWarehouseInventoryAsync(
@@ -588,6 +642,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     if (prod.BaseUnitId.HasValue && unitNames.TryGetValue(prod.BaseUnitId.Value, out var baseUnitName))
                         itemDto.BaseUnitName = baseUnitName;
                 }
+                itemDto.ConsumableQuantityBefore = i.ConsumableQuantityBefore;
                 return itemDto;
             }).ToList(),
         };

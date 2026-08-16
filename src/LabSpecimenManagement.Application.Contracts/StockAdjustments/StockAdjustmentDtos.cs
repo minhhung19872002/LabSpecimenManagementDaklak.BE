@@ -51,6 +51,7 @@ public class StockAdjustmentItemDto
     public string? VolumeUnitName { get; set; }
     public ProductType? ProductType { get; set; }
     public string? BaseUnitName { get; set; }
+    public decimal? ConsumableQuantityBefore { get; set; }
 }
 
 public class CreateUpdateStockAdjustmentDto
