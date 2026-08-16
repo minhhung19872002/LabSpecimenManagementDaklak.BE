@@ -20,6 +20,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
     private readonly IRepository<TestBatchConsumption, Guid> _testBatchConsumptionRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
+    private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
     private readonly IAsyncQueryableExecuter AsyncExecuter;
 
     public InventoryBarcodeStatusService(
@@ -30,6 +31,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         IRepository<TestBatchConsumption, Guid> testBatchConsumptionRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
+        IRepository<ProductUnitConversion, Guid> conversionRepository,
         IAsyncQueryableExecuter asyncQueryableExecuter)
     {
         _barcodeRepository = barcodeRepository;
@@ -39,6 +41,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         _testBatchConsumptionRepository = testBatchConsumptionRepository;
         _productRepository = productRepository;
         _productSkuRepository = productSkuRepository;
+        _conversionRepository = conversionRepository;
         AsyncExecuter = asyncQueryableExecuter;
     }
 
@@ -154,34 +157,87 @@ public class InventoryBarcodeStatusService : ITransientDependency
         var indicatorQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
         var batchQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
 
-        var indicatorAmounts = await AsyncExecuter.ToListAsync(
+        var indicatorRecords = await AsyncExecuter.ToListAsync(
             indicatorQuery
                 .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => c.ActualQuantity));
+                .Select(c => new { c.ActualQuantity, c.UnitId }));
 
-        var batchAmounts = await AsyncExecuter.ToListAsync(
+        var batchRecords = await AsyncExecuter.ToListAsync(
             batchQuery
                 .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => c.ActualQuantity));
+                .Select(c => new { c.ActualQuantity, c.UnitId }));
 
-        var totalConsumable = indicatorAmounts.Sum() + batchAmounts.Sum();
-        if (totalConsumable == 0) return 0;
+        if (!indicatorRecords.Any() && !batchRecords.Any()) return 0;
 
         var product = await _productRepository.GetAsync(productId);
-        var volumePerUnit = product.VolumePerUnit ?? 0;
+        var skuQuery = await _productSkuRepository.GetQueryableAsync();
+        var skus = await AsyncExecuter.ToListAsync(
+            skuQuery.Where(s => s.ProductId == productId));
 
-        if (volumePerUnit <= 0)
+        var conversionQuery = await _conversionRepository.GetQueryableAsync();
+        var conversions = await AsyncExecuter.ToListAsync(
+            conversionQuery.Where(c => c.ProductId == productId));
+        var conversionMap = conversions
+            .GroupBy(c => c.ConvertedUnitId)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        decimal totalBase = 0;
+        foreach (var r in indicatorRecords.Concat(batchRecords))
         {
-            var skuQuery = await _productSkuRepository.GetQueryableAsync();
-            volumePerUnit = await AsyncExecuter.FirstOrDefaultAsync(
-                skuQuery
-                    .Where(s => s.ProductId == productId && s.VolumePerUnit != null && s.VolumePerUnit > 0)
-                    .Select(s => s.VolumePerUnit!.Value));
+            totalBase += ConvertToBaseUnits(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
         }
 
-        return volumePerUnit > 0
-            ? totalConsumable / volumePerUnit
-            : totalConsumable;
+        return totalBase;
+    }
+
+    private static decimal ConvertToBaseUnits(
+        decimal quantity,
+        Guid? unitId,
+        Product product,
+        List<ProductSku> skus,
+        Dictionary<Guid, ProductUnitConversion> conversionMap)
+    {
+        if (quantity == 0) return 0;
+        if (!unitId.HasValue)
+        {
+            var fallbackVpu = product.VolumePerUnit
+                ?? skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
+                ?? 0;
+            return fallbackVpu > 0 ? quantity / fallbackVpu : quantity;
+        }
+        var uid = unitId.Value;
+
+        // Product-level: packaging unit → 1:1
+        if (uid == product.PackagingUnitId)
+            return quantity;
+
+        // Product-level: volume unit → divide by VolumePerUnit
+        if (uid == product.VolumeUnitId && product.VolumePerUnit > 0)
+            return quantity / product.VolumePerUnit.Value;
+
+        // Product-level: base unit → multiply by PackagingQuantity
+        if (uid == product.BaseUnitId && product.PackagingQuantity > 0)
+            return quantity * product.PackagingQuantity.Value;
+
+        // SKU-level fallback
+        foreach (var sku in skus)
+        {
+            if (uid == sku.PackagingUnitId) return quantity;
+            if (uid == sku.VolumeUnitId && sku.VolumePerUnit > 0)
+                return quantity / sku.VolumePerUnit.Value;
+            if (uid == sku.BaseUnitId && sku.PackagingQuantity > 0)
+                return quantity * sku.PackagingQuantity.Value;
+        }
+
+        // ProductUnitConversion fallback
+        if (conversionMap.TryGetValue(uid, out var conv) && conv.ConvertedQuantity > 0)
+            return quantity / (conv.ConvertedQuantity / conv.Quantity);
+
+        // Unknown unit: fall back to old behavior (assume volume unit)
+        var volumePerUnit = product.VolumePerUnit
+            ?? skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
+            ?? 0;
+        return volumePerUnit > 0 ? quantity / volumePerUnit : quantity;
     }
 
     private static List<string> DeserializeBarcodes(string? barcodeValues)

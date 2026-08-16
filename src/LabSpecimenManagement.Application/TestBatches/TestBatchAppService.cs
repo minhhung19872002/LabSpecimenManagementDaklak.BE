@@ -650,6 +650,11 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         batch.ConsumptionConfirmedDate = DateTime.Now;
         await _testBatchRepository.UpdateAsync(batch, autoSave: true);
 
+        var barcodeTargets = consumptions
+            .Where(c => c.ProductId.HasValue && c.WarehouseId.HasValue)
+            .Select(c => (c.ProductId!.Value, c.WarehouseId!.Value));
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
+
         return await MapToDetailDtoAsync(batch);
     }
 
@@ -1379,6 +1384,13 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (equipmentItems.Count > 0)
             await IncrementEquipmentUsageAsync(equipmentItems, submittedCount);
+
+        await CurrentUnitOfWork.SaveChangesAsync();
+
+        var barcodeTargets = productIdsForWh
+            .Where(pid => warehouseMap.TryGetValue(pid, out var whId) && whId.HasValue)
+            .Select(pid => (pid, warehouseMap[pid]!.Value));
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
     }
 
     private async Task DeductProductConsumptionsAsync(
