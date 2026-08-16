@@ -361,6 +361,19 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         var stockSnapshots = new Dictionary<(Guid ProductId, Guid WarehouseId, Guid? ManufacturerId), decimal>();
         var syntheticItems = new List<WarehouseImportReceiptItem>();
 
+        var stockBeforeByUnitsCache = new Dictionary<(Guid, Guid), string?>();
+        foreach (var item in items)
+        {
+            var byUnitsKey = (item.ProductId, item.ReceivingWarehouseId);
+            if (!stockBeforeByUnitsCache.ContainsKey(byUnitsKey))
+            {
+                var prod = await _productRepository.GetAsync(item.ProductId);
+                var byUnits = await ComputeStockByUnitsAsync(item.ProductId, item.ReceivingWarehouseId, prod);
+                stockBeforeByUnitsCache[byUnitsKey] = byUnits.Count >= 2
+                    ? JsonSerializer.Serialize(byUnits) : null;
+            }
+        }
+
         foreach (var item in items)
         {
             var product = await _productRepository.GetAsync(item.ProductId);
@@ -474,6 +487,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                     BarcodeValues = JsonSerializer.Serialize(transferredBarcodes),
                     StockBeforeBaseQuantity = stockBefore,
                     StockAfterBaseQuantity = stockAfter,
+                    StockBeforeByUnitsJson = stockBeforeByUnitsCache.GetValueOrDefault(
+                        (item.ProductId, item.ReceivingWarehouseId)),
                     Status = WarehouseImportLineStatus.Checked
                 });
             }
@@ -482,6 +497,24 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         await _warehouseImportReceiptRepository.InsertAsync(syntheticReceipt, autoSave: true);
         foreach (var syntheticItem in syntheticItems)
             await _warehouseImportItemRepository.InsertAsync(syntheticItem, autoSave: true);
+
+        // Compute StockAfterByUnits: re-query after items inserted
+        // Must iterate ALL combos, not just those with multi-unit before —
+        // a receipt can introduce a new unit type making it multi-unit after.
+        foreach (var kvp in stockBeforeByUnitsCache)
+        {
+            var prod = await _productRepository.GetAsync(kvp.Key.Item1);
+            var afterByUnits = await ComputeStockByUnitsAsync(kvp.Key.Item1, kvp.Key.Item2, prod);
+            var afterJson = afterByUnits.Count >= 2 ? JsonSerializer.Serialize(afterByUnits) : null;
+            if (afterJson == null && kvp.Value == null) continue;
+            var affectedItems = syntheticItems
+                .Where(si => si.ProductId == kvp.Key.Item1 && si.StorageWarehouseId == kvp.Key.Item2);
+            foreach (var si in affectedItems)
+            {
+                si.StockAfterByUnitsJson = afterJson;
+                await _warehouseImportItemRepository.UpdateAsync(si, autoSave: true);
+            }
+        }
 
         receipt.SyntheticWarehouseReceiptId = syntheticReceipt.Id;
         receipt.Status = MaterialReceiptStatus.Confirmed;
@@ -760,6 +793,67 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
         var remainings = await _asyncExecuter.ToListAsync(query);
         return remainings.Sum();
+    }
+
+    private async Task<List<StockByUnitDto>> ComputeStockByUnitsAsync(
+        Guid productId, Guid warehouseId, Product product)
+    {
+        var importItemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+        var skuQuery = (await _productSkuRepository.GetQueryableAsync())
+            .Where(s => s.ProductId == productId);
+
+        var lotData = await _asyncExecuter.ToListAsync(
+            from item in importItemQuery
+            join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+            join skuCandidate in skuQuery on item.SkuId equals (Guid?)skuCandidate.Id into skuGroup
+            from sku in skuGroup.DefaultIfEmpty()
+            where item.ProductId == productId
+                  && receipt.Status == WarehouseImportReceiptStatus.Completed
+                  && item.Status == WarehouseImportLineStatus.Checked
+                  && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+            let effectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+            where effectiveWarehouseId == warehouseId
+            select new
+            {
+                Remaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
+                PackagingUnitId = sku != null ? sku.PackagingUnitId : (product.PackagingUnitId ?? product.BaseUnitId),
+                VolumePerUnit = sku != null ? sku.VolumePerUnit : product.VolumePerUnit,
+                VolumeUnitId = sku != null ? sku.VolumeUnitId : product.VolumeUnitId,
+            });
+
+        var grouped = lotData
+            .GroupBy(x => x.PackagingUnitId)
+            .Select(g => new
+            {
+                PackagingUnitId = g.Key,
+                Quantity = g.Sum(x => x.Remaining),
+                VolumePerUnit = g.First().VolumePerUnit,
+                VolumeUnitId = g.First().VolumeUnitId,
+            })
+            .ToList();
+
+        if (grouped.Count < 2) return new List<StockByUnitDto>();
+
+        var unitIds = grouped.Where(x => x.PackagingUnitId.HasValue).Select(x => (Guid?)x.PackagingUnitId)
+            .Concat(grouped.Where(x => x.VolumeUnitId.HasValue).Select(x => x.VolumeUnitId))
+            .Where(x => x.HasValue).Select(x => x!.Value)
+            .Distinct().ToList();
+        var unitMap = (await _asyncExecuter.ToListAsync(
+            (await _unitRepository.GetQueryableAsync()).Where(u => unitIds.Contains(u.Id))))
+            .ToDictionary(u => u.Id, u => u.Name);
+
+        return grouped
+            .OrderByDescending(x => x.Quantity)
+            .Select(x => new StockByUnitDto
+            {
+                PackagingUnitName = x.PackagingUnitId.HasValue && unitMap.TryGetValue(x.PackagingUnitId.Value, out var pName) ? pName : null,
+                Quantity = x.Quantity,
+                VolumePerUnit = x.VolumePerUnit,
+                VolumeUnitName = x.VolumeUnitId.HasValue && unitMap.TryGetValue(x.VolumeUnitId.Value, out var vName)
+                    ? vName : null,
+            })
+            .ToList();
     }
 
     private async Task<DateTime?> GetNearestExpiryDateAsync(Guid productId, Guid warehouseId)

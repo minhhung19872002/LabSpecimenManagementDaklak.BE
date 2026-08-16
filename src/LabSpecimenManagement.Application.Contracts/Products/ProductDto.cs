@@ -384,6 +384,8 @@ public class ProductMaterialReceiptHistoryDto
     public string? StorageUnitName { get; set; }
     public string? ConsumableUnitName { get; set; }
     public int? VolumePerUnit { get; set; }
+    public List<StockByUnitDto> StockBeforeByUnits { get; set; } = new();
+    public List<StockByUnitDto> StockAfterByUnits { get; set; } = new();
 }
 
 public class GetProductMaterialReceiptHistoryInput : PagedRequestDto

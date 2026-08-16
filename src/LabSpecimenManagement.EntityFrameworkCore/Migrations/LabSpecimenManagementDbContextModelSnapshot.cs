@@ -7365,9 +7365,15 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("StockAfterByUnitsJson")
+                        .HasColumnType("text");
+
                     b.Property<decimal?>("StockBeforeBaseQuantity")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
+
+                    b.Property<string>("StockBeforeByUnitsJson")
+                        .HasColumnType("text");
 
                     b.Property<Guid?>("StorageWarehouseId")
                         .HasColumnType("uuid");

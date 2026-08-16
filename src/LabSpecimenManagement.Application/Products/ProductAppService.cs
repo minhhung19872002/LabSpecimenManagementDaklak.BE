@@ -1481,7 +1481,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                                VolumePerUnit = sku == null ? product.VolumePerUnit : sku.VolumePerUnit,
                                item.BarcodeValues,
                                item.StockBeforeBaseQuantity,
-                               item.StockAfterBaseQuantity
+                               item.StockAfterBaseQuantity,
+                               item.StockBeforeByUnitsJson,
+                               item.StockAfterByUnitsJson
                            };
         var pageBarcodeRows = await AsyncExecuter.ToListAsync(barcodeQuery);
 
@@ -1513,6 +1515,21 @@ public class ProductAppService : ApplicationService, IProductAppService
                 .DefaultIfEmpty()
                 .Max();
 
+            var storageUnitName = row.StorageUnitId.HasValue
+                ? unitMap.GetValueOrDefault(row.StorageUnitId.Value) : null;
+            var consumableUnitName = row.ConsumableUnitId.HasValue
+                ? unitMap.GetValueOrDefault(row.ConsumableUnitId.Value) : null;
+
+            var beforeByUnitsJson = matchingRows
+                .Select(x => x.StockBeforeByUnitsJson)
+                .FirstOrDefault(x => !string.IsNullOrEmpty(x));
+            var afterByUnitsJson = matchingRows
+                .Select(x => x.StockAfterByUnitsJson)
+                .FirstOrDefault(x => !string.IsNullOrEmpty(x));
+
+            var stockBeforeByUnits = DeserializeStockByUnits(beforeByUnitsJson);
+            var stockAfterByUnits = DeserializeStockByUnits(afterByUnitsJson);
+
             return new ProductMaterialReceiptHistoryDto
             {
                 MaterialReceiptId = row.MaterialReceiptId,
@@ -1531,11 +1548,11 @@ public class ProductAppService : ApplicationService, IProductAppService
                 Barcodes = barcodes,
                 StockBeforeBaseQuantity = stockBefore,
                 StockAfterBaseQuantity = stockAfter,
-                StorageUnitName = row.StorageUnitId.HasValue
-                    ? unitMap.GetValueOrDefault(row.StorageUnitId.Value) : null,
-                ConsumableUnitName = row.ConsumableUnitId.HasValue
-                    ? unitMap.GetValueOrDefault(row.ConsumableUnitId.Value) : null,
-                VolumePerUnit = row.VolumePerUnit
+                StorageUnitName = storageUnitName,
+                ConsumableUnitName = consumableUnitName,
+                VolumePerUnit = row.VolumePerUnit,
+                StockBeforeByUnits = stockBeforeByUnits,
+                StockAfterByUnits = stockAfterByUnits
             };
         }).ToList();
 
@@ -2347,6 +2364,23 @@ public class ProductAppService : ApplicationService, IProductAppService
         }).ToList();
 
         return new PagedResultDto<ProductUsageLogItemDto>(totalCount, items);
+    }
+
+    private static List<StockByUnitDto> DeserializeStockByUnits(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json))
+            return new List<StockByUnitDto>();
+
+        try
+        {
+            return JsonSerializer.Deserialize<List<StockByUnitDto>>(json,
+                new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
+                ?? new List<StockByUnitDto>();
+        }
+        catch (JsonException)
+        {
+            return new List<StockByUnitDto>();
+        }
     }
 
     private static List<string> DeserializeBarcodes(string? barcodeValues)
