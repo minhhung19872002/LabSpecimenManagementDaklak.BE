@@ -67,6 +67,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
                 item.LotExpiryDate,
                 item.ReceivedBaseQuantity,
                 item.BarcodeValues,
+                item.SkuId,
                 receipt.ActualImportDate,
             });
 
@@ -87,6 +88,9 @@ public class InventoryBarcodeStatusService : ITransientDependency
             .ThenBy(g => g.Key.LotExpiryDate)
             .ToList();
 
+        var product = await _productRepository.GetAsync(productId);
+        var packagingQty = product.PackagingQuantity ?? 1;
+
         var remainingConsumed = totalBaseConsumed;
         var updatedBarcodes = new List<InventoryBarcode>();
 
@@ -98,9 +102,16 @@ public class InventoryBarcodeStatusService : ITransientDependency
                 .OrderBy(c => c)
                 .ToList();
 
-            var received = orderedItems.Sum(x => x.ReceivedBaseQuantity);
-            var consumed = Math.Min(remainingConsumed, received);
-            remainingConsumed -= consumed;
+            var receivedOriginal = orderedItems.Sum(x => x.ReceivedBaseQuantity);
+            var isSkuGroup = orderedItems.Any(x => x.SkuId != null);
+            var receivedInPackaging = isSkuGroup || packagingQty <= 1
+                ? receivedOriginal
+                : receivedOriginal * packagingQty;
+            var consumedInPackaging = Math.Min(remainingConsumed, receivedInPackaging);
+            remainingConsumed -= consumedInPackaging;
+            var consumed = isSkuGroup || packagingQty <= 1
+                ? consumedInPackaging
+                : consumedInPackaging / packagingQty;
 
             var isExpired = g.Key.LotExpiryDate.HasValue && g.Key.LotExpiryDate.Value < today;
             var consumedFloor = (int)Math.Floor(consumed);
