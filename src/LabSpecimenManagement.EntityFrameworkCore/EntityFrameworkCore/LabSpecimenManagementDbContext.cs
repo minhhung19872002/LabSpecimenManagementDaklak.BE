@@ -1722,6 +1722,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.WarehouseName).HasMaxLength(256);
             b.Property(x => x.ActualUnitName).HasMaxLength(100);
             b.Property(x => x.Reason).HasMaxLength(1000);
+            b.Property(x => x.LotNumber).HasMaxLength(200);
+            b.Property(x => x.ManufacturerName).HasMaxLength(500);
 
             b.HasIndex(x => x.StockAdjustmentId);
             b.HasIndex(x => x.ProductId);
@@ -1886,6 +1888,8 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
             b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
             b.Property(x => x.ConsumableStockBefore).HasPrecision(18, 4);
+
+            b.Property(x => x.LotNumber).HasMaxLength(200);
 
             b.HasIndex(x => x.LaboratoryTaskIndicatorId);
             b.HasIndex(x => x.ProductId);

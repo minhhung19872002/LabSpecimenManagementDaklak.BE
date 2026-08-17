@@ -52,6 +52,8 @@ public class StockAdjustmentItemDto
     public ProductType? ProductType { get; set; }
     public string? BaseUnitName { get; set; }
     public decimal? ConsumableQuantityBefore { get; set; }
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
 }
 
 public class CreateUpdateStockAdjustmentDto
@@ -82,6 +84,12 @@ public class CreateUpdateStockAdjustmentItemDto
     public string? Reason { get; set; }
 
     public decimal? ExpectedStock { get; set; }
+
+    [StringLength(200)]
+    public string? LotNumber { get; set; }
+
+    [StringLength(500)]
+    public string? ManufacturerName { get; set; }
 }
 
 public class GetStockAdjustmentListInput : PagedRequestDto
@@ -107,4 +115,22 @@ public class ConfirmPreviewItemDto
     public decimal CurrentQuantity { get; set; }
     public decimal ActualQuantity { get; set; }
     public bool HasChanged { get; set; }
+}
+
+public class WarehouseProductLotDto
+{
+    public Guid ProductId { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public ProductType ProductType { get; set; }
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
+    public decimal RemainingBaseQuantity { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public string? BaseUnitName { get; set; }
+    public Guid? VolumeUnitId { get; set; }
+    public Guid? BaseUnitId { get; set; }
+    public decimal ConsumableQuantity { get; set; }
+    public decimal TheoreticalConsumption { get; set; }
 }

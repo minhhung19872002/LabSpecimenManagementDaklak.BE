@@ -20,6 +20,8 @@ public class StockAdjustmentItem : Entity<Guid>
     public string? Reason { get; set; }
     public decimal? ExpectedStock { get; set; }
     public decimal? ConsumableQuantityBefore { get; set; }
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
 
     protected StockAdjustmentItem()
     {

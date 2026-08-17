@@ -1849,23 +1849,129 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
         var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWarehouseMap);
 
+        var lotProductIds = consumableProductWarehouseMap.Keys.ToList();
+        var lotTracker = new Dictionary<(Guid, Guid?), List<(string? LotNumber, decimal Remaining)>>();
+        if (lotProductIds.Any())
+        {
+            var lotItemQ = await _importReceiptItemRepository.GetQueryableAsync();
+            var lotReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
+            var rawLots = (from ii in lotItemQ
+                           join ir in lotReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                           where lotProductIds.Contains(ii.ProductId)
+                                 && ir.Status == WarehouseImportReceiptStatus.Completed
+                                 && ii.Status == WarehouseImportLineStatus.Checked
+                                 && (ii.ReceivedBaseQuantity - ii.ConsumedBaseQuantity) > 0
+                           orderby ii.LotExpiryDate == null ? 1 : 0,
+                                   ii.LotExpiryDate,
+                                   ir.ActualImportDate
+                           select new
+                           {
+                               ii.ProductId,
+                               EffWh = ii.StorageWarehouseId ?? ir.WarehouseId,
+                               ii.LotNumber,
+                               Remaining = ii.ReceivedBaseQuantity - ii.ConsumedBaseQuantity
+                           }).ToList();
+
+            foreach (var g in rawLots.GroupBy(l => (l.ProductId, l.EffWh)))
+                lotTracker[g.Key] = g.Select(l => (l.LotNumber, l.Remaining)).ToList();
+        }
+
+        var convProducts = lotProductIds.Any()
+            ? await _productRepository.GetListAsync(p => lotProductIds.Contains(p.Id))
+            : new List<Product>();
+        var convProductMap = convProducts.ToDictionary(p => p.Id);
+        var convSkus = lotProductIds.Any()
+            ? await _productSkuRepository.GetListAsync(s => lotProductIds.Contains(s.ProductId))
+            : new List<ProductSku>();
+        var convSkuByProduct = convSkus.GroupBy(s => s.ProductId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
         foreach (var (indicator, item) in consumptionRecords)
         {
-            var consumption = new IndicatorConsumption(
-                GuidGenerator.Create(),
-                indicator.Id,
-                item.ProductId,
-                item.EquipmentId,
-                item.UnitId,
-                item.AvgConsumptionPerSample!.Value);
-            consumption.IsDeducted = true;
-            consumption.SubmitDate = Clock.Now;
-            if (item.ProductId.HasValue)
+            var consumeQty = item.AvgConsumptionPerSample!.Value;
+
+            if (!item.ProductId.HasValue)
             {
-                consumption.WarehouseId = warehouseMap.GetValueOrDefault(item.ProductId.Value);
-                consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(item.ProductId.Value);
+                var c = new IndicatorConsumption(
+                    GuidGenerator.Create(), indicator.Id, null, item.EquipmentId,
+                    item.UnitId, consumeQty);
+                c.IsDeducted = true;
+                c.SubmitDate = Clock.Now;
+                await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
+                continue;
             }
-            await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+
+            var prodId = item.ProductId.Value;
+            var whId = warehouseMap.GetValueOrDefault(prodId);
+            var stockBefore = consumableStocks.GetValueOrDefault(prodId);
+            var now = Clock.Now;
+
+            if (lotTracker.TryGetValue((prodId, whId), out var lots) && lots.Count > 0)
+            {
+                var baseQty = ConvertConsumptionToBaseUnits(
+                    prodId, item.UnitId, consumeQty, convProductMap, convSkuByProduct);
+                if (baseQty.HasValue && baseQty.Value > 0)
+                {
+                    var remainingBase = baseQty.Value;
+                    var ratio = consumeQty / baseQty.Value;
+
+                    for (int i = 0; i < lots.Count && remainingBase > 0; i++)
+                    {
+                        if (lots[i].Remaining <= 0) continue;
+
+                        var take = Math.Min(lots[i].Remaining, remainingBase);
+                        lots[i] = (lots[i].LotNumber, lots[i].Remaining - take);
+                        remainingBase -= take;
+
+                        var portionQty = take * ratio;
+                        var c = new IndicatorConsumption(
+                            GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
+                            item.UnitId, portionQty);
+                        c.IsDeducted = true;
+                        c.SubmitDate = now;
+                        c.WarehouseId = whId;
+                        c.ConsumableStockBefore = stockBefore;
+                        c.LotNumber = lots[i].LotNumber;
+                        await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
+                    }
+
+                    if (remainingBase > 0)
+                    {
+                        var c = new IndicatorConsumption(
+                            GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
+                            item.UnitId, remainingBase * ratio);
+                        c.IsDeducted = true;
+                        c.SubmitDate = now;
+                        c.WarehouseId = whId;
+                        c.ConsumableStockBefore = stockBefore;
+                        await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
+                    }
+                }
+                else
+                {
+                    var resolvedLot = lots.FirstOrDefault(l => l.Remaining > 0).LotNumber;
+                    var c = new IndicatorConsumption(
+                        GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
+                        item.UnitId, consumeQty);
+                    c.IsDeducted = true;
+                    c.SubmitDate = now;
+                    c.WarehouseId = whId;
+                    c.ConsumableStockBefore = stockBefore;
+                    c.LotNumber = resolvedLot;
+                    await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
+                }
+            }
+            else
+            {
+                var c = new IndicatorConsumption(
+                    GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
+                    item.UnitId, consumeQty);
+                c.IsDeducted = true;
+                c.SubmitDate = now;
+                c.WarehouseId = whId;
+                c.ConsumableStockBefore = stockBefore;
+                await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
+            }
         }
 
         var allConsumptionItems = consumptionByTmi.Values.SelectMany(x => x).ToList();
@@ -1973,6 +2079,35 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             .Where(t => t.Item2.HasValue)
             .Select(t => (t.Item1, t.Item2!.Value));
         await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
+    }
+
+    private static decimal? ConvertConsumptionToBaseUnits(
+        Guid productId, Guid? unitId, decimal qty,
+        Dictionary<Guid, Product> productMap,
+        Dictionary<Guid, List<ProductSku>> skuByProduct)
+    {
+        if (!unitId.HasValue || !productMap.TryGetValue(productId, out var product))
+            return null;
+
+        if (unitId == product.PackagingUnitId) return qty;
+        if (unitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            return qty / product.VolumePerUnit!.Value;
+        if (unitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            return qty * product.PackagingQuantity!.Value;
+
+        if (skuByProduct.TryGetValue(productId, out var pSkus))
+        {
+            foreach (var sku in pSkus)
+            {
+                if (unitId == sku.PackagingUnitId) return qty;
+                if (unitId == sku.VolumeUnitId && sku.VolumePerUnit > 0)
+                    return qty / (decimal)sku.VolumePerUnit.Value;
+                if (unitId == sku.BaseUnitId && sku.PackagingQuantity > 0)
+                    return qty * sku.PackagingQuantity!.Value;
+            }
+        }
+
+        return null;
     }
 
     private async Task UpdatePreparedSolutionRemainingVolumeAsync(

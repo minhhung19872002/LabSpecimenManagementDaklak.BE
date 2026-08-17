@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -14,4 +15,5 @@ public interface IStockAdjustmentAppService : IApplicationService
     Task DeleteAsync(Guid id);
     Task<StockAdjustmentDto> ConfirmAsync(Guid id);
     Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id);
+    Task<List<WarehouseProductLotDto>> GetWarehouseProductLotsAsync(Guid warehouseId);
 }

@@ -6,6 +6,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Products;
+using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -30,6 +31,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
+    private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
     private readonly IUserNameProvider _userNameProvider;
@@ -48,6 +50,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
+        IRepository<Manufacturer, Guid> manufacturerRepository,
         ICodeGeneratorService codeGenerator,
         IDataFilter dataFilter,
         IUserNameProvider userNameProvider,
@@ -65,6 +68,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
         _importReceiptRepository = importReceiptRepository;
+        _manufacturerRepository = manufacturerRepository;
         _codeGenerator = codeGenerator;
         _dataFilter = dataFilter;
         _userNameProvider = userNameProvider;
@@ -251,53 +255,105 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
         var barcodeTargets = new List<(Guid ProductId, Guid WarehouseId)>();
 
-        foreach (var item in items)
+        var itemsByProductWarehouse = items
+            .GroupBy(x => (x.ProductId, x.WarehouseId))
+            .ToList();
+
+        foreach (var group in itemsByProductWarehouse)
         {
-            var product = await _productRepository.GetAsync(item.ProductId);
+            var productId = group.Key.ProductId;
+            var warehouseId = group.Key.WarehouseId;
+            var product = await _productRepository.GetAsync(productId);
 
             var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
-                importItemQ, importReceiptQ, product, item.WarehouseId);
+                importItemQ, importReceiptQ, product, warehouseId);
 
-            var actualInBaseUnit = item.ActualQuantity;
-            if (item.ActualUnitId.HasValue && item.ActualUnitId != product.BaseUnitId)
+            var volumeUnitId = product.VolumeUnitId;
+            int? volumePerUnit = product.VolumePerUnit;
+            if (!volumeUnitId.HasValue || !volumePerUnit.HasValue || volumePerUnit.Value <= 0)
             {
-                var volumeUnitId = product.VolumeUnitId;
-                int? volumePerUnit = product.VolumePerUnit;
-
-                if (!volumeUnitId.HasValue || !volumePerUnit.HasValue || volumePerUnit.Value <= 0)
+                var sku = (await _skuRepository.GetQueryableAsync())
+                    .Where(s => s.ProductId == product.Id && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0)
+                    .FirstOrDefault();
+                if (sku != null)
                 {
-                    var sku = (await _skuRepository.GetQueryableAsync())
-                        .Where(s => s.ProductId == product.Id && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0)
-                        .FirstOrDefault();
-                    if (sku != null)
-                    {
-                        volumeUnitId ??= sku.VolumeUnitId;
-                        if (!volumePerUnit.HasValue || volumePerUnit.Value <= 0)
-                            volumePerUnit = sku.VolumePerUnit;
-                    }
-                }
-
-                if (volumeUnitId.HasValue && item.ActualUnitId == volumeUnitId
-                    && volumePerUnit.HasValue && volumePerUnit.Value > 0)
-                {
-                    actualInBaseUnit = item.ActualQuantity / volumePerUnit.Value;
-                }
-                else if (product.PackagingUnitId.HasValue && item.ActualUnitId == product.PackagingUnitId
-                         && product.PackagingQuantity.HasValue && product.PackagingQuantity.Value > 0)
-                {
-                    actualInBaseUnit = item.ActualQuantity / product.PackagingQuantity.Value;
+                    volumeUnitId ??= sku.VolumeUnitId;
+                    if (!volumePerUnit.HasValue || volumePerUnit.Value <= 0)
+                        volumePerUnit = sku.VolumePerUnit;
                 }
             }
 
-            item.QuantityBefore = quantityBefore;
-            item.ConsumableQuantityBefore = consumableQuantityBefore;
-            item.AdjustmentQuantity = quantityBefore - actualInBaseUnit;
-            await _itemRepository.UpdateAsync(item, autoSave: true);
+            var lotRemainingMap = new Dictionary<string, decimal>();
+            var hasMultipleLots = group.Count() > 1;
+            if (hasMultipleLots)
+            {
+                var lotQuery = from ii in importItemQ
+                               join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                               where ii.ProductId == productId
+                                     && ir.Status == WarehouseImportReceiptStatus.Completed
+                                     && ii.Status == WarehouseImportLineStatus.Checked
+                               select new { ii, ir };
+
+                if (warehouseId.HasValue)
+                {
+                    lotQuery = lotQuery.Where(x =>
+                        (x.ii.StorageWarehouseId.HasValue && x.ii.StorageWarehouseId == warehouseId.Value)
+                        || (!x.ii.StorageWarehouseId.HasValue && x.ir.WarehouseId.HasValue && x.ir.WarehouseId == warehouseId.Value));
+                }
+
+                var lotRows = lotQuery
+                    .Select(x => new { x.ii.LotNumber, x.ii.ReceivedBaseQuantity, x.ii.ConsumedBaseQuantity })
+                    .ToList();
+
+                foreach (var lg in lotRows.GroupBy(l => l.LotNumber ?? ""))
+                {
+                    lotRemainingMap[lg.Key] = lg.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
+                }
+            }
+
+            decimal totalActualBase = 0;
+            foreach (var item in group)
+            {
+                var actualInBaseUnit = item.ActualQuantity;
+                if (item.ActualUnitId.HasValue && item.ActualUnitId != product.BaseUnitId)
+                {
+                    if (volumeUnitId.HasValue && item.ActualUnitId == volumeUnitId
+                        && volumePerUnit.HasValue && volumePerUnit.Value > 0)
+                    {
+                        actualInBaseUnit = item.ActualQuantity / volumePerUnit.Value;
+                    }
+                    else if (product.PackagingUnitId.HasValue && item.ActualUnitId == product.PackagingUnitId
+                             && product.PackagingQuantity.HasValue && product.PackagingQuantity.Value > 0)
+                    {
+                        actualInBaseUnit = item.ActualQuantity / product.PackagingQuantity.Value;
+                    }
+                }
+
+                totalActualBase += actualInBaseUnit;
+
+                if (hasMultipleLots)
+                {
+                    var lotKey = item.LotNumber ?? "";
+                    var lotBase = lotRemainingMap.TryGetValue(lotKey, out var lb) ? lb : 0;
+                    item.QuantityBefore = lotBase;
+                    item.ConsumableQuantityBefore = volumePerUnit.HasValue && volumePerUnit.Value > 0
+                        ? lotBase * volumePerUnit.Value
+                        : lotBase;
+                    item.AdjustmentQuantity = lotBase - actualInBaseUnit;
+                }
+                else
+                {
+                    item.QuantityBefore = quantityBefore;
+                    item.ConsumableQuantityBefore = consumableQuantityBefore;
+                    item.AdjustmentQuantity = quantityBefore - actualInBaseUnit;
+                }
+                await _itemRepository.UpdateAsync(item, autoSave: true);
+            }
 
             List<Guid> adjustWhIds;
-            if (item.WarehouseId.HasValue)
+            if (warehouseId.HasValue)
             {
-                adjustWhIds = new List<Guid> { item.WarehouseId.Value };
+                adjustWhIds = new List<Guid> { warehouseId.Value };
             }
             else
             {
@@ -307,9 +363,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     .ToList();
             }
 
-            if (actualInBaseUnit < quantityBefore)
+            if (totalActualBase < quantityBefore)
             {
-                var diff = quantityBefore - actualInBaseUnit;
+                var diff = quantityBefore - totalActualBase;
                 await _fifoStockService.DeductAsync(
                     product, diff,
                     StockMovementType.StockAdjustment,
@@ -318,9 +374,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             }
             else
             {
-                if (actualInBaseUnit > quantityBefore)
+                if (totalActualBase > quantityBefore)
                 {
-                    product.AvailableQuantity += (actualInBaseUnit - quantityBefore);
+                    product.AvailableQuantity += (totalActualBase - quantityBefore);
                     await _productRepository.UpdateAsync(product, autoSave: true);
                 }
 
@@ -329,23 +385,23 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     product.Id,
                     product.Name,
                     quantityBefore,
-                    actualInBaseUnit,
+                    totalActualBase,
                     StockMovementType.StockAdjustment,
                     adjustment.Id,
                     adjustment.Code,
                     null,
-                    item.WarehouseId);
+                    warehouseId);
                 await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
             }
 
-            if (item.WarehouseId.HasValue)
+            if (warehouseId.HasValue)
             {
                 await UpsertProductWarehouseInventoryAsync(
-                    item.ProductId, item.WarehouseId.Value, Clock.Now);
+                    productId, warehouseId.Value, Clock.Now);
             }
 
             foreach (var whId in adjustWhIds)
-                barcodeTargets.Add((item.ProductId, whId));
+                barcodeTargets.Add((productId, whId));
         }
 
         await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
@@ -395,6 +451,134 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         return result;
     }
 
+    public async Task<List<WarehouseProductLotDto>> GetWarehouseProductLotsAsync(Guid warehouseId)
+    {
+        var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
+
+        var lotData = (from ii in importItemQ
+                       join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                       where ir.Status == WarehouseImportReceiptStatus.Completed
+                             && ii.Status == WarehouseImportLineStatus.Checked
+                             && !ii.IsEquipment
+                             && ((ii.StorageWarehouseId.HasValue && ii.StorageWarehouseId == warehouseId)
+                                 || (!ii.StorageWarehouseId.HasValue && ir.WarehouseId.HasValue && ir.WarehouseId == warehouseId))
+                       select new
+                       {
+                           ii.ProductId,
+                           ii.LotNumber,
+                           ii.SkuId,
+                           ii.ReceivedBaseQuantity,
+                           ii.ConsumedBaseQuantity,
+                       }).ToList();
+
+        var productIds = lotData.Select(l => l.ProductId).Distinct().ToList();
+        if (productIds.Count == 0) return new List<WarehouseProductLotDto>();
+
+        var products = (await _productRepository.GetQueryableAsync())
+            .Where(p => productIds.Contains(p.Id))
+            .ToList();
+        var productMap = products.ToDictionary(p => p.Id);
+
+        var skus = (await _skuRepository.GetQueryableAsync())
+            .Where(s => productIds.Contains(s.ProductId))
+            .ToList();
+        var skuById = skus.ToDictionary(s => s.Id);
+
+        var manufacturerIds = skus.Select(s => s.ManufacturerId).Distinct().ToList();
+        var manufacturers = manufacturerIds.Count > 0
+            ? (await _manufacturerRepository.GetQueryableAsync())
+                .Where(m => manufacturerIds.Contains(m.Id))
+                .ToDictionary(m => m.Id, m => m.Name)
+            : new Dictionary<Guid, string>();
+
+        var unitIds = products
+            .SelectMany(p => new Guid?[] { p.PackagingUnitId, p.VolumeUnitId, p.BaseUnitId })
+            .Concat(skus.SelectMany(s => new Guid?[] { s.PackagingUnitId, s.VolumeUnitId }))
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        var unitNames = unitIds.Count > 0
+            ? (await _unitRepository.GetQueryableAsync())
+                .Where(u => unitIds.Contains(u.Id))
+                .ToDictionary(u => u.Id, u => u.Name)
+            : new Dictionary<Guid, string>();
+
+        // Compute per-lot theoretical consumption since last inventory
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        var lastInventoryMap = pwiQuery
+            .Where(pwi => productIds.Contains(pwi.ProductId) && pwi.WarehouseId == warehouseId)
+            .ToDictionary(pwi => pwi.ProductId, pwi => pwi.LastInventoryDate);
+
+        var icRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<IndicatorConsumption, Guid>>();
+        var icQuery = await icRepo.GetQueryableAsync();
+        var consumptionByLot = icQuery
+            .Where(ic => productIds.Contains(ic.ProductId!.Value)
+                         && ic.WarehouseId == warehouseId
+                         && ic.IsDeducted
+                         && ic.SubmitDate.HasValue)
+            .ToList()
+            .Where(ic => !lastInventoryMap.TryGetValue(ic.ProductId!.Value, out var lid)
+                         || ic.SubmitDate!.Value > lid)
+            .GroupBy(ic => (ic.ProductId!.Value, LotNumber: ic.LotNumber ?? ""))
+            .ToDictionary(g => g.Key, g => g.Sum(ic => ic.RecommendedQuantity));
+
+        var result = new List<WarehouseProductLotDto>();
+
+        foreach (var group in lotData.GroupBy(l => (l.ProductId, LotNumber: l.LotNumber ?? "")))
+        {
+            var productId = group.Key.ProductId;
+            if (!productMap.TryGetValue(productId, out var product)) continue;
+
+            var remaining = group.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
+            if (remaining <= 0) continue;
+
+            string? manufacturerName = null;
+            int? volumePerUnit = null;
+            Guid? volumeUnitId = null;
+            Guid? packagingUnitId = null;
+
+            var firstSkuId = group.FirstOrDefault(l => l.SkuId.HasValue)?.SkuId;
+            if (firstSkuId.HasValue && skuById.TryGetValue(firstSkuId.Value, out var sku))
+            {
+                manufacturers.TryGetValue(sku.ManufacturerId, out manufacturerName);
+                if (sku.VolumePerUnit > 0) volumePerUnit = sku.VolumePerUnit;
+                volumeUnitId = sku.VolumeUnitId;
+                packagingUnitId = sku.PackagingUnitId;
+            }
+            volumePerUnit ??= (product.VolumePerUnit > 0 ? product.VolumePerUnit : null);
+            volumeUnitId ??= product.VolumeUnitId;
+            packagingUnitId ??= product.PackagingUnitId;
+
+            var consumableQty = volumePerUnit.HasValue && volumePerUnit.Value > 0
+                ? remaining * volumePerUnit.Value
+                : remaining;
+
+            var lotConsumption = consumptionByLot.GetValueOrDefault(group.Key);
+
+            result.Add(new WarehouseProductLotDto
+            {
+                ProductId = productId,
+                ProductName = product.Name,
+                ProductType = product.ProductType,
+                LotNumber = string.IsNullOrEmpty(group.Key.LotNumber) ? null : group.Key.LotNumber,
+                ManufacturerName = manufacturerName,
+                RemainingBaseQuantity = remaining,
+                VolumePerUnit = volumePerUnit,
+                VolumeUnitId = volumeUnitId,
+                BaseUnitId = product.BaseUnitId,
+                ConsumableQuantity = consumableQty,
+                TheoreticalConsumption = lotConsumption,
+                VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
+                PackagingUnitName = packagingUnitId.HasValue && unitNames.TryGetValue(packagingUnitId.Value, out var pun) ? pun : null,
+                BaseUnitName = product.BaseUnitId.HasValue && unitNames.TryGetValue(product.BaseUnitId.Value, out var bun) ? bun : null,
+            });
+        }
+
+        return result.OrderBy(x => x.ProductName).ThenBy(x => x.LotNumber).ToList();
+    }
+
     #region Private Methods
 
     private async Task<string> GenerateCodeAsync()
@@ -440,6 +624,49 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
             var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
                 importItemQ, importReceiptQ, product, itemInput.WarehouseId);
+
+            if (!string.IsNullOrEmpty(itemInput.LotNumber))
+            {
+                var lotQuery = from ii in importItemQ
+                               join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                               where ii.ProductId == product.Id
+                                     && ir.Status == WarehouseImportReceiptStatus.Completed
+                                     && ii.Status == WarehouseImportLineStatus.Checked
+                                     && ii.LotNumber == itemInput.LotNumber
+                               select new { ii, ir };
+
+                if (itemInput.WarehouseId.HasValue)
+                {
+                    var whId = itemInput.WarehouseId.Value;
+                    lotQuery = lotQuery.Where(x =>
+                        (x.ii.StorageWarehouseId.HasValue && x.ii.StorageWarehouseId == whId)
+                        || (!x.ii.StorageWarehouseId.HasValue && x.ir.WarehouseId.HasValue && x.ir.WarehouseId == whId));
+                }
+
+                var lotRows = lotQuery
+                    .Select(x => new { x.ii.ReceivedBaseQuantity, x.ii.ConsumedBaseQuantity, x.ii.SkuId })
+                    .ToList();
+
+                if (lotRows.Count > 0)
+                {
+                    var lotBase = lotRows.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
+
+                    int? vpu = null;
+                    var firstSkuId = lotRows.FirstOrDefault(l => l.SkuId.HasValue)?.SkuId;
+                    if (firstSkuId.HasValue)
+                    {
+                        var sku = (await _skuRepository.GetQueryableAsync())
+                            .FirstOrDefault(s => s.Id == firstSkuId.Value && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0);
+                        if (sku != null) vpu = sku.VolumePerUnit;
+                    }
+                    vpu ??= (product.VolumePerUnit > 0 ? product.VolumePerUnit : null);
+
+                    quantityBefore = lotBase;
+                    consumableQuantityBefore = vpu.HasValue && vpu.Value > 0
+                        ? lotBase * vpu.Value
+                        : lotBase;
+                }
+            }
 
             var actualInBaseUnit = itemInput.ActualQuantity;
             if (itemInput.ActualUnitId.HasValue && itemInput.ActualUnitId != product.BaseUnitId)
@@ -490,6 +717,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 Reason = itemInput.Reason,
                 ExpectedStock = itemInput.ExpectedStock,
                 ConsumableQuantityBefore = consumableQuantityBefore,
+                LotNumber = itemInput.LotNumber,
+                ManufacturerName = itemInput.ManufacturerName,
             };
 
             await _itemRepository.InsertAsync(item, autoSave: true);
@@ -653,6 +882,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                         itemDto.BaseUnitName = baseUnitName;
                 }
                 itemDto.ConsumableQuantityBefore = i.ConsumableQuantityBefore;
+                itemDto.LotNumber = i.LotNumber;
+                itemDto.ManufacturerName = i.ManufacturerName;
                 return itemDto;
             }).ToList(),
         };

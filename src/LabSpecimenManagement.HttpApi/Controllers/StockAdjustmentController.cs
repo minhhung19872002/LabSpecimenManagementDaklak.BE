@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.StockAdjustments;
@@ -66,5 +67,11 @@ public class StockAdjustmentController : LabSpecimenManagementController
     public virtual Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id)
     {
         return _appService.GetConfirmPreviewAsync(id);
+    }
+
+    [HttpGet("warehouse-product-lots/{warehouseId}")]
+    public virtual Task<List<WarehouseProductLotDto>> GetWarehouseProductLotsAsync(Guid warehouseId)
+    {
+        return _appService.GetWarehouseProductLotsAsync(warehouseId);
     }
 }

@@ -4988,6 +4988,14 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<decimal?>("ExpectedStock")
                         .HasColumnType("numeric");
 
+                    b.Property<string>("LotNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("ManufacturerName")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
                     b.Property<Guid>("ProductId")
                         .HasColumnType("uuid");
 
@@ -6860,6 +6868,10 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid>("LaboratoryTaskIndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("LotNumber")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
 
                     b.Property<Guid?>("ProductId")
                         .HasColumnType("uuid");
