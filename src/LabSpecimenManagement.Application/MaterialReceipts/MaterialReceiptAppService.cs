@@ -822,32 +822,43 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 VolumeUnitId = sku != null ? sku.VolumeUnitId : product.VolumeUnitId,
             });
 
+        // Resolve unit names first, then group by NAME to merge same-name units from different SKUs
+        var allUnitIds = lotData.Where(x => x.PackagingUnitId.HasValue).Select(x => x.PackagingUnitId!.Value)
+            .Concat(lotData.Where(x => x.VolumeUnitId.HasValue).Select(x => x.VolumeUnitId!.Value))
+            .Distinct().ToList();
+        var unitMap = allUnitIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : (await _asyncExecuter.ToListAsync(
+                (await _unitRepository.GetQueryableAsync()).Where(u => allUnitIds.Contains(u.Id))))
+                .ToDictionary(u => u.Id, u => u.Name);
+
         var grouped = lotData
-            .GroupBy(x => x.PackagingUnitId)
-            .Select(g => new
+            .GroupBy(x => x.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(x.PackagingUnitId.Value) : null)
+            .Where(g => g.Key != null)
+            .Select(g =>
             {
-                PackagingUnitId = g.Key,
-                Quantity = g.Sum(x => x.Remaining),
-                VolumePerUnit = g.First().VolumePerUnit,
-                VolumeUnitId = g.First().VolumeUnitId,
+                var totalQty = g.Sum(x => x.Remaining);
+                var totalVol = g.Sum(x => x.VolumePerUnit.HasValue && x.VolumePerUnit.Value > 0
+                    ? x.Remaining * x.VolumePerUnit.Value : 0);
+                return new
+                {
+                    PackagingUnitName = g.Key!,
+                    Quantity = totalQty,
+                    VolumePerUnit = totalQty > 0 && totalVol > 0
+                        ? (int?)Math.Round(totalVol / totalQty)
+                        : g.First().VolumePerUnit,
+                    VolumeUnitId = g.Select(x => x.VolumeUnitId).FirstOrDefault(x => x.HasValue),
+                };
             })
             .ToList();
 
         if (grouped.Count < 2) return new List<StockByUnitDto>();
 
-        var unitIds = grouped.Where(x => x.PackagingUnitId.HasValue).Select(x => (Guid?)x.PackagingUnitId)
-            .Concat(grouped.Where(x => x.VolumeUnitId.HasValue).Select(x => x.VolumeUnitId))
-            .Where(x => x.HasValue).Select(x => x!.Value)
-            .Distinct().ToList();
-        var unitMap = (await _asyncExecuter.ToListAsync(
-            (await _unitRepository.GetQueryableAsync()).Where(u => unitIds.Contains(u.Id))))
-            .ToDictionary(u => u.Id, u => u.Name);
-
         return grouped
             .OrderByDescending(x => x.Quantity)
             .Select(x => new StockByUnitDto
             {
-                PackagingUnitName = x.PackagingUnitId.HasValue && unitMap.TryGetValue(x.PackagingUnitId.Value, out var pName) ? pName : null,
+                PackagingUnitName = x.PackagingUnitName,
                 Quantity = x.Quantity,
                 VolumePerUnit = x.VolumePerUnit,
                 VolumeUnitName = x.VolumeUnitId.HasValue && unitMap.TryGetValue(x.VolumeUnitId.Value, out var vName)

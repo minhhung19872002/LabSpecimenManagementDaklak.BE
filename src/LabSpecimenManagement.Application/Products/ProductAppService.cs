@@ -367,8 +367,25 @@ public class ProductAppService : ApplicationService, IProductAppService
         // 10. Per-warehouse consumption overrides (grouped by ProductId+WarehouseId to match stock rows)
         var pagedProductIds = productsForPage.Select(p => p.Id).ToList();
 
-        // 10x. Per-packaging-unit stock breakdown (warehouse-scoped)
-        var whUnitBreakdown = new Dictionary<(Guid ProductId, Guid WarehouseId, Guid? PackUnitId), (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
+        // Build unit name map from already-resolved DTO Skus (needed before breakdown to group by name)
+        var localUnitNameMap = new Dictionary<Guid, string>();
+        foreach (var d in dtos)
+        {
+            if (d.PackagingUnitId.HasValue && d.PackagingUnitName != null)
+                localUnitNameMap.TryAdd(d.PackagingUnitId.Value, d.PackagingUnitName);
+            if (d.VolumeUnitId.HasValue && d.VolumeUnitName != null)
+                localUnitNameMap.TryAdd(d.VolumeUnitId.Value, d.VolumeUnitName);
+            foreach (var s in d.Skus)
+            {
+                if (s.PackagingUnitId.HasValue && s.PackagingUnitName != null)
+                    localUnitNameMap.TryAdd(s.PackagingUnitId.Value, s.PackagingUnitName);
+                if (s.VolumeUnitId.HasValue && s.VolumeUnitName != null)
+                    localUnitNameMap.TryAdd(s.VolumeUnitId.Value, s.VolumeUnitName);
+            }
+        }
+
+        // 10x. Per-packaging-unit stock breakdown (warehouse-scoped, grouped by unit NAME to merge same-name units from different SKUs)
+        var whUnitBreakdown = new Dictionary<(Guid ProductId, Guid WarehouseId, string? PackUnitName), (decimal Rem, bool Consumed, decimal TotalVolume, Guid? VuId)>();
         foreach (var item in filteredImportItems.Where(x => pagedProductIds.Contains(x.ProductId)))
         {
             var rem = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
@@ -390,44 +407,32 @@ public class ProductAppService : ApplicationService, IProductAppService
                 if (vpu == null && product.VolumePerUnit > 0) { vpu = product.VolumePerUnit; vuId = product.VolumeUnitId; }
             }
 
-            bool hasConsumed = item.ConsumedBaseQuantity > 0;
-            var bKey = (item.ProductId, item.EffectiveWarehouseId!.Value, packUnitId);
-            if (whUnitBreakdown.TryGetValue(bKey, out var ex))
-                whUnitBreakdown[bKey] = (ex.Rem + rem, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
-            else
-                whUnitBreakdown[bKey] = (rem, hasConsumed, vpu, vuId);
-        }
+            string? packUnitName = packUnitId.HasValue ? localUnitNameMap.GetValueOrDefault(packUnitId.Value) : null;
+            decimal itemVolume = vpu.HasValue && vpu.Value > 0 ? rem * vpu.Value : 0;
 
-        // Build unit name map from already-resolved DTO Skus
-        var localUnitNameMap = new Dictionary<Guid, string>();
-        foreach (var d in dtos)
-        {
-            if (d.PackagingUnitId.HasValue && d.PackagingUnitName != null)
-                localUnitNameMap.TryAdd(d.PackagingUnitId.Value, d.PackagingUnitName);
-            if (d.VolumeUnitId.HasValue && d.VolumeUnitName != null)
-                localUnitNameMap.TryAdd(d.VolumeUnitId.Value, d.VolumeUnitName);
-            foreach (var s in d.Skus)
-            {
-                if (s.PackagingUnitId.HasValue && s.PackagingUnitName != null)
-                    localUnitNameMap.TryAdd(s.PackagingUnitId.Value, s.PackagingUnitName);
-                if (s.VolumeUnitId.HasValue && s.VolumeUnitName != null)
-                    localUnitNameMap.TryAdd(s.VolumeUnitId.Value, s.VolumeUnitName);
-            }
+            bool hasConsumed = item.ConsumedBaseQuantity > 0;
+            var bKey = (item.ProductId, item.EffectiveWarehouseId!.Value, packUnitName);
+            if (whUnitBreakdown.TryGetValue(bKey, out var ex))
+                whUnitBreakdown[bKey] = (ex.Rem + rem, ex.Consumed || hasConsumed, ex.TotalVolume + itemVolume, ex.VuId ?? vuId);
+            else
+                whUnitBreakdown[bKey] = (rem, hasConsumed, itemVolume, vuId);
         }
 
         var whStockByUnitsMap = whUnitBreakdown
-            .Where(x => x.Key.PackUnitId.HasValue)
+            .Where(x => x.Key.PackUnitName != null)
             .GroupBy(x => (x.Key.ProductId, x.Key.WarehouseId))
-            .Where(g => g.Select(x => x.Key.PackUnitId).Distinct().Count() >= 2)
+            .Where(g => g.Select(x => x.Key.PackUnitName).Distinct().Count() >= 2)
             .ToDictionary(
                 g => g.Key,
                 g => g.OrderByDescending(x => x.Value.Consumed)
                       .ThenByDescending(x => x.Value.Rem)
                       .Select(x => new StockByUnitDto
                       {
-                          PackagingUnitName = localUnitNameMap.GetValueOrDefault(x.Key.PackUnitId!.Value),
+                          PackagingUnitName = x.Key.PackUnitName,
                           Quantity = x.Value.Rem,
-                          VolumePerUnit = x.Value.Vpu,
+                          VolumePerUnit = x.Value.Rem > 0 && x.Value.TotalVolume > 0
+                              ? (int)Math.Round(x.Value.TotalVolume / x.Value.Rem)
+                              : null,
                           VolumeUnitName = x.Value.VuId.HasValue ? localUnitNameMap.GetValueOrDefault(x.Value.VuId.Value) : null,
                       })
                       .ToList());
@@ -1048,7 +1053,7 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
-        var detailUnitBreakdown = new Dictionary<Guid, (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
+        var detailUnitBreakdown = new Dictionary<string, (decimal Rem, bool Consumed, decimal TotalVolume, Guid? VuId)>();
 
         if (warehouseId.HasValue)
         {
@@ -1092,13 +1097,15 @@ public class ProductAppService : ApplicationService, IProductAppService
                     if (vpu.HasValue && vpu.Value > 0)
                         consumableQty += remaining * vpu.Value;
 
-                    if (packUnitId.HasValue)
+                    string? packUnitName = packUnitId.HasValue ? unitMap.GetValueOrDefault(packUnitId.Value) : null;
+                    if (packUnitName != null)
                     {
                         bool hasConsumed = item.ConsumedBaseQuantity > 0;
-                        if (detailUnitBreakdown.TryGetValue(packUnitId.Value, out var ex))
-                            detailUnitBreakdown[packUnitId.Value] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+                        decimal itemVolume = vpu.HasValue && vpu.Value > 0 ? remaining * vpu.Value : 0;
+                        if (detailUnitBreakdown.TryGetValue(packUnitName, out var ex))
+                            detailUnitBreakdown[packUnitName] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.TotalVolume + itemVolume, ex.VuId ?? vuId);
                         else
-                            detailUnitBreakdown[packUnitId.Value] = (remaining, hasConsumed, vpu, vuId);
+                            detailUnitBreakdown[packUnitName] = (remaining, hasConsumed, itemVolume, vuId);
                     }
                 }
             }
@@ -1145,13 +1152,15 @@ public class ProductAppService : ApplicationService, IProductAppService
                     if (vpu.HasValue && vpu.Value > 0)
                         consumableQty += remaining * vpu.Value;
 
-                    if (packUnitId.HasValue)
+                    string? packUnitName = packUnitId.HasValue ? unitMap.GetValueOrDefault(packUnitId.Value) : null;
+                    if (packUnitName != null)
                     {
                         bool hasConsumed = item.ConsumedBaseQuantity > 0;
-                        if (detailUnitBreakdown.TryGetValue(packUnitId.Value, out var ex))
-                            detailUnitBreakdown[packUnitId.Value] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+                        decimal itemVolume = vpu.HasValue && vpu.Value > 0 ? remaining * vpu.Value : 0;
+                        if (detailUnitBreakdown.TryGetValue(packUnitName, out var ex))
+                            detailUnitBreakdown[packUnitName] = (ex.Rem + remaining, ex.Consumed || hasConsumed, ex.TotalVolume + itemVolume, ex.VuId ?? vuId);
                         else
-                            detailUnitBreakdown[packUnitId.Value] = (remaining, hasConsumed, vpu, vuId);
+                            detailUnitBreakdown[packUnitName] = (remaining, hasConsumed, itemVolume, vuId);
                     }
                 }
             }
@@ -1165,9 +1174,11 @@ public class ProductAppService : ApplicationService, IProductAppService
                 .ThenByDescending(x => x.Value.Rem)
                 .Select(x => new StockByUnitDto
                 {
-                    PackagingUnitName = unitMap.GetValueOrDefault(x.Key),
+                    PackagingUnitName = x.Key,
                     Quantity = x.Value.Rem,
-                    VolumePerUnit = x.Value.Vpu,
+                    VolumePerUnit = x.Value.Rem > 0 && x.Value.TotalVolume > 0
+                        ? (int)Math.Round(x.Value.TotalVolume / x.Value.Rem)
+                        : null,
                     VolumeUnitName = x.Value.VuId.HasValue ? unitMap.GetValueOrDefault(x.Value.VuId.Value) : null,
                 })
                 .ToList();
@@ -1848,9 +1859,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 consumableByProduct[ci.ProductId] = consumableByProduct.GetValueOrDefault(ci.ProductId) + cQty;
         }
 
-        // Per-packaging-unit stock breakdown (for multi-unit display)
+        // Per-packaging-unit stock breakdown (grouped by unit NAME to merge same-name units from different SKUs)
         var stockByUnitsMap = new Dictionary<Guid, List<StockByUnitDto>>();
-        var unitBreakdown = new Dictionary<(Guid ProductId, Guid? PackUnitId), (decimal Rem, bool Consumed, int? Vpu, Guid? VuId)>();
+        var unitBreakdown = new Dictionary<(Guid ProductId, string? PackUnitName), (decimal Rem, bool Consumed, decimal TotalVolume, Guid? VuId)>();
         foreach (var ci in consumableImportItems)
         {
             if (ci.RemainingBase <= 0) continue;
@@ -1875,26 +1886,31 @@ public class ProductAppService : ApplicationService, IProductAppService
                 if (vpu == null && prod?.VolumePerUnit > 0) { vpu = prod.VolumePerUnit; vuId = prod.VolumeUnitId; }
             }
 
+            string? packUnitName = packUnitId.HasValue ? unitMap.GetValueOrDefault(packUnitId.Value) : null;
+            decimal itemVolume = vpu.HasValue && vpu.Value > 0 ? ci.RemainingBase * vpu.Value : 0;
+
             bool hasConsumed = ci.ConsumedBaseQuantity > 0;
-            var key = (ci.ProductId, packUnitId);
+            var key = (ci.ProductId, packUnitName);
             if (unitBreakdown.TryGetValue(key, out var ex))
-                unitBreakdown[key] = (ex.Rem + ci.RemainingBase, ex.Consumed || hasConsumed, ex.Vpu ?? vpu, ex.VuId ?? vuId);
+                unitBreakdown[key] = (ex.Rem + ci.RemainingBase, ex.Consumed || hasConsumed, ex.TotalVolume + itemVolume, ex.VuId ?? vuId);
             else
-                unitBreakdown[key] = (ci.RemainingBase, hasConsumed, vpu, vuId);
+                unitBreakdown[key] = (ci.RemainingBase, hasConsumed, itemVolume, vuId);
         }
         foreach (var grp in unitBreakdown.GroupBy(x => x.Key.ProductId))
         {
-            var withUnit = grp.Where(x => x.Key.PackUnitId.HasValue).ToList();
-            if (withUnit.Select(x => x.Key.PackUnitId).Distinct().Count() < 2) continue;
+            var withUnit = grp.Where(x => x.Key.PackUnitName != null).ToList();
+            if (withUnit.Select(x => x.Key.PackUnitName).Distinct().Count() < 2) continue;
 
             stockByUnitsMap[grp.Key] = withUnit
                 .OrderByDescending(x => x.Value.Consumed)
                 .ThenByDescending(x => x.Value.Rem)
                 .Select(x => new StockByUnitDto
                 {
-                    PackagingUnitName = unitMap.GetValueOrDefault(x.Key.PackUnitId!.Value),
+                    PackagingUnitName = x.Key.PackUnitName,
                     Quantity = x.Value.Rem,
-                    VolumePerUnit = x.Value.Vpu,
+                    VolumePerUnit = x.Value.Rem > 0 && x.Value.TotalVolume > 0
+                        ? (int)Math.Round(x.Value.TotalVolume / x.Value.Rem)
+                        : null,
                     VolumeUnitName = x.Value.VuId.HasValue ? unitMap.GetValueOrDefault(x.Value.VuId.Value) : null,
                 })
                 .ToList();
