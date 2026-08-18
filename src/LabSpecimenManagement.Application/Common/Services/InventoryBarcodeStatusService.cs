@@ -47,7 +47,6 @@ public class InventoryBarcodeStatusService : ITransientDependency
 
     public async Task RecalculateAsync(Guid productId, Guid warehouseId)
     {
-        var totalBaseConsumed = await GetTotalBaseConsumedAsync(productId, warehouseId);
         var today = DateTime.UtcNow.AddHours(7).Date;
 
         var importItemQuery = await _importItemRepository.GetQueryableAsync();
@@ -89,56 +88,66 @@ public class InventoryBarcodeStatusService : ITransientDependency
             .ToList();
 
         var product = await _productRepository.GetAsync(productId);
-        var packagingQty = product.PackagingQuantity ?? 1;
 
-        var remainingConsumed = totalBaseConsumed;
+        var skuQuery = await _productSkuRepository.GetQueryableAsync();
+        var allSkus = await AsyncExecuter.ToListAsync(skuQuery.Where(s => s.ProductId == productId));
+        var skuById = allSkus.ToDictionary(s => s.Id);
+
+        var useVolumeBased = product.VolumePerUnit > 0 || allSkus.Any(s => s.VolumePerUnit > 0);
+
+        decimal remaining;
+        if (useVolumeBased)
+        {
+            remaining = await GetTotalVolumeConsumedAsync(productId, warehouseId, product, allSkus);
+        }
+        else
+        {
+            remaining = await GetTotalBaseConsumedAsync(productId, warehouseId, product, allSkus);
+        }
+
         var updatedBarcodes = new List<InventoryBarcode>();
 
         foreach (var g in mergedGroups)
         {
             var orderedItems = g.OrderBy(x => x.ActualImportDate).ToList();
-            var fullBarcodeList = orderedItems
-                .SelectMany(x => DeserializeBarcodes(x.BarcodeValues))
-                .OrderBy(c => c)
-                .ToList();
-
-            var receivedOriginal = orderedItems.Sum(x => x.ReceivedBaseQuantity);
-            var isSkuGroup = orderedItems.Any(x => x.SkuId != null);
-            var receivedInPackaging = isSkuGroup || packagingQty <= 1
-                ? receivedOriginal
-                : receivedOriginal * packagingQty;
-            var consumedInPackaging = Math.Min(remainingConsumed, receivedInPackaging);
-            remainingConsumed -= consumedInPackaging;
-            var consumed = isSkuGroup || packagingQty <= 1
-                ? consumedInPackaging
-                : consumedInPackaging / packagingQty;
-
             var isExpired = g.Key.LotExpiryDate.HasValue && g.Key.LotExpiryDate.Value < today;
-            var consumedFloor = (int)Math.Floor(consumed);
 
-            for (var i = 0; i < fullBarcodeList.Count; i++)
+            foreach (var item in orderedItems)
             {
-                var code = fullBarcodeList[i];
-                if (!barcodeByCode.TryGetValue(code, out var barcode)) continue;
+                var itemBarcodes = DeserializeBarcodes(item.BarcodeValues);
+                var capacityPerBarcode = useVolumeBased
+                    ? GetVolumePerBarcode(item.SkuId, skuById, product)
+                    : 1m;
 
-                InventoryBarcodeStatus newStatus;
-                if (i < consumedFloor)
+                foreach (var code in itemBarcodes)
                 {
-                    newStatus = InventoryBarcodeStatus.UsedUp;
-                }
-                else if (i == consumedFloor && consumed > consumedFloor)
-                {
-                    newStatus = isExpired ? InventoryBarcodeStatus.Expired : InventoryBarcodeStatus.InUse;
-                }
-                else
-                {
-                    newStatus = isExpired ? InventoryBarcodeStatus.Expired : InventoryBarcodeStatus.NotUsed;
-                }
+                    if (!barcodeByCode.TryGetValue(code, out var barcode)) continue;
 
-                if (barcode.Status != newStatus)
-                {
-                    barcode.Status = newStatus;
-                    updatedBarcodes.Add(barcode);
+                    InventoryBarcodeStatus newStatus;
+                    if (capacityPerBarcode > 0 && remaining >= capacityPerBarcode)
+                    {
+                        newStatus = InventoryBarcodeStatus.UsedUp;
+                        remaining -= capacityPerBarcode;
+                    }
+                    else if (remaining > 0)
+                    {
+                        newStatus = isExpired
+                            ? InventoryBarcodeStatus.Expired
+                            : InventoryBarcodeStatus.InUse;
+                        remaining = 0;
+                    }
+                    else
+                    {
+                        newStatus = isExpired
+                            ? InventoryBarcodeStatus.Expired
+                            : InventoryBarcodeStatus.NotUsed;
+                    }
+
+                    if (barcode.Status != newStatus)
+                    {
+                        barcode.Status = newStatus;
+                        updatedBarcodes.Add(barcode);
+                    }
                 }
             }
         }
@@ -163,42 +172,95 @@ public class InventoryBarcodeStatusService : ITransientDependency
         }
     }
 
-    private async Task<decimal> GetTotalBaseConsumedAsync(Guid productId, Guid warehouseId)
+    // --- Volume-based path: consumption & capacity in volume units (ml) ---
+
+    private async Task<decimal> GetTotalVolumeConsumedAsync(
+        Guid productId, Guid warehouseId, Product product, List<ProductSku> skus)
     {
-        var indicatorQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
-        var batchQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+        var records = await GetConsumptionRecordsAsync(productId, warehouseId);
+        if (records.Count == 0) return 0;
 
-        var indicatorRecords = await AsyncExecuter.ToListAsync(
-            indicatorQuery
-                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => new { c.ActualQuantity, c.UnitId }));
+        var conversionMap = await GetConversionMapAsync(productId);
 
-        var batchRecords = await AsyncExecuter.ToListAsync(
-            batchQuery
-                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => new { c.ActualQuantity, c.UnitId }));
-
-        if (!indicatorRecords.Any() && !batchRecords.Any()) return 0;
-
-        var product = await _productRepository.GetAsync(productId);
-        var skuQuery = await _productSkuRepository.GetQueryableAsync();
-        var skus = await AsyncExecuter.ToListAsync(
-            skuQuery.Where(s => s.ProductId == productId));
-
-        var conversionQuery = await _conversionRepository.GetQueryableAsync();
-        var conversions = await AsyncExecuter.ToListAsync(
-            conversionQuery.Where(c => c.ProductId == productId));
-        var conversionMap = conversions
-            .GroupBy(c => c.ConvertedUnitId)
-            .ToDictionary(g => g.Key, g => g.First());
-
-        decimal totalBase = 0;
-        foreach (var r in indicatorRecords.Concat(batchRecords))
+        decimal total = 0;
+        foreach (var r in records)
         {
-            totalBase += ConvertToBaseUnits(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
+            total += ConvertToVolume(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
+        }
+        return total;
+    }
+
+    private static decimal ConvertToVolume(
+        decimal quantity,
+        Guid? unitId,
+        Product product,
+        List<ProductSku> skus,
+        Dictionary<Guid, ProductUnitConversion> conversionMap)
+    {
+        if (quantity == 0) return 0;
+        if (!unitId.HasValue) return quantity;
+        var uid = unitId.Value;
+
+        if (uid == product.VolumeUnitId)
+            return quantity;
+
+        if (uid == product.PackagingUnitId && product.VolumePerUnit > 0)
+            return quantity * product.VolumePerUnit.Value;
+
+        if (uid == product.BaseUnitId && product.PackagingQuantity > 0 && product.VolumePerUnit > 0)
+            return quantity * product.PackagingQuantity.Value * product.VolumePerUnit.Value;
+
+        foreach (var sku in skus)
+        {
+            if (uid == sku.VolumeUnitId) return quantity;
+            if (uid == sku.PackagingUnitId && sku.VolumePerUnit > 0)
+                return quantity * sku.VolumePerUnit.Value;
+            if (uid == sku.BaseUnitId && sku.PackagingQuantity > 0 && sku.VolumePerUnit > 0)
+                return quantity * sku.PackagingQuantity.Value * sku.VolumePerUnit.Value;
         }
 
-        return totalBase;
+        if (conversionMap.TryGetValue(uid, out var conv) && conv.ConvertedQuantity > 0)
+        {
+            var ratio = conv.Quantity / conv.ConvertedQuantity;
+            var vpu = product.VolumePerUnit
+                ?? skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
+                ?? 0;
+            return vpu > 0 ? quantity * ratio * vpu : quantity * ratio;
+        }
+
+        return quantity;
+    }
+
+    private static decimal GetVolumePerBarcode(
+        Guid? skuId,
+        Dictionary<Guid, ProductSku> skuById,
+        Product product)
+    {
+        if (skuId.HasValue && skuById.TryGetValue(skuId.Value, out var sku) && sku.VolumePerUnit > 0)
+            return sku.VolumePerUnit.Value;
+
+        if (product.VolumePerUnit > 0)
+            return product.VolumePerUnit.Value;
+
+        return 1;
+    }
+
+    // --- Packaging-unit-based path: fallback when no VolumePerUnit configured ---
+
+    private async Task<decimal> GetTotalBaseConsumedAsync(
+        Guid productId, Guid warehouseId, Product product, List<ProductSku> skus)
+    {
+        var records = await GetConsumptionRecordsAsync(productId, warehouseId);
+        if (records.Count == 0) return 0;
+
+        var conversionMap = await GetConversionMapAsync(productId);
+
+        decimal total = 0;
+        foreach (var r in records)
+        {
+            total += ConvertToBaseUnits(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
+        }
+        return total;
     }
 
     private static decimal ConvertToBaseUnits(
@@ -218,19 +280,15 @@ public class InventoryBarcodeStatusService : ITransientDependency
         }
         var uid = unitId.Value;
 
-        // Product-level: packaging unit → 1:1
         if (uid == product.PackagingUnitId)
             return quantity;
 
-        // Product-level: volume unit → divide by VolumePerUnit
         if (uid == product.VolumeUnitId && product.VolumePerUnit > 0)
             return quantity / product.VolumePerUnit.Value;
 
-        // Product-level: base unit → multiply by PackagingQuantity
         if (uid == product.BaseUnitId && product.PackagingQuantity > 0)
             return quantity * product.PackagingQuantity.Value;
 
-        // SKU-level fallback
         foreach (var sku in skus)
         {
             if (uid == sku.PackagingUnitId) return quantity;
@@ -240,15 +298,44 @@ public class InventoryBarcodeStatusService : ITransientDependency
                 return quantity * sku.PackagingQuantity.Value;
         }
 
-        // ProductUnitConversion fallback
         if (conversionMap.TryGetValue(uid, out var conv) && conv.ConvertedQuantity > 0)
             return quantity / (conv.ConvertedQuantity / conv.Quantity);
 
-        // Unknown unit: fall back to old behavior (assume volume unit)
         var volumePerUnit = product.VolumePerUnit
             ?? skus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
             ?? 0;
         return volumePerUnit > 0 ? quantity / volumePerUnit : quantity;
+    }
+
+    // --- Shared helpers ---
+
+    private async Task<List<ConsumptionRecord>> GetConsumptionRecordsAsync(Guid productId, Guid warehouseId)
+    {
+        var indicatorQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var batchQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
+
+        var indicatorRecords = await AsyncExecuter.ToListAsync(
+            indicatorQuery
+                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
+                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId }));
+
+        var batchRecords = await AsyncExecuter.ToListAsync(
+            batchQuery
+                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
+                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId }));
+
+        indicatorRecords.AddRange(batchRecords);
+        return indicatorRecords;
+    }
+
+    private async Task<Dictionary<Guid, ProductUnitConversion>> GetConversionMapAsync(Guid productId)
+    {
+        var conversionQuery = await _conversionRepository.GetQueryableAsync();
+        var conversions = await AsyncExecuter.ToListAsync(
+            conversionQuery.Where(c => c.ProductId == productId));
+        return conversions
+            .GroupBy(c => c.ConvertedUnitId)
+            .ToDictionary(g => g.Key, g => g.First());
     }
 
     private static List<string> DeserializeBarcodes(string? barcodeValues)
@@ -262,5 +349,11 @@ public class InventoryBarcodeStatusService : ITransientDependency
         {
             return new List<string>();
         }
+    }
+
+    private class ConsumptionRecord
+    {
+        public decimal ActualQuantity { get; init; }
+        public Guid? UnitId { get; init; }
     }
 }
