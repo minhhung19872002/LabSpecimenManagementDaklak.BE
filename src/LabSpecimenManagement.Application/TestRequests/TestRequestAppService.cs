@@ -1287,6 +1287,9 @@ public partial class TestRequestAppService :
             }
         }
 
+        // Sync RequestCompletionDate on LaboratoryTasks & QualityManagementTasks
+        await SyncRequestCompletionDateAsync(id);
+
         return await GetAsync(id);
     }
 
@@ -3035,6 +3038,8 @@ public partial class TestRequestAppService :
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
+
+        await SyncRequestCompletionDateAsync(testRequestId);
     }
 
     /// <summary>
@@ -4380,6 +4385,8 @@ public partial class TestRequestAppService :
 
             await _sampleIndicatorRepository.UpdateAsync(sampleIndicator, autoSave: true);
         }
+
+        await SyncRequestCompletionDateAsync(id);
     }
 
     /// <summary>
@@ -4662,6 +4669,63 @@ public partial class TestRequestAppService :
             CostChangeType.ManualAdjustment => "Điều chỉnh thủ công",
             _ => "Không xác định"
         };
+    }
+
+    #endregion
+
+    #region Sync RequestCompletionDate
+
+    private async Task SyncRequestCompletionDateAsync(Guid testRequestId)
+    {
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(
+            t => t.TestRequestId == testRequestId);
+
+        foreach (var labTask in labTasks)
+        {
+            var taskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+                lti => lti.LaboratoryTaskId == labTask.Id);
+
+            if (taskIndicators.Count == 0) continue;
+
+            var sampleIndicatorIds = taskIndicators
+                .Select(lti => lti.TestRequestSampleIndicatorId)
+                .ToList();
+
+            var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(
+                si => sampleIndicatorIds.Contains(si.Id));
+
+            var maxRequestDate = sampleIndicators
+                .Where(si => si.RequestDate.HasValue)
+                .Select(si => si.RequestDate)
+                .DefaultIfEmpty()
+                .Max();
+
+            if (maxRequestDate != null && labTask.RequestCompletionDate != maxRequestDate)
+            {
+                labTask.RequestCompletionDate = maxRequestDate;
+                await _laboratoryTaskRepository.UpdateAsync(labTask, autoSave: true);
+            }
+        }
+
+        var qualityTasks = await _qualityTaskRepository.GetListAsync(
+            t => t.TestRequestId == testRequestId);
+
+        if (qualityTasks.Count == 0) return;
+
+        var overallMaxDate = labTasks
+            .Where(t => t.RequestCompletionDate.HasValue)
+            .Select(t => t.RequestCompletionDate)
+            .DefaultIfEmpty()
+            .Max();
+
+        foreach (var qualityTask in qualityTasks)
+        {
+            if (overallMaxDate != null && qualityTask.RequestCompletionDate != overallMaxDate)
+            {
+                qualityTask.RequestCompletionDate = overallMaxDate;
+                await _qualityTaskRepository.UpdateAsync(qualityTask, autoSave: true);
+            }
+        }
     }
 
     #endregion

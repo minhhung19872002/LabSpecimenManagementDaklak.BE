@@ -426,6 +426,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            TrsId = trs.Id,
                            TrsSampleName = trs.SampleName,
                            TrsSampleCode = trs.SampleCode,
+                           TrContractDate = tr.ContractDate,
                            SpecimenTypeId = trsi.SpecimenTypeId,
                            SpecimenTypeName = st != null ? st.Name : "",
                            IndicatorId = trsi.IndicatorId,
@@ -524,6 +525,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             {
                 TenMau = x.TrsSampleName,
                 MaMau = x.TrsSampleCode,
+                NgayNhanMau = x.TrContractDate,
                 NenMau = x.SpecimenTypeName,
                 TenChiTieu = x.IndicatorName,
                 PhuongPhapThu = x.TestMethodName,
@@ -558,7 +560,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var ws2 = workbook.Worksheets.Add("Sheet2");
         var headers2 = new[]
         {
-            "Tên mẫu", "Mã mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
+            "Tên mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
             "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú"
         };
         WriteSheetHeaders(ws2, headers2);
@@ -567,13 +569,14 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             var row = sheet2Rows[r];
             ws2.Cell(r + 2, 1).Value = row.TenMau;
             ws2.Cell(r + 2, 2).Value = row.MaMau;
-            ws2.Cell(r + 2, 3).Value = row.NenMau;
-            ws2.Cell(r + 2, 4).Value = row.TenChiTieu;
-            ws2.Cell(r + 2, 5).Value = row.PhuongPhapThu;
-            ws2.Cell(r + 2, 6).Value = row.SoVoiTieuChuan;
-            ws2.Cell(r + 2, 7).Value = row.GioiHanPhatHien;
-            ws2.Cell(r + 2, 8).Value = row.KetQua;
-            ws2.Cell(r + 2, 9).Value = "";
+            ws2.Cell(r + 2, 3).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
+            ws2.Cell(r + 2, 4).Value = row.NenMau;
+            ws2.Cell(r + 2, 5).Value = row.TenChiTieu;
+            ws2.Cell(r + 2, 6).Value = row.PhuongPhapThu;
+            ws2.Cell(r + 2, 7).Value = row.SoVoiTieuChuan;
+            ws2.Cell(r + 2, 8).Value = row.GioiHanPhatHien;
+            ws2.Cell(r + 2, 9).Value = row.KetQua;
+            ws2.Cell(r + 2, 10).Value = "";
         }
         ws2.Columns().AdjustToContents();
 
