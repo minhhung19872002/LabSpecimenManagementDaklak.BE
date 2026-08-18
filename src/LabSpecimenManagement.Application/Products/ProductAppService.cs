@@ -511,6 +511,8 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             dtos[i].TheoreticalConsumption = whTheoreticalByProductWh.GetValueOrDefault(key);
             dtos[i].ExpectedStockConsumable = dtos[i].ConsumableImportedQuantity - dtos[i].TheoreticalConsumption;
+            if (entry.BaseQty > 0 && entry.VolumeQty > 0)
+                dtos[i].VolumePerUnit = (int)Math.Round(entry.VolumeQty / entry.BaseQty);
             dtos[i].WarehouseName = entry.WarehouseName;
             dtos[i].StockWarehouseId = entry.WarehouseId;
 
@@ -1230,6 +1232,14 @@ public class ProductAppService : ApplicationService, IProductAppService
         var detailSystemMfgIds = (await _manufacturerRepository.GetQueryableAsync())
             .Where(m => m.IsSystem).Select(m => m.Id).ToHashSet();
 
+        // Derive effective VPU from actual accumulated import data to avoid mismatch
+        // between SKU-level VPU used in consumableQty and product-level VPU in the DTO.
+        int? effectiveVolumePerUnit = null;
+        if (warehouseQty > 0 && consumableQty > 0)
+        {
+            effectiveVolumePerUnit = (int)Math.Round(consumableQty / warehouseQty);
+        }
+
         return new ProductDetailDto
         {
             Id = product.Id,
@@ -1251,7 +1261,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                     : null,
             PackagingQuantity = product.PackagingQuantity,
             ConsumableImportedQuantity = consumableQty,
-            VolumePerUnit = product.VolumePerUnit
+            VolumePerUnit = effectiveVolumePerUnit
+                ?? product.VolumePerUnit
                 ?? (productSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue && detailSystemMfgIds.Contains(s.ManufacturerId))
                    ?? productSkus.FirstOrDefault(s => s.VolumePerUnit.HasValue))?.VolumePerUnit,
             VolumeUnitName = product.VolumeUnitId.HasValue
@@ -1837,9 +1848,12 @@ public class ProductAppService : ApplicationService, IProductAppService
                                      })
                                      .ToList();
         var consumableByProduct = new Dictionary<Guid, decimal>();
+        var remainingBaseByProduct = new Dictionary<Guid, decimal>();
         foreach (var ci in consumableImportItems)
         {
             if (ci.RemainingBase <= 0) continue;
+
+            remainingBaseByProduct[ci.ProductId] = remainingBaseByProduct.GetValueOrDefault(ci.ProductId) + ci.RemainingBase;
 
             int? vpu = null;
             if (ci.SkuId.HasValue && skuMap.TryGetValue(ci.ProductId, out var pSkus))
@@ -1967,6 +1981,9 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ? product.AvailableQuantity * product.PackagingQuantity.Value
                 : product.AvailableQuantity;
             dto.ConsumableImportedQuantity = consumableByProduct.GetValueOrDefault(product.Id);
+            var baseQty = remainingBaseByProduct.GetValueOrDefault(product.Id);
+            if (baseQty > 0 && dto.ConsumableImportedQuantity > 0)
+                dto.VolumePerUnit = (int)Math.Round(dto.ConsumableImportedQuantity / baseQty);
             if (stockByUnitsMap.TryGetValue(product.Id, out var stockByUnits))
                 dto.StockByUnits = stockByUnits;
             dto.WarehouseName = productWarehouseMap.GetValueOrDefault(product.Id);
