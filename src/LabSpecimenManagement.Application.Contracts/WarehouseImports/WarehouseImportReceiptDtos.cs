@@ -250,6 +250,9 @@ public class GoodsReceiptItemForImportDto
     public decimal OrderedQuantity { get; set; }
     public decimal AlreadyReceivedQuantity { get; set; }
     public decimal RemainingOrderableQuantity { get; set; }
+    /// <summary>SL còn lại có thể nhận, đã quy đổi sang đơn vị lưu kho (dùng rate của hãng trên PO).</summary>
+    public decimal? RemainingInStorageQuantity { get; set; }
+    public string? StorageUnitName { get; set; }
     /// <summary>Đơn vị lưu kho (base unit), chỉ set khi khác với đơn vị mua hàng (UnitId/UnitName).</summary>
     public string? BaseUnitName { get; set; }
     public decimal? BaseOrderedQuantity { get; set; }

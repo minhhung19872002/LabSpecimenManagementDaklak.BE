@@ -246,33 +246,72 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Where(x => x.Status == WarehouseImportLineStatus.Checked)
             .GroupBy(x => x.GoodsReceiptItemId!.Value);
 
+        var confirmMaterialPoLines = poLines.Where(x => !x.IsEquipment).ToList();
+        var confirmPoSkuMap = await BuildPoSkuMapAsync(confirmMaterialPoLines);
+        var confirmItemMfSkuMap = await BuildReceiptItemSkuMapAsync(materialItems);
+
+        var confirmNoSkuProductIds = confirmMaterialPoLines
+            .Where(x => GetPoSku(confirmPoSkuMap, x) == null && x.ProductId.HasValue)
+            .Select(x => x.ProductId!.Value).Distinct().ToList();
+        var confirmAnySkuByProduct = new Dictionary<Guid, ProductSku>();
+        var confirmFallbackProducts = new Dictionary<Guid, Product>();
+        if (confirmNoSkuProductIds.Count > 0)
+        {
+            var anySkus = (await _productSkuRepository.GetQueryableAsync())
+                .Where(x => confirmNoSkuProductIds.Contains(x.ProductId)).ToList();
+            foreach (var s in anySkus)
+                confirmAnySkuByProduct.TryAdd(s.ProductId, s);
+
+            var stillNeedProductIds = confirmNoSkuProductIds
+                .Where(pid => !confirmAnySkuByProduct.ContainsKey(pid)).ToList();
+            if (stillNeedProductIds.Count > 0)
+                confirmFallbackProducts = (await _productRepository.GetQueryableAsync())
+                    .Where(x => stillNeedProductIds.Contains(x.Id)).ToDictionary(x => x.Id);
+        }
+
         foreach (var group in checkedItemsByLine)
         {
             var poLine = poLines.FirstOrDefault(x => x.Id == group.Key);
             if (poLine == null)
                 throw new UserFriendlyException("Không tìm thấy dòng hàng tương ứng trên phiếu mua hàng.");
 
-            var cumulativeCompletedChecked = await GetCumulativeCheckedQtyAsync(poLine.Id, excludeReceiptId: receipt.Id);
-            var remaining = poLine.Quantity - cumulativeCompletedChecked;
+            var poSku = GetPoSku(confirmPoSkuMap, poLine);
 
-            // Convert each item's qty to order/purchase unit before summing
+            decimal orderedInStorage;
+            if (poSku != null)
+                orderedInStorage = ResolveToStorageQuantity(poSku, poLine.UnitId, poLine.Quantity);
+            else if (poLine.ProductId.HasValue && confirmAnySkuByProduct.TryGetValue(poLine.ProductId.Value, out var anySku))
+                orderedInStorage = ResolveToStorageQuantity(anySku, poLine.UnitId, poLine.Quantity);
+            else if (poLine.ProductId.HasValue && confirmFallbackProducts.TryGetValue(poLine.ProductId.Value, out var fallbackProduct))
+                orderedInStorage = ResolveToStorageViaProduct(fallbackProduct, poLine.UnitId, poLine.Quantity);
+            else
+                orderedInStorage = poLine.Quantity;
+
+            var cumulativeInStorage = await GetCumulativeReceivedInStorageAsync(poLine.Id, excludeReceiptId: receipt.Id);
+            var remaining = orderedInStorage - cumulativeInStorage;
+
             var skuIdsInGroup = group.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
             var skusInGroup = skuIdsInGroup.Count > 0
                 ? (await _productSkuRepository.GetQueryableAsync()).Where(x => skuIdsInGroup.Contains(x.Id)).ToList()
                 : new List<ProductSku>();
             var skuMapInGroup = skusInGroup.ToDictionary(x => x.Id);
 
-            decimal sumCurrentChecked = 0;
+            decimal sumCurrentInStorage = 0;
             foreach (var item in group)
             {
                 if (item.SkuId.HasValue && skuMapInGroup.TryGetValue(item.SkuId.Value, out var itemSku))
-                    sumCurrentChecked += ResolveToOrderQuantity(itemSku, item.UnitId, item.ActualReceivedQuantity);
+                    sumCurrentInStorage += ResolveToStorageQuantity(itemSku, item.UnitId, item.ActualReceivedQuantity);
+                else if (item.ManufacturerId.HasValue
+                    && confirmItemMfSkuMap.TryGetValue((item.ProductId, item.ManufacturerId.Value), out var mfSku))
+                    sumCurrentInStorage += ResolveToStorageQuantity(mfSku, item.UnitId, item.ActualReceivedQuantity);
+                else if (confirmAnySkuByProduct.TryGetValue(item.ProductId, out var anyItemSku))
+                    sumCurrentInStorage += ResolveToStorageQuantity(anyItemSku, item.UnitId, item.ActualReceivedQuantity);
                 else
-                    sumCurrentChecked += item.ActualReceivedQuantity;
+                    sumCurrentInStorage += item.ActualReceivedQuantity;
             }
 
-            if (sumCurrentChecked > remaining)
-                throw new UserFriendlyException($"Số lượng nhận của \"{poLine.ProductName}\" vượt quá số lượng còn lại có thể nhận ({remaining}).");
+            if (sumCurrentInStorage > remaining)
+                throw new UserFriendlyException($"Số lượng nhận của \"{poLine.ProductName}\" vượt quá số lượng còn lại có thể nhận (quy đổi theo đơn vị lưu kho).");
         }
 
         var defaultWarehouse = (await _warehouseRepository.GetQueryableAsync())
@@ -413,6 +452,28 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Where(x => x.GoodsReceiptId == goodsReceiptId)
             .ToList();
 
+        var materialLines = lines.Where(x => !x.IsEquipment).ToList();
+        var poSkuMap = await BuildPoSkuMapAsync(materialLines);
+
+        var noSkuProductIds = materialLines
+            .Where(x => GetPoSku(poSkuMap, x) == null && x.ProductId.HasValue)
+            .Select(x => x.ProductId!.Value).Distinct().ToList();
+        var poAnySkuByProduct = new Dictionary<Guid, ProductSku>();
+        var poFallbackProducts = new Dictionary<Guid, Product>();
+        if (noSkuProductIds.Count > 0)
+        {
+            var anySkus = (await _productSkuRepository.GetQueryableAsync())
+                .Where(x => noSkuProductIds.Contains(x.ProductId)).ToList();
+            foreach (var s in anySkus)
+                poAnySkuByProduct.TryAdd(s.ProductId, s);
+
+            var stillNeedProductIds = noSkuProductIds
+                .Where(pid => !poAnySkuByProduct.ContainsKey(pid)).ToList();
+            if (stillNeedProductIds.Count > 0)
+                poFallbackProducts = (await _productRepository.GetQueryableAsync())
+                    .Where(x => stillNeedProductIds.Contains(x.Id)).ToDictionary(x => x.Id);
+        }
+
         var completedReceiptIds = await GetCompletedReceiptIdsAsync(excludeReceiptId: null);
         var importDateByReceiptId = (await _receiptRepository.GetQueryableAsync())
             .Where(x => completedReceiptIds.Contains(x.Id))
@@ -430,22 +491,86 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             ? (await _productSkuRepository.GetQueryableAsync()).Where(x => allHistoricalSkuIds.Contains(x.Id)).ToDictionary(x => x.Id)
             : new Dictionary<Guid, ProductSku>();
 
+        var allHistoricalMfSkuMap = await BuildReceiptItemSkuMapAsync(allHistoricalItems);
+
+        var noInfoProductIds = allHistoricalItems
+            .Where(x => !x.SkuId.HasValue && !x.ManufacturerId.HasValue)
+            .Select(x => x.ProductId).Distinct().ToList();
+        var anySkuByProduct = new Dictionary<Guid, ProductSku>();
+        if (noInfoProductIds.Count > 0)
+        {
+            var anySkus = (await _productSkuRepository.GetQueryableAsync())
+                .Where(x => noInfoProductIds.Contains(x.ProductId)).ToList();
+            foreach (var s in anySkus)
+                anySkuByProduct.TryAdd(s.ProductId, s);
+        }
+
         var result = new List<GoodsReceiptItemForImportDto>();
         foreach (var line in lines)
         {
             var historicalForLine = allHistoricalItems.Where(x => x.GoodsReceiptItemId == line.Id).ToList();
 
-            // Convert each historical item's qty to order/purchase unit before summing
             decimal alreadyReceived = 0;
             foreach (var hist in historicalForLine.Where(x => x.Status == WarehouseImportLineStatus.Checked))
             {
                 if (hist.SkuId.HasValue && allHistoricalSkuMap.TryGetValue(hist.SkuId.Value, out var histSku))
                     alreadyReceived += ResolveToOrderQuantity(histSku, hist.UnitId, hist.ActualReceivedQuantity);
+                else if (hist.ManufacturerId.HasValue
+                    && allHistoricalMfSkuMap.TryGetValue((hist.ProductId, hist.ManufacturerId.Value), out var mfSku))
+                    alreadyReceived += ResolveToOrderQuantity(mfSku, hist.UnitId, hist.ActualReceivedQuantity);
+                else if (anySkuByProduct.TryGetValue(hist.ProductId, out var fallbackSku))
+                    alreadyReceived += ResolveToOrderQuantity(fallbackSku, hist.UnitId, hist.ActualReceivedQuantity);
                 else
                     alreadyReceived += hist.ActualReceivedQuantity;
             }
 
-            var remaining = Math.Max(0, line.Quantity - alreadyReceived);
+            decimal? remainingInStorage = null;
+            string? storageUnitName = null;
+            decimal remaining;
+            if (!line.IsEquipment)
+            {
+                var poSku = GetPoSku(poSkuMap, line);
+                decimal orderedInStorage;
+                Guid? storageUnitId = null;
+                if (poSku != null)
+                {
+                    orderedInStorage = ResolveToStorageQuantity(poSku, line.UnitId, line.Quantity);
+                    storageUnitId = poSku.PackagingUnitId;
+                }
+                else if (line.ProductId.HasValue && poAnySkuByProduct.TryGetValue(line.ProductId.Value, out var anySku))
+                {
+                    orderedInStorage = ResolveToStorageQuantity(anySku, line.UnitId, line.Quantity);
+                    storageUnitId = anySku.PackagingUnitId;
+                }
+                else if (line.ProductId.HasValue && poFallbackProducts.TryGetValue(line.ProductId.Value, out var fbProduct))
+                {
+                    orderedInStorage = ResolveToStorageViaProduct(fbProduct, line.UnitId, line.Quantity);
+                    storageUnitId = fbProduct.PackagingUnitId ?? fbProduct.BaseUnitId;
+                }
+                else
+                {
+                    orderedInStorage = line.Quantity;
+                }
+
+                var cumulativeInStorage = await GetCumulativeReceivedInStorageAsync(line.Id, excludeReceiptId: null);
+                remainingInStorage = Math.Max(0, orderedInStorage - cumulativeInStorage);
+
+                // Derive remaining in PO order units from storage-based calculation
+                if (poSku != null)
+                    remaining = ResolveToOrderQuantity(poSku, poSku.PackagingUnitId, remainingInStorage.Value);
+                else
+                    remaining = Math.Max(0, line.Quantity - alreadyReceived);
+
+                if (storageUnitId.HasValue && storageUnitId != line.UnitId)
+                {
+                    var unit = await _unitRepository.FindAsync(storageUnitId.Value);
+                    storageUnitName = unit?.Name;
+                }
+            }
+            else
+            {
+                remaining = Math.Max(0, line.Quantity - alreadyReceived);
+            }
 
             var dto = new GoodsReceiptItemForImportDto
             {
@@ -457,6 +582,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 OrderedQuantity = line.Quantity,
                 AlreadyReceivedQuantity = alreadyReceived,
                 RemainingOrderableQuantity = remaining,
+                RemainingInStorageQuantity = remainingInStorage,
+                StorageUnitName = storageUnitName,
                 IsEquipment = line.IsEquipment,
                 ManufacturerId = line.ManufacturerId,
                 ManufacturerName = line.Manufacturer,
@@ -762,7 +889,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .ToList();
     }
 
-    private async Task<decimal> GetCumulativeCheckedQtyAsync(Guid goodsReceiptItemId, Guid? excludeReceiptId)
+    private async Task<decimal> GetCumulativeReceivedInStorageAsync(
+        Guid goodsReceiptItemId, Guid? excludeReceiptId)
     {
         var completedReceiptIds = await GetCompletedReceiptIdsAsync(excludeReceiptId);
         if (completedReceiptIds.Count == 0) return 0;
@@ -781,11 +909,30 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             ? (await _productSkuRepository.GetQueryableAsync()).Where(x => skuIds.Contains(x.Id)).ToDictionary(x => x.Id)
             : new Dictionary<Guid, ProductSku>();
 
+        var itemSkuMap = await BuildReceiptItemSkuMapAsync(items);
+
+        var noInfoProductIds = items
+            .Where(x => !x.SkuId.HasValue && !x.ManufacturerId.HasValue)
+            .Select(x => x.ProductId).Distinct().ToList();
+        var anySkuByProduct = new Dictionary<Guid, ProductSku>();
+        if (noInfoProductIds.Count > 0)
+        {
+            var anySkus = (await _productSkuRepository.GetQueryableAsync())
+                .Where(x => noInfoProductIds.Contains(x.ProductId)).ToList();
+            foreach (var s in anySkus)
+                anySkuByProduct.TryAdd(s.ProductId, s);
+        }
+
         decimal total = 0;
         foreach (var item in items)
         {
             if (item.SkuId.HasValue && skuMap.TryGetValue(item.SkuId.Value, out var sku))
-                total += ResolveToOrderQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+                total += ResolveToStorageQuantity(sku, item.UnitId, item.ActualReceivedQuantity);
+            else if (item.ManufacturerId.HasValue
+                && itemSkuMap.TryGetValue((item.ProductId, item.ManufacturerId.Value), out var mfSku))
+                total += ResolveToStorageQuantity(mfSku, item.UnitId, item.ActualReceivedQuantity);
+            else if (anySkuByProduct.TryGetValue(item.ProductId, out var fallbackSku))
+                total += ResolveToStorageQuantity(fallbackSku, item.UnitId, item.ActualReceivedQuantity);
             else
                 total += item.ActualReceivedQuantity;
         }
@@ -796,11 +943,44 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     {
         var fullyReceived = true;
 
-        // Check material lines
-        foreach (var line in poLines.Where(x => !x.IsEquipment))
+        var materialLines = poLines.Where(x => !x.IsEquipment).ToList();
+        var poSkuMap = await BuildPoSkuMapAsync(materialLines);
+
+        var noSkuProductIds = materialLines
+            .Where(x => GetPoSku(poSkuMap, x) == null && x.ProductId.HasValue)
+            .Select(x => x.ProductId!.Value).Distinct().ToList();
+        var anySkuByProduct = new Dictionary<Guid, ProductSku>();
+        var fallbackProducts = new Dictionary<Guid, Product>();
+        if (noSkuProductIds.Count > 0)
         {
-            var cumulative = await GetCumulativeCheckedQtyAsync(line.Id, excludeReceiptId: null);
-            if (cumulative < line.Quantity)
+            var anySkus = (await _productSkuRepository.GetQueryableAsync())
+                .Where(x => noSkuProductIds.Contains(x.ProductId)).ToList();
+            foreach (var s in anySkus)
+                anySkuByProduct.TryAdd(s.ProductId, s);
+
+            var stillNeedProductIds = noSkuProductIds
+                .Where(pid => !anySkuByProduct.ContainsKey(pid)).ToList();
+            if (stillNeedProductIds.Count > 0)
+                fallbackProducts = (await _productRepository.GetQueryableAsync())
+                    .Where(x => stillNeedProductIds.Contains(x.Id)).ToDictionary(x => x.Id);
+        }
+
+        foreach (var line in materialLines)
+        {
+            var poSku = GetPoSku(poSkuMap, line);
+            var cumulative = await GetCumulativeReceivedInStorageAsync(line.Id, excludeReceiptId: null);
+
+            decimal orderedInStorage;
+            if (poSku != null)
+                orderedInStorage = ResolveToStorageQuantity(poSku, line.UnitId, line.Quantity);
+            else if (line.ProductId.HasValue && anySkuByProduct.TryGetValue(line.ProductId.Value, out var anySku))
+                orderedInStorage = ResolveToStorageQuantity(anySku, line.UnitId, line.Quantity);
+            else if (line.ProductId.HasValue && fallbackProducts.TryGetValue(line.ProductId.Value, out var product))
+                orderedInStorage = ResolveToStorageViaProduct(product, line.UnitId, line.Quantity);
+            else
+                orderedInStorage = line.Quantity;
+
+            if (cumulative < orderedInStorage)
             {
                 fullyReceived = false;
                 break;
@@ -967,6 +1147,98 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
             .Where(c => c >= 32 && c <= 126)
             .ToArray());
+    }
+
+    private async Task<Dictionary<(Guid productId, Guid manufacturerId), ProductSku>> BuildPoSkuMapAsync(
+        List<GoodsReceiptItem> materialLines)
+    {
+        var keys = materialLines
+            .Where(x => x.ProductId.HasValue && x.ManufacturerId.HasValue)
+            .Select(x => (productId: x.ProductId!.Value, manufacturerId: x.ManufacturerId!.Value))
+            .Distinct()
+            .ToList();
+
+        if (keys.Count == 0)
+            return new Dictionary<(Guid, Guid), ProductSku>();
+
+        var productIds = keys.Select(x => x.productId).Distinct().ToList();
+        var manufacturerIds = keys.Select(x => x.manufacturerId).Distinct().ToList();
+        var skus = (await _productSkuRepository.GetQueryableAsync())
+            .Where(x => productIds.Contains(x.ProductId) && manufacturerIds.Contains(x.ManufacturerId))
+            .ToList();
+
+        var map = new Dictionary<(Guid, Guid), ProductSku>();
+        foreach (var sku in skus)
+            map[(sku.ProductId, sku.ManufacturerId)] = sku;
+        return map;
+    }
+
+    private async Task<Dictionary<(Guid productId, Guid manufacturerId), ProductSku>> BuildReceiptItemSkuMapAsync(
+        List<WarehouseImportReceiptItem> items)
+    {
+        var keys = items
+            .Where(x => !x.SkuId.HasValue && x.ManufacturerId.HasValue)
+            .Select(x => (productId: x.ProductId, manufacturerId: x.ManufacturerId!.Value))
+            .Distinct()
+            .ToList();
+
+        if (keys.Count == 0)
+            return new Dictionary<(Guid, Guid), ProductSku>();
+
+        var productIds = keys.Select(x => x.productId).Distinct().ToList();
+        var manufacturerIds = keys.Select(x => x.manufacturerId).Distinct().ToList();
+        var skus = (await _productSkuRepository.GetQueryableAsync())
+            .Where(x => productIds.Contains(x.ProductId) && manufacturerIds.Contains(x.ManufacturerId))
+            .ToList();
+
+        var map = new Dictionary<(Guid, Guid), ProductSku>();
+        foreach (var sku in skus)
+            map[(sku.ProductId, sku.ManufacturerId)] = sku;
+        return map;
+    }
+
+    private static ProductSku? GetPoSku(
+        Dictionary<(Guid productId, Guid manufacturerId), ProductSku> map, GoodsReceiptItem line)
+    {
+        if (line.ProductId.HasValue && line.ManufacturerId.HasValue
+            && map.TryGetValue((line.ProductId.Value, line.ManufacturerId.Value), out var sku))
+            return sku;
+        return null;
+    }
+
+    private static decimal ResolveToStorageQuantity(ProductSku sku, Guid? selectedUnitId, decimal quantity)
+    {
+        if (selectedUnitId == sku.PackagingUnitId)
+            return quantity;
+
+        if (selectedUnitId == sku.BaseUnitId
+            && sku.PackagingUnitId != sku.BaseUnitId
+            && (sku.PackagingQuantity ?? 0) > 0)
+            return quantity * sku.PackagingQuantity!.Value;
+
+        if (selectedUnitId == sku.VolumeUnitId
+            && (sku.VolumePerUnit ?? 0) > 0)
+            return quantity / sku.VolumePerUnit!.Value;
+
+        return quantity;
+    }
+
+    private static decimal ResolveToStorageViaProduct(Product product, Guid? selectedUnitId, decimal quantity)
+    {
+        if (product.PackagingUnitId.HasValue && selectedUnitId == product.PackagingUnitId)
+            return quantity;
+
+        if (selectedUnitId == product.BaseUnitId
+            && product.PackagingUnitId.HasValue
+            && product.PackagingUnitId != product.BaseUnitId
+            && (product.PackagingQuantity ?? 0) > 0)
+            return quantity * product.PackagingQuantity!.Value;
+
+        if (product.VolumeUnitId.HasValue && selectedUnitId == product.VolumeUnitId
+            && (product.VolumePerUnit ?? 0) > 0)
+            return quantity / product.VolumePerUnit!.Value;
+
+        return quantity;
     }
 
     // Converts stored ActualReceivedQuantity (in selected unit) → purchase/order unit (same unit as poLine.Quantity)
