@@ -456,6 +456,11 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             .Where(ph => filteredReceiptIds.Contains(ph.ReceiptId))
             .Sum(ph => (decimal?)ph.Amount) ?? 0m;
 
+        // 5b. Total Gross Revenue - Sum TotalCost from all TestRequests (exclude Cancelled)
+        var totalGrossRevenue = filteredRequests
+            .Where(x => x.Status != TestRequestStatus.Cancelled)
+            .Sum(x => x.TotalCost);
+
         // 6 & 7. On-time vs Late Tests
         // Đếm HĐ có status = PendingApproval (Chờ phê duyệt KQ - QLKT đã gửi kết quả)
         // So sánh PendingApprovalDate (ngày QLKT gửi KQ) với ExpectedCompletionDate (ngày YC xong)
@@ -487,6 +492,7 @@ public class DashboardAppService : ApplicationService, IDashboardAppService
             TotalIndicators = totalIndicators,
             TotalNCRs = totalNCRs,
             TotalRevenue = totalRevenue,
+            TotalGrossRevenue = totalGrossRevenue,
             OnTimeTests = onTimeTests,
             LateTests = lateTests,
             PendingApproval = pendingApproval

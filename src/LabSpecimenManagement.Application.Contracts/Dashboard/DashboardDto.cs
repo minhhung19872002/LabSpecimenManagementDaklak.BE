@@ -144,6 +144,7 @@ public class DashboardOverviewDto
     public int TotalIndicators { get; set; }
     public int TotalNCRs { get; set; }
     public decimal TotalRevenue { get; set; }
+    public decimal TotalGrossRevenue { get; set; }
     public int OnTimeTests { get; set; }
     public int LateTests { get; set; }
     public int PendingApproval { get; set; }
