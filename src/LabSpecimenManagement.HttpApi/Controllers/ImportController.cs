@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
@@ -682,6 +683,42 @@ public class ImportController : LabSpecimenManagementController
         await file.CopyToAsync(memoryStream);
         var fileBytes = memoryStream.ToArray();
         return await _importAppService.ImportTestResultValuesAsync(fileBytes);
+    }
+
+    #endregion
+
+    #region Product Import (Stock Data Import)
+
+    [HttpGet("products/template")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Default)]
+    public virtual async Task<IActionResult> GetProductTemplateAsync([FromQuery] Guid warehouseId)
+    {
+        var bytes = await _importAppService.GetProductTemplateAsync(warehouseId);
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_sach_vat_tu.xlsx");
+    }
+
+    [HttpPost("products/preview")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Create)]
+    [DisableValidation]
+    public virtual async Task<ProductImportPreviewDto> PreviewProductsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewProductsAsync(fileBytes);
+    }
+
+    [HttpPost("products")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportProductsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportProductsAsync(fileBytes);
     }
 
     #endregion

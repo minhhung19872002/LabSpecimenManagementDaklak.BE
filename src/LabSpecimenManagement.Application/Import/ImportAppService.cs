@@ -6,11 +6,15 @@ using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using ClosedXML.Excel;
+using System.Text;
+using System.Text.Json;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Helpers;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.Products;
 using LabSpecimenManagement.Specimens;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Hosting;
 using MiniExcelLibs;
 using Volo.Abp;
@@ -46,6 +50,12 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<TestResultValue, Guid> _testResultValueRepository;
     private readonly IRepository<TestResultValueIndicator, Guid> _testResultValueIndicatorRepository;
+    private readonly IRepository<Product, Guid> _productRepository;
+    private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
+    private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
+    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -74,6 +84,12 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<TestResultValue, Guid> testResultValueRepository,
         IRepository<TestResultValueIndicator, Guid> testResultValueIndicatorRepository,
+        IRepository<Product, Guid> productRepository,
+        IRepository<Unit, Guid> unitRepository,
+        IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
+        IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IRepository<ProductSku, Guid> productSkuRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -101,6 +117,12 @@ public class ImportAppService : ApplicationService, IImportAppService
         _manufacturerRepository = manufacturerRepository;
         _testResultValueRepository = testResultValueRepository;
         _testResultValueIndicatorRepository = testResultValueIndicatorRepository;
+        _productRepository = productRepository;
+        _unitRepository = unitRepository;
+        _warehouseImportReceiptRepository = warehouseImportReceiptRepository;
+        _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
+        _inventoryBarcodeRepository = inventoryBarcodeRepository;
+        _productSkuRepository = productSkuRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -6795,6 +6817,700 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             return maxNumber + 1;
         }
+    }
+
+    #endregion
+
+    #region Product Import (Stock Data Import)
+
+    public async Task<byte[]> GetProductTemplateAsync(Guid warehouseId)
+    {
+        var warehouse = await _warehouseRepository.GetAsync(warehouseId);
+
+        var templateBytes = ReadStaticTemplate("Danh sach vat tu.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var worksheet = workbook.Worksheet(1);
+
+        var queryable = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var receiptQueryable = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var existingItems = (from item in queryable
+                             join receipt in receiptQueryable
+                                 on item.WarehouseImportReceiptId equals receipt.Id
+                             where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                   && (item.StorageWarehouseId == warehouseId || receipt.WarehouseId == warehouseId)
+                                   && item.ReceivedBaseQuantity > item.ConsumedBaseQuantity
+                             select new
+                             {
+                                 item.ProductId,
+                                 item.ProductName,
+                                 item.LotNumber,
+                                 item.LotExpiryDate,
+                                 item.ReceivedBaseQuantity,
+                                 item.ConsumedBaseQuantity,
+                                 item.UnitName,
+                                 item.SkuId,
+                                 item.ManufacturerName,
+                                 item.Notes,
+                                 receipt.ActualImportDate,
+                             }).ToList();
+
+        var products = await _productRepository.GetListAsync();
+        var productDict = products.ToDictionary(p => p.Id);
+
+        var skuIds = existingItems
+            .Where(x => x.SkuId.HasValue)
+            .Select(x => x.SkuId!.Value)
+            .Distinct().ToList();
+        var skuQueryable = await _productSkuRepository.GetQueryableAsync();
+        var skus = skuIds.Count > 0
+            ? skuQueryable.Where(s => skuIds.Contains(s.Id)).ToList()
+            : new List<ProductSku>();
+        var skuDict = skus.ToDictionary(s => s.Id);
+
+        var storageUnitIds = skus
+            .Where(s => s.PackagingUnitId.HasValue)
+            .Select(s => s.PackagingUnitId!.Value)
+            .Distinct().ToList();
+        var units = storageUnitIds.Count > 0
+            ? await _unitRepository.GetListAsync(u => storageUnitIds.Contains(u.Id))
+            : new List<Unit>();
+        var unitNameDict = units.ToDictionary(u => u.Id, u => u.Name);
+
+        var row = 2;
+        foreach (var item in existingItems)
+        {
+            if (!productDict.TryGetValue(item.ProductId, out var product)) continue;
+
+            var storageUnitName = item.UnitName ?? "";
+            if (item.SkuId.HasValue && skuDict.TryGetValue(item.SkuId.Value, out var sku)
+                && sku.PackagingUnitId.HasValue
+                && unitNameDict.TryGetValue(sku.PackagingUnitId.Value, out var pkgName))
+            {
+                storageUnitName = pkgName;
+            }
+
+            worksheet.Cell(row, 1).Value = warehouseId.ToString();
+            worksheet.Cell(row, 2).Value = warehouse.Name ?? "";
+            worksheet.Cell(row, 3).Value = GetProductTypeLabel(product.ProductType);
+            worksheet.Cell(row, 4).Value = product.IdentificationCode ?? "";
+            worksheet.Cell(row, 5).Value = product.Name ?? "";
+            var currentStock = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity;
+            var openingStorage = currentStock;
+            var consumedStorage = 0m;
+            var endingStorage = currentStock;
+            // F(6): Số lượng đầu kỳ, G(7): ĐVT lưu kho (đơn vị lưu trữ)
+            worksheet.Cell(row, 6).Value = (double)openingStorage;
+            worksheet.Cell(row, 7).Value = storageUnitName;
+            // H(8): Sô lượng tiêu hao
+            worksheet.Cell(row, 8).Value = (double)consumedStorage;
+            // I(9): Hạn sử dụng, J(10): Ngày nhận
+            if (item.LotExpiryDate.HasValue)
+                worksheet.Cell(row, 9).Value = item.LotExpiryDate.Value;
+            worksheet.Cell(row, 10).Value = item.ActualImportDate;
+            // K(11): Tồn kho cuối kỳ
+            worksheet.Cell(row, 11).Value = (double)endingStorage;
+            // L(12): Code/Lot, M(13): Nhà sản xuất
+            worksheet.Cell(row, 12).Value = item.LotNumber ?? "";
+            worksheet.Cell(row, 13).Value = item.ManufacturerName ?? "";
+            // N(14): Ghi chú
+            worksheet.Cell(row, 14).Value = item.Notes ?? "";
+            row++;
+        }
+
+        if (row == 2)
+        {
+            worksheet.Cell(2, 1).Value = warehouseId.ToString();
+            worksheet.Cell(2, 2).Value = warehouse.Name ?? "";
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    public async Task<ProductImportPreviewDto> PreviewProductsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewProductsInternalAsync(memoryStream);
+    }
+
+    private async Task<ProductImportPreviewDto> PreviewProductsInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadProductExcelRows(memoryStream);
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        var result = new ProductImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        if (rows.Count == 0)
+        {
+            result.ValidationResult = validationResult;
+            return result;
+        }
+
+        var firstWarehouseId = rows[0].WarehouseId?.Trim();
+        Guid warehouseGuid;
+        Warehouse? warehouse = null;
+
+        if (!Guid.TryParse(firstWarehouseId, out warehouseGuid))
+        {
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = 2,
+                ColumnName = "ID Kho",
+                ErrorMessage = "ID Kho không hợp lệ"
+            });
+            result.ValidationResult = validationResult;
+            return result;
+        }
+
+        warehouse = await _warehouseRepository.FindAsync(warehouseGuid);
+        if (warehouse == null)
+        {
+            validationResult.Errors.Add(new ImportRowError
+            {
+                RowNumber = 2,
+                ColumnName = "ID Kho",
+                ErrorMessage = $"Không tìm thấy kho với ID: {firstWarehouseId}"
+            });
+            result.ValidationResult = validationResult;
+            return result;
+        }
+
+        result.WarehouseId = warehouseGuid;
+        result.WarehouseName = warehouse.Name;
+
+        var allProducts = await _productRepository.GetListAsync();
+        var productByCode = allProducts
+            .Where(p => !string.IsNullOrWhiteSpace(p.IdentificationCode))
+            .GroupBy(p => StringHelper.NormalizeAndTrim(p.IdentificationCode!).ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var existingItemsQueryable = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var receiptQueryable = await _warehouseImportReceiptRepository.GetQueryableAsync();
+        var existingLots = (from item in existingItemsQueryable
+                            join receipt in receiptQueryable
+                                on item.WarehouseImportReceiptId equals receipt.Id
+                            where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                  && (item.StorageWarehouseId == warehouseGuid || receipt.WarehouseId == warehouseGuid)
+                            select new { item.ProductId, item.LotNumber, item.Id, item.ReceivedBaseQuantity })
+                           .ToList();
+        var existingLotDict = existingLots
+            .Where(x => !string.IsNullOrWhiteSpace(x.LotNumber))
+            .GroupBy(x => $"{x.ProductId}|{x.LotNumber!.Trim().ToLowerInvariant()}")
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var skippedCount = 0;
+        var newCount = 0;
+        var updateCount = 0;
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2;
+
+            var item = new ProductImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                IdentificationCode = row.IdentificationCode?.Trim() ?? "",
+                ProductName = row.ProductName?.Trim() ?? "",
+                ProductTypeName = row.ProductTypeName?.Trim(),
+                LotNumber = row.LotNumber?.Trim(),
+                Quantity = row.Quantity ?? 0,
+                StorageUnitName = row.StorageUnitName?.Trim(),
+                ConsumedStorageQty = row.ConsumedStorageQty,
+                EndingStorageQty = row.EndingStorageQty,
+                ExpiryDate = row.ExpiryDate,
+                ReceivedDate = row.ReceivedDate,
+                ManufacturerName = row.ManufacturerName?.Trim(),
+                Notes = row.Notes?.Trim(),
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(row.IdentificationCode))
+            {
+                item.IsValid = false;
+                var error = "Mã nhận dạng không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber, ColumnName = "Mã nhận dạng", ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (string.IsNullOrWhiteSpace(row.LotNumber))
+            {
+                item.IsValid = false;
+                var error = "Số lô không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber, ColumnName = "Code/ Lot", ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (row.Quantity.HasValue && row.Quantity.Value < 0)
+            {
+                item.IsValid = false;
+                var error = "Số lượng không được âm";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber, ColumnName = "Số lượng đầu kỳ", ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (row.ConsumedStorageQty.HasValue && row.Quantity.HasValue
+                && row.ConsumedStorageQty.Value > row.Quantity.Value)
+            {
+                item.IsValid = false;
+                var error = "Số lượng tiêu hao không được lớn hơn số lượng đầu kỳ";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber, ColumnName = "Số lượng tiêu hao", ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (item.IsValid && !string.IsNullOrWhiteSpace(row.IdentificationCode))
+            {
+                var normalizedCode = StringHelper.NormalizeAndTrim(row.IdentificationCode).ToLowerInvariant();
+                if (productByCode.TryGetValue(normalizedCode, out var product))
+                {
+                    item.ExistingProductId = product.Id;
+                    item.ProductName = string.IsNullOrWhiteSpace(item.ProductName) ? product.Name : item.ProductName;
+
+                    var lotKey = $"{product.Id}|{row.LotNumber!.Trim().ToLowerInvariant()}";
+                    if (existingLotDict.ContainsKey(lotKey))
+                    {
+                        item.Status = ProductImportItemStatus.Update;
+                        updateCount++;
+                    }
+                    else
+                    {
+                        item.Status = ProductImportItemStatus.New;
+                        newCount++;
+                    }
+                }
+                else
+                {
+                    item.Status = ProductImportItemStatus.Skipped;
+                    item.SkipReason = "Mã nhận dạng không tồn tại trong master data";
+                    item.IsValid = false;
+                    skippedCount++;
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+                validationResult.ValidRows++;
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = rows.Count - validationResult.ValidRows - skippedCount;
+        result.SkippedRows = skippedCount;
+        result.NewItems = newCount;
+        result.UpdateItems = updateCount;
+
+        if (validationResult.Errors.Count > 0)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateProductErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Danh_sach_vat_tu_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<ProductImportRow> ReadProductExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<ProductImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var identificationCode = row.Cell(4).GetString()?.Trim();
+            var productName = row.Cell(5).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(identificationCode) && string.IsNullOrWhiteSpace(productName))
+                continue;
+
+            DateTime? expiryDate = null;
+            try
+            {
+                if (row.Cell(9).TryGetValue<DateTime>(out var ed))
+                    expiryDate = ed;
+            }
+            catch { /* ignore parse errors */ }
+
+            DateTime? receivedDate = null;
+            try
+            {
+                if (row.Cell(10).TryGetValue<DateTime>(out var rd))
+                    receivedDate = rd;
+            }
+            catch { /* ignore parse errors */ }
+
+            decimal? quantity = TryReadDecimalCell(row, 6);            // F(6): Số lượng đầu kỳ
+            decimal? consumedStorageQty = TryReadDecimalCell(row, 8);  // H(8): Sô lượng tiêu hao
+            decimal? endingStorageQty = TryReadDecimalCell(row, 11);   // K(11): Tồn kho cuối kỳ
+
+            rows.Add(new ProductImportRow
+            {
+                WarehouseId = row.Cell(1).GetString()?.Trim(),        // A(1)
+                WarehouseName = row.Cell(2).GetString()?.Trim(),      // B(2)
+                ProductTypeName = row.Cell(3).GetString()?.Trim(),    // C(3)
+                IdentificationCode = identificationCode,               // D(4)
+                ProductName = productName,                             // E(5)
+                Quantity = quantity,                                    // F(6)
+                StorageUnitName = row.Cell(7).GetString()?.Trim(),    // G(7)
+                ConsumedStorageQty = consumedStorageQty,               // H(8)
+                ExpiryDate = expiryDate,                               // I(9)
+                ReceivedDate = receivedDate,                           // J(10)
+                EndingStorageQty = endingStorageQty,                   // K(11)
+                LotNumber = row.Cell(12).GetString()?.Trim(),         // L(12)
+                ManufacturerName = row.Cell(13).GetString()?.Trim(),  // M(13)
+                Notes = row.Cell(14).GetString()?.Trim(),             // N(14)
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportProductsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewProductsInternalAsync(memoryStream);
+
+        if (preview.ValidationResult.Errors.Count > 0 && preview.ValidRows == 0)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+        var skippedCount = 0;
+
+        try
+        {
+            var warehouseId = preview.WarehouseId!.Value;
+            var warehouse = await _warehouseRepository.GetAsync(warehouseId);
+
+            var allProducts = await _productRepository.GetListAsync();
+            var productByCode = allProducts
+                .Where(p => !string.IsNullOrWhiteSpace(p.IdentificationCode))
+                .GroupBy(p => StringHelper.NormalizeAndTrim(p.IdentificationCode!).ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var existingItemsQueryable = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+            var receiptQueryable = await _warehouseImportReceiptRepository.GetQueryableAsync();
+            var existingLots = (from item in existingItemsQueryable
+                                join r in receiptQueryable
+                                    on item.WarehouseImportReceiptId equals r.Id
+                                where r.Status == WarehouseImportReceiptStatus.Completed
+                                      && (item.StorageWarehouseId == warehouseId || r.WarehouseId == warehouseId)
+                                select item)
+                               .ToList();
+            var existingLotDict = existingLots
+                .Where(x => !string.IsNullOrWhiteSpace(x.LotNumber))
+                .GroupBy(x => $"{x.ProductId}|{x.LotNumber!.Trim().ToLowerInvariant()}")
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var receiptCode = await GenerateImportReceiptCodeAsync();
+            var receipt = new WarehouseImportReceipt(
+                GuidGenerator.Create(),
+                receiptCode,
+                WarehouseImportReceiptType.DataImport)
+            {
+                WarehouseId = warehouseId,
+                WarehouseName = warehouse.Name,
+                ActualImportDate = DateTime.Now,
+            };
+
+            var validItems = preview.Items
+                .Where(i => i.IsValid && i.Status != ProductImportItemStatus.Skipped)
+                .ToList();
+
+            var newReceiptItems = new List<WarehouseImportReceiptItem>();
+
+            foreach (var previewItem in validItems)
+            {
+                var normalizedCode = StringHelper.NormalizeAndTrim(previewItem.IdentificationCode).ToLowerInvariant();
+                if (!productByCode.TryGetValue(normalizedCode, out var product))
+                {
+                    skippedCount++;
+                    continue;
+                }
+
+                var baseQty = previewItem.Quantity;
+                var consumedQty = previewItem.ConsumedStorageQty ?? 0;
+                var lotKey = $"{product.Id}|{previewItem.LotNumber!.Trim().ToLowerInvariant()}";
+
+                if (previewItem.Status == ProductImportItemStatus.Update
+                    && existingLotDict.TryGetValue(lotKey, out var existingItem))
+                {
+                    var oldNet = existingItem.ReceivedBaseQuantity - existingItem.ConsumedBaseQuantity;
+                    var newNet = baseQty - consumedQty;
+                    var delta = newNet - oldNet;
+                    existingItem.ReceivedBaseQuantity = baseQty;
+                    existingItem.ConsumedBaseQuantity = consumedQty;
+                    if (previewItem.ExpiryDate.HasValue)
+                        existingItem.LotExpiryDate = previewItem.ExpiryDate;
+                    existingItem.ProductName = product.Name;
+                    existingItem.ManufacturerName = previewItem.ManufacturerName;
+                    existingItem.UnitName = previewItem.StorageUnitName;
+                    existingItem.Notes = previewItem.Notes;
+
+                    product.AvailableQuantity += delta;
+                    await _productRepository.UpdateAsync(product, autoSave: true);
+                    await _warehouseImportReceiptItemRepository.UpdateAsync(existingItem, autoSave: true);
+
+                    if (delta > 0)
+                    {
+                        var existingBarcodeCount = await _inventoryBarcodeRepository
+                            .CountAsync(x => x.OriginWarehouseImportReceiptItemId == existingItem.Id);
+                        var newBarcodeCount = Math.Max(0, (int)Math.Ceiling(baseQty) - (int)existingBarcodeCount);
+                        var startSeq = (int)existingBarcodeCount + 1;
+                        for (var seq = startSeq; seq < startSeq + newBarcodeCount; seq++)
+                        {
+                            var code = BuildProductBarcodeCode(
+                                product.IdentificationCode,
+                                receipt.ActualImportDate,
+                                previewItem.LotNumber,
+                                seq);
+                            var uniqueCode = code;
+                            var suffix = 1;
+                            while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                                uniqueCode = $"{code}-{suffix++:D2}";
+
+                            var barcode = new InventoryBarcode(
+                                GuidGenerator.Create(),
+                                uniqueCode,
+                                product.Id,
+                                existingItem.Id,
+                                warehouseId);
+                            await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                        }
+                    }
+
+                    updatedCount++;
+                }
+                else
+                {
+                    var receiptItem = new WarehouseImportReceiptItem(
+                        GuidGenerator.Create(),
+                        receipt.Id,
+                        product.Id,
+                        product.Name)
+                    {
+                        LotNumber = previewItem.LotNumber,
+                        LotExpiryDate = previewItem.ExpiryDate,
+                        ActualReceivedQuantity = baseQty,
+                        ReceivedBaseQuantity = baseQty,
+                        ConsumedBaseQuantity = consumedQty,
+                        OrderedQuantity = baseQty,
+                        UnitName = previewItem.StorageUnitName,
+                        StorageWarehouseId = warehouseId,
+                        StorageWarehouseName = warehouse.Name,
+                        ManufacturerName = previewItem.ManufacturerName,
+                        Notes = previewItem.Notes,
+                        Status = WarehouseImportLineStatus.Checked,
+                    };
+
+                    newReceiptItems.Add(receiptItem);
+
+                    product.AvailableQuantity += (baseQty - consumedQty);
+                    await _productRepository.UpdateAsync(product, autoSave: true);
+
+                    newCount++;
+                }
+            }
+
+            if (newReceiptItems.Count > 0)
+            {
+                await _warehouseImportReceiptRepository.InsertAsync(receipt, autoSave: true);
+
+                foreach (var receiptItem in newReceiptItems)
+                {
+                    await _warehouseImportReceiptItemRepository.InsertAsync(receiptItem, autoSave: true);
+
+                    var product = productByCode.Values.FirstOrDefault(p => p.Id == receiptItem.ProductId);
+                    var barcodeCount = Math.Max(1, (int)Math.Ceiling(receiptItem.ReceivedBaseQuantity));
+                    var barcodeCodes = new List<string>();
+                    for (var seq = 1; seq <= barcodeCount; seq++)
+                    {
+                        var code = BuildProductBarcodeCode(
+                            product?.IdentificationCode,
+                            receipt.ActualImportDate,
+                            receiptItem.LotNumber,
+                            seq);
+                        var uniqueCode = code;
+                        var suffix = 1;
+                        while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                            uniqueCode = $"{code}-{suffix++:D2}";
+
+                        var barcode = new InventoryBarcode(
+                            GuidGenerator.Create(),
+                            uniqueCode,
+                            receiptItem.ProductId,
+                            receiptItem.Id,
+                            warehouseId);
+                        await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                        barcodeCodes.Add(uniqueCode);
+                    }
+                    receiptItem.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
+                    await _warehouseImportReceiptItemRepository.UpdateAsync(receiptItem, autoSave: true);
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                SkippedRows = skippedCount + preview.SkippedRows,
+                Message = $"Import thành công: {newCount} mới, {updatedCount} cập nhật, {skippedCount + preview.SkippedRows} bỏ qua."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateProductErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        var errorColumnIndex = 16; // Column P (first empty after O)
+        var headerRow = worksheet.Row(1);
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+        int dataRowNumber = 2;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var identificationCode = row.Cell(4).GetString()?.Trim();
+            var productName = row.Cell(5).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(identificationCode) && string.IsNullOrWhiteSpace(productName))
+                continue;
+
+            if (rowErrors.ContainsKey(dataRowNumber))
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+
+            dataRowNumber++;
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    private static string BuildProductBarcodeCode(
+        string? identificationCode,
+        DateTime importDate,
+        string? lotNumber,
+        int sequence)
+    {
+        var parts = new[]
+        {
+            identificationCode,
+            importDate.ToString("ddMMyyyy"),
+            lotNumber,
+            sequence.ToString("D4")
+        }.Where(x => !string.IsNullOrWhiteSpace(x));
+
+        var normalized = string.Concat(parts).Normalize(NormalizationForm.FormD);
+        return new string(normalized
+            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
+            .Where(c => c >= 32 && c <= 126)
+            .ToArray());
+    }
+
+    private async Task<string> GenerateImportReceiptCodeAsync()
+    {
+        const string prefix = "DI";
+        const string dateFormat = "ddMMyyyy";
+        const int sequencePadding = 2;
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix, dateFormat);
+            var query = await _warehouseImportReceiptRepository.GetQueryableAsync();
+            var count = query.Count(x => x.Code.StartsWith(todayPrefix));
+            return _codeGenerator.GenerateCodeWithDate(prefix, count, dateFormat, sequencePadding);
+        }
+    }
+
+    private static decimal? TryReadDecimalCell(IXLRow row, int col)
+    {
+        try
+        {
+            if (row.Cell(col).TryGetValue<double>(out var d))
+                return (decimal)d;
+            if (row.Cell(col).TryGetValue<decimal>(out var dm))
+                return dm;
+        }
+        catch { /* ignore parse errors */ }
+        return null;
+    }
+
+    private static string GetProductTypeLabel(Products.ProductType productType)
+    {
+        return productType switch
+        {
+            Products.ProductType.Chemical => "Hóa chất",
+            Products.ProductType.Biological => "Sinh phẩm",
+            Products.ProductType.Supply => "Vật tư tiêu hao",
+            Products.ProductType.Standard => "Chất chuẩn",
+            Products.ProductType.Solvent => "Dung môi",
+            Products.ProductType.Equipment => "Thiết bị phòng Lab",
+            Products.ProductType.PreparedSolution => "Dung dịch pha",
+            _ => ""
+        };
     }
 
     #endregion

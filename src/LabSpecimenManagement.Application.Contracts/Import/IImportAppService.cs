@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
@@ -327,6 +328,18 @@ public interface IImportAppService : IApplicationService
     /// </summary>
     [DisableValidation]
     Task<ImportResultDto> ImportTestResultValuesAsync(byte[] fileBytes);
+
+    #endregion
+
+    #region Product Import (Stock Data Import)
+
+    Task<byte[]> GetProductTemplateAsync(Guid warehouseId);
+
+    [DisableValidation]
+    Task<ProductImportPreviewDto> PreviewProductsAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportProductsAsync(byte[] fileBytes);
 
     #endregion
 }
