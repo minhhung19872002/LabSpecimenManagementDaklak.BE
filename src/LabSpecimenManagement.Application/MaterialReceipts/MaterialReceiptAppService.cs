@@ -400,7 +400,9 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 product, baseQty, StockMovementType.MaterialTransfer,
                 receipt.Id, receipt.Code,
                 $"Xuất kho cho phiếu nhận vật tư {receipt.Code}",
-                new List<Guid> { centralWarehouse.Id });
+                new List<Guid> { centralWarehouse.Id },
+                item.LotNumber,
+                item.ManufacturerName);
 
             var deductedBaseQuantity = lotDeductions.Sum(x => x.DeductedBaseQty);
             if (deductedBaseQuantity != baseQty)
@@ -657,6 +659,8 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             var skuDtos = productSkus.Select(s => new CentralWarehouseProductSkuDto
             {
                 SkuId = s.Id,
+                ManufacturerId = s.ManufacturerId,
+                ManufacturerName = manufacturerNameMap.GetValueOrDefault(s.ManufacturerId),
                 StorageUnitId = s.PackagingUnitId,
                 StorageUnitName = s.PackagingUnitId.HasValue ? unitMap.GetValueOrDefault(s.PackagingUnitId.Value) : null,
                 ConsumableUnitId = s.VolumeUnitId,
@@ -666,29 +670,43 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             }).ToList();
 
             CentralWarehouseProductDto BuildDto(decimal stockQty, DateTime? lotExpiryDate,
-                string? lotNumber, string? manufacturerName) => new()
+                string? lotNumber, string? manufacturerName)
             {
-                ProductId = p.Id,
-                ProductName = p.Name,
-                FormattedName = p.FormattedName,
-                IdentificationCode = p.IdentificationCode,
-                TechnicalSpec = p.MainTechnicalSpecs,
-                CASNumber = p.CASNumber,
-                ProductType = (int)p.ProductType,
-                CentralStockBaseQty = stockQty,
-                NearestExpiryDate = lotExpiryDate,
-                LotNumber = lotNumber,
-                LotExpiryDate = lotExpiryDate,
-                ManufacturerName = manufacturerName
-                    ?? skuManufacturerByProduct.GetValueOrDefault(p.Id),
-                StorageUnitName = firstSku?.PackagingUnitId.HasValue == true
-                    ? unitMap.GetValueOrDefault(firstSku.PackagingUnitId!.Value) : null,
-                ConsumableUnitName = firstSku?.VolumeUnitId.HasValue == true
-                    ? unitMap.GetValueOrDefault(firstSku.VolumeUnitId!.Value) : null,
-                VolumePerUnit = firstSku?.VolumePerUnit,
-                AvailableUnits = availableUnits,
-                Skus = skuDtos
-            };
+                var resolvedManufacturerName = manufacturerName
+                    ?? skuManufacturerByProduct.GetValueOrDefault(p.Id);
+
+                var lotSku = !string.IsNullOrWhiteSpace(resolvedManufacturerName)
+                    ? productSkus.FirstOrDefault(s =>
+                        string.Equals(
+                            manufacturerNameMap.GetValueOrDefault(s.ManufacturerId),
+                            resolvedManufacturerName,
+                            StringComparison.OrdinalIgnoreCase))
+                        ?? firstSku
+                    : firstSku;
+
+                return new CentralWarehouseProductDto
+                {
+                    ProductId = p.Id,
+                    ProductName = p.Name,
+                    FormattedName = p.FormattedName,
+                    IdentificationCode = p.IdentificationCode,
+                    TechnicalSpec = p.MainTechnicalSpecs,
+                    CASNumber = p.CASNumber,
+                    ProductType = (int)p.ProductType,
+                    CentralStockBaseQty = stockQty,
+                    NearestExpiryDate = lotExpiryDate,
+                    LotNumber = lotNumber,
+                    LotExpiryDate = lotExpiryDate,
+                    ManufacturerName = resolvedManufacturerName,
+                    StorageUnitName = lotSku?.PackagingUnitId.HasValue == true
+                        ? unitMap.GetValueOrDefault(lotSku.PackagingUnitId!.Value) : null,
+                    ConsumableUnitName = lotSku?.VolumeUnitId.HasValue == true
+                        ? unitMap.GetValueOrDefault(lotSku.VolumeUnitId!.Value) : null,
+                    VolumePerUnit = lotSku?.VolumePerUnit,
+                    AvailableUnits = availableUnits,
+                    Skus = skuDtos
+                };
+            }
 
             if (lotGroupsByProduct.TryGetValue(p.Id, out var lots) && lots.Count > 0)
             {
