@@ -84,7 +84,6 @@ public class PurchaseRequestDocxGenerator : IPurchaseRequestDocxGenerator, ITran
             MergeSplitPlaceholders(paragraph);
 
         ProcessMainTable(body, items);
-        ProcessAppendixTable(body, items);
         ReplaceDatePlaceholders(body);
 
         document.MainDocumentPart.Document.Save();
@@ -150,50 +149,6 @@ public class PurchaseRequestDocxGenerator : IPurchaseRequestDocxGenerator, ITran
 
         groupTemplateRow.Remove();
         itemTemplateRow.Remove();
-    }
-
-    private void ProcessAppendixTable(Body body, List<PurchaseRequestItemData> items)
-    {
-        Table? appendixTable = null;
-        TableRow? templateRow = null;
-
-        foreach (var table in body.Descendants<Table>())
-        {
-            foreach (var row in table.Elements<TableRow>())
-            {
-                if (GetRowText(row).Contains("{{StandardName}}"))
-                {
-                    appendixTable = table;
-                    templateRow = row;
-                    break;
-                }
-            }
-            if (appendixTable != null) break;
-        }
-
-        if (appendixTable == null || templateRow == null)
-        {
-            _logger.LogWarning("Appendix table template row not found in purchase request template");
-            return;
-        }
-
-        int stt = 0;
-        foreach (var item in items)
-        {
-            stt++;
-            var newRow = (TableRow)templateRow.CloneNode(true);
-            ReplaceInElement(newRow, "{{STT}}", stt.ToString());
-            ReplaceInElement(newRow, "{{StandardName}}", item.ProductName);
-            ReplaceInElement(newRow, "{{CASNumber}}", item.CASNumber ?? "");
-            ReplaceInElement(newRow, "{{ChemicalFormula}}", item.ChemicalFormula ?? "");
-            ReplaceInElement(newRow, "{{Concentration}}", item.Concentration ?? "");
-            ReplaceInElement(newRow, "{{StandardUnitName}}", item.UnitName);
-            ReplaceInElement(newRow, "{{StandardQuantity}}", FormatQuantity(item.Quantity));
-            ReplaceInElement(newRow, "{{Manufacturer}}", item.Manufacturer ?? "");
-            appendixTable.InsertBefore(newRow, templateRow);
-        }
-
-        templateRow.Remove();
     }
 
     private static void ReplaceDatePlaceholders(Body body)
