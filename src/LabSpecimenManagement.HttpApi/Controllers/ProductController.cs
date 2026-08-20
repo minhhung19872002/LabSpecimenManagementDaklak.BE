@@ -127,4 +127,11 @@ public class ProductController : LabSpecimenManagementController
         var result = await _productAppService.ExportInventoryAsync(input);
         return File(result.GetStream(), result.ContentType, result.FileName);
     }
+
+    [HttpGet("export-product-appendix")]
+    [Authorize(LabSpecimenManagementPermissions.Products.Export)]
+    public virtual Task<ExportProductAppendixOutput> ExportProductAppendixAsync([FromQuery] Guid warehouseId)
+    {
+        return _productAppService.ExportProductAppendixAsync(warehouseId);
+    }
 }

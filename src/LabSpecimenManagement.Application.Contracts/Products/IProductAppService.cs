@@ -29,4 +29,5 @@ public interface IProductAppService : IApplicationService
     Task<PagedResultDto<ProductUsageLogItemDto>> GetUsageLogAsync(Guid id, GetProductUsageLogInput input);
     Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, Guid? warehouseId);
     Task<IRemoteStreamContent> ExportInventoryAsync(ProductFilterDto input);
+    Task<ExportProductAppendixOutput> ExportProductAppendixAsync(Guid warehouseId);
 }

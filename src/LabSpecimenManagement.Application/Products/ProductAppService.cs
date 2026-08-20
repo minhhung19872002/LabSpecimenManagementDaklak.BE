@@ -61,6 +61,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IDataFilter _dataFilter;
     private readonly IUnitConversionResolver _unitConversionResolver;
     private readonly IHostEnvironment _hostEnvironment;
+    private readonly IProductAppendixDocxGenerator _productAppendixDocxGenerator;
 
     public ProductAppService(
         IRepository<Product, Guid> productRepository,
@@ -92,7 +93,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         IUnitConversionResolver unitConversionResolver,
         IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
         IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
-        IHostEnvironment hostEnvironment)
+        IHostEnvironment hostEnvironment,
+        IProductAppendixDocxGenerator productAppendixDocxGenerator)
     {
         _productRepository = productRepository;
         _attachmentRepository = attachmentRepository;
@@ -124,6 +126,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
         _hostEnvironment = hostEnvironment;
+        _productAppendixDocxGenerator = productAppendixDocxGenerator;
     }
 
     public async Task<PagedResultDto<ProductDto>> GetListAsync(ProductFilterDto input)
@@ -2909,6 +2912,144 @@ public class ProductAppService : ApplicationService, IProductAppService
         {
             return storageConditions;
         }
+    }
+
+    [Authorize(LabSpecimenManagementPermissions.Products.Export)]
+    public async Task<ExportProductAppendixOutput> ExportProductAppendixAsync(Guid warehouseId)
+    {
+        var warehouseIds = await GetWarehouseSubtreeIdsAsync(warehouseId);
+
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        var warehouseNameMap = warehouseQuery
+            .Where(w => w.IsActive && warehouseIds.Contains(w.Id))
+            .Select(w => new { w.Id, w.Name, w.SortOrder })
+            .ToDictionary(w => w.Id, w => new { w.Name, w.SortOrder });
+
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var importItemsRaw = (from item in importItemQuery
+                              join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                              where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                    && item.Status == WarehouseImportLineStatus.Checked
+                              where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                              select new
+                              {
+                                  item.ProductId,
+                                  EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                              })
+                              .ToList();
+
+        var importItems = importItemsRaw.Where(x => x.EffectiveWarehouseId.HasValue).ToList();
+        if (!importItems.Any())
+        {
+            var fileName = await _productAppendixDocxGenerator.GenerateAsync(new List<ProductAppendixWarehouseGroup>());
+            return new ExportProductAppendixOutput { FileName = fileName };
+        }
+
+        var productIdsByWarehouse = importItems
+            .Where(x => x.EffectiveWarehouseId.HasValue)
+            .GroupBy(x => x.EffectiveWarehouseId!.Value)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(x => x.ProductId).Distinct().ToHashSet());
+
+        var allProductIds = productIdsByWarehouse.Values.SelectMany(x => x).Distinct().ToList();
+        var productQuery = await _productRepository.GetQueryableAsync();
+        var products = productQuery
+            .Where(x => allProductIds.Contains(x.Id) && !x.IsDraft)
+            .ToList();
+        var productMap = products.ToDictionary(p => p.Id);
+
+        var unitIds = products
+            .Where(p => p.VolumeUnitId.HasValue).Select(p => p.VolumeUnitId!.Value)
+            .Union(products.Where(p => p.BaseUnitId.HasValue).Select(p => p.BaseUnitId!.Value))
+            .Distinct().ToList();
+        var unitQuery = await _unitRepository.GetQueryableAsync();
+        var unitNameMap = unitIds.Any()
+            ? unitQuery.Where(u => unitIds.Contains(u.Id)).ToDictionary(u => u.Id, u => u.Name)
+            : new Dictionary<Guid, string>();
+
+        var skuQuery = await _skuRepository.GetQueryableAsync();
+        var skusForProducts = skuQuery
+            .Where(s => allProductIds.Contains(s.ProductId))
+            .Select(s => new { s.ProductId, s.ManufacturerId })
+            .ToList();
+        var manufacturerIds = skusForProducts.Select(s => s.ManufacturerId).Distinct().ToList();
+        var manufacturerQuery = await _manufacturerRepository.GetQueryableAsync();
+        var manufacturerNameMap = manufacturerIds.Any()
+            ? manufacturerQuery.Where(m => manufacturerIds.Contains(m.Id)).ToDictionary(m => m.Id, m => m.Name)
+            : new Dictionary<Guid, string>();
+        var skusByProduct = skusForProducts
+            .GroupBy(s => s.ProductId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.Select(s => manufacturerNameMap.GetValueOrDefault(s.ManufacturerId, ""))
+                    .Where(n => !string.IsNullOrEmpty(n)).Distinct().ToList());
+
+        var warehouseGroups = productIdsByWarehouse
+            .Where(kvp => warehouseNameMap.ContainsKey(kvp.Key))
+            .OrderBy(kvp => warehouseNameMap[kvp.Key].SortOrder)
+            .ThenBy(kvp => warehouseNameMap[kvp.Key].Name)
+            .Select(kvp =>
+            {
+                var items = new List<ProductAppendixItemData>();
+                var productsInWarehouse = kvp.Value
+                    .Where(pid => productMap.ContainsKey(pid))
+                    .Select(pid => productMap[pid])
+                    .OrderBy(p => p.Name)
+                    .ToList();
+
+                foreach (var product in productsInWarehouse)
+                {
+                    var volumeUnitName = product.VolumeUnitId.HasValue
+                        ? unitNameMap.GetValueOrDefault(product.VolumeUnitId.Value, "")
+                        : product.BaseUnitId.HasValue
+                            ? unitNameMap.GetValueOrDefault(product.BaseUnitId.Value, "")
+                            : "";
+
+                    var manufacturerNames = skusByProduct.GetValueOrDefault(product.Id, new List<string>());
+                    if (manufacturerNames.Any())
+                    {
+                        foreach (var mfName in manufacturerNames)
+                        {
+                            items.Add(new ProductAppendixItemData
+                            {
+                                ProductName = product.Name,
+                                UnitName = volumeUnitName,
+                                CASNumber = product.CASNumber,
+                                ChemicalFormula = product.ChemicalFormula,
+                                Concentration = product.Concentration,
+                                Manufacturer = mfName,
+                            });
+                        }
+                    }
+                    else
+                    {
+                        items.Add(new ProductAppendixItemData
+                        {
+                            ProductName = product.Name,
+                            UnitName = volumeUnitName,
+                            CASNumber = product.CASNumber,
+                            ChemicalFormula = product.ChemicalFormula,
+                            Concentration = product.Concentration,
+                            Manufacturer = "",
+                        });
+                    }
+                }
+
+                return new ProductAppendixWarehouseGroup
+                {
+                    WarehouseName = warehouseNameMap[kvp.Key].Name,
+                    Items = items
+                };
+            })
+            .Where(g => g.Items.Any())
+            .ToList();
+
+        var generatedFileName = await _productAppendixDocxGenerator.GenerateAsync(warehouseGroups);
+        return new ExportProductAppendixOutput { FileName = generatedFileName };
     }
 
     private static string ToRoman(int number)

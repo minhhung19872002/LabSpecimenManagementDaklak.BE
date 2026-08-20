@@ -394,3 +394,8 @@ public class GetProductMaterialReceiptHistoryInput : PagedRequestDto
     public DateTime? ToDate { get; set; }
     public Guid? WarehouseId { get; set; }
 }
+
+public class ExportProductAppendixOutput
+{
+    public string FileName { get; set; } = string.Empty;
+}
