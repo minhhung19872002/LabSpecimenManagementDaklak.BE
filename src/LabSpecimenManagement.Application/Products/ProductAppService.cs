@@ -495,6 +495,30 @@ public class ProductAppService : ApplicationService, IProductAppService
         foreach (var kvp in whTheoreticalFromTBC)
             whTheoreticalByProductWh[kvp.Key] = whTheoreticalByProductWh.GetValueOrDefault(kvp.Key) + kvp.Value;
 
+        // 10c. Warehouse-scoped earliest lot data (fixes cross-warehouse lot/expiry display)
+        var whEarliestLotData = (from item in importItemQuery
+                                 join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                                 where receipt.Status == WarehouseImportReceiptStatus.Completed
+                                       && item.Status == WarehouseImportLineStatus.Checked
+                                       && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                                       && pagedProductIds.Contains(item.ProductId)
+                                 where (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
+                                       || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                                 select new
+                                 {
+                                     item.ProductId,
+                                     item.LotNumber,
+                                     item.LotExpiryDate,
+                                     item.Notes,
+                                     receipt.ActualImportDate
+                                 })
+                                 .ToList();
+        var whEarliestLotByProduct = whEarliestLotData
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => g
+                .OrderBy(x => x.LotExpiryDate ?? DateTime.MaxValue)
+                .First());
+
         for (int i = 0; i < dtos.Count; i++)
         {
             var entry = pagedItems[i];
@@ -523,6 +547,21 @@ public class ProductAppService : ApplicationService, IProductAppService
                 dtos[i].StockByUnits = whStockByUnits;
             else
                 dtos[i].StockByUnits = new List<StockByUnitDto>();
+
+            if (whEarliestLotByProduct.TryGetValue(product.Id, out var whLot))
+            {
+                dtos[i].EarliestLotNumber = whLot.LotNumber;
+                dtos[i].EarliestLotExpiryDate = whLot.LotExpiryDate;
+                dtos[i].EarliestReceivedDate = whLot.ActualImportDate;
+                dtos[i].EarliestLotNotes = whLot.Notes;
+            }
+            else
+            {
+                dtos[i].EarliestLotNumber = null;
+                dtos[i].EarliestLotExpiryDate = null;
+                dtos[i].EarliestReceivedDate = null;
+                dtos[i].EarliestLotNotes = null;
+            }
         }
 
         return new PagedResultDto<ProductDto>(totalCount, dtos);
