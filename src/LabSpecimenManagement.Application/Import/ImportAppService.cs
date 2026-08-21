@@ -5693,12 +5693,18 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         if (activeWarehouses.Count > 0)
         {
-            var sorted = activeWarehouses.OrderBy(w => w.Name).ToList();
+            var warehouseById = activeWarehouses.ToDictionary(w => w.Id);
+            var sorted = activeWarehouses.OrderBy(w => w.Code).ToList();
             for (int i = 0; i < sorted.Count; i++)
             {
                 var row = i + 2;
-                worksheet.Cell(row, 1).Value = sorted[i].Name ?? "";
-                worksheet.Cell(row, 2).Value = sorted[i].PhysicalLocation ?? "";
+                worksheet.Cell(row, 1).Value = sorted[i].Code ?? "";
+                worksheet.Cell(row, 2).Value = sorted[i].Name ?? "";
+                var parentCode = sorted[i].ParentWarehouseId.HasValue
+                    && warehouseById.TryGetValue(sorted[i].ParentWarehouseId.Value, out var parent)
+                    ? parent.Code : "";
+                worksheet.Cell(row, 3).Value = parentCode;
+                worksheet.Cell(row, 4).Value = sorted[i].PhysicalLocation ?? "";
             }
         }
 
@@ -5720,15 +5726,16 @@ public class ImportAppService : ApplicationService, IImportAppService
         var rowErrors = new Dictionary<int, List<string>>();
 
         var existingWarehouses = await _warehouseRepository.GetListAsync();
-        var warehouseDict = existingWarehouses
-            .GroupBy(x => StringHelper.NormalizeAndTrim(x.Name).ToLowerInvariant())
+        var warehouseByCode = existingWarehouses
+            .GroupBy(x => x.Code.Trim().ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
 
         var result = new WarehouseImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
-        var newWarehouseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var updateWarehouseNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var newCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var updateCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (int i = 0; i < rows.Count; i++)
         {
@@ -5738,12 +5745,41 @@ public class ImportAppService : ApplicationService, IImportAppService
             var item = new WarehouseImportPreviewItem
             {
                 RowNumber = rowNumber,
+                Code = row.Code?.Trim() ?? "",
                 Name = row.Name?.Trim() ?? "",
+                ParentWarehouseCode = row.ParentWarehouseCode?.Trim(),
                 PhysicalLocation = row.PhysicalLocation?.Trim(),
                 IsValid = true
             };
 
             var rowErrorMessages = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(row.Code))
+            {
+                item.IsValid = false;
+                var error = "Mã kho không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Mã kho",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else if (!seenCodes.Add(row.Code.Trim()))
+            {
+                item.IsValid = false;
+                var error = $"Mã kho '{row.Code.Trim()}' bị trùng trong file";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Mã kho",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
 
             if (string.IsNullOrWhiteSpace(row.Name))
             {
@@ -5758,19 +5794,82 @@ public class ImportAppService : ApplicationService, IImportAppService
                 });
                 AddRowError(rowErrors, rowNumber, error);
             }
-            else
+
+            if (!string.IsNullOrWhiteSpace(row.ParentWarehouseCode))
             {
-                var normalizedName = StringHelper.NormalizeAndTrim(row.Name).ToLowerInvariant();
-                if (warehouseDict.TryGetValue(normalizedName, out var existingWarehouse))
+                var parentCodeTrimmed = row.ParentWarehouseCode.Trim();
+                var parentCodeLower = parentCodeTrimmed.ToLowerInvariant();
+
+                if (!string.IsNullOrWhiteSpace(row.Code) &&
+                    string.Equals(parentCodeTrimmed, row.Code.Trim(), StringComparison.OrdinalIgnoreCase))
+                {
+                    item.IsValid = false;
+                    var error = "Kho cha không thể là chính kho này";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Kho cha",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else if (!warehouseByCode.ContainsKey(parentCodeLower))
+                {
+                    item.IsValid = false;
+                    var error = $"Mã kho cha '{parentCodeTrimmed}' không tồn tại trong hệ thống";
+                    rowErrorMessages.Add(error);
+                    validationResult.Errors.Add(new ImportRowError
+                    {
+                        RowNumber = rowNumber,
+                        ColumnName = "Kho cha",
+                        ErrorMessage = error
+                    });
+                    AddRowError(rowErrors, rowNumber, error);
+                }
+                else if (!string.IsNullOrWhiteSpace(row.Code))
+                {
+                    var codeLower = row.Code.Trim().ToLowerInvariant();
+                    if (warehouseByCode.TryGetValue(codeLower, out var selfWarehouse))
+                    {
+                        var parentWarehouse = warehouseByCode[parentCodeLower];
+                        var currentId = (Guid?)parentWarehouse.ParentWarehouseId;
+                        var allWarehouses = existingWarehouses;
+                        while (currentId != null)
+                        {
+                            if (currentId == selfWarehouse.Id)
+                            {
+                                item.IsValid = false;
+                                var error = $"Không thể chọn kho con của chính kho này làm kho cha (vòng lặp)";
+                                rowErrorMessages.Add(error);
+                                validationResult.Errors.Add(new ImportRowError
+                                {
+                                    RowNumber = rowNumber,
+                                    ColumnName = "Kho cha",
+                                    ErrorMessage = error
+                                });
+                                AddRowError(rowErrors, rowNumber, error);
+                                break;
+                            }
+                            currentId = allWarehouses.FirstOrDefault(x => x.Id == currentId)?.ParentWarehouseId;
+                        }
+                    }
+                }
+            }
+
+            if (item.IsValid && !string.IsNullOrWhiteSpace(row.Code))
+            {
+                var codeKey = row.Code.Trim().ToLowerInvariant();
+                if (warehouseByCode.TryGetValue(codeKey, out var existingWarehouse))
                 {
                     item.IsNew = false;
                     item.ExistingId = existingWarehouse.Id;
-                    updateWarehouseNames.Add(normalizedName);
+                    updateCodes.Add(codeKey);
                 }
                 else
                 {
                     item.IsNew = true;
-                    newWarehouseNames.Add(normalizedName);
+                    newCodes.Add(codeKey);
                 }
             }
 
@@ -5787,8 +5886,8 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.TotalRows = rows.Count;
         result.ValidRows = validationResult.ValidRows;
         result.InvalidRows = validationResult.InvalidRows;
-        result.NewWarehouses = newWarehouseNames.Count;
-        result.UpdateWarehouses = updateWarehouseNames.Count;
+        result.NewWarehouses = newCodes.Count;
+        result.UpdateWarehouses = updateCodes.Count;
 
         if (!validationResult.IsValid)
         {
@@ -5814,13 +5913,21 @@ public class ImportAppService : ApplicationService, IImportAppService
             var row = worksheet.Row(rowNum);
             if (row.IsEmpty()) continue;
 
-            var name = row.Cell(1).GetString()?.Trim();
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            var code = row.Cell(1).GetString()?.Trim();
+            var name = row.Cell(2).GetString()?.Trim();
+            var parentCode = row.Cell(3).GetString()?.Trim();
+            var physicalLocation = row.Cell(4).GetString()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)
+                && string.IsNullOrWhiteSpace(parentCode) && string.IsNullOrWhiteSpace(physicalLocation))
+                continue;
 
             rows.Add(new WarehouseImportRow
             {
-                Name = name,
-                PhysicalLocation = row.Cell(2).GetString()?.Trim()
+                Code = code ?? "",
+                Name = name ?? "",
+                ParentWarehouseCode = parentCode,
+                PhysicalLocation = physicalLocation
             });
         }
 
@@ -5848,52 +5955,60 @@ public class ImportAppService : ApplicationService, IImportAppService
         var newCount = 0;
         var updatedCount = 0;
 
-        var processedWarehouses = new Dictionary<string, Warehouse>(StringComparer.OrdinalIgnoreCase);
-
         try
         {
             var existingWarehouses = await _warehouseRepository.GetListAsync();
+            var warehouseByCode = new Dictionary<string, Warehouse>(StringComparer.OrdinalIgnoreCase);
             foreach (var warehouse in existingWarehouses)
             {
-                var key = StringHelper.NormalizeAndTrim(warehouse.Name).ToLowerInvariant();
-                if (!processedWarehouses.ContainsKey(key))
+                var key = warehouse.Code.Trim();
+                if (!warehouseByCode.ContainsKey(key))
                 {
-                    processedWarehouses[key] = warehouse;
+                    warehouseByCode[key] = warehouse;
                 }
             }
 
             var validItems = preview.Items.Where(i => i.IsValid).ToList();
 
-            var nextCodeNumber = await GetNextWarehouseCodeNumberAsync();
-
             foreach (var item in validItems)
             {
-                var warehouseKey = StringHelper.NormalizeAndTrim(item.Name).ToLowerInvariant();
+                Guid? parentId = null;
+                int level = 0;
 
-                if (processedWarehouses.TryGetValue(warehouseKey, out var existingWarehouse))
+                if (!string.IsNullOrWhiteSpace(item.ParentWarehouseCode))
+                {
+                    if (warehouseByCode.TryGetValue(item.ParentWarehouseCode.Trim(), out var parentWarehouse))
+                    {
+                        parentId = parentWarehouse.Id;
+                        level = parentWarehouse.Level + 1;
+                    }
+                }
+
+                if (warehouseByCode.TryGetValue(item.Code.Trim(), out var existingWarehouse))
                 {
                     existingWarehouse.Name = StringHelper.Normalize(item.Name);
                     existingWarehouse.PhysicalLocation = item.PhysicalLocation;
+                    existingWarehouse.ParentWarehouseId = parentId;
+                    existingWarehouse.Level = level;
                     await _warehouseRepository.UpdateAsync(existingWarehouse);
                     updatedCount++;
                 }
                 else
                 {
-                    var code = $"KH-{nextCodeNumber:D3}";
-                    nextCodeNumber++;
-
                     var newWarehouse = new Warehouse(
                         GuidGenerator.Create(),
-                        code,
+                        item.Code.Trim(),
                         StringHelper.Normalize(item.Name)
                     )
                     {
                         PhysicalLocation = item.PhysicalLocation,
+                        ParentWarehouseId = parentId,
+                        Level = level,
                         IsActive = true,
                         SortOrder = 0
                     };
                     await _warehouseRepository.InsertAsync(newWarehouse);
-                    processedWarehouses[warehouseKey] = newWarehouse;
+                    warehouseByCode[item.Code.Trim()] = newWarehouse;
                     newCount++;
                 }
             }
@@ -5922,7 +6037,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var workbook = new XLWorkbook(originalStream);
         var worksheet = workbook.Worksheet(1);
 
-        var errorColumnIndex = 3;
+        var errorColumnIndex = 5;
         var headerRow = worksheet.Row(1);
         headerRow.Cell(errorColumnIndex).Value = "Lỗi";
         headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
@@ -5936,15 +6051,18 @@ public class ImportAppService : ApplicationService, IImportAppService
             var row = worksheet.Row(rowNum);
             if (row.IsEmpty()) continue;
 
-            var name = row.Cell(1).GetString()?.Trim();
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            var c1 = row.Cell(1).GetString()?.Trim();
+            var c2 = row.Cell(2).GetString()?.Trim();
+            var c3 = row.Cell(3).GetString()?.Trim();
+            var c4 = row.Cell(4).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(c1) && string.IsNullOrWhiteSpace(c2)
+                && string.IsNullOrWhiteSpace(c3) && string.IsNullOrWhiteSpace(c4))
+                continue;
 
-            var hasError = rowErrors.ContainsKey(dataRowNumber);
-
-            if (hasError)
+            if (rowErrors.TryGetValue(dataRowNumber, out var errors))
             {
                 var errorCell = row.Cell(errorColumnIndex);
-                errorCell.Value = string.Join("; ", rowErrors[dataRowNumber]);
+                errorCell.Value = string.Join("; ", errors);
                 errorCell.Style.Font.FontColor = XLColor.Red;
             }
 
@@ -5956,30 +6074,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var outputStream = new MemoryStream();
         workbook.SaveAs(outputStream);
         return outputStream.ToArray();
-    }
-
-    private async Task<int> GetNextWarehouseCodeNumberAsync()
-    {
-        using (_dataFilter.Disable<ISoftDelete>())
-        {
-            var existingWarehouses = await _warehouseRepository.GetListAsync();
-            var codes = existingWarehouses
-                .Where(w => w.Code.StartsWith("KH-"))
-                .Select(w => w.Code)
-                .ToList();
-
-            int maxNumber = 0;
-            foreach (var code in codes)
-            {
-                var numberPart = code.Replace("KH-", "");
-                if (int.TryParse(numberPart, out var num) && num > maxNumber)
-                {
-                    maxNumber = num;
-                }
-            }
-
-            return maxNumber + 1;
-        }
     }
 
     #endregion
