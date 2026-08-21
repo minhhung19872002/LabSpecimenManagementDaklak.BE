@@ -18,6 +18,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
     private readonly IRepository<TestBatchConsumption, Guid> _testBatchConsumptionRepository;
+    private readonly IRepository<TestBatch, Guid> _testBatchRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _conversionRepository;
@@ -29,6 +30,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
         IRepository<TestBatchConsumption, Guid> testBatchConsumptionRepository,
+        IRepository<TestBatch, Guid> testBatchRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<ProductUnitConversion, Guid> conversionRepository,
@@ -39,6 +41,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         _importReceiptRepository = importReceiptRepository;
         _indicatorConsumptionRepository = indicatorConsumptionRepository;
         _testBatchConsumptionRepository = testBatchConsumptionRepository;
+        _testBatchRepository = testBatchRepository;
         _productRepository = productRepository;
         _productSkuRepository = productSkuRepository;
         _conversionRepository = conversionRepository;
@@ -81,12 +84,6 @@ public class InventoryBarcodeStatusService : ITransientDependency
 
         var barcodeByCode = barcodes.ToDictionary(b => b.Code);
 
-        var mergedGroups = warehouseItems
-            .GroupBy(x => (x.LotNumber, LotExpiryDate: x.LotExpiryDate?.Date))
-            .OrderBy(g => g.Key.LotExpiryDate == null ? 1 : 0)
-            .ThenBy(g => g.Key.LotExpiryDate)
-            .ToList();
-
         var product = await _productRepository.GetAsync(productId);
 
         var skuQuery = await _productSkuRepository.GetQueryableAsync();
@@ -95,59 +92,65 @@ public class InventoryBarcodeStatusService : ITransientDependency
 
         var useVolumeBased = product.VolumePerUnit > 0 || allSkus.Any(s => s.VolumePerUnit > 0);
 
-        decimal remaining;
-        if (useVolumeBased)
+        var lotInfos = new List<LotAllocationInfo>();
+        foreach (var item in warehouseItems)
         {
-            remaining = await GetTotalVolumeConsumedAsync(productId, warehouseId, product, allSkus);
+            var itemBarcodes = DeserializeBarcodes(item.BarcodeValues);
+            if (itemBarcodes.Count == 0) continue;
+            var capacityPerBarcode = useVolumeBased
+                ? GetVolumePerBarcode(item.SkuId, skuById, product)
+                : 1m;
+            lotInfos.Add(new LotAllocationInfo
+            {
+                ItemId = item.Id,
+                LotExpiryDate = item.LotExpiryDate?.Date,
+                ImportDate = item.ActualImportDate,
+                TotalCapacity = itemBarcodes.Count * capacityPerBarcode,
+                CapacityPerBarcode = capacityPerBarcode,
+                Barcodes = itemBarcodes,
+            });
         }
-        else
-        {
-            remaining = await GetTotalBaseConsumedAsync(productId, warehouseId, product, allSkus);
-        }
+
+        if (lotInfos.Count == 0) return;
+
+        var consumed = await AllocateConsumptionToLotsAsync(
+            productId, warehouseId, product, allSkus, useVolumeBased, lotInfos);
 
         var updatedBarcodes = new List<InventoryBarcode>();
 
-        foreach (var g in mergedGroups)
+        foreach (var lot in lotInfos)
         {
-            var orderedItems = g.OrderBy(x => x.ActualImportDate).ToList();
-            var isExpired = g.Key.LotExpiryDate.HasValue && g.Key.LotExpiryDate.Value < today;
+            var isExpired = lot.LotExpiryDate.HasValue && lot.LotExpiryDate.Value < today;
+            var lotRemaining = consumed.GetValueOrDefault(lot.ItemId);
 
-            foreach (var item in orderedItems)
+            foreach (var code in lot.Barcodes)
             {
-                var itemBarcodes = DeserializeBarcodes(item.BarcodeValues);
-                var capacityPerBarcode = useVolumeBased
-                    ? GetVolumePerBarcode(item.SkuId, skuById, product)
-                    : 1m;
+                if (!barcodeByCode.TryGetValue(code, out var barcode)) continue;
 
-                foreach (var code in itemBarcodes)
+                InventoryBarcodeStatus newStatus;
+                if (lot.CapacityPerBarcode > 0 && lotRemaining >= lot.CapacityPerBarcode)
                 {
-                    if (!barcodeByCode.TryGetValue(code, out var barcode)) continue;
+                    newStatus = InventoryBarcodeStatus.UsedUp;
+                    lotRemaining -= lot.CapacityPerBarcode;
+                }
+                else if (lotRemaining > 0)
+                {
+                    newStatus = isExpired
+                        ? InventoryBarcodeStatus.Expired
+                        : InventoryBarcodeStatus.InUse;
+                    lotRemaining = 0;
+                }
+                else
+                {
+                    newStatus = isExpired
+                        ? InventoryBarcodeStatus.Expired
+                        : InventoryBarcodeStatus.NotUsed;
+                }
 
-                    InventoryBarcodeStatus newStatus;
-                    if (capacityPerBarcode > 0 && remaining >= capacityPerBarcode)
-                    {
-                        newStatus = InventoryBarcodeStatus.UsedUp;
-                        remaining -= capacityPerBarcode;
-                    }
-                    else if (remaining > 0)
-                    {
-                        newStatus = isExpired
-                            ? InventoryBarcodeStatus.Expired
-                            : InventoryBarcodeStatus.InUse;
-                        remaining = 0;
-                    }
-                    else
-                    {
-                        newStatus = isExpired
-                            ? InventoryBarcodeStatus.Expired
-                            : InventoryBarcodeStatus.NotUsed;
-                    }
-
-                    if (barcode.Status != newStatus)
-                    {
-                        barcode.Status = newStatus;
-                        updatedBarcodes.Add(barcode);
-                    }
+                if (barcode.Status != newStatus)
+                {
+                    barcode.Status = newStatus;
+                    updatedBarcodes.Add(barcode);
                 }
             }
         }
@@ -172,23 +175,69 @@ public class InventoryBarcodeStatusService : ITransientDependency
         }
     }
 
-    // --- Volume-based path: consumption & capacity in volume units (ml) ---
+    // --- Chronological FEFO allocation ---
 
-    private async Task<decimal> GetTotalVolumeConsumedAsync(
-        Guid productId, Guid warehouseId, Product product, List<ProductSku> skus)
+    private async Task<Dictionary<Guid, decimal>> AllocateConsumptionToLotsAsync(
+        Guid productId, Guid warehouseId,
+        Product product, List<ProductSku> allSkus,
+        bool useVolumeBased,
+        List<LotAllocationInfo> lots)
     {
+        var consumed = lots.ToDictionary(l => l.ItemId, _ => 0m);
+
         var records = await GetConsumptionRecordsAsync(productId, warehouseId);
-        if (records.Count == 0) return 0;
+        if (records.Count == 0) return consumed;
 
         var conversionMap = await GetConversionMapAsync(productId);
 
-        decimal total = 0;
-        foreach (var r in records)
+        records.Sort((a, b) => Nullable.Compare(a.SubmitDate, b.SubmitDate));
+
+        foreach (var record in records)
         {
-            total += ConvertToVolume(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
+            decimal qty = useVolumeBased
+                ? ConvertToVolume(record.ActualQuantity, record.UnitId, product, allSkus, conversionMap)
+                : ConvertToBaseUnits(record.ActualQuantity, record.UnitId, product, allSkus, conversionMap);
+
+            if (qty <= 0) continue;
+
+            var candidateLots = lots
+                .Where(l => !record.SubmitDate.HasValue || l.ImportDate <= record.SubmitDate.Value)
+                .OrderBy(l => l.LotExpiryDate == null ? 1 : 0)
+                .ThenBy(l => l.LotExpiryDate)
+                .ThenBy(l => l.ImportDate);
+
+            var remaining = qty;
+            foreach (var lot in candidateLots)
+            {
+                if (remaining <= 0) break;
+                var available = lot.TotalCapacity - consumed[lot.ItemId];
+                if (available <= 0) continue;
+                var deduct = Math.Min(available, remaining);
+                consumed[lot.ItemId] += deduct;
+                remaining -= deduct;
+            }
+
+            if (remaining > 0)
+            {
+                foreach (var lot in lots
+                    .OrderBy(l => l.LotExpiryDate == null ? 1 : 0)
+                    .ThenBy(l => l.LotExpiryDate)
+                    .ThenBy(l => l.ImportDate))
+                {
+                    if (remaining <= 0) break;
+                    var available = lot.TotalCapacity - consumed[lot.ItemId];
+                    if (available <= 0) continue;
+                    var deduct = Math.Min(available, remaining);
+                    consumed[lot.ItemId] += deduct;
+                    remaining -= deduct;
+                }
+            }
         }
-        return total;
+
+        return consumed;
     }
+
+    // --- Volume-based conversion helpers ---
 
     private static decimal ConvertToVolume(
         decimal quantity,
@@ -245,23 +294,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         return 1;
     }
 
-    // --- Packaging-unit-based path: fallback when no VolumePerUnit configured ---
-
-    private async Task<decimal> GetTotalBaseConsumedAsync(
-        Guid productId, Guid warehouseId, Product product, List<ProductSku> skus)
-    {
-        var records = await GetConsumptionRecordsAsync(productId, warehouseId);
-        if (records.Count == 0) return 0;
-
-        var conversionMap = await GetConversionMapAsync(productId);
-
-        decimal total = 0;
-        foreach (var r in records)
-        {
-            total += ConvertToBaseUnits(r.ActualQuantity, r.UnitId, product, skus, conversionMap);
-        }
-        return total;
-    }
+    // --- Base-unit conversion helper ---
 
     private static decimal ConvertToBaseUnits(
         decimal quantity,
@@ -317,12 +350,19 @@ public class InventoryBarcodeStatusService : ITransientDependency
         var indicatorRecords = await AsyncExecuter.ToListAsync(
             indicatorQuery
                 .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId }));
+                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId, SubmitDate = c.SubmitDate }));
 
+        var testBatchQuery = await _testBatchRepository.GetQueryableAsync();
         var batchRecords = await AsyncExecuter.ToListAsync(
-            batchQuery
-                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId }));
+            from c in batchQuery
+            join batch in testBatchQuery on c.TestBatchId equals batch.Id
+            where c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted
+            select new ConsumptionRecord
+            {
+                ActualQuantity = c.ActualQuantity,
+                UnitId = c.UnitId,
+                SubmitDate = (DateTime?)(batch.ConsumptionConfirmedDate ?? batch.CompletedDate ?? batch.CreationTime),
+            });
 
         indicatorRecords.AddRange(batchRecords);
         return indicatorRecords;
@@ -351,9 +391,20 @@ public class InventoryBarcodeStatusService : ITransientDependency
         }
     }
 
+    private class LotAllocationInfo
+    {
+        public Guid ItemId { get; init; }
+        public DateTime? LotExpiryDate { get; init; }
+        public DateTime ImportDate { get; init; }
+        public decimal TotalCapacity { get; init; }
+        public decimal CapacityPerBarcode { get; init; }
+        public List<string> Barcodes { get; init; } = new();
+    }
+
     private class ConsumptionRecord
     {
         public decimal ActualQuantity { get; init; }
         public Guid? UnitId { get; init; }
+        public DateTime? SubmitDate { get; init; }
     }
 }
