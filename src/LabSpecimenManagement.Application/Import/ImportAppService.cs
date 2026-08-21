@@ -6915,6 +6915,421 @@ public class ImportAppService : ApplicationService, IImportAppService
 
     #endregion
 
+    #region Unit Import
+
+    private static readonly Dictionary<int, MasterData.UnitCategory> ExcelCategoryToEnum = new()
+    {
+        { 1, MasterData.UnitCategory.ConsumableUnit },
+        { 2, MasterData.UnitCategory.StorageUnit },
+        { 3, MasterData.UnitCategory.PurchaseUnit },
+    };
+
+    private static readonly Dictionary<MasterData.UnitCategory, int> EnumCategoryToExcel = new()
+    {
+        { MasterData.UnitCategory.ConsumableUnit, 1 },
+        { MasterData.UnitCategory.StorageUnit, 2 },
+        { MasterData.UnitCategory.PurchaseUnit, 3 },
+    };
+
+    private Dictionary<int, string> ReadUnitCategoryLabelsFromTemplate()
+    {
+        var labels = new Dictionary<int, string>();
+        try
+        {
+            var templateBytes = ReadStaticTemplate("Đơn vị hàng hóa.xlsx");
+            using var stream = new MemoryStream(templateBytes);
+            using var workbook = new XLWorkbook(stream);
+
+            IXLWorksheet? mappingSheet = null;
+            try { mappingSheet = workbook.Worksheet("Hướng dẫn mapping"); }
+            catch { return labels; }
+
+            var lastRow = mappingSheet.LastRowUsed()?.RowNumber() ?? 1;
+            for (int r = 2; r <= lastRow; r++)
+            {
+                var label = mappingSheet.Cell(r, 1).GetString()?.Trim();
+                var idStr = mappingSheet.Cell(r, 2).GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(label) && int.TryParse(idStr, out var id))
+                {
+                    labels[id] = label;
+                }
+            }
+        }
+        catch { }
+        return labels;
+    }
+
+    public async Task<byte[]> GetUnitTemplateAsync()
+    {
+        var units = await _unitRepository.GetListAsync();
+        var activeUnits = units.Where(u => u.IsActive && u.Category.HasValue
+            && EnumCategoryToExcel.ContainsKey(u.Category.Value)).ToList();
+
+        var templateBytes = ReadStaticTemplate("Đơn vị hàng hóa.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var worksheet = workbook.Worksheet(1);
+
+        if (activeUnits.Count > 0)
+        {
+            var sorted = activeUnits.OrderBy(u => u.Code).ToList();
+            for (int i = 0; i < sorted.Count; i++)
+            {
+                var row = i + 2;
+                worksheet.Cell(row, 1).Value = EnumCategoryToExcel[sorted[i].Category!.Value];
+                worksheet.Cell(row, 2).Value = sorted[i].Code ?? "";
+                worksheet.Cell(row, 3).Value = sorted[i].Name ?? "";
+            }
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    public async Task<UnitImportPreviewDto> PreviewUnitsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewUnitsInternalAsync(memoryStream);
+    }
+
+    private async Task<UnitImportPreviewDto> PreviewUnitsInternalAsync(MemoryStream memoryStream)
+    {
+        var rows = ReadUnitExcelRows(memoryStream);
+
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        var existingUnits = await _unitRepository.GetListAsync();
+        var unitByCode = existingUnits
+            .GroupBy(x => x.Code.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var categoryLabels = ReadUnitCategoryLabelsFromTemplate();
+
+        var result = new UnitImportPreviewDto();
+        var validationResult = new ImportValidationResult { TotalRows = rows.Count };
+
+        var seenCodes = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        for (int i = 0; i < rows.Count; i++)
+        {
+            var row = rows[i];
+            var rowNumber = i + 2;
+
+            int? parsedCategory = null;
+            MasterData.UnitCategory? enumCategory = null;
+            var categoryLabel = "";
+
+            if (!string.IsNullOrWhiteSpace(row.CategoryValue))
+            {
+                if (int.TryParse(row.CategoryValue.Trim(), out var catInt) && ExcelCategoryToEnum.TryGetValue(catInt, out var mapped))
+                {
+                    parsedCategory = catInt;
+                    enumCategory = mapped;
+                    categoryLabels.TryGetValue(catInt, out categoryLabel);
+                    categoryLabel ??= "";
+                }
+            }
+
+            var item = new UnitImportPreviewItem
+            {
+                RowNumber = rowNumber,
+                Category = parsedCategory,
+                CategoryLabel = categoryLabel,
+                Code = row.Code?.Trim() ?? "",
+                Name = row.Name?.Trim() ?? "",
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            if (string.IsNullOrWhiteSpace(row.CategoryValue))
+            {
+                item.IsValid = false;
+                var error = "Phân loại không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Phân loại",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else if (parsedCategory == null)
+            {
+                item.IsValid = false;
+                var error = "Phân loại không hợp lệ";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Phân loại",
+                    ErrorMessage = error,
+                    Value = row.CategoryValue?.Trim()
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (string.IsNullOrWhiteSpace(row.Code))
+            {
+                item.IsValid = false;
+                var error = "Mã đơn vị tính không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Mã đơn vị tính",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+            else if (!seenCodes.Add(row.Code.Trim()))
+            {
+                item.IsValid = false;
+                var error = $"Mã đơn vị tính '{row.Code.Trim()}' bị trùng trong file";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Mã đơn vị tính",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (string.IsNullOrWhiteSpace(row.Name))
+            {
+                item.IsValid = false;
+                var error = "Tên đơn vị tính không được để trống";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Tên đơn vị tính",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
+            if (item.IsValid && !string.IsNullOrWhiteSpace(row.Code) && enumCategory.HasValue)
+            {
+                var codeKey = row.Code.Trim().ToLowerInvariant();
+                if (unitByCode.TryGetValue(codeKey, out var existingUnit))
+                {
+                    if (existingUnit.Category == enumCategory.Value)
+                    {
+                        item.IsValid = false;
+                        var error = "Đơn vị tính này đã tồn tại";
+                        rowErrorMessages.Add(error);
+                        validationResult.Errors.Add(new ImportRowError
+                        {
+                            RowNumber = rowNumber,
+                            ColumnName = "Mã đơn vị tính",
+                            ErrorMessage = error
+                        });
+                        AddRowError(rowErrors, rowNumber, error);
+                    }
+                    else
+                    {
+                        item.IsNew = false;
+                        item.ExistingId = existingUnit.Id;
+                    }
+                }
+                else
+                {
+                    item.IsNew = true;
+                }
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid)
+            {
+                validationResult.ValidRows++;
+            }
+        }
+
+        result.ValidationResult = validationResult;
+        result.TotalRows = rows.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = validationResult.InvalidRows;
+        result.NewUnits = result.Items.Count(i => i.IsValid && i.IsNew);
+        result.UpdateUnits = result.Items.Count(i => i.IsValid && !i.IsNew);
+
+        if (!validationResult.IsValid)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateUnitErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Don_vi_hang_hoa_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    private List<UnitImportRow> ReadUnitExcelRows(MemoryStream memoryStream)
+    {
+        var rows = new List<UnitImportRow>();
+
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheet(1);
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var category = row.Cell(1).GetString()?.Trim();
+            var code = row.Cell(2).GetString()?.Trim();
+            var name = row.Cell(3).GetString()?.Trim();
+
+            if (string.IsNullOrWhiteSpace(category) && string.IsNullOrWhiteSpace(code)
+                && string.IsNullOrWhiteSpace(name))
+                continue;
+
+            rows.Add(new UnitImportRow
+            {
+                CategoryValue = category ?? "",
+                Code = code ?? "",
+                Name = name ?? ""
+            });
+        }
+
+        return rows;
+    }
+
+    public async Task<ImportResultDto> ImportUnitsAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewUnitsInternalAsync(memoryStream);
+
+        if (!preview.ValidationResult.IsValid)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        try
+        {
+            var existingUnits = await _unitRepository.GetListAsync();
+            var unitByCode = new Dictionary<string, MasterData.Unit>(StringComparer.OrdinalIgnoreCase);
+            foreach (var unit in existingUnits)
+            {
+                var key = unit.Code.Trim();
+                if (!unitByCode.ContainsKey(key))
+                {
+                    unitByCode[key] = unit;
+                }
+            }
+
+            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+
+            foreach (var item in validItems)
+            {
+                var enumCategory = item.Category.HasValue && ExcelCategoryToEnum.TryGetValue(item.Category.Value, out var mapped)
+                    ? mapped : (MasterData.UnitCategory?)null;
+
+                if (unitByCode.TryGetValue(item.Code.Trim(), out var existingUnit))
+                {
+                    existingUnit.Name = StringHelper.Normalize(item.Name);
+                    existingUnit.Category = enumCategory;
+                    await _unitRepository.UpdateAsync(existingUnit);
+                    updatedCount++;
+                }
+                else
+                {
+                    var newUnit = new MasterData.Unit(
+                        GuidGenerator.Create(),
+                        item.Code.Trim(),
+                        StringHelper.Normalize(item.Name)
+                    )
+                    {
+                        Category = enumCategory,
+                        IsActive = true
+                    };
+                    await _unitRepository.InsertAsync(newUnit);
+                    unitByCode[item.Code.Trim()] = newUnit;
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.ValidationResult.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                Message = $"Import thành công: {newCount} đơn vị mới, {updatedCount} đơn vị cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.ValidationResult.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private byte[] GenerateUnitErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var worksheet = workbook.Worksheet(1);
+
+        var errorColumnIndex = 4;
+        var headerRow = worksheet.Row(1);
+        headerRow.Cell(errorColumnIndex).Value = "Lỗi";
+        headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
+        headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        int dataRowNumber = 2;
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var row = worksheet.Row(rowNum);
+            if (row.IsEmpty()) continue;
+
+            var c1 = row.Cell(1).GetString()?.Trim();
+            var c2 = row.Cell(2).GetString()?.Trim();
+            var c3 = row.Cell(3).GetString()?.Trim();
+            if (string.IsNullOrWhiteSpace(c1) && string.IsNullOrWhiteSpace(c2)
+                && string.IsNullOrWhiteSpace(c3))
+                continue;
+
+            if (rowErrors.TryGetValue(dataRowNumber, out var errors))
+            {
+                var errorCell = row.Cell(errorColumnIndex);
+                errorCell.Value = string.Join("; ", errors);
+                errorCell.Style.Font.FontColor = XLColor.Red;
+            }
+
+            dataRowNumber++;
+        }
+
+        worksheet.Columns().AdjustToContents();
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    #endregion
+
     #region Product Import (Stock Data Import)
 
     public async Task<byte[]> GetProductTemplateAsync(Guid warehouseId)

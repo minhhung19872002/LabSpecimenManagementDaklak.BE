@@ -331,6 +331,18 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
+    #region Unit Import
+
+    Task<byte[]> GetUnitTemplateAsync();
+
+    [DisableValidation]
+    Task<UnitImportPreviewDto> PreviewUnitsAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportUnitsAsync(byte[] fileBytes);
+
+    #endregion
+
     #region Product Import (Stock Data Import)
 
     Task<byte[]> GetProductTemplateAsync(Guid warehouseId);

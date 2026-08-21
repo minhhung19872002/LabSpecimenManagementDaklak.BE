@@ -723,6 +723,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Unit Import
+
+    [HttpGet("units/template")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Default)]
+    public virtual async Task<IActionResult> GetUnitTemplateAsync()
+    {
+        var bytes = await _importAppService.GetUnitTemplateAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Don_vi_hang_hoa.xlsx");
+    }
+
+    [HttpPost("units/preview")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<UnitImportPreviewDto> PreviewUnitsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewUnitsAsync(fileBytes);
+    }
+
+    [HttpPost("units")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportUnitsAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportUnitsAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)
