@@ -216,6 +216,7 @@ public class GoodsReceiptStatisticsDto
     public int Ordering { get; set; }
     public int WaitingReceipt { get; set; }
     public int Rejected { get; set; }
+    public int Cancelled { get; set; }
 }
 
 public class LatestSupplierInfoDto

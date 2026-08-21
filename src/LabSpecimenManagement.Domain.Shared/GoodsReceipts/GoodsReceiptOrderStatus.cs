@@ -6,5 +6,6 @@ public enum GoodsReceiptOrderStatus
     Ordering = 1,
     WaitingReceipt = 2,
     Rejected = 3,
-    Completed = 4
+    Completed = 4,
+    Cancelled = 5
 }

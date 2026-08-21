@@ -657,6 +657,24 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
         return await GetAsync(id);
     }
 
+    [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Delete)]
+    public async Task<GoodsReceiptDto> CancelAsync(Guid id)
+    {
+        var receipt = await _goodsReceiptRepository.GetAsync(id);
+
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.Cancelled)
+            throw new UserFriendlyException("Phiếu đã được hủy trước đó.");
+
+        if (receipt.OrderStatus == GoodsReceiptOrderStatus.Completed
+            && receipt.WarehouseStatus == GoodsReceiptWarehouseStatus.Imported)
+            throw new UserFriendlyException("Không thể hủy phiếu đã hoàn thành và nhập kho.");
+
+        receipt.OrderStatus = GoodsReceiptOrderStatus.Cancelled;
+        await _goodsReceiptRepository.UpdateAsync(receipt, autoSave: true);
+
+        return await GetAsync(id);
+    }
+
     public async Task<GoodsReceiptStatisticsDto> GetStatisticsAsync()
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
@@ -666,6 +684,7 @@ public class GoodsReceiptAppService : ApplicationService, IGoodsReceiptAppServic
             Ordering = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.Ordering),
             WaitingReceipt = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.WaitingReceipt),
             Rejected = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.Rejected),
+            Cancelled = query.Count(x => x.OrderStatus == GoodsReceiptOrderStatus.Cancelled),
         };
     }
 

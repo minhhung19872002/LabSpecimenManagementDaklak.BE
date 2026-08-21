@@ -114,6 +114,13 @@ public class GoodsReceiptController : LabSpecimenManagementController
         return _goodsReceiptAppService.GetNextCodeAsync();
     }
 
+    [HttpPost("{id}/cancel")]
+    [Authorize(LabSpecimenManagementPermissions.GoodsReceipts.Delete)]
+    public virtual Task<GoodsReceiptDto> CancelAsync(Guid id)
+    {
+        return _goodsReceiptAppService.CancelAsync(id);
+    }
+
     [HttpPost("{id}/purchase-request")]
     public virtual Task<GeneratePurchaseRequestOutput> GeneratePurchaseRequestAsync(Guid id)
     {
