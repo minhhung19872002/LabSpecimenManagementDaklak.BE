@@ -3823,6 +3823,104 @@ public partial class TestRequestAppService :
     }
 
     /// <summary>
+    /// Resolve ngày in theo Lab (duplicate logic từ QualityManagementAppService vì khác repo fields).
+    /// </summary>
+    private async Task<(DateTime PrintDate, Dictionary<Guid, DateTime> PerLabDates, Dictionary<Guid, Guid> IndicatorLabMap)> ResolvePrintDateByLabAsync(
+        Guid qualityTaskId, List<Guid> indicatorIds)
+    {
+        var indicators = await _qualityIndicatorRepository.GetListAsync(
+            x => indicatorIds.Contains(x.Id));
+
+        var labTaskIndicatorIds = indicators.Select(i => i.LaboratoryTaskIndicatorId).Distinct().ToList();
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => labTaskIndicatorIds.Contains(x.Id));
+        var labTaskIndicatorDict = labTaskIndicators.ToDictionary(lti => lti.Id);
+
+        var labTaskIds = labTaskIndicators.Select(lti => lti.LaboratoryTaskId).Distinct().ToList();
+        var labTasks = await _laboratoryTaskRepository.GetListAsync(x => labTaskIds.Contains(x.Id));
+        var labTaskDict = labTasks.ToDictionary(lt => lt.Id);
+
+        var indicatorLabMap = new Dictionary<Guid, Guid>();
+        foreach (var ind in indicators)
+        {
+            if (labTaskIndicatorDict.TryGetValue(ind.LaboratoryTaskIndicatorId, out var lti)
+                && labTaskDict.TryGetValue(lti.LaboratoryTaskId, out var lt))
+            {
+                indicatorLabMap[ind.Id] = lt.LaboratoryId;
+            }
+        }
+
+        var involvedLabIds = indicatorLabMap.Values.Distinct().ToList();
+
+        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
+            x => x.QualityManagementTaskId == qualityTaskId);
+        var allLabTaskIndicatorIds = allTaskIndicators.Select(i => i.LaboratoryTaskIndicatorId).Distinct().ToList();
+        var allLabTaskIndicatorsLookup = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            x => allLabTaskIndicatorIds.Contains(x.Id));
+        var allLabTaskIndicatorLookupDict = allLabTaskIndicatorsLookup.ToDictionary(lti => lti.Id);
+
+        // Load ALL lab tasks (không chỉ lab đang in) để resolve labId cho toàn bộ task
+        var allLabTaskIds = allLabTaskIndicatorsLookup.Select(lti => lti.LaboratoryTaskId).Distinct()
+            .Except(labTaskDict.Keys).ToList();
+        if (allLabTaskIds.Any())
+        {
+            var extraLabTasks = await _laboratoryTaskRepository.GetListAsync(x => allLabTaskIds.Contains(x.Id));
+            foreach (var lt in extraLabTasks) labTaskDict[lt.Id] = lt;
+        }
+
+        var existingPrintDatePerLab = new Dictionary<Guid, DateTime>();
+        foreach (var ind in allTaskIndicators)
+        {
+            if (!ind.PrintedDate.HasValue) continue;
+            if (!allLabTaskIndicatorLookupDict.TryGetValue(ind.LaboratoryTaskIndicatorId, out var lti)) continue;
+            if (!labTaskDict.TryGetValue(lti.LaboratoryTaskId, out var lt)) continue;
+
+            var labId = lt.LaboratoryId;
+            if (!existingPrintDatePerLab.ContainsKey(labId) || ind.PrintedDate.Value < existingPrintDatePerLab[labId])
+            {
+                existingPrintDatePerLab[labId] = ind.PrintedDate.Value;
+            }
+        }
+
+        var now = DateTime.Now;
+        var perLabDates = new Dictionary<Guid, DateTime>();
+        foreach (var labId in involvedLabIds)
+        {
+            perLabDates[labId] = existingPrintDatePerLab.TryGetValue(labId, out var existing) ? existing : now;
+        }
+
+        var printDate = perLabDates.Values.Any() ? perLabDates.Values.Max() : now;
+
+        // Validate: nếu printDate nằm trong [Min(TestDate), Max(SubmitDate)] → dùng Max(SubmitDate)
+        var printingLabTaskIndicators = labTaskIndicators;
+        var minTestDate = printingLabTaskIndicators
+            .Where(lti => lti.TestDate.HasValue)
+            .Select(lti => lti.TestDate!.Value)
+            .DefaultIfEmpty()
+            .Min();
+        var maxSubmitDate = printingLabTaskIndicators
+            .Where(lti => lti.SubmitDate.HasValue)
+            .Select(lti => lti.SubmitDate!.Value)
+            .DefaultIfEmpty()
+            .Max();
+
+        if (minTestDate != default && maxSubmitDate != default
+            && printDate >= minTestDate && printDate <= maxSubmitDate)
+        {
+            printDate = maxSubmitDate;
+            foreach (var labId in involvedLabIds)
+            {
+                if (!existingPrintDatePerLab.ContainsKey(labId))
+                {
+                    perLabDates[labId] = printDate;
+                }
+            }
+        }
+
+        return (printDate, perLabDates, indicatorLabMap);
+    }
+
+    /// <summary>
     /// In kết quả đơn (1 chỉ tiêu)
     /// </summary>
     public async Task<PrintResultOutputDto> PrintSingleResultAsync(Guid id, Guid indicatorId, string? note = null, string? templateName = null, Guid? vicePresidentId = null)
@@ -3839,14 +3937,8 @@ public partial class TestRequestAppService :
         // Get quality task for this indicator
         var qualityTask = await _qualityTaskRepository.GetAsync(indicator.QualityManagementTaskId);
 
-        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
-        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
-            x => x.QualityManagementTaskId == qualityTask.Id);
-        var printDate = allTaskIndicators
-            .Select(i => i.PrintedDate)
-            .Where(d => d.HasValue)
-            .OrderBy(d => d)
-            .FirstOrDefault() ?? DateTime.Now;
+        // Xác định ngày in theo Lab
+        var (printDate, perLabDates, indicatorLabMap) = await ResolvePrintDateByLabAsync(qualityTask.Id, new List<Guid> { indicatorId });
 
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateSingleIndicatorResultFormAsync(new GenerateSingleIndicatorInput
@@ -3859,10 +3951,11 @@ public partial class TestRequestAppService :
             PrintDate = printDate
         });
 
-        // Chỉ set PrintedDate lần đầu
+        // Chỉ set PrintedDate lần đầu, per-lab
         if (!indicator.PrintedDate.HasValue)
         {
-            indicator.PrintedDate = printDate;
+            indicator.PrintedDate = indicatorLabMap.TryGetValue(indicatorId, out var labId)
+                && perLabDates.TryGetValue(labId, out var labDate) ? labDate : printDate;
             indicator.IsPrinted = true;
             await _qualityIndicatorRepository.UpdateAsync(indicator);
         }
@@ -3903,14 +3996,8 @@ public partial class TestRequestAppService :
         var firstIndicator = indicatorsToPrint.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
 
-        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
-        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
-            x => x.QualityManagementTaskId == qualityTask.Id);
-        var printDate = allTaskIndicators
-            .Select(i => i.PrintedDate)
-            .Where(d => d.HasValue)
-            .OrderBy(d => d)
-            .FirstOrDefault() ?? DateTime.Now;
+        // Xác định ngày in theo Lab
+        var (printDate, perLabDates, indicatorLabMap) = await ResolvePrintDateByLabAsync(qualityTask.Id, indicatorIds);
 
         // Generate PDF result form
         var result = await _resultFormAppService.GenerateMixedIndicatorResultFormAsync(new GenerateMixedIndicatorInput
@@ -3923,12 +4010,14 @@ public partial class TestRequestAppService :
             PrintDate = printDate
         });
 
-        // Chỉ set PrintedDate lần đầu
+        // Chỉ set PrintedDate lần đầu, per-lab
+
         foreach (var indicator in indicatorsToPrint)
         {
             if (!indicator.PrintedDate.HasValue)
             {
-                indicator.PrintedDate = printDate;
+                indicator.PrintedDate = indicatorLabMap.TryGetValue(indicator.Id, out var labId)
+                    && perLabDates.TryGetValue(labId, out var labDate) ? labDate : printDate;
                 indicator.IsPrinted = true;
                 await _qualityIndicatorRepository.UpdateAsync(indicator);
             }
@@ -3966,14 +4055,8 @@ public partial class TestRequestAppService :
         var firstIndicator = indicatorsToPrint.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
 
-        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
-        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
-            x => x.QualityManagementTaskId == qualityTask.Id);
-        var printDate = allTaskIndicators
-            .Select(i => i.PrintedDate)
-            .Where(d => d.HasValue)
-            .OrderBy(d => d)
-            .FirstOrDefault() ?? DateTime.Now;
+        // Xác định ngày in theo Lab
+        var (printDate, perLabDates, indicatorLabMap) = await ResolvePrintDateByLabAsync(qualityTask.Id, input.IndicatorIds);
 
         var results = await _resultFormAppService.GenerateMixedPerSampleResultFormAsync(new GenerateMixedIndicatorInput
         {
@@ -3985,12 +4068,13 @@ public partial class TestRequestAppService :
             PrintDate = printDate
         });
 
-        // Chỉ set PrintedDate lần đầu
+        // Chỉ set PrintedDate lần đầu, per-lab
         foreach (var indicator in indicatorsToPrint)
         {
             if (!indicator.PrintedDate.HasValue)
             {
-                indicator.PrintedDate = printDate;
+                indicator.PrintedDate = indicatorLabMap.TryGetValue(indicator.Id, out var labId)
+                    && perLabDates.TryGetValue(labId, out var labDate) ? labDate : printDate;
                 indicator.IsPrinted = true;
                 await _qualityIndicatorRepository.UpdateAsync(indicator);
             }
@@ -4049,14 +4133,8 @@ public partial class TestRequestAppService :
         var firstIndicator = qualityIndicators.First();
         var qualityTask = await _qualityTaskRepository.GetAsync(firstIndicator.QualityManagementTaskId);
 
-        // Xác định ngày in: lấy ngày in sớm nhất của BẤT KỲ indicator nào trong task
-        var allTaskIndicators = await _qualityIndicatorRepository.GetListAsync(
-            x => x.QualityManagementTaskId == qualityTask.Id);
-        var printDate = allTaskIndicators
-            .Select(i => i.PrintedDate)
-            .Where(d => d.HasValue)
-            .OrderBy(d => d)
-            .FirstOrDefault() ?? DateTime.Now;
+        // Xác định ngày in theo Lab
+        var (printDate, perLabDates, _) = await ResolvePrintDateByLabAsync(qualityTask.Id, input.IndicatorIds);
 
         // Get LaboratoryTaskIndicators to find LaboratoryId
         var labTaskIndicatorIds = qualityIndicators.Select(qi => qi.LaboratoryTaskIndicatorId).ToList();
@@ -4128,6 +4206,8 @@ public partial class TestRequestAppService :
                 var firstGroupIndicator = labSampleIndicators.First();
                 var (_, _, sampleCode, sampleName) = indicatorToLabSample[firstGroupIndicator.Id];
 
+                // Mỗi file PDF chỉ chứa 1 lab → dùng ngày in của lab đó
+                var labPrintDate = perLabDates.TryGetValue(labId, out var ld) ? ld : printDate;
                 GenerateResultFormOutput result;
 
                 if (labSampleIndicators.Count == 1)
@@ -4140,7 +4220,7 @@ public partial class TestRequestAppService :
                         Note = input.Note,
                         TemplateName = templateName,
                         VicePresidentId = input.VicePresidentId,
-                        PrintDate = printDate
+                        PrintDate = labPrintDate
                     });
                 }
                 else
@@ -4153,7 +4233,7 @@ public partial class TestRequestAppService :
                         Note = input.Note,
                         TemplateName = templateName,
                         VicePresidentId = input.VicePresidentId,
-                        PrintDate = printDate
+                        PrintDate = labPrintDate
                     });
                 }
 
@@ -4170,12 +4250,13 @@ public partial class TestRequestAppService :
             }
         }
 
-        // Chỉ set PrintedDate lần đầu
+        // Chỉ set PrintedDate lần đầu, per-lab
         foreach (var indicator in qualityIndicators)
         {
             if (!indicator.PrintedDate.HasValue)
             {
-                indicator.PrintedDate = printDate;
+                var indLabId = indicatorToLabSample.TryGetValue(indicator.Id, out var mapping) ? mapping.LabId : Guid.Empty;
+                indicator.PrintedDate = perLabDates.TryGetValue(indLabId, out var labDate) ? labDate : printDate;
                 indicator.IsPrinted = true;
                 await _qualityIndicatorRepository.UpdateAsync(indicator);
             }
