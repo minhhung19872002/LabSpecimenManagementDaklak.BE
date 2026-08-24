@@ -354,4 +354,16 @@ public interface IImportAppService : IApplicationService
     Task<ImportResultDto> ImportProductsAsync(byte[] fileBytes);
 
     #endregion
+
+    #region Product Master Data Import/Export (Admin)
+
+    Task<byte[]> ExportProductMasterDataAsync();
+
+    [DisableValidation]
+    Task<ProductMasterDataImportPreviewDto> PreviewProductMasterDataAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportProductMasterDataAsync(byte[] fileBytes);
+
+    #endregion
 }

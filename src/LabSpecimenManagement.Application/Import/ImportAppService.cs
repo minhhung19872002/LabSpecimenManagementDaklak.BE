@@ -8022,5 +8022,1042 @@ public class ImportAppService : ApplicationService, IImportAppService
         };
     }
 
+    private static Products.ProductType? ParseProductTypeLabel(string? label)
+    {
+        if (string.IsNullOrWhiteSpace(label)) return null;
+        return label.Trim() switch
+        {
+            "Hóa chất" => Products.ProductType.Chemical,
+            "Sinh phẩm" => Products.ProductType.Biological,
+            "Vật tư tiêu hao" => Products.ProductType.Supply,
+            "Chất chuẩn" => Products.ProductType.Standard,
+            "Dung môi" => Products.ProductType.Solvent,
+            "Thiết bị phòng Lab" => Products.ProductType.Equipment,
+            "Dung dịch pha" => Products.ProductType.PreparedSolution,
+            _ => null
+        };
+    }
+
+    #endregion
+
+    #region Product Master Data Import/Export (Admin)
+
+    public async Task<byte[]> ExportProductMasterDataAsync()
+    {
+        var templateBytes = ReadStaticTemplate("Vật tư.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var ws = workbook.Worksheet(1);
+
+        var products = (await _productRepository.GetQueryableAsync())
+            .Where(p => !p.IsDraft)
+            .OrderBy(p => p.ProductType)
+            .ThenBy(p => p.Name)
+            .ToList();
+
+        var skuQuery = await _productSkuRepository.GetQueryableAsync();
+        var allSkus = skuQuery
+            .Where(s => products.Select(p => p.Id).Contains(s.ProductId))
+            .ToList();
+        var skusByProduct = allSkus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var units = (await _unitRepository.GetQueryableAsync()).ToList();
+        var unitNameMap = units.ToDictionary(u => u.Id, u => u.Name);
+
+        var manufacturers = (await _manufacturerRepository.GetQueryableAsync()).ToList();
+        var mfgNameMap = manufacturers.ToDictionary(m => m.Id, m => m.Name);
+
+        var productNameMap = products.ToDictionary(p => p.Id, p => p.Name);
+
+        var maxSkuCount = skusByProduct.Values.Any()
+            ? skusByProduct.Values.Max(s => s.Count)
+            : 1;
+        if (maxSkuCount < 1) maxSkuCount = 1;
+
+        var productTypeLabels = new[]
+        {
+            "Hóa chất", "Sinh phẩm", "Vật tư tiêu hao", "Chất chuẩn",
+            "Dung môi", "Thiết bị phòng Lab", "Dung dịch pha"
+        };
+        var unitNames = units.Select(u => u.Name).Distinct().OrderBy(n => n).ToList();
+        var mfgNames = manufacturers.Select(m => m.Name).Distinct().OrderBy(n => n).ToList();
+
+        var validationSheet = workbook.AddWorksheet("_Validation");
+        for (int i = 0; i < productTypeLabels.Length; i++)
+            validationSheet.Cell(i + 1, 1).Value = productTypeLabels[i];
+        for (int i = 0; i < unitNames.Count; i++)
+            validationSheet.Cell(i + 1, 2).Value = unitNames[i];
+        for (int i = 0; i < mfgNames.Count; i++)
+            validationSheet.Cell(i + 1, 3).Value = mfgNames[i];
+        validationSheet.Cell(1, 4).Value = "Y";
+        validationSheet.Cell(2, 4).Value = "N";
+        validationSheet.Hide();
+
+        // Ensure headers for additional SKU groups exist
+        for (int g = 2; g <= maxSkuCount; g++)
+        {
+            var baseCol = 26 + (g - 1) * 5; // Z=26 for group 1, then +5 per group
+            ws.Cell(1, baseCol).Value = $"Hãng sản xuất {g}";
+            ws.Cell(1, baseCol + 1).Value = $"đơn vị mua hàng {g}";
+            ws.Cell(1, baseCol + 2).Value = $"Quy cách đóng gói {g}";
+            ws.Cell(1, baseCol + 3).Value = $"đơn vi lưu kho {g}";
+            ws.Cell(1, baseCol + 4).Value = $"Dung tích mỗi đơn vị {g}";
+        }
+
+        // Data validation dropdowns
+        var maxRow = 1048576;
+        var ptRange = $"'_Validation'!$A$1:$A${productTypeLabels.Length}";
+        var unitRange = $"'_Validation'!$B$1:$B${Math.Max(1, unitNames.Count)}";
+        var mfgRange = $"'_Validation'!$C$1:$C${Math.Max(1, mfgNames.Count)}";
+        var ynRange = "'_Validation'!$D$1:$D$2";
+
+        ws.Range(2, 1, maxRow, 1).CreateDataValidation().List(ptRange, true);   // Col A: Loại vật tư
+        ws.Range(2, 3, maxRow, 3).CreateDataValidation().List(unitRange, true);  // Col C: Đơn vị tiêu hao
+        ws.Range(2, 15, maxRow, 15).CreateDataValidation().List(ynRange, true); // Col O: Trạng thái vô trùng
+        ws.Range(2, 16, maxRow, 16).CreateDataValidation().List(ynRange, true);  // Col P: Khả năng tái sử dụng
+
+        for (int g = 1; g <= maxSkuCount; g++)
+        {
+            var baseCol = 26 + (g - 1) * 5;
+            ws.Range(2, baseCol, maxRow, baseCol).CreateDataValidation().List(mfgRange, true);       // Hãng SX
+            ws.Range(2, baseCol + 1, maxRow, baseCol + 1).CreateDataValidation().List(unitRange, true); // ĐV mua hàng
+            ws.Range(2, baseCol + 3, maxRow, baseCol + 3).CreateDataValidation().List(unitRange, true); // ĐV lưu kho
+        }
+
+        // Fill data
+        var row = 2;
+        foreach (var product in products)
+        {
+            ws.Cell(row, 1).Value = GetProductTypeLabel(product.ProductType);   // A
+            ws.Cell(row, 2).Value = product.Name ?? "";                         // B
+            ws.Cell(row, 3).Value = product.VolumeUnitId.HasValue               // C
+                ? unitNameMap.GetValueOrDefault(product.VolumeUnitId.Value, "") : "";
+            ws.Cell(row, 4).Value = product.IdentificationCode ?? "";           // D
+            if (product.MinStockLevel.HasValue)
+                ws.Cell(row, 5).Value = (double)product.MinStockLevel.Value;    // E
+
+            // F: Cấu hình kỹ thuật — Equipment uses MainTechnicalSpecs, others use FormattedConcentration/Concentration
+            if (product.ProductType == Products.ProductType.Equipment)
+                ws.Cell(row, 6).Value = product.MainTechnicalSpecs ?? "";
+            else
+                WriteHtmlToCell(ws.Cell(row, 6), product.FormattedConcentration ?? product.Concentration);
+
+            ws.Cell(row, 7).Value = product.Categories ?? "";                   // G
+
+            WriteHtmlToCell(ws.Cell(row, 8), product.FormattedStorageConditions ?? product.StorageConditions);  // H
+
+            // I: Công thức hóa học — Chemical uses plain ChemicalFormula, Standard/Solvent/PreparedSolution use FormattedChemicalFormula
+            if (product.ProductType == Products.ProductType.Chemical)
+                ws.Cell(row, 9).Value = product.ChemicalFormula ?? "";
+            else
+                WriteHtmlToCell(ws.Cell(row, 9), product.FormattedChemicalFormula ?? product.ChemicalFormula);
+            ws.Cell(row, 10).Value = product.CASNumber ?? "";                   // J
+            WriteHtmlToCell(ws.Cell(row, 11), product.FormattedOrigin ?? product.Origin);                       // K
+            WriteHtmlToCell(ws.Cell(row, 12), product.GhsCode ?? "");           // L
+            WriteHtmlToCell(ws.Cell(row, 13), product.FormattedPackagingSpec ?? product.PackagingSpec);         // M
+            WriteHtmlToCell(ws.Cell(row, 14), product.FormattedMaterialComposition ?? product.MaterialComposition); // N
+            ws.Cell(row, 15).Value = product.IsSterile.HasValue                 // O
+                ? (product.IsSterile.Value ? "Y" : "N") : "";
+            ws.Cell(row, 16).Value = product.IsReusable.HasValue                // P
+                ? (product.IsReusable.Value ? "Y" : "N") : "";
+            if (product.MaxReuseCount.HasValue)
+                ws.Cell(row, 17).Value = product.MaxReuseCount.Value;           // Q
+
+            WriteHtmlToCell(ws.Cell(row, 18), product.FormattedCertifiedValue ?? product.CertifiedValue);                         // R
+            WriteHtmlToCell(ws.Cell(row, 19), product.FormattedMeasurementUncertainty ?? product.MeasurementUncertainty);         // S
+            ws.Cell(row, 20).Value = product.StandardLink ?? "";                // T
+            ws.Cell(row, 21).Value = product.AnalysisGrade ?? "";               // U
+            ws.Cell(row, 22).Value = product.UsagePurpose ?? "";                // V
+            if (product.ShelfLifeDays.HasValue)
+                ws.Cell(row, 23).Value = product.ShelfLifeDays.Value;           // W
+
+            if (product.BaseProductId.HasValue)                                  // X, Y
+            {
+                ws.Cell(row, 24).Value = productNameMap.GetValueOrDefault(product.BaseProductId.Value, "");
+                ws.Cell(row, 25).Value = product.BaseProductId.Value.ToString();
+            }
+
+            // SKU groups
+            if (skusByProduct.TryGetValue(product.Id, out var skus))
+            {
+                for (int i = 0; i < skus.Count; i++)
+                {
+                    var sku = skus[i];
+                    var baseCol = 26 + i * 5;
+                    ws.Cell(row, baseCol).Value = mfgNameMap.GetValueOrDefault(sku.ManufacturerId, "");
+                    ws.Cell(row, baseCol + 1).Value = sku.BaseUnitId.HasValue
+                        ? unitNameMap.GetValueOrDefault(sku.BaseUnitId.Value, "") : "";
+                    if (sku.PackagingQuantity.HasValue)
+                        ws.Cell(row, baseCol + 2).Value = sku.PackagingQuantity.Value;
+                    ws.Cell(row, baseCol + 3).Value = sku.PackagingUnitId.HasValue
+                        ? unitNameMap.GetValueOrDefault(sku.PackagingUnitId.Value, "") : "";
+                    if (sku.VolumePerUnit.HasValue)
+                        ws.Cell(row, baseCol + 4).Value = sku.VolumePerUnit.Value;
+                }
+            }
+
+            row++;
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
+    public async Task<ProductMasterDataImportPreviewDto> PreviewProductMasterDataAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewProductMasterDataInternalAsync(memoryStream);
+    }
+
+    private async Task<ProductMasterDataImportPreviewDto> PreviewProductMasterDataInternalAsync(MemoryStream memoryStream)
+    {
+        using var workbook = new XLWorkbook(memoryStream);
+        var ws = workbook.Worksheet(1);
+        var lastRowUsed = ws.LastRowUsed()?.RowNumber() ?? 1;
+
+        var result = new ProductMasterDataImportPreviewDto();
+        var validationResult = new ImportValidationResult();
+        var rowErrors = new Dictionary<int, List<string>>();
+
+        // Detect SKU group count from headers
+        var skuGroupCount = 0;
+        for (int col = 26; col <= ws.LastColumnUsed()?.ColumnNumber(); col += 5)
+        {
+            var header = ws.Cell(1, col).GetString()?.Trim() ?? "";
+            if (header.StartsWith("Hãng sản xuất", StringComparison.OrdinalIgnoreCase))
+                skuGroupCount++;
+            else
+                break;
+        }
+        if (skuGroupCount == 0) skuGroupCount = 1;
+
+        // Pre-load lookup data
+        var allProducts = (await _productRepository.GetQueryableAsync()).ToList();
+        var productByCode = allProducts
+            .Where(p => !string.IsNullOrWhiteSpace(p.IdentificationCode))
+            .GroupBy(p => p.IdentificationCode!.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+        var productById = allProducts.ToDictionary(p => p.Id);
+
+        var units = (await _unitRepository.GetQueryableAsync()).ToList();
+        var unitByName = units
+            .GroupBy(u => u.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+        var unitNameMap = units.ToDictionary(u => u.Id, u => u.Name);
+
+        var manufacturers = (await _manufacturerRepository.GetQueryableAsync()).ToList();
+        var mfgByName = manufacturers
+            .GroupBy(m => m.Name.Trim().ToLowerInvariant())
+            .ToDictionary(g => g.Key, g => g.First());
+        var mfgNameMap = manufacturers.ToDictionary(m => m.Id, m => m.Name);
+
+        var allSkus = (await _productSkuRepository.GetQueryableAsync())
+            .Where(s => allProducts.Select(p => p.Id).Contains(s.ProductId))
+            .ToList();
+        var skusByProduct = allSkus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var newCount = 0;
+        var updateCount = 0;
+        var skippedCount = 0;
+
+        for (int rowNum = 2; rowNum <= lastRowUsed; rowNum++)
+        {
+            var rowObj = ws.Row(rowNum);
+            if (rowObj.IsEmpty()) continue;
+
+            var productTypeName = ws.Cell(rowNum, 1).GetString()?.Trim();  // A
+            var name = ws.Cell(rowNum, 2).GetString()?.Trim();              // B
+            var identificationCode = ws.Cell(rowNum, 4).GetString()?.Trim(); // D
+
+            if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(identificationCode))
+                continue;
+
+            var item = new ProductMasterDataImportPreviewItem
+            {
+                RowNumber = rowNum,
+                IdentificationCode = identificationCode ?? "",
+                ProductName = name ?? "",
+                ProductTypeName = productTypeName,
+                IsValid = true
+            };
+
+            var rowErrorMessages = new List<string>();
+
+            void AddError(string colName, string msg)
+            {
+                item.IsValid = false;
+                rowErrorMessages.Add(msg);
+                validationResult.Errors.Add(new ImportRowError { RowNumber = rowNum, ColumnName = colName, ErrorMessage = msg });
+                AddRowError(rowErrors, rowNum, msg);
+            }
+
+            // Validate ProductType (required)
+            var productType = ParseProductTypeLabel(productTypeName);
+            if (productType == null)
+                AddError("Loại vật tư", $"Loại vật tư không hợp lệ: '{productTypeName}'");
+
+            var isEquipment = productType == Products.ProductType.Equipment;
+
+            // Validate Đơn vị tiêu hao (lookup — only if provided)
+            var volumeUnitName = ws.Cell(rowNum, 3).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(volumeUnitName)
+                && !unitByName.ContainsKey(volumeUnitName.ToLowerInvariant()))
+                AddError("Đơn vị tiêu hao", $"Đơn vị tiêu hao không tồn tại: '{volumeUnitName}'");
+
+            // Validate MinStockLevel — must be >= 0 if provided
+            var minStockStr = ws.Cell(rowNum, 5).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(minStockStr))
+            {
+                if (!decimal.TryParse(minStockStr, out var minStockVal))
+                    AddError("Tồn kho tối thiểu", "Tồn kho tối thiểu phải là số");
+                else if (minStockVal < 0)
+                    AddError("Tồn kho tối thiểu", "Tồn kho tối thiểu không được âm");
+            }
+
+            // Validate IsSterile (Y/N)
+            var isSterileValidateStr = ws.Cell(rowNum, 15).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(isSterileValidateStr)
+                && !isSterileValidateStr.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                && !isSterileValidateStr.Equals("N", StringComparison.OrdinalIgnoreCase))
+                AddError("Trạng thái vô trùng", "Trạng thái vô trùng phải là Y hoặc N");
+
+            // Validate IsReusable (Y/N)
+            var isReusableStr = ws.Cell(rowNum, 16).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(isReusableStr)
+                && !isReusableStr.Equals("Y", StringComparison.OrdinalIgnoreCase)
+                && !isReusableStr.Equals("N", StringComparison.OrdinalIgnoreCase))
+                AddError("Khả năng tái sử dụng", "Khả năng tái sử dụng phải là Y hoặc N");
+
+            // Validate MaxReuseCount (integer, min 1)
+            var maxReuseStr = ws.Cell(rowNum, 17).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(maxReuseStr))
+            {
+                if (!int.TryParse(maxReuseStr, out var maxReuseVal))
+                    AddError("Số lần tái sử dụng", "Số lần tái sử dụng phải là số nguyên");
+                else if (maxReuseVal < 1)
+                    AddError("Số lần tái sử dụng", "Số lần tái sử dụng tối thiểu 1");
+            }
+
+            // Validate ShelfLifeDays (integer, min 1)
+            var shelfLifeStr = ws.Cell(rowNum, 23).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(shelfLifeStr))
+            {
+                if (!int.TryParse(shelfLifeStr, out var shelfLifeVal))
+                    AddError("Hạn sử dụng", "Hạn sử dụng phải là số nguyên");
+                else if (shelfLifeVal < 1)
+                    AddError("Hạn sử dụng", "Hạn sử dụng tối thiểu 1 ngày");
+            }
+
+            // Validate BaseProductId
+            var baseProductIdStr = ws.Cell(rowNum, 25).GetString()?.Trim();
+            if (!string.IsNullOrWhiteSpace(baseProductIdStr))
+            {
+                if (!Guid.TryParse(baseProductIdStr, out var baseProductGuid)
+                    || !productById.ContainsKey(baseProductGuid))
+                    AddError("ID chất nền", "Vật tư/ Hóa chất không tồn tại");
+            }
+
+            // Validate SKU groups
+            var skuMfgIds = new HashSet<string>();
+            for (int g = 0; g < skuGroupCount; g++)
+            {
+                var baseCol = 26 + g * 5;
+                var mfgName = ws.Cell(rowNum, baseCol).GetString()?.Trim();
+                var buyUnitName = ws.Cell(rowNum, baseCol + 1).GetString()?.Trim();
+                var pkgQtyStr = ws.Cell(rowNum, baseCol + 2).GetString()?.Trim();
+                var storageUnitName = ws.Cell(rowNum, baseCol + 3).GetString()?.Trim();
+                var vpuStr = ws.Cell(rowNum, baseCol + 4).GetString()?.Trim();
+
+                var hasAnyValue = !string.IsNullOrWhiteSpace(mfgName)
+                    || !string.IsNullOrWhiteSpace(buyUnitName)
+                    || !string.IsNullOrWhiteSpace(pkgQtyStr)
+                    || !string.IsNullOrWhiteSpace(storageUnitName)
+                    || !string.IsNullOrWhiteSpace(vpuStr);
+                if (!hasAnyValue) continue;
+
+                var groupSuffix = g + 1;
+
+                // Manufacturer required + lookup
+                if (string.IsNullOrWhiteSpace(mfgName))
+                {
+                    AddError($"Hãng sản xuất {groupSuffix}", "Vui lòng chọn hãng sản xuất");
+                }
+                else if (!mfgByName.ContainsKey(mfgName.ToLowerInvariant()))
+                {
+                    AddError($"Hãng sản xuất {groupSuffix}", $"Hãng sản xuất không tồn tại: '{mfgName}'");
+                }
+                else
+                {
+                    var mfgKey = mfgName.ToLowerInvariant();
+                    if (!skuMfgIds.Add(mfgKey))
+                        AddError($"Hãng sản xuất {groupSuffix}", "Mỗi hãng sản xuất chỉ được chọn một lần cho mỗi sản phẩm");
+                }
+
+                // Buy unit lookup (optional but must exist if provided)
+                if (!string.IsNullOrWhiteSpace(buyUnitName)
+                    && !unitByName.ContainsKey(buyUnitName.ToLowerInvariant()))
+                    AddError($"Đơn vị mua hàng {groupSuffix}", $"Đơn vị mua hàng không tồn tại: '{buyUnitName}'");
+
+                // PackagingQuantity — required, integer, min 1
+                if (string.IsNullOrWhiteSpace(pkgQtyStr))
+                {
+                    AddError($"Quy cách đóng gói {groupSuffix}", "Vui lòng nhập số lượng");
+                }
+                else if (!int.TryParse(pkgQtyStr, out var pkgQtyVal))
+                {
+                    AddError($"Quy cách đóng gói {groupSuffix}", "Quy cách đóng gói phải là số nguyên");
+                }
+                else if (pkgQtyVal < 1)
+                {
+                    AddError($"Quy cách đóng gói {groupSuffix}", "Quy cách đóng gói tối thiểu 1");
+                }
+
+                // Storage unit — required + lookup
+                if (string.IsNullOrWhiteSpace(storageUnitName))
+                {
+                    AddError($"Đơn vị lưu kho {groupSuffix}", "Vui lòng chọn đơn vị lưu kho");
+                }
+                else if (!unitByName.ContainsKey(storageUnitName.ToLowerInvariant()))
+                {
+                    AddError($"Đơn vị lưu kho {groupSuffix}", $"Đơn vị lưu kho không tồn tại: '{storageUnitName}'");
+                }
+
+                // VolumePerUnit — required, integer, min 1
+                if (string.IsNullOrWhiteSpace(vpuStr))
+                {
+                    AddError($"Dung tích mỗi đơn vị {groupSuffix}", "Vui lòng nhập dung tích");
+                }
+                else if (!int.TryParse(vpuStr, out var vpuVal))
+                {
+                    AddError($"Dung tích mỗi đơn vị {groupSuffix}", "Dung tích phải là số nguyên");
+                }
+                else if (vpuVal < 1)
+                {
+                    AddError($"Dung tích mỗi đơn vị {groupSuffix}", "Dung tích tối thiểu 1");
+                }
+            }
+
+            // Determine status: New or Update
+            if (item.IsValid && !string.IsNullOrWhiteSpace(identificationCode))
+            {
+                // Match by IdentificationCode (primary key for upsert)
+                var normalizedCode = identificationCode.Trim().ToLowerInvariant();
+                if (productByCode.TryGetValue(normalizedCode, out var existingProduct))
+                {
+                    item.ExistingProductId = existingProduct.Id;
+                    item.Status = ProductMasterDataImportItemStatus.Update;
+                    updateCount++;
+                }
+                else
+                {
+                    item.Status = ProductMasterDataImportItemStatus.New;
+                    newCount++;
+                }
+            }
+            else if (item.IsValid && string.IsNullOrWhiteSpace(identificationCode)
+                && productType.HasValue && !string.IsNullOrWhiteSpace(name))
+            {
+                // No identificationCode → fallback match by Name + ProductType
+                var normalizedName = name.Trim().ToLowerInvariant();
+                var matchByName = allProducts.FirstOrDefault(p =>
+                    p.Name.Trim().ToLowerInvariant() == normalizedName
+                    && p.ProductType == productType.Value);
+                if (matchByName != null)
+                {
+                    item.ExistingProductId = matchByName.Id;
+                    item.Status = ProductMasterDataImportItemStatus.Update;
+                    updateCount++;
+                }
+                else
+                {
+                    item.Status = ProductMasterDataImportItemStatus.New;
+                    newCount++;
+                }
+            }
+            else if (item.IsValid)
+            {
+                item.Status = ProductMasterDataImportItemStatus.New;
+                newCount++;
+            }
+
+            // For Update items: detect if anything actually changed vs existing product
+            if (item.IsValid && item.Status == ProductMasterDataImportItemStatus.Update
+                && item.ExistingProductId.HasValue && productById.TryGetValue(item.ExistingProductId.Value, out var existProd))
+            {
+                bool Eq(string? a, string? b) =>
+                    string.Equals(a?.Trim() ?? "", b?.Trim() ?? "", StringComparison.Ordinal);
+
+                // For rich text fields: Excel GetString() returns plain text (no HTML, no newlines from <p> tags).
+                // DB stores both plain text (with newlines) and FormattedX (with HTML tags).
+                // Normalize both sides by stripping HTML tags and collapsing whitespace.
+                string NormalizePlainText(string? s)
+                {
+                    if (string.IsNullOrWhiteSpace(s)) return "";
+                    var text = System.Text.RegularExpressions.Regex.Replace(s, "<[^>]+>", "");
+                    text = System.Net.WebUtility.HtmlDecode(text);
+                    text = System.Text.RegularExpressions.Regex.Replace(text, @"\s+", "");
+                    return text;
+                }
+
+                bool EqRichText(string? excelPlainText, string? dbPlainText, string? dbFormattedHtml)
+                {
+                    var excelNorm = NormalizePlainText(excelPlainText);
+                    var dbNorm = NormalizePlainText(dbFormattedHtml ?? dbPlainText);
+                    return string.Equals(excelNorm, dbNorm, StringComparison.Ordinal);
+                }
+
+                var changed = false;
+
+                // Basic fields
+                if (!Eq(name, existProd.Name)) changed = true;
+                if (productType != existProd.ProductType) changed = true;
+                if (!Eq(identificationCode, existProd.IdentificationCode)) changed = true;
+
+                // VolumeUnitId (col C)
+                var exVolUnitName = existProd.VolumeUnitId.HasValue
+                    ? unitNameMap.GetValueOrDefault(existProd.VolumeUnitId.Value, "") : "";
+                if (!Eq(ws.Cell(rowNum, 3).GetString(), exVolUnitName)) changed = true;
+
+                // MinStockLevel (col E)
+                var importMinStock = TryReadDecimalCell(ws.Row(rowNum), 5);
+                if (importMinStock != existProd.MinStockLevel) changed = true;
+
+                // Col F: Cấu hình kỹ thuật
+                var colFText = ws.Cell(rowNum, 6).GetString()?.Trim() ?? "";
+                if (isEquipment)
+                {
+                    if (!Eq(colFText, existProd.MainTechnicalSpecs)) changed = true;
+                }
+                else
+                {
+                    if (!EqRichText(colFText, existProd.Concentration, existProd.FormattedConcentration)) changed = true;
+                }
+
+                // Col G: Categories (plain text)
+                if (!Eq(ws.Cell(rowNum, 7).GetString(), existProd.Categories)) changed = true;
+                // Col H: StorageConditions (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 8).GetString(), existProd.StorageConditions, existProd.FormattedStorageConditions)) changed = true;
+
+                // Col I: ChemicalFormula
+                var colIText = ws.Cell(rowNum, 9).GetString()?.Trim() ?? "";
+                if (productType == Products.ProductType.Chemical)
+                {
+                    if (!Eq(colIText, existProd.ChemicalFormula)) changed = true;
+                }
+                else
+                {
+                    if (!EqRichText(colIText, existProd.ChemicalFormula, existProd.FormattedChemicalFormula)) changed = true;
+                }
+
+                if (!Eq(ws.Cell(rowNum, 10).GetString(), existProd.CASNumber)) changed = true;
+                // Col K: Origin (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 11).GetString(), existProd.Origin, existProd.FormattedOrigin)) changed = true;
+                // Col L: GhsCode (rich text — stored as HTML, no separate plain text field)
+                if (!EqRichText(ws.Cell(rowNum, 12).GetString(), existProd.GhsCode, existProd.GhsCode)) changed = true;
+                // Col M: PackagingSpec (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 13).GetString(), existProd.PackagingSpec, existProd.FormattedPackagingSpec)) changed = true;
+                // Col N: MaterialComposition (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 14).GetString(), existProd.MaterialComposition, existProd.FormattedMaterialComposition)) changed = true;
+
+                // IsSterile (col O)
+                var isSterileStr = ws.Cell(rowNum, 15).GetString()?.Trim();
+                var exIsSterileStr = existProd.IsSterile.HasValue
+                    ? (existProd.IsSterile.Value ? "Y" : "N") : "";
+                if (!Eq(isSterileStr, exIsSterileStr)) changed = true;
+
+                // IsReusable (col P)
+                var isReusableStr2 = ws.Cell(rowNum, 16).GetString()?.Trim();
+                var exIsReusableStr = existProd.IsReusable.HasValue
+                    ? (existProd.IsReusable.Value ? "Y" : "N") : "";
+                if (!Eq(isReusableStr2, exIsReusableStr)) changed = true;
+
+                // MaxReuseCount (col Q)
+                var maxReuseStr2 = ws.Cell(rowNum, 17).GetString()?.Trim();
+                var exMaxReuseStr = existProd.MaxReuseCount?.ToString() ?? "";
+                if (!Eq(maxReuseStr2, exMaxReuseStr)) changed = true;
+
+                // Col R: CertifiedValue (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 18).GetString(), existProd.CertifiedValue, existProd.FormattedCertifiedValue)) changed = true;
+                // Col S: MeasurementUncertainty (rich text)
+                if (!EqRichText(ws.Cell(rowNum, 19).GetString(), existProd.MeasurementUncertainty, existProd.FormattedMeasurementUncertainty)) changed = true;
+                if (!Eq(ws.Cell(rowNum, 20).GetString(), existProd.StandardLink)) changed = true;
+                if (!Eq(ws.Cell(rowNum, 21).GetString(), existProd.AnalysisGrade)) changed = true;
+                if (!Eq(ws.Cell(rowNum, 22).GetString(), existProd.UsagePurpose)) changed = true;
+
+                // ShelfLifeDays (col W)
+                var shelfStr2 = ws.Cell(rowNum, 23).GetString()?.Trim();
+                var exShelfStr = existProd.ShelfLifeDays?.ToString() ?? "";
+                if (!Eq(shelfStr2, exShelfStr)) changed = true;
+
+                // BaseProductId (col Y)
+                var baseIdStr2 = ws.Cell(rowNum, 25).GetString()?.Trim();
+                var exBaseIdStr = existProd.BaseProductId?.ToString() ?? "";
+                if (!Eq(baseIdStr2, exBaseIdStr)) changed = true;
+
+                // Compare SKUs
+                if (!changed)
+                {
+                    var existingSkus = skusByProduct.GetValueOrDefault(existProd.Id) ?? new List<ProductSku>();
+                    var importSkuKeys = new List<string>();
+                    for (int g = 0; g < skuGroupCount; g++)
+                    {
+                        var baseCol = 26 + g * 5;
+                        var mfgN = ws.Cell(rowNum, baseCol).GetString()?.Trim() ?? "";
+                        if (string.IsNullOrWhiteSpace(mfgN)) continue;
+                        var buyU = ws.Cell(rowNum, baseCol + 1).GetString()?.Trim() ?? "";
+                        var pkgQ = ws.Cell(rowNum, baseCol + 2).GetString()?.Trim() ?? "";
+                        var storU = ws.Cell(rowNum, baseCol + 3).GetString()?.Trim() ?? "";
+                        var vpuS = ws.Cell(rowNum, baseCol + 4).GetString()?.Trim() ?? "";
+                        importSkuKeys.Add($"{mfgN}|{buyU}|{pkgQ}|{storU}|{vpuS}".ToLowerInvariant());
+                    }
+
+                    var existingSkuKeys = existingSkus.Select(s =>
+                    {
+                        var mN = mfgNameMap.GetValueOrDefault(s.ManufacturerId, "");
+                        var bU = s.BaseUnitId.HasValue ? unitNameMap.GetValueOrDefault(s.BaseUnitId.Value, "") : "";
+                        var pQ = s.PackagingQuantity?.ToString() ?? "";
+                        var sU = s.PackagingUnitId.HasValue ? unitNameMap.GetValueOrDefault(s.PackagingUnitId.Value, "") : "";
+                        var vU = s.VolumePerUnit?.ToString() ?? "";
+                        return $"{mN}|{bU}|{pQ}|{sU}|{vU}".ToLowerInvariant();
+                    }).ToList();
+
+                    if (importSkuKeys.Count != existingSkuKeys.Count
+                        || !importSkuKeys.OrderBy(k => k).SequenceEqual(existingSkuKeys.OrderBy(k => k)))
+                        changed = true;
+                }
+
+                if (!changed)
+                {
+                    item.Status = ProductMasterDataImportItemStatus.Skipped;
+                    item.SkipReason = "Không có thay đổi";
+                    updateCount--;
+                    skippedCount++;
+                }
+            }
+
+            // Check duplicate name within same ProductType (only for New items — Update already matched)
+            if (item.IsValid && item.Status == ProductMasterDataImportItemStatus.New
+                && productType.HasValue && !string.IsNullOrWhiteSpace(name))
+            {
+                var normalizedName = name.Trim().ToLowerInvariant();
+                var existsInDb = allProducts.Any(p =>
+                    p.Name.Trim().ToLowerInvariant() == normalizedName
+                    && p.ProductType == productType.Value);
+                if (existsInDb)
+                    AddError("Tên vật tư", "Tên sản phẩm đã tồn tại trong cùng loại sản phẩm");
+            }
+
+            // Check duplicate identificationCode within the file (across rows)
+            if (item.IsValid && !string.IsNullOrWhiteSpace(identificationCode))
+            {
+                var normalizedCode = identificationCode.Trim().ToLowerInvariant();
+                var duplicateInFile = result.Items.Any(i =>
+                    i.IdentificationCode.Trim().ToLowerInvariant() == normalizedCode);
+                if (duplicateInFile)
+                    AddError("Mã nhận dạng", "Mã nhận dạng bị trùng trong file");
+            }
+
+            // Check duplicate name+productType within the file for rows matched by name (no identificationCode)
+            if (item.IsValid && string.IsNullOrWhiteSpace(identificationCode)
+                && item.ExistingProductId.HasValue && productType.HasValue && !string.IsNullOrWhiteSpace(name))
+            {
+                var dupByName = result.Items.Any(i =>
+                    i.ExistingProductId == item.ExistingProductId);
+                if (dupByName)
+                    AddError("Tên vật tư", "Trùng sản phẩm trong file (cùng tên và loại vật tư)");
+            }
+
+            item.Errors = rowErrorMessages;
+            result.Items.Add(item);
+
+            if (item.IsValid && item.Status != ProductMasterDataImportItemStatus.Skipped)
+                validationResult.ValidRows++;
+        }
+
+        validationResult.TotalRows = result.Items.Count;
+        result.ValidationResult = validationResult;
+        result.TotalRows = result.Items.Count;
+        result.ValidRows = validationResult.ValidRows;
+        result.InvalidRows = result.Items.Count - validationResult.ValidRows - skippedCount;
+        result.SkippedRows = skippedCount;
+        result.NewItems = newCount;
+        result.UpdateItems = updateCount;
+
+        if (validationResult.Errors.Count > 0)
+        {
+            memoryStream.Position = 0;
+            var errorFileBytes = GenerateProductMasterDataErrorFile(memoryStream, rowErrors);
+            result.ErrorFileBase64 = Convert.ToBase64String(errorFileBytes);
+            result.ErrorFileName = "Vat_tu_Loi.xlsx";
+        }
+
+        return result;
+    }
+
+    public async Task<ImportResultDto> ImportProductMasterDataAsync(byte[] fileBytes)
+    {
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewProductMasterDataInternalAsync(memoryStream);
+
+        if (preview.ValidationResult.Errors.Count > 0 && preview.ValidRows == 0)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Errors = preview.ValidationResult.Errors,
+                ErrorFileBase64 = preview.ErrorFileBase64,
+                ErrorFileName = preview.ErrorFileName,
+                Message = "Dữ liệu không hợp lệ. Vui lòng kiểm tra và sửa lỗi."
+            };
+        }
+
+        var newCount = 0;
+        var updatedCount = 0;
+
+        try
+        {
+            memoryStream.Position = 0;
+            using var workbook = new XLWorkbook(memoryStream);
+            var ws = workbook.Worksheet(1);
+
+            var units = (await _unitRepository.GetQueryableAsync()).ToList();
+            var unitByName = units
+                .GroupBy(u => u.Name.Trim().ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var manufacturers = (await _manufacturerRepository.GetQueryableAsync()).ToList();
+            var mfgByName = manufacturers
+                .GroupBy(m => m.Name.Trim().ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            var allProducts = (await _productRepository.GetQueryableAsync()).ToList();
+            var productByCode = allProducts
+                .Where(p => !string.IsNullOrWhiteSpace(p.IdentificationCode))
+                .GroupBy(p => p.IdentificationCode!.Trim().ToLowerInvariant())
+                .ToDictionary(g => g.Key, g => g.First());
+
+            // Detect SKU group count from headers
+            var skuGroupCount = 0;
+            var lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 30;
+            for (int col = 26; col <= lastCol; col += 5)
+            {
+                var header = ws.Cell(1, col).GetString()?.Trim() ?? "";
+                if (header.StartsWith("Hãng sản xuất", StringComparison.OrdinalIgnoreCase))
+                    skuGroupCount++;
+                else
+                    break;
+            }
+            if (skuGroupCount == 0) skuGroupCount = 1;
+
+            foreach (var previewItem in preview.Items.Where(i => i.IsValid && i.Status != ProductMasterDataImportItemStatus.Skipped))
+            {
+                var rowNum = previewItem.RowNumber;
+                var productType = ParseProductTypeLabel(ws.Cell(rowNum, 1).GetString()?.Trim());
+                if (!productType.HasValue) continue;
+
+                var name = ws.Cell(rowNum, 2).GetString()?.Trim() ?? "";
+                var volumeUnitName = ws.Cell(rowNum, 3).GetString()?.Trim();
+                var identificationCode = ws.Cell(rowNum, 4).GetString()?.Trim();
+
+                Guid? volumeUnitId = null;
+                if (!string.IsNullOrWhiteSpace(volumeUnitName)
+                    && unitByName.TryGetValue(volumeUnitName.ToLowerInvariant(), out var vu))
+                    volumeUnitId = vu.Id;
+
+                decimal? minStockLevel = TryReadDecimalCell(ws.Row(rowNum), 5);
+
+                // F: Cấu hình kỹ thuật — Equipment → MainTechnicalSpecs, others → Concentration/FormattedConcentration
+                string? mainTechnicalSpecs = null;
+                string? concentration = null;
+                string? formattedConcentration = null;
+                if (productType == Products.ProductType.Equipment)
+                {
+                    mainTechnicalSpecs = ws.Cell(rowNum, 6).GetString()?.Trim();
+                }
+                else
+                {
+                    formattedConcentration = GetCellRichTextAsHtml(ws.Cell(rowNum, 6));
+                    concentration = ws.Cell(rowNum, 6).GetString()?.Trim();
+                }
+
+                var categories = ws.Cell(rowNum, 7).GetString()?.Trim();
+
+                var formattedStorageConditions = GetCellRichTextAsHtml(ws.Cell(rowNum, 8));
+                var storageConditions = ws.Cell(rowNum, 8).GetString()?.Trim();
+
+                // I: Công thức hóa học — Chemical uses plain text only, Standard/Solvent/PreparedSolution use rich text
+                string? formattedChemicalFormula = null;
+                string? chemicalFormula = null;
+                if (productType == Products.ProductType.Chemical)
+                {
+                    chemicalFormula = ws.Cell(rowNum, 9).GetString()?.Trim();
+                }
+                else
+                {
+                    formattedChemicalFormula = GetCellRichTextAsHtml(ws.Cell(rowNum, 9));
+                    chemicalFormula = ws.Cell(rowNum, 9).GetString()?.Trim();
+                }
+
+                var casNumber = ws.Cell(rowNum, 10).GetString()?.Trim();
+
+                var formattedOrigin = GetCellRichTextAsHtml(ws.Cell(rowNum, 11));
+                var origin = ws.Cell(rowNum, 11).GetString()?.Trim();
+
+                var ghsCode = GetCellRichTextAsHtml(ws.Cell(rowNum, 12)) ?? ws.Cell(rowNum, 12).GetString()?.Trim();
+
+                var formattedPackagingSpec = GetCellRichTextAsHtml(ws.Cell(rowNum, 13));
+                var packagingSpec = ws.Cell(rowNum, 13).GetString()?.Trim();
+
+                var formattedMaterialComposition = GetCellRichTextAsHtml(ws.Cell(rowNum, 14));
+                var materialComposition = ws.Cell(rowNum, 14).GetString()?.Trim();
+
+                var isSterileStr = ws.Cell(rowNum, 15).GetString()?.Trim();
+                bool? isSterile = string.IsNullOrWhiteSpace(isSterileStr) ? null
+                    : isSterileStr.Equals("Y", StringComparison.OrdinalIgnoreCase);
+
+                var isReusableStr = ws.Cell(rowNum, 16).GetString()?.Trim();
+                bool? isReusable = string.IsNullOrWhiteSpace(isReusableStr) ? null
+                    : isReusableStr.Equals("Y", StringComparison.OrdinalIgnoreCase);
+
+                int? maxReuseCount = null;
+                var maxReuseStr = ws.Cell(rowNum, 17).GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(maxReuseStr) && int.TryParse(maxReuseStr, out var mrc))
+                    maxReuseCount = mrc;
+
+                var formattedCertifiedValue = GetCellRichTextAsHtml(ws.Cell(rowNum, 18));
+                var certifiedValue = ws.Cell(rowNum, 18).GetString()?.Trim();
+
+                var formattedMeasurementUncertainty = GetCellRichTextAsHtml(ws.Cell(rowNum, 19));
+                var measurementUncertainty = ws.Cell(rowNum, 19).GetString()?.Trim();
+
+                var standardLink = ws.Cell(rowNum, 20).GetString()?.Trim();
+                var analysisGrade = ws.Cell(rowNum, 21).GetString()?.Trim();
+                var usagePurpose = ws.Cell(rowNum, 22).GetString()?.Trim();
+
+                int? shelfLifeDays = null;
+                var shelfLifeStr = ws.Cell(rowNum, 23).GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(shelfLifeStr) && int.TryParse(shelfLifeStr, out var sld))
+                    shelfLifeDays = sld;
+
+                Guid? baseProductId = null;
+                var baseProductIdStr = ws.Cell(rowNum, 25).GetString()?.Trim();
+                if (!string.IsNullOrWhiteSpace(baseProductIdStr) && Guid.TryParse(baseProductIdStr, out var bpg))
+                    baseProductId = bpg;
+
+                // Parse SKU groups
+                var skuInputs = new List<(Guid ManufacturerId, Guid? BaseUnitId, int? PkgQty, Guid? PkgUnitId, int? Vpu)>();
+                for (int g = 0; g < skuGroupCount; g++)
+                {
+                    var baseCol = 26 + g * 5;
+                    var mfgName = ws.Cell(rowNum, baseCol).GetString()?.Trim();
+                    if (string.IsNullOrWhiteSpace(mfgName)) continue;
+                    if (!mfgByName.TryGetValue(mfgName.ToLowerInvariant(), out var mfg)) continue;
+
+                    var buyUnitName = ws.Cell(rowNum, baseCol + 1).GetString()?.Trim();
+                    Guid? buyUnitId = null;
+                    if (!string.IsNullOrWhiteSpace(buyUnitName)
+                        && unitByName.TryGetValue(buyUnitName.ToLowerInvariant(), out var bu))
+                        buyUnitId = bu.Id;
+
+                    int? pkgQty = null;
+                    var pkgQtyStr = ws.Cell(rowNum, baseCol + 2).GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(pkgQtyStr) && int.TryParse(pkgQtyStr, out var pq))
+                        pkgQty = pq;
+
+                    var storUnitName = ws.Cell(rowNum, baseCol + 3).GetString()?.Trim();
+                    Guid? storUnitId = null;
+                    if (!string.IsNullOrWhiteSpace(storUnitName)
+                        && unitByName.TryGetValue(storUnitName.ToLowerInvariant(), out var su))
+                        storUnitId = su.Id;
+
+                    int? vpu = null;
+                    var vpuStr = ws.Cell(rowNum, baseCol + 4).GetString()?.Trim();
+                    if (!string.IsNullOrWhiteSpace(vpuStr) && int.TryParse(vpuStr, out var v))
+                        vpu = v;
+
+                    skuInputs.Add((mfg.Id, buyUnitId, pkgQty, storUnitId, vpu));
+                }
+
+                if (previewItem.Status == ProductMasterDataImportItemStatus.Update
+                    && previewItem.ExistingProductId.HasValue)
+                {
+                    var product = await _productRepository.GetAsync(previewItem.ExistingProductId.Value);
+                    product.Name = name;
+                    product.ProductType = productType.Value;
+                    product.IdentificationCode = identificationCode;
+                    product.VolumeUnitId = volumeUnitId;
+                    product.MinStockLevel = minStockLevel;
+                    product.MainTechnicalSpecs = mainTechnicalSpecs;
+                    product.Concentration = concentration;
+                    product.FormattedConcentration = formattedConcentration;
+                    product.Categories = categories;
+                    product.StorageConditions = storageConditions;
+                    product.FormattedStorageConditions = formattedStorageConditions;
+                    product.ChemicalFormula = chemicalFormula;
+                    product.FormattedChemicalFormula = formattedChemicalFormula;
+                    product.CASNumber = casNumber;
+                    product.Origin = origin;
+                    product.FormattedOrigin = formattedOrigin;
+                    product.GhsCode = ghsCode;
+                    product.PackagingSpec = packagingSpec;
+                    product.FormattedPackagingSpec = formattedPackagingSpec;
+                    product.MaterialComposition = materialComposition;
+                    product.FormattedMaterialComposition = formattedMaterialComposition;
+                    product.IsSterile = isSterile;
+                    product.IsReusable = isReusable;
+                    product.MaxReuseCount = maxReuseCount;
+                    product.CertifiedValue = certifiedValue;
+                    product.FormattedCertifiedValue = formattedCertifiedValue;
+                    product.MeasurementUncertainty = measurementUncertainty;
+                    product.FormattedMeasurementUncertainty = formattedMeasurementUncertainty;
+                    product.StandardLink = standardLink;
+                    product.AnalysisGrade = analysisGrade;
+                    product.UsagePurpose = usagePurpose;
+                    product.ShelfLifeDays = shelfLifeDays;
+                    product.BaseProductId = baseProductId;
+
+                    await _productRepository.UpdateAsync(product, autoSave: true);
+
+                    // Replace SKUs
+                    var existingSkus = (await _productSkuRepository.GetQueryableAsync())
+                        .Where(s => s.ProductId == product.Id).ToList();
+                    foreach (var es in existingSkus)
+                        await _productSkuRepository.DeleteAsync(es, autoSave: true);
+
+                    foreach (var skuInput in skuInputs)
+                    {
+                        var sku = new ProductSku(
+                            _guidGenerator.Create(), product.Id, skuInput.ManufacturerId,
+                            skuInput.BaseUnitId, skuInput.PkgQty, skuInput.PkgUnitId,
+                            skuInput.Vpu, volumeUnitId);
+                        await _productSkuRepository.InsertAsync(sku, autoSave: true);
+                    }
+
+                    updatedCount++;
+                }
+                else
+                {
+                    var code = await GenerateProductMasterDataCodeAsync(productType.Value);
+                    var product = new Product(
+                        _guidGenerator.Create(), code, name, productType.Value, null)
+                    {
+                        IdentificationCode = identificationCode,
+                        VolumeUnitId = volumeUnitId,
+                        MinStockLevel = minStockLevel,
+                        MainTechnicalSpecs = mainTechnicalSpecs,
+                        Concentration = concentration,
+                        FormattedConcentration = formattedConcentration,
+                        Categories = categories,
+                        StorageConditions = storageConditions,
+                        FormattedStorageConditions = formattedStorageConditions,
+                        ChemicalFormula = chemicalFormula,
+                        FormattedChemicalFormula = formattedChemicalFormula,
+                        CASNumber = casNumber,
+                        Origin = origin,
+                        FormattedOrigin = formattedOrigin,
+                        GhsCode = ghsCode,
+                        PackagingSpec = packagingSpec,
+                        FormattedPackagingSpec = formattedPackagingSpec,
+                        MaterialComposition = materialComposition,
+                        FormattedMaterialComposition = formattedMaterialComposition,
+                        IsSterile = isSterile,
+                        IsReusable = isReusable,
+                        MaxReuseCount = maxReuseCount,
+                        CertifiedValue = certifiedValue,
+                        FormattedCertifiedValue = formattedCertifiedValue,
+                        MeasurementUncertainty = measurementUncertainty,
+                        FormattedMeasurementUncertainty = formattedMeasurementUncertainty,
+                        StandardLink = standardLink,
+                        AnalysisGrade = analysisGrade,
+                        UsagePurpose = usagePurpose,
+                        ShelfLifeDays = shelfLifeDays,
+                        BaseProductId = baseProductId,
+                        IsActive = true,
+                        IsDraft = false,
+                    };
+
+                    await _productRepository.InsertAsync(product, autoSave: true);
+
+                    foreach (var skuInput in skuInputs)
+                    {
+                        var sku = new ProductSku(
+                            _guidGenerator.Create(), product.Id, skuInput.ManufacturerId,
+                            skuInput.BaseUnitId, skuInput.PkgQty, skuInput.PkgUnitId,
+                            skuInput.Vpu, volumeUnitId);
+                        await _productSkuRepository.InsertAsync(sku, autoSave: true);
+                    }
+
+                    newCount++;
+                }
+            }
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = newCount + updatedCount,
+                SkippedRows = preview.SkippedRows,
+                Message = $"Import thành công: {newCount} mới, {updatedCount} cập nhật."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    private async Task<string> GenerateProductMasterDataCodeAsync(Products.ProductType productType)
+    {
+        var prefix = productType switch
+        {
+            Products.ProductType.Chemical => "CHE",
+            Products.ProductType.Biological => "BIO",
+            Products.ProductType.Supply => "SUP",
+            Products.ProductType.Equipment => "EQP",
+            _ => "PRD"
+        };
+
+        using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+        {
+            var todayPrefix = _codeGenerator.GetTodayPrefix(prefix);
+            var query = await _productRepository.GetQueryableAsync();
+            var count = query.Count(x => x.Code.StartsWith(todayPrefix));
+            return _codeGenerator.GenerateCodeWithDate(prefix, count);
+        }
+    }
+
+    private byte[] GenerateProductMasterDataErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)
+    {
+        using var workbook = new XLWorkbook(originalStream);
+        var ws = workbook.Worksheet(1);
+
+        var lastCol = ws.LastColumnUsed()?.ColumnNumber() ?? 30;
+        var errorCol = lastCol + 1;
+        ws.Cell(1, errorCol).Value = "Lỗi";
+        ws.Cell(1, errorCol).Style.Font.Bold = true;
+        ws.Cell(1, errorCol).Style.Font.FontColor = XLColor.Red;
+
+        var lastRowUsed = ws.LastRowUsed()?.RowNumber() ?? 1;
+        for (int r = 2; r <= lastRowUsed; r++)
+        {
+            if (rowErrors.TryGetValue(r, out var errors))
+            {
+                ws.Cell(r, errorCol).Value = string.Join("; ", errors);
+                ws.Cell(r, errorCol).Style.Font.FontColor = XLColor.Red;
+            }
+        }
+
+        using var outputStream = new MemoryStream();
+        workbook.SaveAs(outputStream);
+        return outputStream.ToArray();
+    }
+
     #endregion
 }

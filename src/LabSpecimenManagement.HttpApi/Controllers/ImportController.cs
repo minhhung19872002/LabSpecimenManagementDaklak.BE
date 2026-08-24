@@ -759,6 +759,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Product Master Data Import/Export (Admin)
+
+    [HttpGet("products-master-data/export")]
+    [Authorize]
+    public virtual async Task<IActionResult> ExportProductMasterDataAsync()
+    {
+        var bytes = await _importAppService.ExportProductMasterDataAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Danh_muc_vat_tu.xlsx");
+    }
+
+    [HttpPost("products-master-data/preview")]
+    [Authorize]
+    [DisableValidation]
+    public virtual async Task<ProductMasterDataImportPreviewDto> PreviewProductMasterDataAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewProductMasterDataAsync(fileBytes);
+    }
+
+    [HttpPost("products-master-data/import")]
+    [Authorize]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportProductMasterDataAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportProductMasterDataAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Helper Methods
 
     private void ValidateFile(IFormFile file)
