@@ -19,4 +19,5 @@ public interface IWarehouseImportReceiptAppService : IApplicationService
     Task<List<EligibleGoodsReceiptForImportDto>> GetEligibleGoodsReceiptsAsync();
     Task<List<GoodsReceiptItemForImportDto>> GetImportableItemsAsync(Guid goodsReceiptId);
     Task<List<DefectiveHistoryItemDto>> GetDefectiveHistoryAsync(Guid goodsReceiptId);
+    Task<List<WarehouseImportReceiptHistoryDto>> GetByGoodsReceiptIdAsync(Guid goodsReceiptId);
 }

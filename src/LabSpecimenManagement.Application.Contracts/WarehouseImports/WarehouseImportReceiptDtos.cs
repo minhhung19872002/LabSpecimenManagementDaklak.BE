@@ -310,3 +310,34 @@ public class PreviousReceivedLotDto
     public decimal? OriginalPrice { get; set; }
     public string? Location { get; set; }
 }
+
+public class WarehouseImportReceiptHistoryDto
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; } = string.Empty;
+    public DateTime ActualImportDate { get; set; }
+    public WarehouseImportReceiptStatus Status { get; set; }
+    public decimal? TotalAmount { get; set; }
+    public List<WarehouseImportReceiptHistoryItemDto> Items { get; set; } = new();
+}
+
+public class WarehouseImportReceiptHistoryItemDto
+{
+    public Guid Id { get; set; }
+    public string ProductName { get; set; } = string.Empty;
+    public string? UnitName { get; set; }
+    public string? PurchaseUnitName { get; set; }
+    public decimal OrderedQuantity { get; set; }
+    public decimal ActualReceivedQuantity { get; set; }
+    public string? ManufacturerName { get; set; }
+    public string? LotNumber { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+    public string? StorageWarehouseName { get; set; }
+    public WarehouseImportLineStatus Status { get; set; }
+    public string? QualityDocumentFileId { get; set; }
+    public string? QualityDocumentFileName { get; set; }
+    public decimal? UnitPrice { get; set; }
+    public int? VatPercent { get; set; }
+    public decimal? TotalLineAmount { get; set; }
+    public string? Notes { get; set; }
+}

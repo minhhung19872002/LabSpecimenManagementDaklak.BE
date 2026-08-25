@@ -1274,4 +1274,63 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             return _codeGenerator.GenerateCodeWithDate("TB", count);
         }
     }
+
+    public async Task<List<WarehouseImportReceiptHistoryDto>> GetByGoodsReceiptIdAsync(Guid goodsReceiptId)
+    {
+        var receipts = (await _receiptRepository.GetQueryableAsync())
+            .Where(x => x.GoodsReceiptId == goodsReceiptId && x.Status == WarehouseImportReceiptStatus.Completed)
+            .OrderBy(x => x.ActualImportDate)
+            .ToList();
+
+        if (receipts.Count == 0)
+            return new List<WarehouseImportReceiptHistoryDto>();
+
+        var receiptIds = receipts.Select(x => x.Id).ToList();
+        var items = (await _itemRepository.GetQueryableAsync())
+            .Where(x => receiptIds.Contains(x.WarehouseImportReceiptId))
+            .ToList();
+
+        var goodsReceiptItemIds = items
+            .Where(x => x.GoodsReceiptItemId.HasValue)
+            .Select(x => x.GoodsReceiptItemId!.Value)
+            .Distinct()
+            .ToList();
+        var purchaseUnitByPoLineId = goodsReceiptItemIds.Count > 0
+            ? (await _goodsReceiptItemRepository.GetQueryableAsync())
+                .Where(x => goodsReceiptItemIds.Contains(x.Id))
+                .ToDictionary(x => x.Id, x => x.UnitName)
+            : new Dictionary<Guid, string?>();
+
+        return receipts.Select(r => new WarehouseImportReceiptHistoryDto
+        {
+            Id = r.Id,
+            Code = r.Code,
+            ActualImportDate = r.ActualImportDate,
+            Status = r.Status,
+            TotalAmount = r.TotalAmount,
+            Items = items
+                .Where(i => i.WarehouseImportReceiptId == r.Id)
+                .Select(i => new WarehouseImportReceiptHistoryItemDto
+                {
+                    Id = i.Id,
+                    ProductName = i.ProductName,
+                    UnitName = i.UnitName,
+                    PurchaseUnitName = i.GoodsReceiptItemId.HasValue && purchaseUnitByPoLineId.TryGetValue(i.GoodsReceiptItemId.Value, out var u) ? u : null,
+                    OrderedQuantity = i.OrderedQuantity,
+                    ActualReceivedQuantity = i.ActualReceivedQuantity,
+                    ManufacturerName = i.ManufacturerName,
+                    LotNumber = i.LotNumber,
+                    LotExpiryDate = i.LotExpiryDate,
+                    StorageWarehouseName = i.StorageWarehouseName,
+                    Status = i.Status,
+                    QualityDocumentFileId = i.QualityDocumentFileId,
+                    QualityDocumentFileName = i.QualityDocumentFileName,
+                    UnitPrice = i.UnitPrice,
+                    VatPercent = i.VatPercent,
+                    TotalLineAmount = i.TotalLineAmount,
+                    Notes = i.Notes,
+                })
+                .ToList()
+        }).ToList();
+    }
 }

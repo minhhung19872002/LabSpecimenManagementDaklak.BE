@@ -91,4 +91,10 @@ public class WarehouseImportReceiptController : LabSpecimenManagementController
     {
         return _warehouseImportReceiptAppService.GetDefectiveHistoryAsync(goodsReceiptId);
     }
+
+    [HttpGet("by-goods-receipt/{goodsReceiptId}")]
+    public virtual Task<List<WarehouseImportReceiptHistoryDto>> GetByGoodsReceiptIdAsync(Guid goodsReceiptId)
+    {
+        return _warehouseImportReceiptAppService.GetByGoodsReceiptIdAsync(goodsReceiptId);
+    }
 }
