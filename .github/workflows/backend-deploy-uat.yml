@@ -1,7 +1,10 @@
 name: Deploy Backend to UAT
 
-# UAT chuyen tu GCP VM (136.110.9.243) sang VPS 45.119.83.83 ngay 2026-08-05.
-# May moi chi co 1 vCPU / 2GB -> KHONG build tren VM duoc nua.
+# UAT chuyen tu GCP VM (136.110.9.243) sang VPS 45.119.83.83 ngay 2026-08-05,
+# roi sang 14.225.83.93 (bluestar01) ngay 2026-08-25.
+# May hien tai 4 vCPU / 11GB, nhung VAN khong build tren VM: no chay chung nam
+# he thong (BlueDental, BlueIdea, StayHost, FoodSafe, StarLab) nen build tai cho
+# se tranh CPU va RAM voi cac he dang phuc vu that.
 # Actions build image + push GHCR, VM chi pull.
 
 on:

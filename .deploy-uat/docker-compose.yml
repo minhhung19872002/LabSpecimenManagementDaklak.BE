@@ -1,197 +1,157 @@
-version: "3.8"
+# StarLab UAT tren 14.225.83.93 (bluestar01) — chuyen tu 45.119.83.83 ngay 2026-08-25.
+#
+# May moi: 4 vCPU / 11GB. Van KHONG build tai cho — image do GitHub Actions
+# build va push len GHCR, VM chi `docker compose pull`. Giu vay de nhat quan
+# va de khong tranh CPU voi bon he khac dang chay chung may.
+#
+# - KHONG co Caddy rieng: reverse proxy dung chung la container `proxy-caddy`
+#   (stack rieng o ~/proxy, khong thuoc he nao). Cau hinh site nam o
+#   ~/proxy/sites/starlab.caddy — KHONG phai tep Caddyfile trong thu muc nay.
+# - KHONG expose port nao ra host: proxy-caddy duoc noi vao network nay.
+# - KHONG co MongoDB: app khong dung (da verify: khong driver trong .csproj).
+#
+# TEN SERVICE co tien to starlab- la CO Y, khong duoc doi:
+#   proxy-caddy nam trong CA NAM network (bluedental, blueidea, stayhost,
+#   foodsafe, lab-specimen). Voi rieng no, cac ten NGAN bi trung: `frontend`
+#   co o BlueDental/FoodSafe/StarLab, `api`/`postgres`/`redis` cung vay.
+#   Dat tien to + container_name la de Caddyfile luon tro dung container.
+#
+# mem_limit giu nguyen tu may cu (may do chi 1 vCPU/2GB). May moi con nhieu
+# RAM trong — neu backend cham do sat tran 512MB thi co the nang len.
 
 services:
-    # PostgreSQL Database
-    postgres:
+    starlab-postgres:
         image: postgres:15-alpine
         container_name: lab-specimen-postgres
         environment:
             POSTGRES_DB: LabSpecimenManagement
             POSTGRES_USER: postgres
-            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-myPassword}
-        ports:
-            - "5433:5432"
+            POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+        command: >
+            postgres -c shared_buffers=48MB
+                     -c max_connections=40
+                     -c effective_cache_size=192MB
+                     -c work_mem=2MB
         volumes:
             - postgres_data:/var/lib/postgresql/data
+        mem_limit: 256m
         healthcheck:
             test: ["CMD-SHELL", "pg_isready -U postgres"]
             interval: 10s
             timeout: 5s
             retries: 5
+        restart: unless-stopped
         networks:
             - lab-specimen-network
 
-    # Redis Cache
-    redis:
+    starlab-redis:
         image: redis:7-alpine
         container_name: lab-specimen-redis
-        ports:
-            - "6379:6379"
-        volumes:
-            - redis_data:/data
+        command: redis-server --maxmemory 48mb --maxmemory-policy allkeys-lru --save ""
+        mem_limit: 64m
         healthcheck:
             test: ["CMD", "redis-cli", "ping"]
             interval: 10s
             timeout: 3s
             retries: 5
+        restart: unless-stopped
         networks:
             - lab-specimen-network
 
-    # MongoDB Document Store
-    mongodb:
-        image: mongo:7
-        container_name: lab-specimen-mongodb
-        environment:
-            MONGO_INITDB_ROOT_USERNAME: root
-            MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-myPassword}
-        ports:
-            - "27017:27017"
-        volumes:
-            - mongodb_data:/data/db
-        healthcheck:
-            test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-            interval: 10s
-            timeout: 5s
-            retries: 5
-        networks:
-            - lab-specimen-network
-
-    # Gotenberg - PDF conversion service (LibreOffice based)
-    gotenberg:
+    starlab-gotenberg:
         image: gotenberg/gotenberg:8
         container_name: lab-specimen-gotenberg
-        ports:
-            - "3100:3000"
         command:
             - "gotenberg"
             - "--api-timeout=120s"
-            - "--libreoffice-restart-after=10"
-            - "--libreoffice-auto-start=true"
+            - "--libreoffice-restart-after=5"
+            - "--libreoffice-auto-start=false"
+        mem_limit: 384m
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
-            interval: 30s
+            interval: 60s
             timeout: 10s
             retries: 3
             start_period: 30s
+        restart: unless-stopped
         networks:
             - lab-specimen-network
 
-    # Collabora Online - LibreOffice Online with full formatting support (including dashed borders)
-    collabora:
+    starlab-collabora:
         image: collabora/code:latest
         container_name: lab-specimen-collabora
-        ports:
-            - "8089:9980"
         environment:
-            # Admin console credentials
             - "username=admin"
-            - "password=admin123"
-            # Disable SSL (Caddy terminates TLS)
+            - "password=${COLLABORA_PASSWORD}"
             - "DONT_GEN_SSL_CERT=true"
-            # Use coolwsd.xml configuration overrides - enable trace logging and allow HTTP
-            - "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:logging.level=trace --o:storage.wopi[@allow]=true --o:storage.wopi.host[@allow]=true --o:storage.wopi.host[0]=.* --o:storage.ssl.as_scheme=false --o:storage.ssl.enable=false --o:net.post_allow.host[0]=.* --o:net.frame_ancestors=*"
+            - "extra_params=--o:ssl.enable=false --o:ssl.termination=true --o:logging.level=warning --o:storage.wopi[@allow]=true --o:storage.wopi.host[@allow]=true --o:storage.wopi.host[0]=.* --o:storage.ssl.as_scheme=false --o:storage.ssl.enable=false --o:net.post_allow.host[0]=.* --o:net.frame_ancestors=* --o:num_prespawn_children=1 --o:memproportion=25"
         cap_add:
             - MKNOD
+        mem_limit: 512m
         restart: unless-stopped
-        extra_hosts:
-            - "host.docker.internal:host-gateway"
         networks:
             - lab-specimen-network
 
-    # Database Migrator (runs migrations then exits)
-    db-migrator:
-        build:
-            context: ./lab-specimen-management-be
-            dockerfile: Dockerfile.Migrator
+    starlab-db-migrator:
+        image: ghcr.io/minhhung19872002/starlab-db-migrator:uat
         container_name: lab-specimen-db-migrator
         environment:
-            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
-            - Redis__Configuration=redis:6379
-            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
-            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
+            - ConnectionStrings__Default=Host=lab-specimen-postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD};
+            - Redis__Configuration=lab-specimen-redis:6379
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY}
         depends_on:
-            postgres:
-                condition: service_healthy
-            redis:
-                condition: service_healthy
-            mongodb:
-                condition: service_healthy
+            starlab-postgres: { condition: service_healthy }
+            starlab-redis: { condition: service_healthy }
+        mem_limit: 384m
         networks:
             - lab-specimen-network
         restart: "no"
 
-    # Backend API (.NET 9.0)
-    backend:
-        build:
-            context: ./lab-specimen-management-be
-            dockerfile: Dockerfile
+    starlab-backend:
+        image: ghcr.io/minhhung19872002/starlab-backend:uat
         container_name: lab-specimen-backend
         environment:
-            - ASPNETCORE_ENVIRONMENT=${ASPNETCORE_ENVIRONMENT:-Production}
+            - ASPNETCORE_ENVIRONMENT=Production
             - ASPNETCORE_URLS=http://+:5002
-            # Trust forwarded headers from Caddy reverse proxy
             - ASPNETCORE_FORWARDEDHEADERS_ENABLED=true
-            # Database connection
-            - ConnectionStrings__Default=Host=postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD:-myPassword};
-            # Redis configuration
-            - Redis__Configuration=redis:6379
-            # MongoDB configuration
-            - MongoDb__ConnectionString=mongodb://root:${MONGO_PASSWORD:-myPassword}@mongodb:27017
-            # Application URLs
-            - App__SelfUrl=${BACKEND_URL:-http://localhost:5002}
-            - App__CorsOrigins=https://uat.tihelab.vn,https://api-uat.tihelab.vn,http://136.110.9.243:8080,http://136.110.9.243:5002,http://localhost:3001,http://localhost:8080
-            - App__RedirectAllowedUrls=https://uat.tihelab.vn,http://136.110.9.243:8080,http://localhost:3001
-            # Auth Server
-            - AuthServer__Authority=${BACKEND_URL:-http://localhost:5002}
+            # Workstation GC + heap trần 320MB: giữ RAM thấp trên máy chật
+            - DOTNET_gcServer=0
+            - DOTNET_GCHeapHardLimit=0x14000000
+            # Dùng container_name thay vì service name -> không phụ thuộc alias, không đụng FoodSafe
+            - ConnectionStrings__Default=Host=lab-specimen-postgres;Port=5432;Database=LabSpecimenManagement;Username=postgres;Password=${POSTGRES_PASSWORD};
+            - Redis__Configuration=lab-specimen-redis:6379
+            - App__SelfUrl=${BACKEND_URL}
+            - App__CorsOrigins=${CORS_ORIGINS}
+            - App__RedirectAllowedUrls=${REDIRECT_URLS}
+            - AuthServer__Authority=${BACKEND_URL}
             - AuthServer__RequireHttpsMetadata=false
-            # String Encryption
-            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY:-hRkdZ14qdfr5Wrf0}
-            # Gotenberg PDF Service
+            - StringEncryption__DefaultPassPhrase=${ENCRYPTION_KEY}
             - Gotenberg__Url=http://lab-specimen-gotenberg:3000
-            # Collabora (UAT): trỏ về Collabora trên chính VM (frame-ancestors=*),
-            # KHÔNG dùng collabora.tihelab.vn của prod (CSP chặn subdomain uat).
-            - Collabora__ServerUrl=https://collabora-uat.tihelab.vn
-            - Collabora__WopiBaseUrl=https://api-uat.tihelab.vn
-        ports:
-            - "5002:5002"
+            - Collabora__ServerUrl=${COLLABORA_URL}
+            - Collabora__WopiBaseUrl=${BACKEND_URL}
         volumes:
             - backend_logs:/app/Logs
             - uploaded_images:/app/wwwroot/images
-            - backend_keys:/app/wwwroot/Keys  # IMPORTANT: Persist OpenIddict keys (moved to wwwroot for permissions)
-            - ./lab-specimen-management-be/src/LabSpecimenManagement.HttpApi.Host/wwwroot/templates:/app/wwwroot/templates
+            - backend_keys:/app/wwwroot/Keys # OpenIddict keys — restore từ VM cũ, mất là 43 user login lại
+            - backend_temp:/app/wwwroot/temp # file docx cho WOPI/Collabora — phai song qua deploy
         depends_on:
-            postgres:
-                condition: service_healthy
-            redis:
-                condition: service_healthy
-            mongodb:
-                condition: service_healthy
-            collabora:
-                condition: service_started
+            starlab-postgres: { condition: service_healthy }
+            starlab-redis: { condition: service_healthy }
+        mem_limit: 512m
         healthcheck:
             test: ["CMD", "curl", "-f", "http://localhost:5002/health"]
             interval: 30s
             timeout: 10s
-            retries: 3
-            start_period: 40s
+            retries: 5
+            start_period: 90s # máy 1 vCPU, .NET khởi động chậm
+        restart: unless-stopped
         networks:
             - lab-specimen-network
 
-    # Frontend (React + Vite)
-    frontend:
-        build:
-            context: ./lab-specimen-management-fe
-            dockerfile: Dockerfile
-            args:
-                - VITE_API_BASE_URL=${FRONTEND_API_URL:-http://localhost:5002}
-                - VITE_APP_NAME=Lab Specimen Management System
-                - VITE_NODE_ENV=${NODE_ENV:-production}
+    starlab-frontend:
+        image: ghcr.io/minhhung19872002/starlab-frontend:uat
         container_name: lab-specimen-frontend
-        ports:
-            - "8080:8080"
-        depends_on:
-            backend:
-                condition: service_healthy
+        mem_limit: 48m
         healthcheck:
             test:
                 [
@@ -206,46 +166,20 @@ services:
             timeout: 3s
             retries: 3
             start_period: 10s
-        networks:
-            - lab-specimen-network
-
-    # Caddy reverse proxy — HTTPS + Let's Encrypt auto cert
-    caddy:
-        image: caddy:2-alpine
-        container_name: lab-specimen-caddy
-        ports:
-            - "80:80"
-            - "443:443"
-        volumes:
-            - ./Caddyfile:/etc/caddy/Caddyfile:ro
-            - caddy_data:/data
-            - caddy_config:/config
         restart: unless-stopped
         networks:
             - lab-specimen-network
 
 volumes:
     postgres_data:
-        driver: local
-    redis_data:
-        driver: local
-    mongodb_data:
-        driver: local
     backend_logs:
-        driver: local
     backend_keys:
-        driver: local  # Persist OpenIddict encryption/signing keys (auto-generated on first run)
     uploaded_images:
-        driver: local
-    onlyoffice_data:
-        driver: local
-    onlyoffice_logs:
-        driver: local
-    caddy_data:
-        driver: local
-    caddy_config:
-        driver: local
+    backend_temp:
 
 networks:
     lab-specimen-network:
+        name: lab-specimen-network
         driver: bridge
+# Tổng trần: 256+64+384+512+512+48 = 1776m (db-migrator chỉ chạy lúc deploy)
+# Dùng thật đo được (chưa có collabora/gotenberg): ~441MB
