@@ -1,19 +1,46 @@
-{
-    email phihung19872002@gmail.com
-}
-
+# LUU Y: tep nay KHONG con duoc trien khai tu day nua.
+# Tu 2026-08-25, reverse proxy la container `proxy-caddy` dung chung cho nam he,
+# va cau hinh site that su nam tren VM tai ~/proxy/sites/starlab.caddy.
+# Giu ban sao o day de doc hieu, va de biet phai sua gi neu dung lai VM khac.
+#
+# Ban cu trong repo dung ten NGAN (frontend:8080, backend:5002, collabora:9980).
+# KHONG duoc dung nhu vay nua: proxy-caddy nam trong ca nam network nen
+# `frontend` trung giua BlueDental / FoodSafe / StarLab.
+#
+# StarLab UAT — chuyen tu VM 45.119.83.83 sang ngay 2026-08-25.
+# (Truoc do da tung chuyen tu GCP VM 136.110.9.243 ngay 2026-08-05.)
+# Da dung container_name san tu ban goc — giu nguyen.
+# tls <email> dat theo site de khong dung chung ACME account voi cac site khac.
 uat.tihelab.vn {
-    encode zstd gzip
-    reverse_proxy frontend:8080
+	tls phihung19872002@gmail.com
+	encode zstd gzip
+	reverse_proxy lab-specimen-frontend:8080
+
+	log {
+		output stdout
+		format console
+	}
 }
 
 api-uat.tihelab.vn {
-    encode zstd gzip
-    reverse_proxy backend:5002 {
-        header_up X-Forwarded-Proto https
-    }
+	tls phihung19872002@gmail.com
+	encode zstd gzip
+	reverse_proxy lab-specimen-backend:5002 {
+		header_up X-Forwarded-Proto https
+	}
+
+	log {
+		output stdout
+		format console
+	}
 }
 
 collabora-uat.tihelab.vn {
-    reverse_proxy collabora:9980
+	tls phihung19872002@gmail.com
+	reverse_proxy lab-specimen-collabora:9980
+
+	log {
+		output stdout
+		format console
+	}
 }
