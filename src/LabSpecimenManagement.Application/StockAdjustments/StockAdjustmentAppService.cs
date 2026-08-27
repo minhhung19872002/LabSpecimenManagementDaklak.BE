@@ -513,16 +513,37 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
         var icRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<IndicatorConsumption, Guid>>();
         var icQuery = await icRepo.GetQueryableAsync();
-        var consumptionByLot = icQuery
+        var consumptionRaw = icQuery
             .Where(ic => productIds.Contains(ic.ProductId!.Value)
                          && ic.WarehouseId == warehouseId
                          && ic.IsDeducted
                          && ic.SubmitDate.HasValue)
+            .Select(ic => new { ic.ProductId, ic.LotNumber, ic.RecommendedQuantity, ic.UnitId, ic.SubmitDate })
             .ToList()
             .Where(ic => !lastInventoryMap.TryGetValue(ic.ProductId!.Value, out var lid)
                          || ic.SubmitDate!.Value > lid)
+            .ToList();
+
+        var conversionRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<ProductUnitConversion, Guid>>();
+        var conversions = (await conversionRepo.GetQueryableAsync())
+            .Where(c => productIds.Contains(c.ProductId))
+            .ToList();
+        var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+
+        var skusByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+
+        var consumptionByLot = consumptionRaw
             .GroupBy(ic => (ic.ProductId!.Value, LotNumber: ic.LotNumber ?? ""))
-            .ToDictionary(g => g.Key, g => g.Sum(ic => ic.RecommendedQuantity));
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(ic =>
+                {
+                    if (!productMap.TryGetValue(g.Key.Item1, out var prod)) return ic.RecommendedQuantity;
+                    var prodSkus = skusByProduct.GetValueOrDefault(g.Key.Item1) ?? new List<ProductSku>();
+                    int defaultVpu = prodSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
+                                     ?? prod.VolumePerUnit ?? 0;
+                    return ConvertConsumptionToVolume(ic.RecommendedQuantity, ic.UnitId, prod, prodSkus, conversionMap, defaultVpu);
+                }));
 
         var result = new List<WarehouseProductLotDto>();
 
@@ -580,6 +601,49 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     }
 
     #region Private Methods
+
+    private static decimal ConvertConsumptionToVolume(
+        decimal amount,
+        Guid? consumeUnitId,
+        Product product,
+        List<ProductSku> skus,
+        Dictionary<(Guid ProductId, Guid ConvertedUnitId), ProductUnitConversion> conversionMap,
+        int defaultVpu)
+    {
+        if (!consumeUnitId.HasValue || defaultVpu <= 0)
+            return amount;
+
+        decimal? unitsPerStorage = null;
+
+        if (consumeUnitId == product.PackagingUnitId)
+            unitsPerStorage = 1;
+        else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            unitsPerStorage = product.VolumePerUnit.Value;
+        else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            unitsPerStorage = 1m / product.PackagingQuantity.Value;
+
+        if (unitsPerStorage == null)
+        {
+            foreach (var sku in skus)
+            {
+                if (consumeUnitId == sku.PackagingUnitId) { unitsPerStorage = 1; break; }
+                if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { unitsPerStorage = sku.VolumePerUnit.Value; break; }
+                if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { unitsPerStorage = 1m / sku.PackagingQuantity.Value; break; }
+            }
+        }
+
+        if (unitsPerStorage == null
+            && conversionMap.TryGetValue((product.Id, consumeUnitId.Value), out var conv)
+            && conv.ConvertedQuantity > 0)
+        {
+            unitsPerStorage = conv.ConvertedQuantity / conv.Quantity;
+        }
+
+        if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+            return amount;
+
+        return (amount / unitsPerStorage.Value) * defaultVpu;
+    }
 
     private async Task<string> GenerateCodeAsync()
     {
