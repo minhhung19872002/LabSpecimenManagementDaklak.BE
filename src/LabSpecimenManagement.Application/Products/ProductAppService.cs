@@ -1319,6 +1319,121 @@ public class ProductAppService : ApplicationService, IProductAppService
         };
     }
 
+    public async Task<List<ProductLotStockDto>> GetLotStocksAsync(Guid id, Guid? warehouseId)
+    {
+        var product = await _productRepository.GetAsync(id);
+
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        var baseQuery = from item in importItemQuery
+                        join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                        where item.ProductId == id
+                              && receipt.Status == WarehouseImportReceiptStatus.Completed
+                              && item.Status == WarehouseImportLineStatus.Checked
+                              && !item.IsEquipment
+                        select new { item.LotNumber, item.LotExpiryDate, item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId };
+
+        if (warehouseId.HasValue)
+        {
+            var warehouseIds = await GetWarehouseIdSetAsync(warehouseId.Value);
+            baseQuery = baseQuery.Where(x =>
+                (x.StorageWarehouseId.HasValue && warehouseIds.Contains(x.StorageWarehouseId.Value))
+                || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && warehouseIds.Contains(x.WarehouseId.Value)));
+        }
+
+        var lotData = baseQuery.ToList();
+        if (lotData.Count == 0) return new List<ProductLotStockDto>();
+
+        var productSkus = (await _skuRepository.GetQueryableAsync())
+            .Where(s => s.ProductId == id).ToList();
+        var skuById = productSkus.ToDictionary(s => s.Id);
+
+        var manufacturerIds = productSkus.Select(s => s.ManufacturerId).Distinct().ToList();
+        var manufacturers = manufacturerIds.Count > 0
+            ? (await _manufacturerRepository.GetQueryableAsync())
+                .Where(m => manufacturerIds.Contains(m.Id))
+                .ToDictionary(m => m.Id, m => m.Name)
+            : new Dictionary<Guid, string>();
+
+        var unitIds = new Guid?[] { product.PackagingUnitId, product.VolumeUnitId, product.BaseUnitId }
+            .Concat(productSkus.SelectMany(s => new Guid?[] { s.PackagingUnitId, s.VolumeUnitId }))
+            .Where(uid => uid.HasValue).Select(uid => uid!.Value).Distinct().ToList();
+        var unitNames = unitIds.Count > 0
+            ? (await _unitRepository.GetQueryableAsync()).Where(u => unitIds.Contains(u.Id))
+                .ToDictionary(u => u.Id, u => u.Name)
+            : new Dictionary<Guid, string>();
+
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        DateTime? lastInventoryDate = null;
+        if (warehouseId.HasValue)
+        {
+            lastInventoryDate = pwiQuery
+                .Where(pwi => pwi.ProductId == id && pwi.WarehouseId == warehouseId.Value)
+                .Select(pwi => pwi.LastInventoryDate)
+                .FirstOrDefault();
+        }
+
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var consumptionByLot = icQuery
+            .Where(ic => ic.ProductId == id && ic.IsDeducted && ic.SubmitDate.HasValue)
+            .Where(ic => !warehouseId.HasValue || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value))
+            .ToList()
+            .Where(ic => !lastInventoryDate.HasValue || (ic.SubmitDate!.Value > lastInventoryDate.Value))
+            .GroupBy(ic => ic.LotNumber ?? "")
+            .ToDictionary(g => g.Key, g => g.Sum(ic => ic.RecommendedQuantity));
+
+        var result = new List<ProductLotStockDto>();
+
+        foreach (var group in lotData.GroupBy(l => l.LotNumber ?? ""))
+        {
+            var totalReceived = group.Sum(l => l.ReceivedBaseQuantity);
+            var totalConsumed = group.Sum(l => l.ConsumedBaseQuantity);
+            var remaining = Math.Max(0, totalReceived - totalConsumed);
+            var expiryDate = group.Where(l => l.LotExpiryDate.HasValue).Select(l => l.LotExpiryDate).Min();
+
+            string? manufacturerName = null;
+            int? volumePerUnit = null;
+            Guid? volumeUnitId = null;
+            Guid? packagingUnitId = null;
+
+            var firstSkuId = group.FirstOrDefault(l => l.SkuId.HasValue)?.SkuId;
+            if (firstSkuId.HasValue && skuById.TryGetValue(firstSkuId.Value, out var sku))
+            {
+                manufacturers.TryGetValue(sku.ManufacturerId, out manufacturerName);
+                if (sku.VolumePerUnit > 0) volumePerUnit = sku.VolumePerUnit;
+                volumeUnitId = sku.VolumeUnitId;
+                packagingUnitId = sku.PackagingUnitId;
+            }
+            volumePerUnit ??= (product.VolumePerUnit > 0 ? product.VolumePerUnit : null);
+            volumeUnitId ??= product.VolumeUnitId;
+            packagingUnitId ??= product.PackagingUnitId;
+
+            var lotConsumption = consumptionByLot.GetValueOrDefault(group.Key);
+
+            result.Add(new ProductLotStockDto
+            {
+                LotNumber = string.IsNullOrEmpty(group.Key) ? null : group.Key,
+                ManufacturerName = manufacturerName,
+                LotExpiryDate = expiryDate,
+                ReceivedBaseQuantity = totalReceived,
+                ConsumedBaseQuantity = totalConsumed,
+                RemainingBaseQuantity = remaining,
+                TheoreticalConsumption = lotConsumption,
+                VolumePerUnit = volumePerUnit,
+                VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
+                PackagingUnitName = packagingUnitId.HasValue && unitNames.TryGetValue(packagingUnitId.Value, out var pun) ? pun : null,
+                BaseUnitName = product.BaseUnitId.HasValue && unitNames.TryGetValue(product.BaseUnitId.Value, out var bun) ? bun : null,
+            });
+        }
+
+        return result
+            .OrderBy(x => x.LotExpiryDate.HasValue ? 0 : 1)
+            .ThenBy(x => x.LotExpiryDate)
+            .ThenBy(x => x.LotNumber)
+            .ToList();
+    }
+
     public async Task<PagedResultDto<ProductImportHistoryDto>> GetImportHistoryAsync(Guid id, GetProductImportHistoryInput input)
     {
         var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
@@ -2145,13 +2260,15 @@ public class ProductAppService : ApplicationService, IProductAppService
             usageLogWarehouseIds = new HashSet<Guid> { input.WarehouseId.Value };
 
         // Path 1: TestBatchConsumption → TestBatch → TestBatchItem (batch flow)
+        // TestBatchConsumption has no LotNumber field, skip when filtering by lot
+        var fromBatchPathEnabled = string.IsNullOrEmpty(input.LotNumber);
         var tbcFiltered = testBatchConsumptionQuery.Where(c => c.ProductId == id);
         if (usageLogWarehouseIds != null)
             tbcFiltered = tbcFiltered.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
 
-        var batchIds = tbcFiltered
-            .Select(c => c.TestBatchId)
-            .Distinct();
+        var batchIds = fromBatchPathEnabled
+            ? tbcFiltered.Select(c => c.TestBatchId).Distinct()
+            : Enumerable.Empty<Guid>().AsQueryable();
 
         var fromBatchPath = (
             from batch in batchQuery
@@ -2187,6 +2304,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         var icFiltered = indicatorConsumptionQuery.Where(c => c.ProductId == id);
         if (usageLogWarehouseIds != null)
             icFiltered = icFiltered.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+        if (!string.IsNullOrEmpty(input.LotNumber))
+            icFiltered = icFiltered.Where(c => c.LotNumber == input.LotNumber);
 
         var icSubmissions = icFiltered
             .Select(c => new { c.LaboratoryTaskIndicatorId, c.SubmitDate })
@@ -2262,6 +2381,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             .Where(c => c.ProductId == id);
         if (usageLogWarehouseIds != null)
             icAllQuery = icAllQuery.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+        if (!string.IsNullOrEmpty(input.LotNumber))
+            icAllQuery = icAllQuery.Where(c => c.LotNumber == input.LotNumber);
         var icAll = icAllQuery.ToList();
 
         var icByLtiSubmit = icAll
@@ -2336,13 +2457,18 @@ public class ProductAppService : ApplicationService, IProductAppService
                        where item.ProductId == id
                              && receipt.Status == WarehouseImportReceiptStatus.Completed
                              && item.Status == WarehouseImportLineStatus.Checked
-                       select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId };
+                       select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId, item.LotNumber };
 
         if (usageLogWarehouseIds != null)
         {
             lotQuery = lotQuery.Where(x =>
                 (x.StorageWarehouseId.HasValue && usageLogWarehouseIds.Contains(x.StorageWarehouseId.Value))
                 || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && usageLogWarehouseIds.Contains(x.WarehouseId.Value)));
+        }
+
+        if (!string.IsNullOrEmpty(input.LotNumber))
+        {
+            lotQuery = lotQuery.Where(x => x.LotNumber == input.LotNumber);
         }
 
         var lotItems = lotQuery.ToList();

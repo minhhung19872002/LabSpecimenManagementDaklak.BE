@@ -156,9 +156,9 @@ public partial class TestingAppService
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var whLotMap = await ResolveWarehouseAndLotForProductsAsync(productIdsForWh);
             var consumableProductWhMap = productIdsForWh
-                .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+                .ToDictionary(pid => pid, pid => whLotMap.TryGetValue(pid, out var v) ? v.WarehouseId : null);
             var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var newConsumptions = new List<IndicatorConsumption>();
@@ -173,10 +173,11 @@ public partial class TestingAppService
                     line.RecommendedQuantity);
                 consumption.ActualQuantity = line.ActualQuantity;
                 consumption.SubmitDate = Clock.Now;
-                if (line.ProductId.HasValue)
+                if (line.ProductId.HasValue && whLotMap.TryGetValue(line.ProductId.Value, out var resolved))
                 {
-                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
+                    consumption.WarehouseId = resolved.WarehouseId;
                     consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    consumption.LotNumber = resolved.LotNumber;
                 }
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 newConsumptions.Add(consumption);
@@ -392,9 +393,9 @@ public partial class TestingAppService
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var whLotMap = await ResolveWarehouseAndLotForProductsAsync(productIdsForWh);
             var consumableProductWhMap = productIdsForWh
-                .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+                .ToDictionary(pid => pid, pid => whLotMap.TryGetValue(pid, out var v) ? v.WarehouseId : null);
             var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var indicatorCount = submittedIndicators.Count;
@@ -412,10 +413,11 @@ public partial class TestingAppService
                     consumption.ActualQuantity = line.ActualQuantity / indicatorCount;
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
-                    if (line.ProductId.HasValue)
+                    if (line.ProductId.HasValue && whLotMap.TryGetValue(line.ProductId.Value, out var resolved))
                     {
-                        consumption.WarehouseId = warehouseMap.GetValueOrDefault(line.ProductId.Value);
+                        consumption.WarehouseId = resolved.WarehouseId;
                         consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                        consumption.LotNumber = resolved.LotNumber;
                     }
                     await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
                 }
@@ -426,10 +428,8 @@ public partial class TestingAppService
             await DeductStockFromConsumptionLineInputsAsync(input.ConsumptionLines, laboratoryTaskId);
 
             var barcodeTargets = input.ConsumptionLines
-                .Where(l => l.ProductId.HasValue)
-                .Select(l => (l.ProductId!.Value, warehouseMap.GetValueOrDefault(l.ProductId!.Value)))
-                .Where(t => t.Item2.HasValue)
-                .Select(t => (t.Item1, t.Item2!.Value));
+                .Where(l => l.ProductId.HasValue && whLotMap.TryGetValue(l.ProductId!.Value, out var r) && r.WarehouseId.HasValue)
+                .Select(l => (l.ProductId!.Value, whLotMap[l.ProductId!.Value].WarehouseId!.Value));
             await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
         }
 
@@ -712,8 +712,14 @@ public partial class TestingAppService
 
     private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(IEnumerable<Guid> productIds)
     {
+        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds);
+        return resolved.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
+    }
+
+    private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(IEnumerable<Guid> productIds)
+    {
         var ids = productIds.Distinct().ToList();
-        if (!ids.Any()) return new Dictionary<Guid, Guid?>();
+        if (!ids.Any()) return new Dictionary<Guid, (Guid?, string?)>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
         var excludedWarehouseIds = warehouseQuery
@@ -736,7 +742,8 @@ public partial class TestingAppService
                     select new
                     {
                         item.ProductId,
-                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                        item.LotNumber
                     })
                     .ToList()
                     .Where(l => l.EffectiveWarehouseId.HasValue
@@ -744,6 +751,10 @@ public partial class TestingAppService
 
         return ids.ToDictionary(
             id => id,
-            id => lots.FirstOrDefault(l => l.ProductId == id)?.EffectiveWarehouseId);
+            id =>
+            {
+                var first = lots.FirstOrDefault(l => l.ProductId == id);
+                return (first?.EffectiveWarehouseId, first?.LotNumber);
+            });
     }
 }

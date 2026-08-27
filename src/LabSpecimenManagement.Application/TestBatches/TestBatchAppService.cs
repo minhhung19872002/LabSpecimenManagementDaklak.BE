@@ -1347,9 +1347,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var productIdsForWh = consumptionItems
             .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+        var whLotMap = await ResolveWarehouseAndLotForProductsAsync(productIdsForWh);
         var consumableProductWhMap = productIdsForWh
-            .ToDictionary(pid => pid, pid => (Guid?)warehouseMap.GetValueOrDefault(pid));
+            .ToDictionary(pid => pid, pid => whLotMap.TryGetValue(pid, out var v) ? v.WarehouseId : null);
         var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
         foreach (var submittedItem in submittedItems)
@@ -1366,14 +1366,17 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     item.AvgConsumptionPerSample.Value);
                 consumption.IsDeducted = true;
                 consumption.SubmitDate = Clock.Now;
-                if (item.ProductId.HasValue)
+                if (item.ProductId.HasValue && whLotMap.TryGetValue(item.ProductId.Value, out var resolved))
                 {
-                    consumption.WarehouseId = warehouseMap.GetValueOrDefault(item.ProductId.Value);
+                    consumption.WarehouseId = resolved.WarehouseId;
                     consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(item.ProductId.Value);
+                    consumption.LotNumber = resolved.LotNumber;
                 }
                 await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
             }
         }
+
+        var warehouseMap = whLotMap.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
 
         var submittedCount = submittedItems.Count;
         var productItems = consumptionItems.Where(c => c.ProductId.HasValue).ToList();
@@ -1659,8 +1662,14 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
     private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(IEnumerable<Guid> productIds)
     {
+        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds);
+        return resolved.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
+    }
+
+    private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(IEnumerable<Guid> productIds)
+    {
         var ids = productIds.Distinct().ToList();
-        if (!ids.Any()) return new Dictionary<Guid, Guid?>();
+        if (!ids.Any()) return new Dictionary<Guid, (Guid?, string?)>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
         var excludedWarehouseIds = warehouseQuery
@@ -1683,7 +1692,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     select new
                     {
                         item.ProductId,
-                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId
+                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                        item.LotNumber
                     })
                     .ToList()
                     .Where(l => l.EffectiveWarehouseId.HasValue
@@ -1691,6 +1701,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         return ids.ToDictionary(
             id => id,
-            id => lots.FirstOrDefault(l => l.ProductId == id)?.EffectiveWarehouseId);
+            id =>
+            {
+                var first = lots.FirstOrDefault(l => l.ProductId == id);
+                return (first?.EffectiveWarehouseId, first?.LotNumber);
+            });
     }
 }

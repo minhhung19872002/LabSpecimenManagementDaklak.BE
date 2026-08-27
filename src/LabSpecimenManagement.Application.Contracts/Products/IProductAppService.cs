@@ -23,6 +23,7 @@ public interface IProductAppService : IApplicationService
     Task DeleteSkuAsync(Guid productId, Guid skuId);
     Task<PagedResultDto<ProductSourceDto>> GetProductSourcesAsync(Guid productId, GetProductSourcesInput input);
     Task<ProductDetailDto> GetDetailAsync(Guid id, Guid? warehouseId);
+    Task<List<ProductLotStockDto>> GetLotStocksAsync(Guid id, Guid? warehouseId);
     Task<PagedResultDto<ProductImportHistoryDto>> GetImportHistoryAsync(Guid id, GetProductImportHistoryInput input);
     Task<PagedResultDto<ProductMaterialReceiptHistoryDto>> GetMaterialReceiptHistoryAsync(
         Guid id, GetProductMaterialReceiptHistoryInput input);

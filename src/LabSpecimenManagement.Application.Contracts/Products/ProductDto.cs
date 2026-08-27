@@ -338,6 +338,21 @@ public class ProductDetailDto
     public List<StockByUnitDto> StockByUnits { get; set; } = new();
 }
 
+public class ProductLotStockDto
+{
+    public string? LotNumber { get; set; }
+    public string? ManufacturerName { get; set; }
+    public DateTime? LotExpiryDate { get; set; }
+    public decimal ReceivedBaseQuantity { get; set; }
+    public decimal ConsumedBaseQuantity { get; set; }
+    public decimal RemainingBaseQuantity { get; set; }
+    public decimal TheoreticalConsumption { get; set; }
+    public int? VolumePerUnit { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public string? PackagingUnitName { get; set; }
+    public string? BaseUnitName { get; set; }
+}
+
 public class ProductImportHistoryDto
 {
     public Guid WarehouseImportReceiptId { get; set; }
