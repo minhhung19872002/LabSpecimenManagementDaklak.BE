@@ -1375,13 +1375,23 @@ public class ProductAppService : ApplicationService, IProductAppService
         }
 
         var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
-        var consumptionByLot = icQuery
+        var consumptions = icQuery
             .Where(ic => ic.ProductId == id && ic.IsDeducted && ic.SubmitDate.HasValue)
             .Where(ic => !warehouseId.HasValue || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value))
+            .Select(ic => new { ic.LotNumber, ic.RecommendedQuantity, ic.UnitId, ic.SubmitDate })
             .ToList()
             .Where(ic => !lastInventoryDate.HasValue || (ic.SubmitDate!.Value > lastInventoryDate.Value))
+            .ToList();
+
+        var conversions = await _conversionRepository.GetListAsync(c => c.ProductId == id);
+        var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+
+        var consumptionByLot = consumptions
             .GroupBy(ic => ic.LotNumber ?? "")
-            .ToDictionary(g => g.Key, g => g.Sum(ic => ic.RecommendedQuantity));
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(ic => ConvertConsumptionToPackaging(
+                    ic.RecommendedQuantity, ic.UnitId, product, productSkus, conversionMap)));
 
         var result = new List<ProductLotStockDto>();
 
@@ -2682,6 +2692,48 @@ public class ProductAppService : ApplicationService, IProductAppService
             return amount;
 
         return (amount / unitsPerStorage.Value) * defaultVpu;
+    }
+
+    private static decimal ConvertConsumptionToPackaging(
+        decimal amount,
+        Guid? consumeUnitId,
+        Product product,
+        List<ProductSku> skus,
+        Dictionary<(Guid ProductId, Guid ConvertedUnitId), ProductUnitConversion> conversionMap)
+    {
+        if (!consumeUnitId.HasValue)
+            return amount;
+
+        decimal? unitsPerStorage = null;
+
+        if (consumeUnitId == product.PackagingUnitId)
+            unitsPerStorage = 1;
+        else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            unitsPerStorage = product.VolumePerUnit.Value;
+        else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            unitsPerStorage = 1m / product.PackagingQuantity.Value;
+
+        if (unitsPerStorage == null)
+        {
+            foreach (var sku in skus)
+            {
+                if (consumeUnitId == sku.PackagingUnitId) { unitsPerStorage = 1; break; }
+                if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { unitsPerStorage = sku.VolumePerUnit.Value; break; }
+                if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { unitsPerStorage = 1m / sku.PackagingQuantity.Value; break; }
+            }
+        }
+
+        if (unitsPerStorage == null
+            && conversionMap.TryGetValue((product.Id, consumeUnitId.Value), out var conv)
+            && conv.ConvertedQuantity > 0)
+        {
+            unitsPerStorage = conv.ConvertedQuantity / conv.Quantity;
+        }
+
+        if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+            return amount;
+
+        return amount / unitsPerStorage.Value;
     }
 
     public async Task<List<BarcodeLotGroupDto>> GetBarcodeLotHistoryAsync(Guid id, Guid? warehouseId)
