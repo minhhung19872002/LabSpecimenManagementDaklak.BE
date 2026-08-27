@@ -347,6 +347,7 @@ public class ProductLotStockDto
     public decimal ConsumedBaseQuantity { get; set; }
     public decimal RemainingBaseQuantity { get; set; }
     public decimal TheoreticalConsumption { get; set; }
+    public decimal OpeningBaseQuantity { get; set; }
     public int? VolumePerUnit { get; set; }
     public string? VolumeUnitName { get; set; }
     public string? PackagingUnitName { get; set; }
