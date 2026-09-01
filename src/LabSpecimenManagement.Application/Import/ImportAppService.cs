@@ -8751,6 +8751,15 @@ public class ImportAppService : ApplicationService, IImportAppService
             }
             if (skuGroupCount == 0) skuGroupCount = 1;
 
+            // Pre-count existing codes with today's prefix for all product types (avoids N roundtrips)
+            int dbCodeCount;
+            using (_dataFilter.Disable<Volo.Abp.ISoftDelete>())
+            {
+                var dateStr = DateTime.Now.ToString("yyyyMMdd");
+                var query = await _productRepository.GetQueryableAsync();
+                dbCodeCount = query.Count(x => x.Code.Contains(dateStr));
+            }
+
             foreach (var previewItem in preview.Items.Where(i => i.IsValid && i.Status != ProductMasterDataImportItemStatus.Skipped))
             {
                 var rowNum = previewItem.RowNumber;
@@ -8918,13 +8927,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                     product.ShelfLifeDays = shelfLifeDays;
                     product.BaseProductId = baseProductId;
 
-                    await _productRepository.UpdateAsync(product, autoSave: true);
+                    await _productRepository.UpdateAsync(product, autoSave: false);
 
-                    // Replace SKUs
                     var existingSkus = (await _productSkuRepository.GetQueryableAsync())
                         .Where(s => s.ProductId == product.Id).ToList();
                     foreach (var es in existingSkus)
-                        await _productSkuRepository.DeleteAsync(es, autoSave: true);
+                        await _productSkuRepository.DeleteAsync(es, autoSave: false);
 
                     foreach (var skuInput in skuInputs)
                     {
@@ -8932,14 +8940,23 @@ public class ImportAppService : ApplicationService, IImportAppService
                             _guidGenerator.Create(), product.Id, skuInput.ManufacturerId,
                             skuInput.BaseUnitId, skuInput.PkgQty, skuInput.PkgUnitId,
                             skuInput.Vpu, volumeUnitId);
-                        await _productSkuRepository.InsertAsync(sku, autoSave: true);
+                        await _productSkuRepository.InsertAsync(sku, autoSave: false);
                     }
 
                     updatedCount++;
                 }
                 else
                 {
-                    var code = await GenerateProductMasterDataCodeAsync(productType.Value);
+                    var code = _codeGenerator.GenerateCodeWithDate(
+                        productType.Value switch
+                        {
+                            Products.ProductType.Chemical => "CHE",
+                            Products.ProductType.Biological => "BIO",
+                            Products.ProductType.Supply => "SUP",
+                            Products.ProductType.Equipment => "EQP",
+                            _ => "PRD"
+                        },
+                        dbCodeCount + newCount);
                     var product = new Product(
                         _guidGenerator.Create(), code, name, productType.Value, null)
                     {
@@ -8978,7 +8995,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                         IsDraft = false,
                     };
 
-                    await _productRepository.InsertAsync(product, autoSave: true);
+                    await _productRepository.InsertAsync(product, autoSave: false);
 
                     foreach (var skuInput in skuInputs)
                     {
@@ -8986,7 +9003,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                             _guidGenerator.Create(), product.Id, skuInput.ManufacturerId,
                             skuInput.BaseUnitId, skuInput.PkgQty, skuInput.PkgUnitId,
                             skuInput.Vpu, volumeUnitId);
-                        await _productSkuRepository.InsertAsync(sku, autoSave: true);
+                        await _productSkuRepository.InsertAsync(sku, autoSave: false);
                     }
 
                     newCount++;
