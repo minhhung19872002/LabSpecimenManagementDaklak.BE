@@ -3682,8 +3682,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(50)");
 
                     b.Property<string>("Concentration")
-                        .HasMaxLength(256)
-                        .HasColumnType("character varying(256)");
+                        .HasColumnType("text");
 
                     b.Property<string>("ConcurrencyStamp")
                         .IsConcurrencyToken()
