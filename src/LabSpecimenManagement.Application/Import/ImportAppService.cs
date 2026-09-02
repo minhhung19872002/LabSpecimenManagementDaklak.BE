@@ -8244,6 +8244,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         var unitByName = units
             .GroupBy(u => u.Name.Trim().ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
+        var unitByCategoryAndName = units
+            .GroupBy(u => (u.Category, u.Name.Trim().ToLowerInvariant()))
+            .ToDictionary(g => g.Key, g => g.First());
         var unitNameMap = units.ToDictionary(u => u.Id, u => u.Name);
 
         var manufacturers = (await _manufacturerRepository.GetQueryableAsync()).ToList();
@@ -8302,6 +8305,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             // Validate Đơn vị tiêu hao (lookup — only if provided)
             var volumeUnitName = ws.Cell(rowNum, 3).GetString()?.Trim();
             if (!string.IsNullOrWhiteSpace(volumeUnitName)
+                && !unitByCategoryAndName.ContainsKey((UnitCategory.ConsumableUnit, volumeUnitName.ToLowerInvariant()))
                 && !unitByName.ContainsKey(volumeUnitName.ToLowerInvariant()))
                 AddError("Đơn vị tiêu hao", $"Đơn vị tiêu hao không tồn tại: '{volumeUnitName}'");
 
@@ -8396,6 +8400,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 // Buy unit lookup (optional but must exist if provided)
                 if (!string.IsNullOrWhiteSpace(buyUnitName)
+                    && !unitByCategoryAndName.ContainsKey((UnitCategory.PurchaseUnit, buyUnitName.ToLowerInvariant()))
                     && !unitByName.ContainsKey(buyUnitName.ToLowerInvariant()))
                     AddError($"Đơn vị mua hàng {groupSuffix}", $"Đơn vị mua hàng không tồn tại: '{buyUnitName}'");
 
@@ -8418,7 +8423,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     AddError($"Đơn vị lưu kho {groupSuffix}", "Vui lòng chọn đơn vị lưu kho");
                 }
-                else if (!unitByName.ContainsKey(storageUnitName.ToLowerInvariant()))
+                else if (!unitByCategoryAndName.ContainsKey((UnitCategory.StorageUnit, storageUnitName.ToLowerInvariant()))
+                    && !unitByName.ContainsKey(storageUnitName.ToLowerInvariant()))
                 {
                     AddError($"Đơn vị lưu kho {groupSuffix}", $"Đơn vị lưu kho không tồn tại: '{storageUnitName}'");
                 }
@@ -8726,6 +8732,9 @@ public class ImportAppService : ApplicationService, IImportAppService
             var unitByName = units
                 .GroupBy(u => u.Name.Trim().ToLowerInvariant())
                 .ToDictionary(g => g.Key, g => g.First());
+            var unitByCategoryAndName = units
+                .GroupBy(u => (u.Category, u.Name.Trim().ToLowerInvariant()))
+                .ToDictionary(g => g.Key, g => g.First());
 
             var manufacturers = (await _manufacturerRepository.GetQueryableAsync()).ToList();
             var mfgByName = manufacturers
@@ -8771,9 +8780,13 @@ public class ImportAppService : ApplicationService, IImportAppService
                 var identificationCode = ws.Cell(rowNum, 4).GetString()?.Trim();
 
                 Guid? volumeUnitId = null;
-                if (!string.IsNullOrWhiteSpace(volumeUnitName)
-                    && unitByName.TryGetValue(volumeUnitName.ToLowerInvariant(), out var vu))
-                    volumeUnitId = vu.Id;
+                if (!string.IsNullOrWhiteSpace(volumeUnitName))
+                {
+                    if (unitByCategoryAndName.TryGetValue((UnitCategory.ConsumableUnit, volumeUnitName.ToLowerInvariant()), out var vu))
+                        volumeUnitId = vu.Id;
+                    else if (unitByName.TryGetValue(volumeUnitName.ToLowerInvariant(), out var vuFallback))
+                        volumeUnitId = vuFallback.Id;
+                }
 
                 decimal? minStockLevel = TryReadDecimalCell(ws.Row(rowNum), 5);
 
@@ -8866,9 +8879,13 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                     var buyUnitName = ws.Cell(rowNum, baseCol + 1).GetString()?.Trim();
                     Guid? buyUnitId = null;
-                    if (!string.IsNullOrWhiteSpace(buyUnitName)
-                        && unitByName.TryGetValue(buyUnitName.ToLowerInvariant(), out var bu))
-                        buyUnitId = bu.Id;
+                    if (!string.IsNullOrWhiteSpace(buyUnitName))
+                    {
+                        if (unitByCategoryAndName.TryGetValue((UnitCategory.PurchaseUnit, buyUnitName.ToLowerInvariant()), out var bu))
+                            buyUnitId = bu.Id;
+                        else if (unitByName.TryGetValue(buyUnitName.ToLowerInvariant(), out var buFallback))
+                            buyUnitId = buFallback.Id;
+                    }
 
                     int? pkgQty = null;
                     var pkgQtyStr = ws.Cell(rowNum, baseCol + 2).GetString()?.Trim();
@@ -8877,9 +8894,13 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                     var storUnitName = ws.Cell(rowNum, baseCol + 3).GetString()?.Trim();
                     Guid? storUnitId = null;
-                    if (!string.IsNullOrWhiteSpace(storUnitName)
-                        && unitByName.TryGetValue(storUnitName.ToLowerInvariant(), out var su))
-                        storUnitId = su.Id;
+                    if (!string.IsNullOrWhiteSpace(storUnitName))
+                    {
+                        if (unitByCategoryAndName.TryGetValue((UnitCategory.StorageUnit, storUnitName.ToLowerInvariant()), out var su))
+                            storUnitId = su.Id;
+                        else if (unitByName.TryGetValue(storUnitName.ToLowerInvariant(), out var suFallback))
+                            storUnitId = suFallback.Id;
+                    }
 
                     int? vpu = null;
                     var vpuStr = ws.Cell(rowNum, baseCol + 4).GetString()?.Trim();
