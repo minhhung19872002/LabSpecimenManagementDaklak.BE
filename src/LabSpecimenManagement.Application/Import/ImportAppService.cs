@@ -8776,6 +8776,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 if (!productType.HasValue) continue;
 
                 var name = ws.Cell(rowNum, 2).GetString()?.Trim() ?? "";
+                var formattedName = GetCellRichTextAsHtml(ws.Cell(rowNum, 2)) ?? name;
                 var volumeUnitName = ws.Cell(rowNum, 3).GetString()?.Trim();
                 var identificationCode = ws.Cell(rowNum, 4).GetString()?.Trim();
 
@@ -8915,6 +8916,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     var product = await _productRepository.GetAsync(previewItem.ExistingProductId.Value);
                     product.Name = name;
+                    product.FormattedName = formattedName;
                     product.ProductType = productType.Value;
                     product.IdentificationCode = identificationCode;
                     product.VolumeUnitId = volumeUnitId;
@@ -8981,6 +8983,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     var product = new Product(
                         _guidGenerator.Create(), code, name, productType.Value, null)
                     {
+                        FormattedName = formattedName,
                         IdentificationCode = identificationCode,
                         VolumeUnitId = volumeUnitId,
                         MinStockLevel = minStockLevel,
