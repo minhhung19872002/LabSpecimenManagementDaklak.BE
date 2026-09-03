@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.LaboratoryTasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -23,15 +24,18 @@ public class LaboratoryAppService :
     private readonly IUserNameProvider _userNameProvider;
     private readonly IEntityValidationService _validationService;
     private readonly IRepository<Department, Guid> _departmentRepository;
+    private readonly IRepository<LaboratoryTask, Guid> _laboratoryTaskRepository;
 
     public LaboratoryAppService(
         IRepository<Laboratory, Guid> repository,
         IRepository<Department, Guid> departmentRepository,
+        IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
         IUserNameProvider userNameProvider,
         IEntityValidationService validationService)
         : base(repository)
     {
         _departmentRepository = departmentRepository;
+        _laboratoryTaskRepository = laboratoryTaskRepository;
         _userNameProvider = userNameProvider;
         _validationService = validationService;
     }
@@ -203,18 +207,35 @@ public class LaboratoryAppService :
         }
 
         var entity = await Repository.GetAsync(id);
+        var oldManagerId = entity.TechnicalManagerId;
+
         entity.Code = input.Code;
         entity.DepartmentId = input.DepartmentId;
         entity.TechnicalManagerId = input.TechnicalManagerId;
         entity.IsActive = input.IsActive;
 
         await Repository.UpdateAsync(entity);
+
+        if (oldManagerId != input.TechnicalManagerId)
+        {
+            await CascadeTechnicalManagerToActiveTasksAsync(id, input.TechnicalManagerId);
+        }
+
         return await GetAsync(id);
     }
 
-    /// <summary>
-    /// Enriches DTOs with technical manager names
-    /// </summary>
+    private async Task CascadeTechnicalManagerToActiveTasksAsync(Guid laboratoryId, Guid? newManagerId)
+    {
+        var activeTasks = await _laboratoryTaskRepository.GetListAsync(
+            t => t.LaboratoryId == laboratoryId
+                 && t.Status != LaboratoryTaskStatus.SentToQuality);
+        foreach (var task in activeTasks)
+        {
+            task.TechnicalManagerId = newManagerId;
+            await _laboratoryTaskRepository.UpdateAsync(task);
+        }
+    }
+
     private async Task EnrichWithTechnicalManagerNamesAsync(List<LaboratoryDto> dtos)
     {
         await _userNameProvider.EnrichWithUserNamesAsync(
