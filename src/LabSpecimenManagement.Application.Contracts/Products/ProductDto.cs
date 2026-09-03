@@ -158,7 +158,6 @@ public class CreateUpdateProductDto
     [StringLength(256)]
     public string? Origin { get; set; }
 
-    [StringLength(256)]
     public string? Concentration { get; set; }
 
     public string? FormattedConcentration { get; set; }
