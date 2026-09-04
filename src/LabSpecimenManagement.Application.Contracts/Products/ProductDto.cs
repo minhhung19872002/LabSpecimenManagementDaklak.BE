@@ -342,6 +342,8 @@ public class ProductLotStockDto
     public string? LotNumber { get; set; }
     public string? ManufacturerName { get; set; }
     public DateTime? LotExpiryDate { get; set; }
+    /// <summary>Ngày nhập kho sớm nhất của lô (dùng để tie-break FEFO khi trùng HSD)</summary>
+    public DateTime? FirstImportDate { get; set; }
     public decimal ReceivedBaseQuantity { get; set; }
     public decimal ConsumedBaseQuantity { get; set; }
     public decimal RemainingBaseQuantity { get; set; }

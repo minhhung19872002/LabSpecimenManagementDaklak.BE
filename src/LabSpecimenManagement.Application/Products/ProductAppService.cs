@@ -1332,7 +1332,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                               && receipt.Status == WarehouseImportReceiptStatus.Completed
                               && item.Status == WarehouseImportLineStatus.Checked
                               && !item.IsEquipment
-                        select new { item.LotNumber, item.LotExpiryDate, item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId };
+                        select new { item.LotNumber, item.LotExpiryDate, item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId, receipt.ActualImportDate };
 
         if (warehouseId.HasValue)
         {
@@ -1401,6 +1401,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             var totalConsumed = group.Sum(l => l.ConsumedBaseQuantity);
             var remaining = Math.Max(0, totalReceived - totalConsumed);
             var expiryDate = group.Where(l => l.LotExpiryDate.HasValue).Select(l => l.LotExpiryDate).Min();
+            var firstImportDate = group.Min(l => (DateTime?)l.ActualImportDate);
 
             string? manufacturerName = null;
             int? volumePerUnit = null;
@@ -1426,6 +1427,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 LotNumber = string.IsNullOrEmpty(group.Key) ? null : group.Key,
                 ManufacturerName = manufacturerName,
                 LotExpiryDate = expiryDate,
+                FirstImportDate = firstImportDate,
                 ReceivedBaseQuantity = totalReceived,
                 ConsumedBaseQuantity = totalConsumed,
                 RemainingBaseQuantity = remaining,
@@ -1438,9 +1440,11 @@ public class ProductAppService : ApplicationService, IProductAppService
             });
         }
 
+        // FEFO: HSD sớm nhất trước (không có HSD xếp cuối); trùng HSD thì lô nhập trước dùng trước
         return result
             .OrderBy(x => x.LotExpiryDate.HasValue ? 0 : 1)
             .ThenBy(x => x.LotExpiryDate)
+            .ThenBy(x => x.FirstImportDate)
             .ThenBy(x => x.LotNumber)
             .ToList();
     }
