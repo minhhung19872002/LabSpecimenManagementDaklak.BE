@@ -16,6 +16,9 @@ public class IndicatorConsumption : Entity<Guid>
     public DateTime? SubmitDate { get; set; }
     public decimal? ConsumableStockBefore { get; set; }
     public string? LotNumber { get; set; }
+    public Guid? PreparedSolutionBatchId { get; set; }
+    public string? TechnicianName { get; set; }
+    public DateTime? ConsumptionDate { get; set; }
 
     protected IndicatorConsumption() { }
 

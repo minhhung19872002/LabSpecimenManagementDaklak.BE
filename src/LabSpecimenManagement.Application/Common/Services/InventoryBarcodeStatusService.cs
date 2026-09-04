@@ -364,8 +364,9 @@ public class InventoryBarcodeStatusService : ITransientDependency
 
         var indicatorRecords = await AsyncExecuter.ToListAsync(
             indicatorQuery
-                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId && c.IsDeducted)
-                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId, SubmitDate = c.SubmitDate }));
+                .Where(c => c.ProductId == productId && c.WarehouseId == warehouseId
+                    && (c.IsDeducted || c.PreparedSolutionBatchId != null))
+                .Select(c => new ConsumptionRecord { ActualQuantity = c.ActualQuantity, UnitId = c.UnitId, SubmitDate = c.SubmitDate ?? c.ConsumptionDate }));
 
         var testBatchQuery = await _testBatchRepository.GetQueryableAsync();
         var batchRecords = await AsyncExecuter.ToListAsync(

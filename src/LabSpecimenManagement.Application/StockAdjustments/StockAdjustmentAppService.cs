@@ -516,9 +516,9 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var consumptionRaw = icQuery
             .Where(ic => productIds.Contains(ic.ProductId!.Value)
                          && ic.WarehouseId == warehouseId
-                         && ic.IsDeducted
+                         && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                          && ic.SubmitDate.HasValue)
-            .Select(ic => new { ic.ProductId, ic.LotNumber, ic.RecommendedQuantity, ic.UnitId, ic.SubmitDate })
+            .Select(ic => new { ic.ProductId, ic.LotNumber, ic.RecommendedQuantity, ic.ActualQuantity, ic.UnitId, ic.SubmitDate, ic.PreparedSolutionBatchId })
             .ToList()
             .Where(ic => !lastInventoryMap.TryGetValue(ic.ProductId!.Value, out var lid)
                          || ic.SubmitDate!.Value > lid)
@@ -538,6 +538,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 g => g.Key,
                 g => g.Sum(ic =>
                 {
+                    // PSB consumption dùng ActualQuantity (đã ở display qty, không cần convert)
+                    if (ic.PreparedSolutionBatchId != null) return ic.ActualQuantity;
                     if (!productMap.TryGetValue(g.Key.Item1, out var prod)) return ic.RecommendedQuantity;
                     var prodSkus = skusByProduct.GetValueOrDefault(g.Key.Item1) ?? new List<ProductSku>();
                     int defaultVpu = prodSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit

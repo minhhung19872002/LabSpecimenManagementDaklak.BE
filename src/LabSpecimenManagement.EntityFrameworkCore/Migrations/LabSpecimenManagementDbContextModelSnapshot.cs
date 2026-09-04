@@ -6858,6 +6858,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<DateTime?>("ConsumptionDate")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
 
@@ -6871,6 +6874,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
+                    b.Property<Guid?>("PreparedSolutionBatchId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid?>("ProductId")
                         .HasColumnType("uuid");
 
@@ -6880,6 +6886,10 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("TechnicianName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
 
                     b.Property<Guid?>("UnitId")
                         .HasColumnType("uuid");
@@ -6892,6 +6902,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("EquipmentId");
 
                     b.HasIndex("LaboratoryTaskIndicatorId");
+
+                    b.HasIndex("PreparedSolutionBatchId");
 
                     b.HasIndex("ProductId");
 

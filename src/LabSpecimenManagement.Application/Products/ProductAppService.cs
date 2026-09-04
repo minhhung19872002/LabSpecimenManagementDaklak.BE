@@ -10,6 +10,7 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.Testing;
@@ -56,6 +57,7 @@ public class ProductAppService : ApplicationService, IProductAppService
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
     private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
     private readonly IUserNameProvider _userNameProvider;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IDataFilter _dataFilter;
@@ -93,6 +95,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         IUnitConversionResolver unitConversionResolver,
         IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
         IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository,
         IHostEnvironment hostEnvironment,
         IProductAppendixDocxGenerator productAppendixDocxGenerator)
     {
@@ -125,6 +128,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         _unitConversionResolver = unitConversionResolver;
         _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
+        _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
         _hostEnvironment = hostEnvironment;
         _productAppendixDocxGenerator = productAppendixDocxGenerator;
     }
@@ -1393,6 +1397,24 @@ public class ProductAppService : ApplicationService, IProductAppService
                 g => g.Sum(ic => ConvertConsumptionToPackaging(
                     ic.RecommendedQuantity, ic.UnitId, product, productSkus, conversionMap)));
 
+        // PSB consumption: IsDeducted=false, PreparedSolutionBatchId != null, dùng ActualQuantity (display qty)
+        var psbConsumptions = icQuery
+            .Where(ic => ic.ProductId == id
+                && ic.PreparedSolutionBatchId != null
+                && ic.ActualQuantity > 0)
+            .Where(ic => !warehouseId.HasValue || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value))
+            .Where(ic => !lastInventoryDate.HasValue || !ic.ConsumptionDate.HasValue || ic.ConsumptionDate.Value > lastInventoryDate.Value)
+            .Select(ic => new { ic.LotNumber, ic.ActualQuantity, ic.UnitId })
+            .ToList();
+
+        // PSB ActualQuantity đã là display qty (mL), cần convert sang packaging qty để so sánh cùng đơn vị
+        var psbConsumptionByLot = psbConsumptions
+            .GroupBy(ic => ic.LotNumber ?? "")
+            .ToDictionary(
+                g => g.Key,
+                g => g.Sum(ic => ConvertConsumptionToPackaging(
+                    ic.ActualQuantity, ic.UnitId, product, productSkus, conversionMap)));
+
         var result = new List<ProductLotStockDto>();
 
         foreach (var group in lotData.GroupBy(l => l.LotNumber ?? ""))
@@ -1421,6 +1443,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             packagingUnitId ??= product.PackagingUnitId;
 
             var lotConsumption = consumptionByLot.GetValueOrDefault(group.Key);
+            var psbConsumption = psbConsumptionByLot.GetValueOrDefault(group.Key);
 
             result.Add(new ProductLotStockDto
             {
@@ -1431,7 +1454,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ReceivedBaseQuantity = totalReceived,
                 ConsumedBaseQuantity = totalConsumed,
                 RemainingBaseQuantity = remaining,
-                TheoreticalConsumption = lotConsumption,
+                TheoreticalConsumption = lotConsumption + psbConsumption,
                 OpeningBaseQuantity = remaining + lotConsumption,
                 VolumePerUnit = volumePerUnit,
                 VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
@@ -2438,18 +2461,62 @@ public class ProductAppService : ApplicationService, IProductAppService
             })
             .ToList();
 
-        // Merge both paths. Batch path takes priority — exclude indicator path entries whose LtiId appears in batch path
+        // Path 3: PreparedSolutionBatch — IndicatorConsumption rows written by PSB service
+        var psbIcQuery = (await _indicatorConsumptionRepository.GetQueryableAsync())
+            .Where(c => c.ProductId == id && c.PreparedSolutionBatchId != null);
+        if (usageLogWarehouseIds != null)
+            psbIcQuery = psbIcQuery.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+        if (!string.IsNullOrEmpty(input.LotNumber))
+            psbIcQuery = psbIcQuery.Where(c => c.LotNumber == input.LotNumber);
+        if (input.DateFrom.HasValue)
+            psbIcQuery = psbIcQuery.Where(c => c.ConsumptionDate.HasValue && c.ConsumptionDate >= input.DateFrom.Value);
+        if (input.DateTo.HasValue)
+            psbIcQuery = psbIcQuery.Where(c => c.ConsumptionDate.HasValue && c.ConsumptionDate <= input.DateTo.Value);
+
+        var psbIcRows = psbIcQuery.ToList();
+
+        var psbBatchIds = psbIcRows.Select(c => c.PreparedSolutionBatchId!.Value).Distinct().ToList();
+        var psbBatches = psbBatchIds.Any()
+            ? await _preparedSolutionBatchRepository.GetListAsync(b => psbBatchIds.Contains(b.Id))
+            : new List<PreparedSolutionBatch>();
+        var psbBatchMap = psbBatches.ToDictionary(b => b.Id);
+
+        var fromPsbPath = psbIcRows
+            .Where(c => psbBatchMap.ContainsKey(c.PreparedSolutionBatchId!.Value))
+            .Select(c =>
+            {
+                var psb = psbBatchMap[c.PreparedSolutionBatchId!.Value];
+                return new UsageLogRawItem
+                {
+                    LtiId = c.Id,
+                    SubmitDate = c.ConsumptionDate,
+                    SampleCode = psb.IdentificationCode ?? psb.LotCode,
+                    SampleName = psb.SolutionProductName ?? "",
+                    IndicatorName = "-",
+                    TestMethodName = "",
+                    TechnicianName = c.TechnicianName ?? psb.PreparedByName,
+                    ResultSubmissionDate = c.ConsumptionDate,
+                    ConsumptionAmount = c.ActualQuantity,
+                    ConsumptionUnitId = c.UnitId,
+                    StoredConsumableStockBefore = c.ConsumableStockBefore,
+                };
+            })
+            .ToList();
+
+        // Merge all three paths ordered by date descending
         var batchLtiIds = new HashSet<Guid>(fromBatchPath.Select(x => x.LtiId));
         var merged = fromBatchPath
             .Concat(fromIndicatorPath.Where(x => !batchLtiIds.Contains(x.LtiId)))
+            .Concat(fromPsbPath)
             .OrderByDescending(x => x.ResultSubmissionDate)
             .ToList();
 
         var totalCount = merged.Count;
 
         // Enrich consumption amounts for ALL entries (needed for running balance)
+        // Exclude PSB rows — they have ConsumptionAmount pre-filled and use a different LtiId key
         var icAllQuery = (await _indicatorConsumptionRepository.GetQueryableAsync())
-            .Where(c => c.ProductId == id);
+            .Where(c => c.ProductId == id && c.PreparedSolutionBatchId == null);
         if (usageLogWarehouseIds != null)
             icAllQuery = icAllQuery.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
         if (!string.IsNullOrEmpty(input.LotNumber))
@@ -2466,6 +2533,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         var unitIdsNeeded = icByLtiSubmit.Values
             .Where(v => v.UnitId.HasValue)
             .Select(v => v.UnitId!.Value)
+            .Concat(fromPsbPath.Where(r => r.ConsumptionUnitId.HasValue).Select(r => r.ConsumptionUnitId!.Value))
             .Distinct()
             .ToList();
 
@@ -2492,7 +2560,12 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         foreach (var r in merged)
         {
-            if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate), out var ic))
+            // PSB rows already have ConsumptionAmount + ConsumptionUnitId pre-filled — just resolve name
+            if (r.ConsumptionUnitId.HasValue && r.ConsumptionAmount.HasValue && !icByLtiSubmit.ContainsKey((r.LtiId, r.SubmitDate)))
+            {
+                r.ConsumptionUnitName = unitNames.GetValueOrDefault(r.ConsumptionUnitId.Value);
+            }
+            else if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate), out var ic))
             {
                 r.ConsumptionAmount = ic.Quantity;
                 r.ConsumptionUnitId = ic.UnitId;

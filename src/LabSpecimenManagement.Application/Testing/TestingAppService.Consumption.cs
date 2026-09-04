@@ -9,6 +9,7 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Products;
 using LabSpecimenManagement.TestBatches;
 using LabSpecimenManagement.TestRequests;
+using LabSpecimenManagement.StockAdjustments;
 using LabSpecimenManagement.WarehouseImports;
 using Volo.Abp;
 using Volo.Abp.Domain.Repositories;
@@ -37,6 +38,9 @@ public partial class TestingAppService
 
     private IRepository<Warehouse, Guid> _warehouseRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<Warehouse, Guid>>();
+
+    private IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository =>
+        LazyServiceProvider.LazyGetRequiredService<IRepository<ProductWarehouseInventory, Guid>>();
 
     // -------------------------------------------------------------------------
     // Public methods

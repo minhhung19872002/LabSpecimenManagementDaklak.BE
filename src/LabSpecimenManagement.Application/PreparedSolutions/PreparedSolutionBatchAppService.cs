@@ -7,6 +7,8 @@ using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Products;
+using LabSpecimenManagement.StockAdjustments;
+using LabSpecimenManagement.Testing;
 using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -29,7 +31,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
+    private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
+    private readonly InventoryBarcodeStatusService _barcodeStatusService;
 
     public PreparedSolutionBatchAppService(
         IRepository<PreparedSolutionBatch, Guid> repository,
@@ -42,7 +47,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
-        IFifoStockDeductionService fifoStockService)
+        IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
+        IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
+        IFifoStockDeductionService fifoStockService,
+        InventoryBarcodeStatusService barcodeStatusService)
     {
         _repository = repository;
         _ingredientRepository = ingredientRepository;
@@ -54,7 +62,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         _importReceiptItemRepository = importReceiptItemRepository;
         _manufacturerRepository = manufacturerRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
+        _indicatorConsumptionRepository = indicatorConsumptionRepository;
+        _productWarehouseInventoryRepository = productWarehouseInventoryRepository;
         _fifoStockService = fifoStockService;
+        _barcodeStatusService = barcodeStatusService;
     }
 
     public async Task<PagedResultDto<PreparedSolutionBatchDto>> GetListAsync(GetPreparedSolutionBatchesInput input)
@@ -214,7 +225,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         await CreateSyntheticReceiptAsync(batch, solutionProduct, storageQty, tuPhaSku, storageWarehouseName);
 
         // Process ingredients and deduct stock
-        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
+        await ProcessIngredientsAsync(batch, input.Ingredients, input.SourceWarehouseId);
 
         return await GetAsync(batch.Id);
     }
@@ -242,6 +253,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         var oldIngredients = await _ingredientRepository.GetListAsync(i => i.PreparedSolutionBatchId == id);
         await ReverseStockDeductionsAsync(id, batch.LotCode, oldIngredients);
         await _ingredientRepository.DeleteManyAsync(oldIngredients);
+
+        // Delete old usage log entries for this batch
+        await _indicatorConsumptionRepository.DeleteAsync(
+            c => c.PreparedSolutionBatchId == id, autoSave: true);
 
         // Reverse old solution product stock (convert old TotalVolume to storage units)
         var oldProductQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
@@ -331,7 +346,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         await CreateSyntheticReceiptAsync(batch, solutionProduct, newStorageQty, tuPhaSku, storageWarehouseName);
 
         // Apply new stock deductions
-        await ProcessIngredientsAsync(batch.Id, batch.LotCode, input.Ingredients, input.SourceWarehouseId);
+        await ProcessIngredientsAsync(batch, input.Ingredients, input.SourceWarehouseId);
 
         return await GetAsync(batch.Id);
     }
@@ -599,15 +614,22 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             : baseQty;
 
     private async Task ProcessIngredientsAsync(
-        Guid batchId,
-        string lotCode,
+        PreparedSolutionBatch batch,
         List<CreateIngredientDto> inputIngredients,
         Guid? sourceWarehouseId)
     {
+        // Exclude kho Level=0 và IsDefault — giống logic ResolveWarehouseForProductsAsync trong TestingAppService
+        var warehouseQuery2 = await _warehouseRepository.GetQueryableAsync();
+        var excludedWarehouseIds = warehouseQuery2
+            .Where(w => w.Level == 0 || w.IsDefault)
+            .Select(w => w.Id)
+            .ToHashSet();
+
         HashSet<Guid>? sourceWarehouseIds = null;
         if (sourceWarehouseId.HasValue)
         {
-            sourceWarehouseIds = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
+            var subtree = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
+            sourceWarehouseIds = subtree.Where(id => !excludedWarehouseIds.Contains(id)).ToHashSet();
         }
         else
         {
@@ -623,29 +645,210 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         var products = productQuery.Where(p => productIds.Contains(p.Id)).ToList();
         var productMap = products.ToDictionary(p => p.Id);
 
+        // Resolve available lots per product (FEFO order) for usage log split
+        var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
+        var receiptQuery = await _importReceiptRepository.GetQueryableAsync();
+        var rawLots = (
+            from item in itemQuery
+            join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+            where productIds.Contains(item.ProductId)
+                  && receipt.Status == WarehouseImportReceiptStatus.Completed
+                  && item.Status == WarehouseImportLineStatus.Checked
+                  && (item.StorageWarehouseId.HasValue
+                        ? sourceWarehouseIds.Contains(item.StorageWarehouseId.Value)
+                        : receipt.WarehouseId.HasValue && sourceWarehouseIds.Contains(receipt.WarehouseId.Value))
+            orderby item.LotExpiryDate == null ? 1 : 0, item.LotExpiryDate, receipt.ActualImportDate
+            select new
+            {
+                item.ProductId,
+                item.LotNumber,
+                WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                ReceivedBaseQuantity = item.ReceivedBaseQuantity,
+                ConsumedBaseQuantity = item.ConsumedBaseQuantity,
+                item.LotExpiryDate,
+            })
+            .ToList();
+
+        // Trừ thêm PSB consumption đã ghi trước đó cho từng lô (hệ thống không trừ thật ConsumedBaseQuantity)
+        // Chỉ tính PSB consumption SAU lần kiểm kê kho gần nhất (giống cách ProductAppService lọc tiêu hao)
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        var lastInventoryMap = pwiQuery
+            .Where(pwi => productIds.Contains(pwi.ProductId))
+            .Select(pwi => new { pwi.ProductId, pwi.WarehouseId, pwi.LastInventoryDate })
+            .ToList()
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.WarehouseId, x => x.LastInventoryDate));
+
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var psbConsumedByLot = icQuery
+            .Where(c => productIds.Contains(c.ProductId ?? Guid.Empty)
+                && c.PreparedSolutionBatchId != null
+                && c.LotNumber != null)
+            .Select(c => new { c.ProductId, c.LotNumber, c.ActualQuantity, c.UnitId, c.WarehouseId, c.ConsumptionDate })
+            .ToList()
+            .Where(c =>
+            {
+                // Filter: chỉ tính consumption sau lastInventoryDate của (product, warehouse) tương ứng
+                if (c.ProductId == null || c.WarehouseId == null) return true;
+                if (!lastInventoryMap.TryGetValue(c.ProductId.Value, out var wMap)) return true;
+                if (!wMap.TryGetValue(c.WarehouseId.Value, out var lastDate)) return true;
+                return c.ConsumptionDate.HasValue && c.ConsumptionDate.Value > lastDate;
+            })
+            .ToList();
+
+        var lotsByProduct = rawLots
+            .GroupBy(x => x.ProductId)
+            .ToDictionary(g => g.Key, g =>
+            {
+                return g.Select(item =>
+                {
+                    var product2 = productMap.TryGetValue(item.ProductId, out var p) ? p : null;
+                    var vpu2 = product2 != null ? ResolveVolumePerUnit(product2) : null;
+                    var psbUsedDisplay = psbConsumedByLot
+                        .Where(c => c.ProductId == item.ProductId
+                            && c.LotNumber == item.LotNumber
+                            && c.WarehouseId == item.WarehouseId)
+                        .Sum(c => c.ActualQuantity);
+                    var psbUsedBase = vpu2.HasValue && vpu2.Value > 0
+                        ? psbUsedDisplay / vpu2.Value
+                        : psbUsedDisplay;
+                    var effectiveRemaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity - psbUsedBase;
+                    return new
+                    {
+                        item.ProductId,
+                        item.LotNumber,
+                        item.WarehouseId,
+                        item.LotExpiryDate,
+                        RemainingBaseQuantity = effectiveRemaining,
+                    };
+                })
+                // Đảm bảo thứ tự FEFO sau khi tính effectiveRemaining
+                .OrderBy(x => x.LotExpiryDate == null ? 1 : 0)
+                .ThenBy(x => x.LotExpiryDate)
+                .ToList();
+            });
+
         foreach (var inp in inputIngredients)
         {
             var product = productMap[inp.ProductId];
             var isEquipment = inp.ProductType == (int)ProductType.Equipment;
             var vpu = ResolveVolumePerUnit(product);
-            var snapshot = ToDisplayQty(vpu, product.AvailableQuantity);
+            var stockBefore = ToDisplayQty(vpu, product.AvailableQuantity);
 
             var ingredient = new PreparedSolutionIngredient
             {
-                PreparedSolutionBatchId = batchId,
+                PreparedSolutionBatchId = batch.Id,
                 ProductType = inp.ProductType,
                 ProductTypeName = GetProductTypeName((ProductType)inp.ProductType),
                 ProductId = inp.ProductId,
                 ProductName = product.Name,
                 UnitName = await ResolveProductUnitNameAsync(product),
                 QuantityUsed = inp.QuantityUsed,
-                WarehouseQuantitySnapshot = snapshot,
+                WarehouseQuantitySnapshot = stockBefore,
                 IsEquipment = isEquipment,
             };
 
             await _ingredientRepository.InsertAsync(ingredient, autoSave: true);
 
+            if (!isEquipment)
+            {
+                // Split across lots FEFO: ghi nhiều IndicatorConsumption nếu qty vượt quá tồn lô đầu
+                var lots = lotsByProduct.TryGetValue(inp.ProductId, out var l) ? l : new();
+                var remaining = inp.QuantityUsed; // display qty (mL)
+
+                if (lots.Count == 0)
+                {
+                    // Không tìm thấy lô nào — ghi 1 row không có LotNumber
+                    await _indicatorConsumptionRepository.InsertAsync(new IndicatorConsumption(
+                        GuidGenerator.Create(), Guid.Empty, inp.ProductId, null, product.VolumeUnitId, inp.QuantityUsed)
+                    {
+                        PreparedSolutionBatchId = batch.Id,
+                        TechnicianName = batch.PreparedByName,
+                        ConsumptionDate = batch.PreparationDate,
+                        SubmitDate = batch.PreparationDate,
+                        ConsumableStockBefore = stockBefore,
+                        IsDeducted = false,
+                    }, autoSave: true);
+                }
+                else
+                {
+                    // Collect splits theo FEFO, chỉ lô còn tồn > 0
+                    var splits = new List<(string? LotNumber, Guid? WarehouseId, decimal TakeQty, decimal StockBefore)>();
+                    foreach (var lotInfo in lots.Where(l => l.RemainingBaseQuantity > 0))
+                    {
+                        if (remaining <= 0) break;
+                        var lotRemainingDisplay = ToDisplayQty(vpu, lotInfo.RemainingBaseQuantity);
+                        var takeQty = Math.Min(remaining, lotRemainingDisplay);
+                        splits.Add((lotInfo.LotNumber, lotInfo.WarehouseId, takeQty, lotRemainingDisplay));
+                        remaining -= takeQty;
+                    }
+
+                    // Phần dư (vượt tồn hoặc tất cả lô đã hết) — cộng vào lô cuối đã split hoặc lô FEFO đầu tiên
+                    if (remaining > 0)
+                    {
+                        if (splits.Count > 0)
+                        {
+                            var last = splits[^1];
+                            splits[^1] = (last.LotNumber, last.WarehouseId, last.TakeQty + remaining, last.StockBefore);
+                        }
+                        else
+                        {
+                            // Tất cả lô đã hết — ghi vào lô cuối cùng (FEFO last)
+                            var lastLot = lots[^1];
+                            var lotRemainingDisplay = ToDisplayQty(vpu, lastLot.RemainingBaseQuantity);
+                            splits.Add((lastLot.LotNumber, lastLot.WarehouseId, remaining, lotRemainingDisplay));
+                        }
+                        remaining = 0;
+                    }
+
+                    foreach (var (lotNumber, warehouseId, takeQty, stockBefore2) in splits)
+                    {
+                        await _indicatorConsumptionRepository.InsertAsync(new IndicatorConsumption(
+                            GuidGenerator.Create(), Guid.Empty, inp.ProductId, null, product.VolumeUnitId, takeQty)
+                        {
+                            ActualQuantity = takeQty,
+                            PreparedSolutionBatchId = batch.Id,
+                            TechnicianName = batch.PreparedByName,
+                            ConsumptionDate = batch.PreparationDate,
+                            SubmitDate = batch.PreparationDate,
+                            ConsumableStockBefore = stockBefore2,
+                            LotNumber = lotNumber,
+                            WarehouseId = warehouseId,
+                            IsDeducted = false,
+                        }, autoSave: true);
+                    }
+
+                    // Không có lô nào khớp sau filter — ghi 1 row không có lô
+                    if (remaining > 0)
+                    {
+                        await _indicatorConsumptionRepository.InsertAsync(new IndicatorConsumption(
+                            GuidGenerator.Create(), Guid.Empty, inp.ProductId, null, product.VolumeUnitId, remaining)
+                        {
+                            ActualQuantity = remaining,
+                            PreparedSolutionBatchId = batch.Id,
+                            TechnicianName = batch.PreparedByName,
+                            ConsumptionDate = batch.PreparationDate,
+                            SubmitDate = batch.PreparationDate,
+                            ConsumableStockBefore = 0,
+                            IsDeducted = false,
+                        }, autoSave: true);
+                    }
+                }
+            }
         }
+
+        // Recalculate barcode status for all affected product+warehouse pairs
+        var barcodeTargets = inputIngredients
+            .Where(i => i.ProductType != (int)ProductType.Equipment)
+            .SelectMany(i =>
+            {
+                if (lotsByProduct.TryGetValue(i.ProductId, out var lots))
+                    return lots.Where(l => l.WarehouseId.HasValue)
+                               .Select(l => (i.ProductId, l.WarehouseId!.Value));
+                return [];
+            })
+            .Distinct();
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
     }
 
     private async Task<HashSet<Guid>> CollectWarehouseSubtreeAsync(Guid rootId)
