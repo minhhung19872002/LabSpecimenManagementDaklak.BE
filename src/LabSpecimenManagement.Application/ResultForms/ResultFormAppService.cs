@@ -4537,6 +4537,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private class MixedResultIndicatorRow
     {
         public int No { get; set; }
+        /// <summary>SortOrder của Laboratory thực hiện chỉ tiêu, dùng để gom chỉ tiêu cùng lab trong 1 mẫu</summary>
+        public int LabSortOrder { get; set; } = int.MaxValue;
         public string Parameter { get; set; } = "";
         /// <summary>
         /// Tên chỉ tiêu có định dạng HTML (nếu có)
@@ -5055,6 +5057,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
         var is2Lab = distinctLabIds.Count >= 2;
 
+        // Lab SortOrder per LaboratoryTask, used to keep indicators of the same lab together within a sample
+        var labsForSort = distinctLabIds.Any()
+            ? await _laboratoryRepository.GetListAsync(x => distinctLabIds.Contains(x.Id))
+            : new List<Laboratory>();
+        var labSortOrderByTaskId = labTasks.ToDictionary(
+            lt => lt.Id,
+            lt => labsForSort.FirstOrDefault(l => l.Id == lt.LaboratoryId)?.SortOrder ?? int.MaxValue);
+        int LabSortOrderOf(LaboratoryTaskIndicator lti) => labSortOrderByTaskId.GetValueOrDefault(lti.LaboratoryTaskId, int.MaxValue);
+
         var sampleIndicatorIds = labTaskIndicators.Select(lti => lti.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(x => sampleIndicatorIds.Contains(x.Id));
 
@@ -5289,8 +5300,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             .Where(x => x.SampleIndicator != null)
             .ToList();
 
-        // Group by sample
-        var groupedBySample = indicatorDataList.GroupBy(x => x.SampleIndicator!.TestRequestSampleId);
+        // Group by sample, sorted ascending by sample code (natural order: 26555/023 < 26555/024 < 26555/123)
+        var groupedBySample = indicatorDataList
+            .GroupBy(x => x.SampleIndicator!.TestRequestSampleId)
+            .OrderBy(g => sampleDict.GetValueOrDefault(g.Key)?.SampleCode ?? "", NaturalSampleCodeComparer.Instance)
+            .ToList();
 
         int sampleNo = 1;
         foreach (var group in groupedBySample)
@@ -5412,6 +5426,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                     sampleRow.Indicators.Add(new MixedResultIndicatorRow
                     {
+                        LabSortOrder = LabSortOrderOf(firstChild.Item.LabTaskIndicator),
                         Parameter = paramPlainBuilder.ToString(),
                         ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                         Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
@@ -5472,6 +5487,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                     sampleRow.Indicators.Add(new MixedResultIndicatorRow
                     {
+                        LabSortOrder = LabSortOrderOf(item.LabTaskIndicator),
                         Parameter = indicator.Name ?? "",
                         ParameterFormattedName = indicator.FormattedName,
                         Unit = ResolveUnitQm(item.LabTaskIndicator),
@@ -5496,7 +5512,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             }
 
             // Process orphan children (parent not in this sample or with different method)
-            var orphanKeys = childrenByParentMethod.Keys.Except(processedParentMethodKeys).ToList();
+            // Ordered by parent indicator SortOrder so the output is deterministic (not DB return order)
+            var orphanKeys = childrenByParentMethod.Keys
+                .Except(processedParentMethodKeys)
+                .OrderBy(k => indicatorDict.GetValueOrDefault(k.Item1)?.SortOrder ?? int.MaxValue)
+                .ToList();
             foreach (var orphanKey in orphanKeys)
             {
                 var children = childrenByParentMethod[orphanKey];
@@ -5568,6 +5588,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
                 sampleRow.Indicators.Add(new MixedResultIndicatorRow
                 {
+                    LabSortOrder = LabSortOrderOf(firstChild.Item.LabTaskIndicator),
                     Parameter = paramPlainBuilder.ToString(),
                     ParameterFormattedName = hasAnyFormattedName ? paramFormattedBuilder.ToString() : null,
                     Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
@@ -5586,9 +5607,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 });
             }
 
-            // Sort indicators by TestMethod so same-method indicators are grouped together
+            // BA (2026-09-04): không nhóm theo phương pháp thử nữa. Trong 1 mẫu, chỉ tiêu đi theo lab
+            // (SortOrder của Laboratory); trong cùng lab giữ nguyên thứ tự chỉ tiêu (OrderBy ổn định).
             sampleRow.Indicators = sampleRow.Indicators
-                .OrderBy(r => r.TestMethod, StringComparer.OrdinalIgnoreCase)
+                .OrderBy(r => r.LabSortOrder)
                 .ToList();
 
             // Re-number indicators within sample
@@ -6031,9 +6053,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 return si?.TestRequestSampleId ?? Guid.Empty;
             });
 
+        var sampleIds = sampleIndicators.Select(si => si.TestRequestSampleId).Distinct().ToList();
+        var samples = await _sampleRepository.GetListAsync(x => sampleIds.Contains(x.Id));
+        var sampleCodeById = samples.ToDictionary(s => s.Id, s => s.SampleCode ?? "");
+
+        // Sort per-sample groups ascending by sample code so output files follow sample order
         var groupedBySample = input.IndicatorIds
             .GroupBy(id => qiToSampleId.GetValueOrDefault(id))
             .Where(g => g.Key != Guid.Empty)
+            .OrderBy(g => sampleCodeById.GetValueOrDefault(g.Key) ?? "", NaturalSampleCodeComparer.Instance)
             .ToList();
 
         var results = new List<GenerateResultFormOutput>();
@@ -6439,7 +6467,54 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     }
 
     /// <summary>
-    /// Kiểm tra template có phải BM05-QLNN không
+    /// So sánh mã số mẫu theo thứ tự tự nhiên: các đoạn số được so sánh theo giá trị,
+    /// các đoạn chữ so sánh không phân biệt hoa thường. VD: 26555/2 < 26555/023 < 26555/123.
+    /// </summary>
+    private sealed class NaturalSampleCodeComparer : IComparer<string>
+    {
+        public static readonly NaturalSampleCodeComparer Instance = new();
+
+        private static readonly Regex TokenRegex = new(@"\d+|\D+", RegexOptions.Compiled);
+
+        public int Compare(string? x, string? y)
+        {
+            var xEmpty = string.IsNullOrEmpty(x);
+            var yEmpty = string.IsNullOrEmpty(y);
+            if (xEmpty && yEmpty) return 0;
+            if (xEmpty) return -1;
+            if (yEmpty) return 1;
+
+            var xt = TokenRegex.Matches(x).Select(m => m.Value).ToList();
+            var yt = TokenRegex.Matches(y).Select(m => m.Value).ToList();
+            var n = Math.Min(xt.Count, yt.Count);
+            for (var i = 0; i < n; i++)
+            {
+                var a = xt[i];
+                var b = yt[i];
+                var aNum = char.IsDigit(a[0]);
+                var bNum = char.IsDigit(b[0]);
+                int c;
+                if (aNum && bNum)
+                {
+                    var ta = a.TrimStart('0');
+                    var tb = b.TrimStart('0');
+                    c = ta.Length != tb.Length
+                        ? ta.Length.CompareTo(tb.Length)
+                        : string.CompareOrdinal(ta, tb);
+                    if (c == 0) c = a.Length.CompareTo(b.Length);
+                }
+                else
+                {
+                    c = string.Compare(a, b, StringComparison.OrdinalIgnoreCase);
+                }
+                if (c != 0) return c;
+            }
+            return xt.Count.CompareTo(yt.Count);
+        }
+    }
+
+    /// <summary>
+    /// Kiểm tra template có phải BM02 không
     /// </summary>
     private static bool IsBM02Template(string? templateName)
     {
