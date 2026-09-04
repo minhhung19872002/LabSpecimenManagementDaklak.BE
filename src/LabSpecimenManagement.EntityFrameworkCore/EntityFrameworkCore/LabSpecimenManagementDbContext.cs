@@ -1991,7 +1991,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.PreparationMethod).HasColumnType("text");
             b.Property(x => x.ProcessingNote).HasMaxLength(1000);
             b.Property(x => x.ProcessingImages).IsRequired().HasDefaultValue("[]").HasColumnType("text");
-            b.Property(x => x.Concentration).HasMaxLength(256);
+            b.Property(x => x.Concentration).HasColumnType("text");
             b.Property(x => x.PreparedByName).HasMaxLength(256);
 
             b.HasMany(x => x.Ingredients)
