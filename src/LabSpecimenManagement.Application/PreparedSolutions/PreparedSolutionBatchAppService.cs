@@ -28,6 +28,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
+    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
 
     public PreparedSolutionBatchAppService(
@@ -40,6 +41,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
         IFifoStockDeductionService fifoStockService)
     {
         _repository = repository;
@@ -51,6 +53,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         _importReceiptRepository = importReceiptRepository;
         _importReceiptItemRepository = importReceiptItemRepository;
         _manufacturerRepository = manufacturerRepository;
+        _inventoryBarcodeRepository = inventoryBarcodeRepository;
         _fifoStockService = fifoStockService;
     }
 
@@ -116,6 +119,13 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             var receipt = await _importReceiptRepository.FindAsync(batch.PreparedSolutionReceiptId.Value);
             dto.PreparedSolutionReceiptId = receipt?.Id;
             dto.PreparedSolutionReceiptCode = receipt?.Code;
+
+            var receiptItems = await _importReceiptItemRepository.GetListAsync(
+                i => i.WarehouseImportReceiptId == batch.PreparedSolutionReceiptId.Value);
+            dto.BarcodeValues = receiptItems
+                .Where(i => !string.IsNullOrWhiteSpace(i.BarcodeValues))
+                .SelectMany(i => JsonSerializer.Deserialize<List<string>>(i.BarcodeValues!) ?? new List<string>())
+                .ToList();
         }
         return dto;
     }
@@ -513,6 +523,37 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         };
         await _importReceiptItemRepository.InsertAsync(lotItem, autoSave: true);
 
+        if (batch.StorageWarehouseId.HasValue)
+        {
+            var barcodeCount = Math.Max(1, (int)Math.Ceiling(storageQty));
+            var barcodeCodes = new List<string>(barcodeCount);
+            for (var sequence = 1; sequence <= barcodeCount; sequence++)
+            {
+                var code = InventoryBarcodeCodeBuilder.Build(
+                    solutionProduct.IdentificationCode,
+                    batch.PreparationDate,
+                    batch.LotCode,
+                    sequence);
+                var uniqueCode = code;
+                var suffix = 1;
+                while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                    uniqueCode = $"{code}-{suffix++:D2}";
+
+                await _inventoryBarcodeRepository.InsertAsync(new InventoryBarcode(
+                    GuidGenerator.Create(),
+                    uniqueCode,
+                    solutionProduct.Id,
+                    lotItem.Id,
+                    batch.StorageWarehouseId.Value)
+                {
+                    SkuId = tuPhaSku.Id
+                }, autoSave: true);
+                barcodeCodes.Add(uniqueCode);
+            }
+            lotItem.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
+            await _importReceiptItemRepository.UpdateAsync(lotItem, autoSave: true);
+        }
+
         batch.PreparedSolutionReceiptId = receipt.Id;
         await _repository.UpdateAsync(batch, autoSave: true);
     }
@@ -524,7 +565,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         var oldItems = await _importReceiptItemRepository.GetListAsync(
             i => i.WarehouseImportReceiptId == batch.PreparedSolutionReceiptId.Value);
         if (oldItems.Any())
+        {
+            var oldItemIds = oldItems.Select(i => i.Id).ToList();
+            await _inventoryBarcodeRepository.DeleteAsync(
+                b => oldItemIds.Contains(b.OriginWarehouseImportReceiptItemId), autoSave: true);
             await _importReceiptItemRepository.DeleteManyAsync(oldItems, autoSave: true);
+        }
 
         await _importReceiptRepository.DeleteAsync(batch.PreparedSolutionReceiptId.Value, autoSave: true);
         batch.PreparedSolutionReceiptId = null;

@@ -353,7 +353,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 var barcodeCodes = new List<string>();
                 for (var sequence = 1; sequence <= barcodeCount; sequence++)
                 {
-                    var code = BuildInventoryBarcodeCode(
+                    var code = InventoryBarcodeCodeBuilder.Build(
                         product.IdentificationCode,
                         receipt.ActualImportDate,
                         item.LotNumber,
@@ -1138,27 +1138,6 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         }
 
         return quantity;
-    }
-
-    private static string BuildInventoryBarcodeCode(
-        string? identificationCode,
-        DateTime importDate,
-        string? lotNumber,
-        int sequence)
-    {
-        var parts = new[]
-        {
-            identificationCode,
-            importDate.ToString("ddMMyyyy"),
-            lotNumber,
-            sequence.ToString("D4")
-        }.Where(x => !string.IsNullOrWhiteSpace(x));
-
-        var normalized = string.Concat(parts).Normalize(NormalizationForm.FormD);
-        return new string(normalized
-            .Where(c => CharUnicodeInfo.GetUnicodeCategory(c) != UnicodeCategory.NonSpacingMark)
-            .Where(c => c >= 32 && c <= 126)
-            .ToArray());
     }
 
     private async Task<Dictionary<(Guid productId, Guid manufacturerId), ProductSku>> BuildPoSkuMapAsync(
