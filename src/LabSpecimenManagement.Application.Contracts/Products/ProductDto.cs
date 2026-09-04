@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.WarehouseImports;
 using Volo.Abp.Application.Dtos;
 
 namespace LabSpecimenManagement.Products;
@@ -372,6 +373,13 @@ public class ProductImportHistoryDto
     public decimal? UnitPrice { get; set; }
     public int? VatPercent { get; set; }
     public decimal? TotalLineAmount { get; set; }
+    public WarehouseImportReceiptType ReceiptType { get; set; }
+    /// <summary>Số lượng theo đơn vị lưu kho (chai/bình). Dùng để hiển thị phiếu pha dung dịch (PSB-).</summary>
+    public decimal ReceivedBaseQuantity { get; set; }
+    /// <summary>Quy cách SKU: thể tích 1 đơn vị lưu kho (chỉ điền cho phiếu pha dung dịch).</summary>
+    public int? VolumePerUnit { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public Guid? SkuId { get; set; }
 }
 
 public class GetProductImportHistoryInput : PagedRequestDto

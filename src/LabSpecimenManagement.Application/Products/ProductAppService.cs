@@ -1502,9 +1502,65 @@ public class ProductAppService : ApplicationService, IProductAppService
                 UnitPrice = x.item.UnitPrice,
                 VatPercent = x.item.VatPercent,
                 TotalLineAmount = x.item.TotalLineAmount,
+                ReceiptType = x.receipt.ReceiptType,
+                ReceivedBaseQuantity = x.item.ReceivedBaseQuantity,
+                SkuId = x.item.SkuId,
             }).ToList();
 
+        await EnrichPreparedSolutionHistoryAsync(items);
+
         return new PagedResultDto<ProductImportHistoryDto>(totalCount, items);
+    }
+
+    /// <summary>
+    /// Phiếu PSB- (pha dung dịch) lưu ActualReceivedQuantity theo mL nhưng UnitName là đơn vị lưu kho,
+    /// nên FE cần quy cách SKU "Tự pha" (VolumePerUnit + tên đơn vị thể tích) để quy đổi ra "10 Chai" / "9 Chai - 100 mL".
+    /// Hãng sản xuất hiển thị tên hãng hệ thống ("Tự pha").
+    /// </summary>
+    private async Task EnrichPreparedSolutionHistoryAsync(List<ProductImportHistoryDto> items)
+    {
+        var psbItems = items
+            .Where(x => x.ReceiptType == WarehouseImportReceiptType.PreparedSolutionProduction)
+            .ToList();
+        if (psbItems.Count == 0) return;
+
+        var systemMfgName = (await _manufacturerRepository.GetQueryableAsync())
+            .Where(m => m.IsSystem)
+            .Select(m => m.Name)
+            .FirstOrDefault();
+
+        var skuIds = psbItems.Where(x => x.SkuId.HasValue).Select(x => x.SkuId!.Value).Distinct().ToList();
+        var skuSpecs = skuIds.Count > 0
+            ? (await _skuRepository.GetQueryableAsync())
+                .Where(s => skuIds.Contains(s.Id))
+                .Select(s => new { s.Id, s.ProductId, s.VolumePerUnit })
+                .ToList()
+            : [];
+        var skuMap = skuSpecs.ToDictionary(s => s.Id, s => (s.ProductId, s.VolumePerUnit));
+
+        var productIds = skuSpecs.Select(s => s.ProductId).Distinct().ToList();
+        var volumeUnitIdByProduct = productIds.Count > 0
+            ? (await _productRepository.GetQueryableAsync())
+                .Where(p => productIds.Contains(p.Id))
+                .Select(p => new { p.Id, p.VolumeUnitId })
+                .ToDictionary(p => p.Id, p => p.VolumeUnitId)
+            : new Dictionary<Guid, Guid?>();
+
+        var unitIds = volumeUnitIdByProduct.Values.Where(u => u.HasValue).Select(u => u!.Value).Distinct().ToList();
+        var unitNames = unitIds.Count > 0
+            ? (await _unitRepository.GetQueryableAsync())
+                .Where(u => unitIds.Contains(u.Id))
+                .ToDictionary(u => u.Id, u => u.Name)
+            : new Dictionary<Guid, string>();
+
+        foreach (var item in psbItems)
+        {
+            item.ManufacturerName = systemMfgName ?? item.ManufacturerName;
+            if (!item.SkuId.HasValue || !skuMap.TryGetValue(item.SkuId.Value, out var sku)) continue;
+            item.VolumePerUnit = sku.VolumePerUnit;
+            var volumeUnitId = volumeUnitIdByProduct.GetValueOrDefault(sku.ProductId);
+            item.VolumeUnitName = volumeUnitId.HasValue ? unitNames.GetValueOrDefault(volumeUnitId.Value) : null;
+        }
     }
 
     public async Task<PagedResultDto<ProductMaterialReceiptHistoryDto>> GetMaterialReceiptHistoryAsync(
