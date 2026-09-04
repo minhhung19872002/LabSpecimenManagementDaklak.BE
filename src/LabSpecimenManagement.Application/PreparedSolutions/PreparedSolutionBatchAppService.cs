@@ -680,11 +680,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.WarehouseId, x => x.LastInventoryDate));
 
         var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
-        var psbConsumedByLot = icQuery
+        var allConsumedByLot = icQuery
             .Where(c => productIds.Contains(c.ProductId ?? Guid.Empty)
-                && c.PreparedSolutionBatchId != null
                 && c.LotNumber != null)
-            .Select(c => new { c.ProductId, c.LotNumber, c.ActualQuantity, c.UnitId, c.WarehouseId, c.ConsumptionDate })
+            .Select(c => new { c.ProductId, c.LotNumber, c.ActualQuantity, c.UnitId, c.WarehouseId, c.ConsumptionDate, c.PreparedSolutionBatchId })
             .ToList()
             .Where(c =>
             {
@@ -704,15 +703,16 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                 {
                     var product2 = productMap.TryGetValue(item.ProductId, out var p) ? p : null;
                     var vpu2 = product2 != null ? ResolveVolumePerUnit(product2) : null;
-                    var psbUsedDisplay = psbConsumedByLot
+                    // Trừ cả PSB và KTV consumption đã ghi (hệ thống không trừ thật ConsumedBaseQuantity)
+                    var usedDisplay = allConsumedByLot
                         .Where(c => c.ProductId == item.ProductId
                             && c.LotNumber == item.LotNumber
                             && c.WarehouseId == item.WarehouseId)
                         .Sum(c => c.ActualQuantity);
-                    var psbUsedBase = vpu2.HasValue && vpu2.Value > 0
-                        ? psbUsedDisplay / vpu2.Value
-                        : psbUsedDisplay;
-                    var effectiveRemaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity - psbUsedBase;
+                    var usedBase = vpu2.HasValue && vpu2.Value > 0
+                        ? usedDisplay / vpu2.Value
+                        : usedDisplay;
+                    var effectiveRemaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity - usedBase;
                     return new
                     {
                         item.ProductId,
