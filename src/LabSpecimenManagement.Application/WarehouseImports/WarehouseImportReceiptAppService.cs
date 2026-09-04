@@ -11,6 +11,7 @@ using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Suppliers;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.Products;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -41,6 +42,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
 
     public WarehouseImportReceiptAppService(
         IRepository<WarehouseImportReceipt, Guid> receiptRepository,
@@ -58,7 +60,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<Equipment, Guid> equipmentRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository)
+        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository)
     {
         _receiptRepository = receiptRepository;
         _itemRepository = itemRepository;
@@ -76,6 +79,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         _manufacturerRepository = manufacturerRepository;
         _equipmentRepository = equipmentRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
+        _preparedSolutionBatchRepository = preparedSolutionBatchRepository;
     }
 
     private static readonly GoodsReceiptOrderStatus[] EligibleOrderStatuses =
@@ -1049,6 +1053,14 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var dto = ObjectMapper.Map<WarehouseImportReceipt, WarehouseImportReceiptDto>(receipt);
         dto.CreatorName = await _userNameProvider.GetUserNameAsync(receipt.CreatorId) ?? "Admin";
         dto.HasDefectiveItem = receipt.Items.Any(x => x.Status == WarehouseImportLineStatus.Defective);
+
+        if (receipt.ReceiptType == WarehouseImportReceiptType.PreparedSolutionProduction)
+        {
+            var batchQuery = (await _preparedSolutionBatchRepository.GetQueryableAsync())
+                .Where(b => b.PreparedSolutionReceiptId == receipt.Id)
+                .Select(b => (Guid?)b.Id);
+            dto.PreparedSolutionBatchId = await AsyncExecuter.FirstOrDefaultAsync(batchQuery);
+        }
 
         var goodsReceiptItemIds = receipt.Items
             .Where(x => x.GoodsReceiptItemId.HasValue)

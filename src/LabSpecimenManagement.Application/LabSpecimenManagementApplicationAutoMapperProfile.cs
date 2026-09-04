@@ -194,6 +194,7 @@ public class LabSpecimenManagementApplicationAutoMapperProfile : Profile
             .ForMember(dest => dest.Items, opt => opt.Ignore())
             .ForMember(dest => dest.CreatorName, opt => opt.Ignore())
             .ForMember(dest => dest.HasDefectiveItem, opt => opt.Ignore())
+            .ForMember(dest => dest.PreparedSolutionBatchId, opt => opt.Ignore())
             .ForMember(dest => dest.DeliveryDocumentFiles, opt => opt.MapFrom((src, dest) =>
             {
                 if (!string.IsNullOrEmpty(src.DeliveryDocumentFiles))

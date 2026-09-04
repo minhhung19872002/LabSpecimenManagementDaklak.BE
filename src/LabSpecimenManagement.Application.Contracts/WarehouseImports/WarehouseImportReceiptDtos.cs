@@ -77,6 +77,9 @@ public class WarehouseImportReceiptDto : EntityDto<Guid>
     public decimal? TotalAmount { get; set; }
     public string? CreatorName { get; set; }
     public DateTime CreationTime { get; set; }
+    public WarehouseImportReceiptType ReceiptType { get; set; }
+    /// <summary>Batch pha dung dịch đã sinh ra phiếu này (chỉ có khi ReceiptType = PreparedSolutionProduction).</summary>
+    public Guid? PreparedSolutionBatchId { get; set; }
 
     public List<WarehouseImportReceiptItemDto> Items { get; set; } = new();
 }

@@ -32,6 +32,9 @@ public class PreparedSolutionBatchDto : AuditedEntityDto<Guid>
 
     // Computed server-side on every response
     public PreparedSolutionStatus ComputedStatus { get; set; }
+    /// <summary>Phiếu nhập kho ảo (PSB-xxx) sinh ra khi pha — chỉ điền ở GetAsync.</summary>
+    public Guid? PreparedSolutionReceiptId { get; set; }
+    public string? PreparedSolutionReceiptCode { get; set; }
     public int DaysRemaining { get; set; }
 
     public List<PreparedSolutionIngredientDto> Ingredients { get; set; } = new();

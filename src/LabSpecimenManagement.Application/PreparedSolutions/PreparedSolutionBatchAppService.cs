@@ -111,6 +111,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         var ingredients = await _ingredientRepository.GetListAsync(i => i.PreparedSolutionBatchId == id);
         var dto = MapToDto(batch, DateTime.UtcNow);
         dto.Ingredients = ingredients.Select(MapIngredientToDto).ToList();
+        if (batch.PreparedSolutionReceiptId.HasValue)
+        {
+            var receipt = await _importReceiptRepository.FindAsync(batch.PreparedSolutionReceiptId.Value);
+            dto.PreparedSolutionReceiptId = receipt?.Id;
+            dto.PreparedSolutionReceiptCode = receipt?.Code;
+        }
         return dto;
     }
 
