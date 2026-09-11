@@ -3589,6 +3589,10 @@ public class ImportAppService : ApplicationService, IImportAppService
                 if (parentIndicatorDict.TryGetValue(parentKey, out var existingParentIndicator))
                 {
                     existingParentIndicator.IndicatorGroupId = indicatorGroup.Id;
+                    if (item.DepartmentId.HasValue)
+                    {
+                        existingParentIndicator.LaboratoryId = item.DepartmentId.Value;
+                    }
                     if (!string.IsNullOrWhiteSpace(item.FormattedIndicatorName))
                     {
                         existingParentIndicator.FormattedName = item.FormattedIndicatorName;
@@ -3628,6 +3632,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     {
                         existingSubIndicator.IndicatorGroupId = indicatorGroup.Id;
                         existingSubIndicator.ParentIndicatorId = parentIndicator.Id;
+                        existingSubIndicator.LaboratoryId = item.DepartmentId ?? parentIndicator.LaboratoryId;
                         if (!string.IsNullOrWhiteSpace(item.FormattedSubIndicatorName))
                         {
                             existingSubIndicator.FormattedName = item.FormattedSubIndicatorName;
@@ -5763,6 +5768,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Name = row.Name?.Trim() ?? "",
                 ParentWarehouseCode = row.ParentWarehouseCode?.Trim(),
                 PhysicalLocation = row.PhysicalLocation?.Trim(),
+                LaboratoryName = row.LaboratoryName?.Trim(),
                 IsValid = true
             };
 
@@ -5921,6 +5927,9 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         foreach (var item in result.Items)
         {
+            if (!string.IsNullOrWhiteSpace(item.LaboratoryName))
+                continue;
+
             Guid? labId = null;
             var codeKey = item.Code.Trim().ToLowerInvariant();
             if (warehouseByCode.TryGetValue(codeKey, out var wh) && wh.LaboratoryId.HasValue)
@@ -5972,6 +5981,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var name = row.Cell(2).GetString()?.Trim();
             var parentCode = row.Cell(3).GetString()?.Trim();
             var physicalLocation = row.Cell(4).GetString()?.Trim();
+            var laboratoryName = row.Cell(5).GetString()?.Trim();
 
             if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)
                 && string.IsNullOrWhiteSpace(parentCode) && string.IsNullOrWhiteSpace(physicalLocation))
@@ -5982,7 +5992,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Code = code ?? "",
                 Name = name ?? "",
                 ParentWarehouseCode = parentCode,
-                PhysicalLocation = physicalLocation
+                PhysicalLocation = physicalLocation,
+                LaboratoryName = laboratoryName
             });
         }
 
@@ -6025,6 +6036,20 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             var validItems = preview.Items.Where(i => i.IsValid).ToList();
 
+            var labNameToId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
+            var labQuery = await _laboratoryRepository.GetQueryableAsync();
+            var allLabs = labQuery.Select(x => new { x.Id, x.DepartmentId }).ToList();
+            if (allLabs.Count > 0)
+            {
+                var deptIds = allLabs.Select(x => x.DepartmentId).Distinct().ToList();
+                var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
+                var deptQuery = await deptRepo.GetQueryableAsync();
+                var deptNames = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
+                foreach (var lab in allLabs)
+                    if (deptNames.TryGetValue(lab.DepartmentId, out var dn))
+                        labNameToId[dn] = lab.Id;
+            }
+
             foreach (var item in validItems)
             {
                 Guid? parentId = null;
@@ -6040,7 +6065,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
 
                 Guid? labId = null;
-                if (parentId.HasValue)
+                if (!string.IsNullOrWhiteSpace(item.LaboratoryName) && labNameToId.TryGetValue(item.LaboratoryName.Trim(), out var resolvedLabId))
+                {
+                    labId = resolvedLabId;
+                }
+                else if (parentId.HasValue)
                 {
                     var currentId = parentId;
                     while (currentId.HasValue)
@@ -6058,7 +6087,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     existingWarehouse.PhysicalLocation = item.PhysicalLocation;
                     existingWarehouse.ParentWarehouseId = parentId;
                     existingWarehouse.Level = level;
-                    if (labId.HasValue && !existingWarehouse.LaboratoryId.HasValue)
+                    if (labId.HasValue)
                         existingWarehouse.LaboratoryId = labId;
                     await _warehouseRepository.UpdateAsync(existingWarehouse);
                     updatedCount++;
@@ -6108,7 +6137,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var workbook = new XLWorkbook(originalStream);
         var worksheet = workbook.Worksheet(1);
 
-        var errorColumnIndex = 5;
+        var errorColumnIndex = 6;
         var headerRow = worksheet.Row(1);
         headerRow.Cell(errorColumnIndex).Value = "Lỗi";
         headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;

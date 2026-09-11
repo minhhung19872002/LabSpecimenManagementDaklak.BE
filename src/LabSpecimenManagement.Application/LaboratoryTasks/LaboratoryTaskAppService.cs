@@ -3018,18 +3018,11 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
 
         if (managedLabIds.Count == 0) return;
 
-        var managedGroupIds = (await _indicatorGroupRepository.GetQueryableAsync())
-            .Where(g => g.LaboratoryId.HasValue && managedLabIds.Contains(g.LaboratoryId.Value))
-            .Select(g => g.Id)
-            .ToList();
-
-        if (managedGroupIds.Count == 0) return;
-
         var indicators = (await _indicatorRepository.GetQueryableAsync())
             .Where(i => i.NeedsMethodSetup
                         && i.IsActive
                         && i.ParentIndicatorId == null
-                        && managedGroupIds.Contains(i.IndicatorGroupId))
+                        && managedLabIds.Contains(i.LaboratoryId))
             .Select(i => new { i.Id, i.Code, i.Name, i.CreationTime })
             .ToList();
 

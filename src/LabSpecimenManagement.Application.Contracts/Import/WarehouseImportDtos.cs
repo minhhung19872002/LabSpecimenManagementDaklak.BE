@@ -9,6 +9,7 @@ public class WarehouseImportRow
     public string Name { get; set; } = string.Empty;
     public string? ParentWarehouseCode { get; set; }
     public string? PhysicalLocation { get; set; }
+    public string? LaboratoryName { get; set; }
 }
 
 public class WarehouseImportPreviewItem

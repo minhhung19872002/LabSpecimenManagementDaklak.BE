@@ -178,9 +178,9 @@ public class TestRequestSampleIndicatorDto
     public string? IndicatorGroupName { get; set; }
 
     /// <summary>
-    /// Khoa phòng thực hiện mặc định của nhóm chỉ tiêu (để auto-fill khi gửi QLKT)
+    /// Khoa phòng thực hiện mặc định của chỉ tiêu (để auto-fill khi gửi QLKT)
     /// </summary>
-    public Guid? IndicatorGroupLaboratoryId { get; set; }
+    public Guid? IndicatorDefaultLaboratoryId { get; set; }
 
     public decimal UnitPrice { get; set; }
     /// <summary>

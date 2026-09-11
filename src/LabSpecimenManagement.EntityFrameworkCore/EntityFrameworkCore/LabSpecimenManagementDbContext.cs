@@ -996,6 +996,7 @@ public class LabSpecimenManagementDbContext :
             // Filtered unique index - only enforce uniqueness for non-deleted records
             b.HasIndex(x => x.Code).IsUnique().HasFilter("\"IsDeleted\" = false");
             b.HasIndex(x => x.IndicatorGroupId);
+            b.HasIndex(x => x.LaboratoryId);
             b.HasIndex(x => x.IsActive);
             b.HasIndex(x => x.ParentIndicatorId);
         });

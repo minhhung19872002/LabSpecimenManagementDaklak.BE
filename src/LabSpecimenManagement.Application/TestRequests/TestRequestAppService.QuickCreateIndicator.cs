@@ -64,7 +64,8 @@ public partial class TestRequestAppService
                 GuidGenerator.Create(),
                 parentCode,
                 normalizedName,
-                input.IndicatorGroupId)
+                input.IndicatorGroupId,
+                input.LaboratoryId)
             {
                 IsActive = true,
                 FormattedName = SanitizeIndicatorHtml(item.FormattedName),
@@ -117,6 +118,7 @@ public partial class TestRequestAppService
                     subCode,
                     normalizedSubName,
                     input.IndicatorGroupId,
+                    input.LaboratoryId,
                     parentIndicator.Id)
                 {
                     IsActive = true,

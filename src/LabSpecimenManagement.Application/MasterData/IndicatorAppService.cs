@@ -30,6 +30,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
+    private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IDataFilter _dataFilter;
     private readonly ICodeGeneratorService _codeGenerator;
 
@@ -40,6 +42,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository,
+        IRepository<Department, Guid> departmentRepository,
         IDataFilter dataFilter,
         ICodeGeneratorService codeGenerator)
     {
@@ -49,6 +53,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _testMethodRepository = testMethodRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _laboratoryRepository = laboratoryRepository;
+        _departmentRepository = departmentRepository;
         _dataFilter = dataFilter;
         _codeGenerator = codeGenerator;
     }
@@ -128,13 +134,14 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<IndicatorDto> CreateAsync(CreateIndicatorDto input)
     {
-        // Validate group exists
+        // Validate group and laboratory exist
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        await _laboratoryRepository.GetAsync(input.LaboratoryId);
 
         var code = await GenerateCodeAsync();
         // Normalize name for consistent Unicode representation
         var normalizedName = StringHelper.NormalizeAndTrim(input.Name);
-        var entity = new Indicator(GuidGenerator.Create(), code, normalizedName, input.IndicatorGroupId)
+        var entity = new Indicator(GuidGenerator.Create(), code, normalizedName, input.IndicatorGroupId, input.LaboratoryId)
         {
             IsActive = input.IsActive,
             SortOrder = input.SortOrder,
@@ -151,6 +158,13 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         // Validate group exists
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+
+        // Validate all referenced laboratories exist
+        var labIds = input.Indicators.Select(i => i.LaboratoryId).Distinct().ToList();
+        foreach (var labId in labIds)
+        {
+            await _laboratoryRepository.GetAsync(labId);
+        }
 
         var results = new List<Indicator>();
 
@@ -183,6 +197,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 parentCode,
                 normalizedParentName,
                 input.IndicatorGroupId,
+                item.LaboratoryId,
                 parentIndicatorId: null
             )
             {
@@ -213,6 +228,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                         subCode,
                         normalizedSubName,
                         input.IndicatorGroupId,
+                        item.LaboratoryId,
                         parentIndicatorId: parentEntity.Id
                     )
                     {
@@ -237,14 +253,16 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var entity = await _indicatorRepository.GetAsync(id);
 
-        // Validate group exists
+        // Validate group and laboratory exist
         var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        await _laboratoryRepository.GetAsync(input.LaboratoryId);
 
         // Normalize name for consistent Unicode representation
         entity.Name = StringHelper.NormalizeAndTrim(input.Name);
         entity.FormattedName = SanitizeHtml(input.FormattedName);
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
+        entity.LaboratoryId = input.LaboratoryId;
         entity.SortOrder = input.SortOrder;
 
         await _indicatorRepository.UpdateAsync(entity);
@@ -258,11 +276,13 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         // 1. Update parent indicator
         var entity = await _indicatorRepository.GetAsync(id);
         await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId); // validate group exists
+        await _laboratoryRepository.GetAsync(input.LaboratoryId); // validate laboratory exists
 
         entity.Name = StringHelper.NormalizeAndTrim(input.Name);
         entity.FormattedName = SanitizeHtml(input.FormattedName);
         entity.IsActive = input.IsActive;
         entity.IndicatorGroupId = input.IndicatorGroupId;
+        entity.LaboratoryId = input.LaboratoryId;
         entity.SortOrder = input.SortOrder;
         await _indicatorRepository.UpdateAsync(entity);
 
@@ -319,6 +339,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                     subCode,
                     normalizedName,
                     entity.IndicatorGroupId,
+                    entity.LaboratoryId,
                     parentIndicatorId: id
                 )
                 {
@@ -507,7 +528,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             try
             {
                 var code = $"CT-{(nextSequence + sequenceOffset).ToString("D4")}";
-                var entity = new Indicator(GuidGenerator.Create(), code, name, groups[groupKey])
+                var entity = new Indicator(GuidGenerator.Create(), code, name, groups[groupKey], Guid.Empty)
                 {
                     IsActive = true
                 };
@@ -699,6 +720,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var group = await _indicatorGroupRepository.FindAsync(entity.IndicatorGroupId);
         dto.IndicatorGroupName = group?.Name ?? "";
 
+        // Get laboratory name
+        dto.LaboratoryName = await GetLaboratoryNameAsync(entity.LaboratoryId);
+
         // Check can delete
         dto.CanDelete = await CanDeleteAsync(entity.Id);
 
@@ -710,6 +734,9 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var groupIds = entities.Select(x => x.IndicatorGroupId).Distinct().ToList();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
         var groups = groupQuery.Where(x => groupIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name);
+
+        // Resolve laboratory names
+        var labNames = await GetLaboratoryNamesAsync(entities.Select(x => x.LaboratoryId).Distinct().ToList());
 
         // Check which indicators can be deleted
         var indicatorIds = entities.Select(x => x.Id).ToList();
@@ -725,6 +752,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(entity);
             dto.IndicatorGroupName = groups.GetValueOrDefault(entity.IndicatorGroupId, "");
+            dto.LaboratoryName = labNames.GetValueOrDefault(entity.LaboratoryId, "");
             dto.CanDelete = !usedIndicatorIds.Contains(entity.Id);
             dtos.Add(dto);
         }
@@ -757,6 +785,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
         var groups = groupQuery.Where(x => groupIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name);
 
+        // Resolve laboratory names
+        var allLabIds = parentIndicators.Select(x => x.LaboratoryId)
+            .Concat(allSubIndicators.Select(x => x.LaboratoryId))
+            .Distinct().ToList();
+        var labNames = await GetLaboratoryNamesAsync(allLabIds);
+
         // Check deletability for all indicators (parents + subs)
         var allIndicatorIds = parentIds.Concat(allSubIndicators.Select(x => x.Id)).ToList();
         var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
@@ -772,6 +806,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(parent);
             dto.IndicatorGroupName = groups.GetValueOrDefault(parent.IndicatorGroupId, "");
+            dto.LaboratoryName = labNames.GetValueOrDefault(parent.LaboratoryId, "");
             dto.CanDelete = !usedIndicatorIds.Contains(parent.Id);
             dto.HasSubIndicators = subIndicatorsByParent.ContainsKey(parent.Id);
 
@@ -782,6 +817,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 {
                     var subDto = ObjectMapper.Map<Indicator, IndicatorDto>(sub);
                     subDto.IndicatorGroupName = groups.GetValueOrDefault(sub.IndicatorGroupId, "");
+                    subDto.LaboratoryName = labNames.GetValueOrDefault(sub.LaboratoryId, "");
                     subDto.CanDelete = !usedIndicatorIds.Contains(sub.Id);
                     subDto.ParentIndicatorCode = parent.Code;
                     return subDto;
@@ -972,6 +1008,25 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         }
 
         return result;
+    }
+
+    private async Task<string?> GetLaboratoryNameAsync(Guid laboratoryId)
+    {
+        var lab = await _laboratoryRepository.FindAsync(laboratoryId);
+        if (lab == null) return null;
+        var dept = await _departmentRepository.FindAsync(lab.DepartmentId);
+        return dept?.Name;
+    }
+
+    private async Task<Dictionary<Guid, string>> GetLaboratoryNamesAsync(List<Guid> laboratoryIds)
+    {
+        if (laboratoryIds.Count == 0) return new Dictionary<Guid, string>();
+
+        var labs = await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id));
+        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
+        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
+        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
+        return labs.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
     }
 
     /// <summary>

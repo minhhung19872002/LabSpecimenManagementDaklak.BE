@@ -177,7 +177,7 @@ public class LabSampleDataSeedContributor : IDataSeedContributor, ITransientDepe
 
         foreach (var ind in indicators)
         {
-            var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId);
+            var indicator = new Indicator(_guidGenerator.Create(), ind.Code, ind.Name, ind.GroupId, Guid.Empty);
             indicator.FormattedName = ind.Name;
             indicator.SortOrder = ind.SortOrder;
             indicator.IsActive = true;

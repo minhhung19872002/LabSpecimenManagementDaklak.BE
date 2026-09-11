@@ -20,6 +20,8 @@ public class IndicatorDto : FullAuditedEntityDto<Guid>
     public bool IsActive { get; set; }
     public Guid IndicatorGroupId { get; set; }
     public string IndicatorGroupName { get; set; }
+    public Guid LaboratoryId { get; set; }
+    public string? LaboratoryName { get; set; }
     public int SortOrder { get; set; }
     public bool CanDelete { get; set; }
 
@@ -64,6 +66,9 @@ public class CreateIndicatorDto
     [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
     public Guid IndicatorGroupId { get; set; }
 
+    [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
+    public Guid LaboratoryId { get; set; }
+
     public int SortOrder { get; set; } = 0;
 
     /// <summary>
@@ -91,6 +96,9 @@ public class UpdateIndicatorDto
 
     [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
     public Guid IndicatorGroupId { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
+    public Guid LaboratoryId { get; set; }
 
     public int SortOrder { get; set; }
 }
@@ -122,6 +130,9 @@ public class BulkIndicatorItemDto
     /// </summary>
     [StringLength(1000)]
     public string? FormattedName { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
+    public Guid LaboratoryId { get; set; }
 
     /// <summary>
     /// Danh sách chỉ tiêu phụ (tùy chọn)
@@ -225,6 +236,9 @@ public class UpdateIndicatorWithSubsDto
 
     [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
     public Guid IndicatorGroupId { get; set; }
+
+    [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
+    public Guid LaboratoryId { get; set; }
 
     public int SortOrder { get; set; }
 

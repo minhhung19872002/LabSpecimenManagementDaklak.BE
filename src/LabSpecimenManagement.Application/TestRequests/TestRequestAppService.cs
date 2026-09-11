@@ -240,16 +240,14 @@ public partial class TestRequestAppService :
                 var indicatorEntity = indicatorEntityById.GetValueOrDefault(indicator.IndicatorId)
                     ?? throw new AbpEntityNotFoundException(typeof(Indicator), indicator.IndicatorId);
 
-                // Get indicator group info for auto-fill LaboratoryId
+                // Get indicator group name
                 string? indicatorGroupName = null;
-                Guid? indicatorGroupLaboratoryId = null;
                 if (indicatorEntity.IndicatorGroupId != Guid.Empty)
                 {
                     var indicatorGroup = groupById.GetValueOrDefault(indicatorEntity.IndicatorGroupId);
                     if (indicatorGroup != null)
                     {
                         indicatorGroupName = indicatorGroup.Name;
-                        indicatorGroupLaboratoryId = indicatorGroup.LaboratoryId;
                     }
                 }
 
@@ -322,7 +320,7 @@ public partial class TestRequestAppService :
                     IndicatorName = indicatorEntity.Name,
                     IndicatorFormattedName = indicatorEntity.FormattedName,
                     IndicatorGroupName = indicatorGroupName,
-                    IndicatorGroupLaboratoryId = indicatorGroupLaboratoryId,
+                    IndicatorDefaultLaboratoryId = indicatorEntity.LaboratoryId,
                     TestMethodId = indicator.TestMethodId,
                     TestMethodCode = testMethodCode,
                     TestMethodName = testMethodName,

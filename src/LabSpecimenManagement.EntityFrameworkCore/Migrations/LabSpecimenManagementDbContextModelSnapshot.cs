@@ -1682,6 +1682,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
 
+                    b.Property<Guid>("LaboratoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -1713,6 +1716,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("IndicatorGroupId");
 
                     b.HasIndex("IsActive");
+
+                    b.HasIndex("LaboratoryId");
 
                     b.HasIndex("ParentIndicatorId");
 
@@ -1760,9 +1765,6 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
-
-                    b.Property<Guid?>("LaboratoryId")
-                        .HasColumnType("uuid");
 
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")

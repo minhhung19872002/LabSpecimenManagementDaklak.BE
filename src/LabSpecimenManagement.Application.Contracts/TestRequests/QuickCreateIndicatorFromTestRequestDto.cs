@@ -10,6 +10,9 @@ public class QuickCreateIndicatorsFromTestRequestDto
     [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
     public Guid IndicatorGroupId { get; set; }
 
+    [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
+    public Guid LaboratoryId { get; set; }
+
     public Guid? TestRequestId { get; set; }
 
     [StringLength(64)]

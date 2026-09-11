@@ -50,15 +50,21 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public bool NeedsMethodSetup { get; set; }
 
+    /// <summary>
+    /// Khoa phòng thực hiện (bắt buộc)
+    /// </summary>
+    public Guid LaboratoryId { get; set; }
+
     protected Indicator()
     {
     }
 
-    public Indicator(Guid id, string code, string name, Guid indicatorGroupId, Guid? parentIndicatorId = null) : base(id)
+    public Indicator(Guid id, string code, string name, Guid indicatorGroupId, Guid laboratoryId, Guid? parentIndicatorId = null) : base(id)
     {
         Code = code;
         Name = name;
         IndicatorGroupId = indicatorGroupId;
+        LaboratoryId = laboratoryId;
         ParentIndicatorId = parentIndicatorId;
         IsActive = true;
         SortOrder = 0;

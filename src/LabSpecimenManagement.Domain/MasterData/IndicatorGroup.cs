@@ -19,19 +19,13 @@ public class IndicatorGroup : FullAuditedAggregateRoot<Guid>, IHasActive
     /// </summary>
     public bool IsActive { get; set; }
 
-    /// <summary>
-    /// Khoa phòng thực hiện (không bắt buộc) - để auto-fill khi gửi QLKT
-    /// </summary>
-    public Guid? LaboratoryId { get; set; }
-
     protected IndicatorGroup()
     {
     }
 
-    public IndicatorGroup(Guid id, string name, Guid? laboratoryId = null) : base(id)
+    public IndicatorGroup(Guid id, string name) : base(id)
     {
         Name = name;
-        LaboratoryId = laboratoryId;
         IsActive = true;
     }
 }

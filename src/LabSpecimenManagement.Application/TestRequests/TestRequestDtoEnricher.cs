@@ -262,7 +262,7 @@ public class TestRequestDtoEnricher : ITransientDependency
             IndicatorName = indicator?.Name ?? string.Empty,
             IndicatorFormattedName = indicator?.FormattedName,
             IndicatorGroupName = indicatorGroup?.Name,
-            IndicatorGroupLaboratoryId = indicatorGroup?.LaboratoryId,
+            IndicatorDefaultLaboratoryId = indicator?.LaboratoryId,
             TestMethodId = indicatorLink.TestMethodId,
             TestMethodCode = testMethod?.Code,
             TestMethodName = testMethod?.Name,

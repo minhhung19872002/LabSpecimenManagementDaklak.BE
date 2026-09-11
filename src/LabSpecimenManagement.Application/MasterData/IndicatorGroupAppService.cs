@@ -27,21 +27,15 @@ public class IndicatorGroupAppService :
     IIndicatorGroupAppService
 {
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
-    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
-    private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IDataFilter _dataFilter;
 
     public IndicatorGroupAppService(
         IRepository<IndicatorGroup, Guid> repository,
         IRepository<Indicator, Guid> indicatorRepository,
-        IRepository<Laboratory, Guid> laboratoryRepository,
-        IRepository<Department, Guid> departmentRepository,
         IDataFilter dataFilter)
         : base(repository)
     {
         _indicatorRepository = indicatorRepository;
-        _laboratoryRepository = laboratoryRepository;
-        _departmentRepository = departmentRepository;
         _dataFilter = dataFilter;
 
         GetPolicyName = LabSpecimenManagementPermissions.MasterData.Default;
@@ -97,7 +91,7 @@ public class IndicatorGroupAppService :
 
     protected override Task<IndicatorGroup> MapToEntityAsync(CreateUpdateIndicatorGroupDto createInput)
     {
-        return Task.FromResult(new IndicatorGroup(GuidGenerator.Create(), createInput.Name, createInput.LaboratoryId)
+        return Task.FromResult(new IndicatorGroup(GuidGenerator.Create(), createInput.Name)
         {
             IsActive = createInput.IsActive
         });
@@ -108,7 +102,6 @@ public class IndicatorGroupAppService :
         // Normalize name to ensure consistent Unicode representation
         entity.Name = StringHelper.NormalizeAndTrim(updateInput.Name);
         entity.IsActive = updateInput.IsActive;
-        entity.LaboratoryId = updateInput.LaboratoryId;
         return Task.CompletedTask;
     }
 
@@ -198,9 +191,6 @@ public class IndicatorGroupAppService :
         return stream.ToArray();
     }
 
-    /// <summary>
-    /// Enriches DTOs with indicator counts and laboratory names (batch operation to avoid N+1)
-    /// </summary>
     private async Task EnrichDtosAsync(List<IndicatorGroupDto> dtos)
     {
         if (dtos.Count == 0) return;
@@ -215,30 +205,9 @@ public class IndicatorGroupAppService :
             .Select(g => new { GroupId = g.Key, Count = g.Count() })
             .ToDictionary(x => x.GroupId, x => x.Count);
 
-        // Load laboratory names
-        var laboratoryIds = dtos
-            .Where(d => d.LaboratoryId.HasValue)
-            .Select(d => d.LaboratoryId!.Value)
-            .Distinct()
-            .ToList();
-
-        var laboratoryNames = new Dictionary<Guid, string>();
-        if (laboratoryIds.Count > 0)
-        {
-            var labs = await _laboratoryRepository.GetListAsync(l => laboratoryIds.Contains(l.Id));
-            var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
-            var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
-            var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
-            laboratoryNames = labs.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
-        }
-
         foreach (var dto in dtos)
         {
             dto.IndicatorCount = counts.GetValueOrDefault(dto.Id, 0);
-            if (dto.LaboratoryId.HasValue && laboratoryNames.TryGetValue(dto.LaboratoryId.Value, out var name))
-            {
-                dto.LaboratoryName = name;
-            }
         }
     }
 
