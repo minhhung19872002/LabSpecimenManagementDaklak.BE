@@ -20,6 +20,5 @@ public class CreateUpdateWarehouseDto
 
     public Guid? ParentWarehouseId { get; set; }
 
-    [Required]
-    public Guid LaboratoryId { get; set; }
+    public Guid? LaboratoryId { get; set; }
 }

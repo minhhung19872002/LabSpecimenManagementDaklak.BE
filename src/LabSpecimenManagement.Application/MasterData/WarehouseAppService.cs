@@ -304,7 +304,8 @@ public class WarehouseAppService :
 
     protected override async Task<Warehouse> MapToEntityAsync(CreateUpdateWarehouseDto createInput)
     {
-        return new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name, createInput.LaboratoryId)
+        var labId = createInput.LaboratoryId ?? await ResolveAncestorLaboratoryIdAsync(createInput.ParentWarehouseId);
+        return new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name, labId)
         {
             PhysicalLocation = createInput.PhysicalLocation,
             IsActive = createInput.IsActive,
@@ -320,7 +321,7 @@ public class WarehouseAppService :
         entity.PhysicalLocation = updateInput.PhysicalLocation;
         entity.IsActive = updateInput.IsActive;
         entity.ParentWarehouseId = updateInput.ParentWarehouseId;
-        entity.LaboratoryId = updateInput.LaboratoryId;
+        entity.LaboratoryId = updateInput.LaboratoryId ?? await ResolveAncestorLaboratoryIdAsync(updateInput.ParentWarehouseId);
         entity.Level = await ComputeLevelAsync(updateInput.ParentWarehouseId);
     }
 
@@ -421,6 +422,22 @@ public class WarehouseAppService :
         {
             throw new UserFriendlyException("Không thể xóa kho cha. Vui lòng xóa hoặc chuyển kho con sang kho cha khác trước.");
         }
+    }
+
+    private async Task<Guid?> ResolveAncestorLaboratoryIdAsync(Guid? parentWarehouseId)
+    {
+        if (parentWarehouseId == null) return null;
+        var query = await Repository.GetQueryableAsync();
+        var allWarehouses = query.ToList();
+        var currentId = parentWarehouseId;
+        while (currentId != null)
+        {
+            var wh = allWarehouses.FirstOrDefault(x => x.Id == currentId.Value);
+            if (wh == null) break;
+            if (wh.LaboratoryId.HasValue) return wh.LaboratoryId;
+            currentId = wh.ParentWarehouseId;
+        }
+        return null;
     }
 
     private async Task FillParentWarehouseNamesAsync(List<WarehouseDto> dtos)
