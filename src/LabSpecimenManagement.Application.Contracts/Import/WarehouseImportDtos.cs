@@ -18,6 +18,7 @@ public class WarehouseImportPreviewItem
     public string Name { get; set; } = string.Empty;
     public string? ParentWarehouseCode { get; set; }
     public string? PhysicalLocation { get; set; }
+    public string? LaboratoryName { get; set; }
     public bool IsNew { get; set; }
     public Guid? ExistingId { get; set; }
     public bool IsValid { get; set; }

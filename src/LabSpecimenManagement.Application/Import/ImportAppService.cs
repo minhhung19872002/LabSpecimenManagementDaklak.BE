@@ -2912,7 +2912,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             from g in groupQuery
             where g.IsActive
             orderby g.Name
-            select new { g.Id, g.Name, g.LaboratoryId }
+            select new { g.Id, g.Name }
         );
 
         var labs = await AsyncExecuter.ToListAsync(
@@ -2927,7 +2927,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             from ind in indicatorQuery
             where ind.IsActive
             orderby ind.IndicatorGroupId, ind.SortOrder, ind.Name
-            select new { ind.Id, ind.Name, ind.FormattedName, ind.IndicatorGroupId, ind.ParentIndicatorId }
+            select new { ind.Id, ind.Name, ind.FormattedName, ind.IndicatorGroupId, ind.LaboratoryId, ind.ParentIndicatorId }
         );
 
         // Export should reflect current linked master data shown in FE,
@@ -3042,9 +3042,6 @@ public class ImportAppService : ApplicationService, IImportAppService
 
         foreach (var group in groups)
         {
-            var deptName = group.LaboratoryId.HasValue && labDict.ContainsKey(group.LaboratoryId.Value)
-                ? labDict[group.LaboratoryId.Value] : "";
-
             var groupIndicators = indicators.Where(i => i.IndicatorGroupId == group.Id && i.ParentIndicatorId == null).ToList();
 
             if (groupIndicators.Count == 0)
@@ -3054,6 +3051,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             foreach (var ind in groupIndicators)
             {
+                var deptName = labDict.TryGetValue(ind.LaboratoryId, out var dn) ? dn : "";
                 var subIndicators = indicators.Where(i => i.ParentIndicatorId == ind.Id).ToList();
                 var methodLinks = tmiByIndicatorId.TryGetValue(ind.Id, out var links)
                     ? links.Cast<object>().ToList()
@@ -3571,10 +3569,6 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 if (groupDict.TryGetValue(groupKey, out var existingGroup))
                 {
-                    if (item.DepartmentId.HasValue)
-                    {
-                        existingGroup.LaboratoryId = item.DepartmentId;
-                    }
                     await _indicatorGroupRepository.UpdateAsync(existingGroup);
                     indicatorGroup = existingGroup;
                     updatedGroupKeys.Add(groupKey);
@@ -3583,8 +3577,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     indicatorGroup = new IndicatorGroup(
                         _guidGenerator.Create(),
-                        item.IndicatorGroupName,
-                        item.DepartmentId
+                        item.IndicatorGroupName
                     );
                     await _indicatorGroupRepository.InsertAsync(indicatorGroup);
                     groupDict[groupKey] = indicatorGroup;
@@ -3612,7 +3605,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                         _guidGenerator.Create(),
                         code,
                         item.IndicatorName,
-                        indicatorGroup.Id
+                        indicatorGroup.Id,
+                        item.DepartmentId ?? Guid.Empty
                     )
                     {
                         // Set FormattedName from Excel rich text (bold, italic, underline)
@@ -3650,6 +3644,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                             subCode,
                             item.SubIndicatorName,
                             indicatorGroup.Id,
+                            item.DepartmentId ?? parentIndicator.LaboratoryId,
                             parentIndicator.Id // ParentIndicatorId
                         )
                         {
@@ -5686,6 +5681,22 @@ public class ImportAppService : ApplicationService, IImportAppService
         var warehouses = await _warehouseRepository.GetListAsync();
         var activeWarehouses = warehouses.Where(w => w.IsActive).ToList();
 
+        var labIds = activeWarehouses.Where(w => w.LaboratoryId.HasValue)
+            .Select(w => w.LaboratoryId!.Value).Distinct().ToList();
+        var labNames = new Dictionary<Guid, string>();
+        if (labIds.Count > 0)
+        {
+            var labQuery = await _laboratoryRepository.GetQueryableAsync();
+            var labs = labQuery.Where(x => labIds.Contains(x.Id)).Select(x => new { x.Id, x.DepartmentId }).ToList();
+            var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
+            var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
+            var deptQuery = await deptRepo.GetQueryableAsync();
+            var deptNameMap = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
+            foreach (var lab in labs)
+                if (deptNameMap.TryGetValue(lab.DepartmentId, out var deptName))
+                    labNames[lab.Id] = deptName;
+        }
+
         var templateBytes = ReadStaticTemplate("Danh muc kho.xlsx");
         using var templateStream = new MemoryStream(templateBytes);
         using var workbook = new XLWorkbook(templateStream);
@@ -5705,6 +5716,9 @@ public class ImportAppService : ApplicationService, IImportAppService
                     ? parent.Code : "";
                 worksheet.Cell(row, 3).Value = parentCode;
                 worksheet.Cell(row, 4).Value = sorted[i].PhysicalLocation ?? "";
+                var labName = sorted[i].LaboratoryId.HasValue
+                    && labNames.TryGetValue(sorted[i].LaboratoryId.Value, out var ln) ? ln : "";
+                worksheet.Cell(row, 5).Value = labName;
             }
         }
 
@@ -5889,6 +5903,47 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.NewWarehouses = newCodes.Count;
         result.UpdateWarehouses = updateCodes.Count;
 
+        var labIds = existingWarehouses.Where(w => w.LaboratoryId.HasValue)
+            .Select(w => w.LaboratoryId!.Value).Distinct().ToList();
+        var labNameMap = new Dictionary<Guid, string>();
+        if (labIds.Count > 0)
+        {
+            var labQuery = await _laboratoryRepository.GetQueryableAsync();
+            var labs = labQuery.Where(x => labIds.Contains(x.Id)).Select(x => new { x.Id, x.DepartmentId }).ToList();
+            var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
+            var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
+            var deptQuery = await deptRepo.GetQueryableAsync();
+            var deptNames = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
+            foreach (var lab in labs)
+                if (deptNames.TryGetValue(lab.DepartmentId, out var dn))
+                    labNameMap[lab.Id] = dn;
+        }
+
+        foreach (var item in result.Items)
+        {
+            Guid? labId = null;
+            var codeKey = item.Code.Trim().ToLowerInvariant();
+            if (warehouseByCode.TryGetValue(codeKey, out var wh) && wh.LaboratoryId.HasValue)
+                labId = wh.LaboratoryId;
+            if (!labId.HasValue && !string.IsNullOrWhiteSpace(item.ParentWarehouseCode))
+            {
+                var pCode = item.ParentWarehouseCode.Trim().ToLowerInvariant();
+                if (warehouseByCode.TryGetValue(pCode, out var parentWh))
+                {
+                    var curId = (Guid?)parentWh.Id;
+                    while (curId.HasValue)
+                    {
+                        var anc = existingWarehouses.FirstOrDefault(w => w.Id == curId.Value);
+                        if (anc == null) break;
+                        if (anc.LaboratoryId.HasValue) { labId = anc.LaboratoryId; break; }
+                        curId = anc.ParentWarehouseId;
+                    }
+                }
+            }
+            if (labId.HasValue && labNameMap.TryGetValue(labId.Value, out var labName))
+                item.LaboratoryName = labName;
+        }
+
         if (!validationResult.IsValid)
         {
             memoryStream.Position = 0;
@@ -5984,12 +6039,27 @@ public class ImportAppService : ApplicationService, IImportAppService
                     }
                 }
 
+                Guid? labId = null;
+                if (parentId.HasValue)
+                {
+                    var currentId = parentId;
+                    while (currentId.HasValue)
+                    {
+                        var ancestor = warehouseByCode.Values.FirstOrDefault(w => w.Id == currentId.Value);
+                        if (ancestor == null) break;
+                        if (ancestor.LaboratoryId.HasValue) { labId = ancestor.LaboratoryId; break; }
+                        currentId = ancestor.ParentWarehouseId;
+                    }
+                }
+
                 if (warehouseByCode.TryGetValue(item.Code.Trim(), out var existingWarehouse))
                 {
                     existingWarehouse.Name = StringHelper.Normalize(item.Name);
                     existingWarehouse.PhysicalLocation = item.PhysicalLocation;
                     existingWarehouse.ParentWarehouseId = parentId;
                     existingWarehouse.Level = level;
+                    if (labId.HasValue && !existingWarehouse.LaboratoryId.HasValue)
+                        existingWarehouse.LaboratoryId = labId;
                     await _warehouseRepository.UpdateAsync(existingWarehouse);
                     updatedCount++;
                 }
@@ -5998,7 +6068,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                     var newWarehouse = new Warehouse(
                         GuidGenerator.Create(),
                         item.Code.Trim(),
-                        StringHelper.Normalize(item.Name)
+                        StringHelper.Normalize(item.Name),
+                        labId
                     )
                     {
                         PhysicalLocation = item.PhysicalLocation,
