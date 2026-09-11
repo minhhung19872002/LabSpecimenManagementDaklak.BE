@@ -1898,12 +1898,14 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.LotNumber).HasMaxLength(200);
             b.Property(x => x.TechnicianName).HasMaxLength(256);
+            b.Property(x => x.BarcodeCode).HasMaxLength(200);
 
             b.HasIndex(x => x.LaboratoryTaskIndicatorId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
             b.HasIndex(x => x.WarehouseId);
             b.HasIndex(x => x.PreparedSolutionBatchId);
+            b.HasIndex(x => x.WarehouseImportReceiptItemId);
         });
 
         builder.Entity<ApprovalProcess>(b =>

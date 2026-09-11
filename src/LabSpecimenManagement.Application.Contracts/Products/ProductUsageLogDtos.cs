@@ -26,4 +26,5 @@ public class ProductUsageLogItemDto
     public string? ConsumableStockUnitName { get; set; }
     public decimal? ConsumptionAmount { get; set; }
     public string? ConsumptionUnitName { get; set; }
+    public string? BarcodeCode { get; set; }
 }

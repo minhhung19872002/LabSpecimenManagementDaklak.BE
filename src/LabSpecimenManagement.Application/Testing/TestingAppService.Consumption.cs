@@ -42,6 +42,9 @@ public partial class TestingAppService
     private IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<ProductWarehouseInventory, Guid>>();
 
+    private IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository =>
+        LazyServiceProvider.LazyGetRequiredService<IRepository<InventoryBarcode, Guid>>();
+
     // -------------------------------------------------------------------------
     // Public methods
     // -------------------------------------------------------------------------
@@ -109,7 +112,8 @@ public partial class TestingAppService
             }
         }
 
-        await EnrichConsumptionLinesAsync(lines);
+        var previewTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        await EnrichConsumptionLinesAsync(lines, previewTask.LaboratoryId);
 
         return new ConsumptionPreviewDto
         {
@@ -155,36 +159,134 @@ public partial class TestingAppService
         if (draftConsumptions.Any())
             await _indicatorConsumptionRepository.DeleteManyAsync(draftConsumptions, autoSave: false);
 
+        // Fetch task early — needed for lab filter and status update
+        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+
         // Handle consumption lines for this round
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var productIdsForWh = input.ConsumptionLines
-                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var whLotMap = await ResolveWarehouseAndLotForProductsAsync(productIdsForWh);
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
+            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh, task.LaboratoryId);
+
+            // Preload unit conversion data for lot splitting
+            var products = productIdsForWh.Any()
+                ? await _productRepository.GetListAsync(p => productIdsForWh.Contains(p.Id))
+                : new List<Product>();
+            var productMap = products.ToDictionary(p => p.Id);
+            var skus = productIdsForWh.Any()
+                ? await _productSkuRepository.GetListAsync(s => productIdsForWh.Contains(s.ProductId))
+                : new List<ProductSku>();
+            var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+            var conversions = productIdsForWh.Any()
+                ? await _productUnitConversionRepository.GetListAsync(c => productIdsForWh.Contains(c.ProductId))
+                : new List<ProductUnitConversion>();
+            var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+
+            // Resolve barcode codes for all lots
+            var allLots = allLotsMap.Values.SelectMany(l => l).ToList();
+            var barcodeMap = await ResolveBarcodeCodesForLotsAsync(allLots);
+
+            // Compute consumable stock per warehouse
             var consumableProductWhMap = productIdsForWh
-                .ToDictionary(pid => pid, pid => whLotMap.TryGetValue(pid, out var v) ? v.WarehouseId : null);
+                .ToDictionary(pid => pid, pid =>
+                {
+                    var first = allLotsMap.GetValueOrDefault(pid)?.FirstOrDefault();
+                    return first?.WarehouseId;
+                });
             var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var newConsumptions = new List<IndicatorConsumption>();
             foreach (var line in input.ConsumptionLines)
             {
-                var consumption = new IndicatorConsumption(
-                    GuidGenerator.Create(),
-                    input.IndicatorId,
-                    line.ProductId,
-                    line.EquipmentId,
-                    line.UnitId,
-                    line.RecommendedQuantity);
-                consumption.ActualQuantity = line.ActualQuantity;
-                consumption.SubmitDate = Clock.Now;
-                if (line.ProductId.HasValue && whLotMap.TryGetValue(line.ProductId.Value, out var resolved))
+                if (line.EquipmentId.HasValue || !line.ProductId.HasValue)
                 {
-                    consumption.WarehouseId = resolved.WarehouseId;
-                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
-                    consumption.LotNumber = resolved.LotNumber;
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(), input.IndicatorId,
+                        line.ProductId, line.EquipmentId, line.UnitId,
+                        line.RecommendedQuantity);
+                    consumption.ActualQuantity = line.ActualQuantity;
+                    consumption.SubmitDate = Clock.Now;
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                    newConsumptions.Add(consumption);
+                    continue;
                 }
-                await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
-                newConsumptions.Add(consumption);
+
+                var productLots = allLotsMap.GetValueOrDefault(line.ProductId.Value);
+                if (productLots == null || !productLots.Any()
+                    || !productMap.TryGetValue(line.ProductId.Value, out var product))
+                {
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(), input.IndicatorId,
+                        line.ProductId, null, line.UnitId, line.RecommendedQuantity);
+                    consumption.ActualQuantity = line.ActualQuantity;
+                    consumption.SubmitDate = Clock.Now;
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                    newConsumptions.Add(consumption);
+                    continue;
+                }
+
+                var unitsPerStorage = ResolveUnitsPerStorage(line.UnitId, product, skuByProduct, conversionMap);
+                if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+                {
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(), input.IndicatorId,
+                        line.ProductId, null, line.UnitId, line.RecommendedQuantity);
+                    consumption.ActualQuantity = line.ActualQuantity;
+                    consumption.SubmitDate = Clock.Now;
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                    newConsumptions.Add(consumption);
+                    continue;
+                }
+
+                var remainingQty = line.ActualQuantity;
+                bool isFirst = true;
+                foreach (var lot in productLots)
+                {
+                    if (remainingQty <= 0) break;
+
+                    var lotAvailableInConsumptionUnit = lot.RemainingBaseQuantity * unitsPerStorage.Value;
+                    if (lotAvailableInConsumptionUnit <= 0) continue;
+
+                    var consumeFromLot = Math.Min(remainingQty, lotAvailableInConsumptionUnit);
+
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(), input.IndicatorId,
+                        line.ProductId, null, line.UnitId,
+                        isFirst ? line.RecommendedQuantity : 0);
+                    consumption.ActualQuantity = consumeFromLot;
+                    consumption.SubmitDate = Clock.Now;
+                    consumption.WarehouseId = lot.WarehouseId;
+                    consumption.LotNumber = lot.LotNumber;
+                    consumption.WarehouseImportReceiptItemId = lot.WarehouseImportReceiptItemId;
+                    consumption.BarcodeCode = barcodeMap.GetValueOrDefault(lot.WarehouseImportReceiptItemId);
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                    newConsumptions.Add(consumption);
+
+                    remainingQty -= consumeFromLot;
+                    isFirst = false;
+                }
+
+                // Overflow: remaining quantity exceeds all lots — assign to last lot
+                if (remainingQty > 0)
+                {
+                    var lastLot = productLots.Last();
+                    var consumption = new IndicatorConsumption(
+                        GuidGenerator.Create(), input.IndicatorId,
+                        line.ProductId, null, line.UnitId, 0);
+                    consumption.ActualQuantity = remainingQty;
+                    consumption.SubmitDate = Clock.Now;
+                    consumption.WarehouseId = lastLot.WarehouseId;
+                    consumption.LotNumber = lastLot.LotNumber;
+                    consumption.WarehouseImportReceiptItemId = lastLot.WarehouseImportReceiptItemId;
+                    consumption.BarcodeCode = barcodeMap.GetValueOrDefault(lastLot.WarehouseImportReceiptItemId);
+                    consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                    newConsumptions.Add(consumption);
+                }
             }
 
             await CurrentUnitOfWork.SaveChangesAsync();
@@ -206,7 +308,6 @@ public partial class TestingAppService
         }
 
         // Update task status
-        var task = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
         var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
         var newTaskStatus = CalculateTaskStatusFromIndicators(allIndicators);
         if (task.Status != newTaskStatus)
@@ -241,9 +342,10 @@ public partial class TestingAppService
 
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
+            var draftTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, draftTask.LaboratoryId);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -324,7 +426,8 @@ public partial class TestingAppService
             })
             .ToList();
 
-        await EnrichConsumptionLinesAsync(aggregated);
+        var bulkTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
+        await EnrichConsumptionLinesAsync(aggregated, bulkTask.LaboratoryId);
 
         var hasDeductedHistory = false;
         if (indicatorIds.Any())
@@ -396,34 +499,144 @@ public partial class TestingAppService
         if (submittedIndicators.Any() && input.ConsumptionLines.Any())
         {
             var productIdsForWh = input.ConsumptionLines
-                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var whLotMap = await ResolveWarehouseAndLotForProductsAsync(productIdsForWh);
+                .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
+            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh, task.LaboratoryId);
+
+            var products = productIdsForWh.Any()
+                ? await _productRepository.GetListAsync(p => productIdsForWh.Contains(p.Id))
+                : new List<Product>();
+            var productMap = products.ToDictionary(p => p.Id);
+            var skus = productIdsForWh.Any()
+                ? await _productSkuRepository.GetListAsync(s => productIdsForWh.Contains(s.ProductId))
+                : new List<ProductSku>();
+            var skuByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+            var conversions = productIdsForWh.Any()
+                ? await _productUnitConversionRepository.GetListAsync(c => productIdsForWh.Contains(c.ProductId))
+                : new List<ProductUnitConversion>();
+            var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+
+            var allLots = allLotsMap.Values.SelectMany(l => l).ToList();
+            var barcodeMap = await ResolveBarcodeCodesForLotsAsync(allLots);
+
             var consumableProductWhMap = productIdsForWh
-                .ToDictionary(pid => pid, pid => whLotMap.TryGetValue(pid, out var v) ? v.WarehouseId : null);
+                .ToDictionary(pid => pid, pid =>
+                {
+                    var first = allLotsMap.GetValueOrDefault(pid)?.FirstOrDefault();
+                    return first?.WarehouseId;
+                });
             var consumableStocks = await _consumableStockCalculator.ComputeAsync(consumableProductWhMap);
 
             var indicatorCount = submittedIndicators.Count;
-            foreach (var indicator in submittedIndicators)
+
+            // Track cumulative consumption from each lot across all indicators (shared pool)
+            var consumedFromLot = new Dictionary<Guid, decimal>();
+            foreach (var lot in allLots)
+                consumedFromLot.TryAdd(lot.WarehouseImportReceiptItemId, 0m);
+
+            var allNewConsumptions = new List<IndicatorConsumption>();
+
+            foreach (var ind in submittedIndicators)
             {
                 foreach (var line in input.ConsumptionLines)
                 {
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        indicator.Id,
-                        line.ProductId,
-                        line.EquipmentId,
-                        line.UnitId,
-                        line.RecommendedQuantity / indicatorCount);
-                    consumption.ActualQuantity = line.ActualQuantity / indicatorCount;
-                    consumption.IsDeducted = true;
-                    consumption.SubmitDate = Clock.Now;
-                    if (line.ProductId.HasValue && whLotMap.TryGetValue(line.ProductId.Value, out var resolved))
+                    var perIndicatorQty = line.ActualQuantity / indicatorCount;
+                    var perIndicatorRecommended = line.RecommendedQuantity / indicatorCount;
+
+                    if (line.EquipmentId.HasValue || !line.ProductId.HasValue)
                     {
-                        consumption.WarehouseId = resolved.WarehouseId;
-                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
-                        consumption.LotNumber = resolved.LotNumber;
+                        var consumption = new IndicatorConsumption(
+                            GuidGenerator.Create(), ind.Id,
+                            line.ProductId, line.EquipmentId, line.UnitId,
+                            perIndicatorRecommended);
+                        consumption.ActualQuantity = perIndicatorQty;
+                        consumption.IsDeducted = true;
+                        consumption.SubmitDate = Clock.Now;
+                        await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                        allNewConsumptions.Add(consumption);
+                        continue;
                     }
-                    await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+
+                    var productLots = allLotsMap.GetValueOrDefault(line.ProductId.Value);
+                    if (productLots == null || !productLots.Any()
+                        || !productMap.TryGetValue(line.ProductId.Value, out var product))
+                    {
+                        var consumption = new IndicatorConsumption(
+                            GuidGenerator.Create(), ind.Id,
+                            line.ProductId, null, line.UnitId, perIndicatorRecommended);
+                        consumption.ActualQuantity = perIndicatorQty;
+                        consumption.IsDeducted = true;
+                        consumption.SubmitDate = Clock.Now;
+                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                        await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                        allNewConsumptions.Add(consumption);
+                        continue;
+                    }
+
+                    var unitsPerStorage = ResolveUnitsPerStorage(line.UnitId, product, skuByProduct, conversionMap);
+                    if (unitsPerStorage == null || unitsPerStorage.Value == 0)
+                    {
+                        var consumption = new IndicatorConsumption(
+                            GuidGenerator.Create(), ind.Id,
+                            line.ProductId, null, line.UnitId, perIndicatorRecommended);
+                        consumption.ActualQuantity = perIndicatorQty;
+                        consumption.IsDeducted = true;
+                        consumption.SubmitDate = Clock.Now;
+                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                        await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                        allNewConsumptions.Add(consumption);
+                        continue;
+                    }
+
+                    var remainingQty = perIndicatorQty;
+                    bool isFirst = true;
+                    foreach (var lot in productLots)
+                    {
+                        if (remainingQty <= 0) break;
+
+                        var lotTotalInConsumptionUnit = lot.RemainingBaseQuantity * unitsPerStorage.Value;
+                        var alreadyConsumed = consumedFromLot.GetValueOrDefault(lot.WarehouseImportReceiptItemId) * unitsPerStorage.Value;
+                        var lotAvailable = lotTotalInConsumptionUnit - alreadyConsumed;
+                        if (lotAvailable <= 0) continue;
+
+                        var consumeFromLot = Math.Min(remainingQty, lotAvailable);
+
+                        var consumption = new IndicatorConsumption(
+                            GuidGenerator.Create(), ind.Id,
+                            line.ProductId, null, line.UnitId,
+                            isFirst ? perIndicatorRecommended : 0);
+                        consumption.ActualQuantity = consumeFromLot;
+                        consumption.IsDeducted = true;
+                        consumption.SubmitDate = Clock.Now;
+                        consumption.WarehouseId = lot.WarehouseId;
+                        consumption.LotNumber = lot.LotNumber;
+                        consumption.WarehouseImportReceiptItemId = lot.WarehouseImportReceiptItemId;
+                        consumption.BarcodeCode = barcodeMap.GetValueOrDefault(lot.WarehouseImportReceiptItemId);
+                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                        await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                        allNewConsumptions.Add(consumption);
+
+                        consumedFromLot[lot.WarehouseImportReceiptItemId] += consumeFromLot / unitsPerStorage.Value;
+                        remainingQty -= consumeFromLot;
+                        isFirst = false;
+                    }
+
+                    if (remainingQty > 0)
+                    {
+                        var lastLot = productLots.Last();
+                        var consumption = new IndicatorConsumption(
+                            GuidGenerator.Create(), ind.Id,
+                            line.ProductId, null, line.UnitId, 0);
+                        consumption.ActualQuantity = remainingQty;
+                        consumption.IsDeducted = true;
+                        consumption.SubmitDate = Clock.Now;
+                        consumption.WarehouseId = lastLot.WarehouseId;
+                        consumption.LotNumber = lastLot.LotNumber;
+                        consumption.WarehouseImportReceiptItemId = lastLot.WarehouseImportReceiptItemId;
+                        consumption.BarcodeCode = barcodeMap.GetValueOrDefault(lastLot.WarehouseImportReceiptItemId);
+                        consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(line.ProductId.Value);
+                        await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
+                        allNewConsumptions.Add(consumption);
+                    }
                 }
             }
 
@@ -431,9 +644,9 @@ public partial class TestingAppService
 
             await DeductStockFromConsumptionLineInputsAsync(input.ConsumptionLines, laboratoryTaskId);
 
-            var barcodeTargets = input.ConsumptionLines
-                .Where(l => l.ProductId.HasValue && whLotMap.TryGetValue(l.ProductId!.Value, out var r) && r.WarehouseId.HasValue)
-                .Select(l => (l.ProductId!.Value, whLotMap[l.ProductId!.Value].WarehouseId!.Value));
+            var barcodeTargets = allNewConsumptions
+                .Where(c => c.ProductId.HasValue && c.WarehouseId.HasValue)
+                .Select(c => (c.ProductId!.Value, c.WarehouseId!.Value));
             await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
         }
 
@@ -612,7 +825,7 @@ public partial class TestingAppService
         }
     }
 
-    private async Task EnrichConsumptionLinesAsync(List<ConsumptionPreviewLineDto> lines)
+    private async Task EnrichConsumptionLinesAsync(List<ConsumptionPreviewLineDto> lines, Guid? laboratoryId = null)
     {
         var productIds = lines.Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
         var equipmentIds = lines.Where(l => l.EquipmentId.HasValue).Select(l => l.EquipmentId!.Value).Distinct().ToList();
@@ -638,7 +851,7 @@ public partial class TestingAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds, laboratoryId);
         var perWhAvailable = new Dictionary<Guid, decimal>();
         if (productIds.Any())
         {
@@ -714,22 +927,46 @@ public partial class TestingAppService
         }
     }
 
-    private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(IEnumerable<Guid> productIds)
+    private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(
+        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
     {
-        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds);
+        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds, laboratoryId);
         return resolved.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
     }
 
-    private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(IEnumerable<Guid> productIds)
+    private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(
+        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+    {
+        var allLots = await ResolveAllLotsForProductsAsync(productIds, laboratoryId);
+        return allLots.ToDictionary(
+            kv => kv.Key,
+            kv =>
+            {
+                var first = kv.Value.FirstOrDefault();
+                return (first?.WarehouseId, first?.LotNumber);
+            });
+    }
+
+    private async Task<Dictionary<Guid, List<LotAllocation>>> ResolveAllLotsForProductsAsync(
+        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
     {
         var ids = productIds.Distinct().ToList();
-        if (!ids.Any()) return new Dictionary<Guid, (Guid?, string?)>();
+        if (!ids.Any()) return new Dictionary<Guid, List<LotAllocation>>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
         var excludedWarehouseIds = warehouseQuery
             .Where(w => w.Level == 0 || w.IsDefault)
             .Select(w => w.Id)
             .ToHashSet();
+
+        HashSet<Guid>? labWarehouseIds = null;
+        if (laboratoryId.HasValue)
+        {
+            labWarehouseIds = warehouseQuery
+                .Where(w => w.LaboratoryId == laboratoryId.Value)
+                .Select(w => w.Id)
+                .ToHashSet();
+        }
 
         var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
         var receiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
@@ -743,22 +980,135 @@ public partial class TestingAppService
                     orderby item.LotExpiryDate == null ? 1 : 0,
                             item.LotExpiryDate,
                             receipt.ActualImportDate
-                    select new
+                    select new LotAllocation
                     {
-                        item.ProductId,
-                        EffectiveWarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
-                        item.LotNumber
+                        WarehouseImportReceiptItemId = item.Id,
+                        ProductId = item.ProductId,
+                        WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                        LotNumber = item.LotNumber,
+                        RemainingBaseQuantity = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
+                        LotExpiryDate = item.LotExpiryDate,
+                        BarcodeValues = item.BarcodeValues,
+                        SkuId = item.SkuId,
                     })
                     .ToList()
-                    .Where(l => l.EffectiveWarehouseId.HasValue
-                                && !excludedWarehouseIds.Contains(l.EffectiveWarehouseId.Value));
+                    .Where(l => l.WarehouseId.HasValue
+                                && !excludedWarehouseIds.Contains(l.WarehouseId.Value)
+                                && (labWarehouseIds == null || labWarehouseIds.Contains(l.WarehouseId.Value)))
+                    .ToList();
+
+        // Fallback: if lab filter returned empty but lots exist without lab filter, use all warehouses
+        if (labWarehouseIds != null && !lots.Any())
+        {
+            lots = (from item in itemQuery
+                        join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+                        where ids.Contains(item.ProductId)
+                              && receipt.Status == WarehouseImportReceiptStatus.Completed
+                              && item.Status == WarehouseImportLineStatus.Checked
+                              && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                        orderby item.LotExpiryDate == null ? 1 : 0,
+                                item.LotExpiryDate,
+                                receipt.ActualImportDate
+                        select new LotAllocation
+                        {
+                            WarehouseImportReceiptItemId = item.Id,
+                            ProductId = item.ProductId,
+                            WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                            LotNumber = item.LotNumber,
+                            RemainingBaseQuantity = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
+                            LotExpiryDate = item.LotExpiryDate,
+                            BarcodeValues = item.BarcodeValues,
+                            SkuId = item.SkuId,
+                        })
+                        .ToList()
+                        .Where(l => l.WarehouseId.HasValue
+                                    && !excludedWarehouseIds.Contains(l.WarehouseId.Value))
+                        .ToList();
+        }
 
         return ids.ToDictionary(
             id => id,
-            id =>
+            id => lots.Where(l => l.ProductId == id).ToList());
+    }
+
+    private async Task<Dictionary<Guid, string?>> ResolveBarcodeCodesForLotsAsync(
+        List<LotAllocation> lots)
+    {
+        var receiptItemIds = lots
+            .Select(l => l.WarehouseImportReceiptItemId)
+            .Distinct()
+            .ToList();
+        if (!receiptItemIds.Any())
+            return new Dictionary<Guid, string?>();
+
+        var barcodes = await _inventoryBarcodeRepository.GetListAsync(
+            b => receiptItemIds.Contains(b.OriginWarehouseImportReceiptItemId));
+
+        var barcodesByReceiptItem = barcodes
+            .GroupBy(b => b.OriginWarehouseImportReceiptItemId)
+            .ToDictionary(
+                g => g.Key,
+                g => g.OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
+                                    b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
+                      .ToList());
+
+        return receiptItemIds.ToDictionary(
+            riId => riId,
+            riId =>
             {
-                var first = lots.FirstOrDefault(l => l.ProductId == id);
-                return (first?.EffectiveWarehouseId, first?.LotNumber);
+                if (!barcodesByReceiptItem.TryGetValue(riId, out var lotBarcodes))
+                    return (string?)null;
+                var active = lotBarcodes.FirstOrDefault(b =>
+                    b.Status == InventoryBarcodeStatus.InUse
+                    || b.Status == InventoryBarcodeStatus.NotUsed);
+                return active?.Code;
             });
+    }
+
+    private decimal? ResolveUnitsPerStorage(
+        Guid? consumeUnitId,
+        Product product,
+        Dictionary<Guid, List<ProductSku>> skuByProduct,
+        Dictionary<(Guid, Guid), ProductUnitConversion> conversionMap)
+    {
+        decimal? unitsPerStorage = null;
+
+        if (consumeUnitId == product.PackagingUnitId)
+            unitsPerStorage = 1;
+        else if (consumeUnitId == product.VolumeUnitId && product.VolumePerUnit > 0)
+            unitsPerStorage = product.VolumePerUnit.Value;
+        else if (consumeUnitId == product.BaseUnitId && product.PackagingQuantity > 0)
+            unitsPerStorage = 1m / product.PackagingQuantity.Value;
+
+        if (unitsPerStorage == null && skuByProduct.TryGetValue(product.Id, out var pSkus))
+        {
+            foreach (var sku in pSkus)
+            {
+                if (consumeUnitId == sku.PackagingUnitId) { unitsPerStorage = 1; break; }
+                if (consumeUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0) { unitsPerStorage = sku.VolumePerUnit.Value; break; }
+                if (consumeUnitId == sku.BaseUnitId && sku.PackagingQuantity > 0) { unitsPerStorage = 1m / sku.PackagingQuantity.Value; break; }
+            }
+        }
+
+        if (unitsPerStorage == null && consumeUnitId.HasValue
+            && conversionMap.TryGetValue((product.Id, consumeUnitId.Value), out var conv)
+            && conv.ConvertedQuantity > 0)
+        {
+            unitsPerStorage = conv.ConvertedQuantity / conv.Quantity;
+        }
+
+        return unitsPerStorage;
+    }
+
+    private class LotAllocation
+    {
+        public Guid WarehouseImportReceiptItemId { get; set; }
+        public Guid ProductId { get; set; }
+        public Guid? WarehouseId { get; set; }
+        public string? LotNumber { get; set; }
+        public decimal RemainingBaseQuantity { get; set; }
+        public DateTime? LotExpiryDate { get; set; }
+        public string? BarcodeValues { get; set; }
+        public Guid? SkuId { get; set; }
     }
 }

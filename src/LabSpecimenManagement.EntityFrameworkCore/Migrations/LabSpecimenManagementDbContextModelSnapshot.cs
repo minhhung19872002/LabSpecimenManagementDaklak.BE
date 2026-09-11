@@ -6861,6 +6861,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
 
+                    b.Property<string>("BarcodeCode")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<decimal?>("ConsumableStockBefore")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)");
@@ -6904,6 +6908,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("WarehouseId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("WarehouseImportReceiptItemId")
+                        .HasColumnType("uuid");
+
                     b.HasKey("Id");
 
                     b.HasIndex("EquipmentId");
@@ -6915,6 +6922,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("ProductId");
 
                     b.HasIndex("WarehouseId");
+
+                    b.HasIndex("WarehouseImportReceiptItemId");
 
                     b.ToTable("AppIndicatorConsumptions", (string)null);
                 });

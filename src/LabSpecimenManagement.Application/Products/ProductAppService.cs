@@ -1382,7 +1382,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         var consumptions = icQuery
             .Where(ic => ic.ProductId == id && ic.IsDeducted && ic.SubmitDate.HasValue)
             .Where(ic => !warehouseId.HasValue || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value))
-            .Select(ic => new { ic.LotNumber, ic.RecommendedQuantity, ic.UnitId, ic.SubmitDate })
+            .Select(ic => new { ic.LotNumber, ic.ActualQuantity, ic.UnitId, ic.SubmitDate })
             .ToList()
             .Where(ic => !lastInventoryDate.HasValue || (ic.SubmitDate!.Value > lastInventoryDate.Value))
             .ToList();
@@ -1395,7 +1395,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToDictionary(
                 g => g.Key,
                 g => g.Sum(ic => ConvertConsumptionToPackaging(
-                    ic.RecommendedQuantity, ic.UnitId, product, productSkus, conversionMap)));
+                    ic.ActualQuantity, ic.UnitId, product, productSkus, conversionMap)));
 
         // PSB consumption: IsDeducted=false, PreparedSolutionBatchId != null, dùng ActualQuantity (display qty)
         var psbConsumptions = icQuery
@@ -2402,7 +2402,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             icFiltered = icFiltered.Where(c => c.LotNumber == input.LotNumber);
 
         var icSubmissions = icFiltered
-            .Select(c => new { c.LaboratoryTaskIndicatorId, c.SubmitDate })
+            .Select(c => new { c.LaboratoryTaskIndicatorId, c.SubmitDate, c.LotNumber, c.BarcodeCode })
             .Distinct()
             .ToList();
 
@@ -2457,6 +2457,8 @@ public class ProductAppService : ApplicationService, IProductAppService
                     TechnicianId = d.TechnicianId,
                     Result = d.Result,
                     ResultSubmissionDate = s.SubmitDate,
+                    BarcodeCode = s.BarcodeCode,
+                    LotNumber = s.LotNumber,
                 };
             })
             .ToList();
@@ -2524,7 +2526,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         var icAll = icAllQuery.ToList();
 
         var icByLtiSubmit = icAll
-            .GroupBy(c => (c.LaboratoryTaskIndicatorId, c.SubmitDate))
+            .GroupBy(c => (c.LaboratoryTaskIndicatorId, c.SubmitDate, c.LotNumber, c.BarcodeCode))
             .ToDictionary(
                 g => g.Key,
                 g => (Quantity: g.Sum(c => c.ActualQuantity), UnitId: g.First().UnitId,
@@ -2561,11 +2563,11 @@ public class ProductAppService : ApplicationService, IProductAppService
         foreach (var r in merged)
         {
             // PSB rows already have ConsumptionAmount + ConsumptionUnitId pre-filled — just resolve name
-            if (r.ConsumptionUnitId.HasValue && r.ConsumptionAmount.HasValue && !icByLtiSubmit.ContainsKey((r.LtiId, r.SubmitDate)))
+            if (r.ConsumptionUnitId.HasValue && r.ConsumptionAmount.HasValue && !icByLtiSubmit.ContainsKey((r.LtiId, r.SubmitDate, r.LotNumber, r.BarcodeCode)))
             {
                 r.ConsumptionUnitName = unitNames.GetValueOrDefault(r.ConsumptionUnitId.Value);
             }
-            else if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate), out var ic))
+            else if (icByLtiSubmit.TryGetValue((r.LtiId, r.SubmitDate, r.LotNumber, r.BarcodeCode), out var ic))
             {
                 r.ConsumptionAmount = ic.Quantity;
                 r.ConsumptionUnitId = ic.UnitId;
@@ -2706,6 +2708,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             ConsumableStockUnitName = r.ConsumableStockUnitName,
             ConsumptionAmount = r.ConsumptionAmount,
             ConsumptionUnitName = r.ConsumptionUnitName,
+            BarcodeCode = r.BarcodeCode,
         }).ToList();
 
         return new PagedResultDto<ProductUsageLogItemDto>(totalCount, items);
@@ -2783,6 +2786,8 @@ public class ProductAppService : ApplicationService, IProductAppService
         public decimal? ConsumptionAmount { get; set; }
         public string? ConsumptionUnitName { get; set; }
         public Guid? ConsumptionUnitId { get; set; }
+        public string? BarcodeCode { get; set; }
+        public string? LotNumber { get; set; }
     }
 
     private static decimal ConvertConsumptionToVolume(

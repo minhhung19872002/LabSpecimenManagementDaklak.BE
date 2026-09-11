@@ -19,6 +19,8 @@ public class IndicatorConsumption : Entity<Guid>
     public Guid? PreparedSolutionBatchId { get; set; }
     public string? TechnicianName { get; set; }
     public DateTime? ConsumptionDate { get; set; }
+    public string? BarcodeCode { get; set; }
+    public Guid? WarehouseImportReceiptItemId { get; set; }
 
     protected IndicatorConsumption() { }
 

@@ -540,11 +540,11 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 {
                     // PSB consumption dùng ActualQuantity (đã ở display qty, không cần convert)
                     if (ic.PreparedSolutionBatchId != null) return ic.ActualQuantity;
-                    if (!productMap.TryGetValue(g.Key.Item1, out var prod)) return ic.RecommendedQuantity;
+                    if (!productMap.TryGetValue(g.Key.Item1, out var prod)) return ic.ActualQuantity;
                     var prodSkus = skusByProduct.GetValueOrDefault(g.Key.Item1) ?? new List<ProductSku>();
                     int defaultVpu = prodSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
                                      ?? prod.VolumePerUnit ?? 0;
-                    return ConvertConsumptionToVolume(ic.RecommendedQuantity, ic.UnitId, prod, prodSkus, conversionMap, defaultVpu);
+                    return ConvertConsumptionToVolume(ic.ActualQuantity, ic.UnitId, prod, prodSkus, conversionMap, defaultVpu);
                 }));
 
         var result = new List<WarehouseProductLotDto>();
