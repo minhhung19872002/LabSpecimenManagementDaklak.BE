@@ -19,4 +19,7 @@ public class CreateUpdateWarehouseDto
     public bool IsActive { get; set; } = true;
 
     public Guid? ParentWarehouseId { get; set; }
+
+    [Required]
+    public Guid LaboratoryId { get; set; }
 }

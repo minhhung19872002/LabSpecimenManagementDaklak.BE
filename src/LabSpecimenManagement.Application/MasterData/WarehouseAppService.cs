@@ -33,6 +33,7 @@ public class WarehouseAppService :
     private readonly IRepository<RoleWarehouse, Guid> _roleWarehouseRepository;
     private readonly IdentityUserManager _userManager;
     private readonly IIdentityRoleRepository _roleRepository;
+    private readonly IRepository<Laboratory, Guid> _laboratoryRepository;
 
     public WarehouseAppService(
         IRepository<Warehouse, Guid> repository,
@@ -40,7 +41,8 @@ public class WarehouseAppService :
         IRepository<UserWarehouse, Guid> userWarehouseRepository,
         IRepository<RoleWarehouse, Guid> roleWarehouseRepository,
         IdentityUserManager userManager,
-        IIdentityRoleRepository roleRepository)
+        IIdentityRoleRepository roleRepository,
+        IRepository<Laboratory, Guid> laboratoryRepository)
         : base(repository)
     {
         _dataFilter = dataFilter;
@@ -48,6 +50,7 @@ public class WarehouseAppService :
         _roleWarehouseRepository = roleWarehouseRepository;
         _userManager = userManager;
         _roleRepository = roleRepository;
+        _laboratoryRepository = laboratoryRepository;
         GetPolicyName = LabSpecimenManagementPermissions.Warehouses.Default;
         GetListPolicyName = LabSpecimenManagementPermissions.Warehouses.Default;
         CreatePolicyName = LabSpecimenManagementPermissions.MasterData.Create;
@@ -66,6 +69,7 @@ public class WarehouseAppService :
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
         await FillParentWarehouseNamesAsync(dtos);
+        await FillLaboratoryNamesAsync(dtos);
 
         return new PagedResultDto<WarehouseDto>(totalCount, dtos);
     }
@@ -100,6 +104,7 @@ public class WarehouseAppService :
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
         await FillParentWarehouseNamesAsync(dtos);
+        await FillLaboratoryNamesAsync(dtos);
 
         return new ListResultDto<WarehouseDto>(dtos);
     }
@@ -115,6 +120,7 @@ public class WarehouseAppService :
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(items);
         await FillParentWarehouseNamesAsync(dtos);
+        await FillLaboratoryNamesAsync(dtos);
 
         return new ListResultDto<WarehouseDto>(dtos);
     }
@@ -291,13 +297,14 @@ public class WarehouseAppService :
 
         var dtos = ObjectMapper.Map<List<Warehouse>, List<WarehouseDto>>(filtered);
         await FillParentWarehouseNamesAsync(dtos);
+        await FillLaboratoryNamesAsync(dtos);
 
         return new ListResultDto<WarehouseDto>(dtos);
     }
 
     protected override async Task<Warehouse> MapToEntityAsync(CreateUpdateWarehouseDto createInput)
     {
-        return new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name)
+        return new Warehouse(GuidGenerator.Create(), createInput.Code, createInput.Name, createInput.LaboratoryId)
         {
             PhysicalLocation = createInput.PhysicalLocation,
             IsActive = createInput.IsActive,
@@ -313,6 +320,7 @@ public class WarehouseAppService :
         entity.PhysicalLocation = updateInput.PhysicalLocation;
         entity.IsActive = updateInput.IsActive;
         entity.ParentWarehouseId = updateInput.ParentWarehouseId;
+        entity.LaboratoryId = updateInput.LaboratoryId;
         entity.Level = await ComputeLevelAsync(updateInput.ParentWarehouseId);
     }
 
@@ -437,6 +445,40 @@ public class WarehouseAppService :
             if (dto.ParentWarehouseId != null && parents.TryGetValue(dto.ParentWarehouseId.Value, out var name))
             {
                 dto.ParentWarehouseName = name;
+            }
+        }
+    }
+
+    private async Task FillLaboratoryNamesAsync(List<WarehouseDto> dtos)
+    {
+        var labIds = dtos.Where(x => x.LaboratoryId.HasValue)
+            .Select(x => x.LaboratoryId!.Value)
+            .Distinct()
+            .ToList();
+
+        if (labIds.Count == 0) return;
+
+        var labQuery = await _laboratoryRepository.GetQueryableAsync();
+        var labs = labQuery.Where(x => labIds.Contains(x.Id))
+            .Select(x => new { x.Id, x.DepartmentId })
+            .ToList();
+
+        var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
+        var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
+        var deptQuery = await deptRepo.GetQueryableAsync();
+        var deptNames = deptQuery.Where(x => deptIds.Contains(x.Id))
+            .ToList()
+            .ToDictionary(x => x.Id, x => x.Name);
+
+        var labToDeptName = labs.ToDictionary(
+            x => x.Id,
+            x => deptNames.GetValueOrDefault(x.DepartmentId));
+
+        foreach (var dto in dtos)
+        {
+            if (dto.LaboratoryId.HasValue && labToDeptName.TryGetValue(dto.LaboratoryId.Value, out var deptName))
+            {
+                dto.LaboratoryName = deptName;
             }
         }
     }

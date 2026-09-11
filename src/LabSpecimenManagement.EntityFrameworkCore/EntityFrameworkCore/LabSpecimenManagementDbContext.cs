@@ -905,6 +905,12 @@ public class LabSpecimenManagementDbContext :
                 .WithMany()
                 .HasForeignKey(x => x.ParentWarehouseId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            b.HasOne<Laboratory>()
+                .WithMany()
+                .HasForeignKey(x => x.LaboratoryId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .IsRequired(false);
         });
 
         // Customer configuration

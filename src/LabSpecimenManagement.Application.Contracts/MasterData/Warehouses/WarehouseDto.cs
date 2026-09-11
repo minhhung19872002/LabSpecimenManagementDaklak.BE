@@ -14,4 +14,6 @@ public class WarehouseDto : FullAuditedEntityDto<Guid>
     public Guid? ParentWarehouseId { get; set; }
     public string? ParentWarehouseName { get; set; }
     public int Level { get; set; }
+    public Guid? LaboratoryId { get; set; }
+    public string? LaboratoryName { get; set; }
 }

@@ -3008,6 +3008,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("IsDeleted");
 
+                    b.Property<Guid?>("LaboratoryId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -3041,6 +3044,8 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Code")
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false");
+
+                    b.HasIndex("LaboratoryId");
 
                     b.HasIndex("ParentWarehouseId");
 
@@ -9340,6 +9345,11 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Warehouse", b =>
                 {
+                    b.HasOne("LabSpecimenManagement.MasterData.Laboratory", null)
+                        .WithMany()
+                        .HasForeignKey("LaboratoryId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("LabSpecimenManagement.MasterData.Warehouse", null)
                         .WithMany()
                         .HasForeignKey("ParentWarehouseId")

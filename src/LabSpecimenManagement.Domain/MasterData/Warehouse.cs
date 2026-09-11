@@ -22,14 +22,17 @@ public class Warehouse : FullAuditedAggregateRoot<Guid>, IHasActive
 
     public int Level { get; set; }
 
+    public Guid? LaboratoryId { get; set; }
+
     protected Warehouse()
     {
     }
 
-    public Warehouse(Guid id, string code, string name) : base(id)
+    public Warehouse(Guid id, string code, string name, Guid? laboratoryId = null) : base(id)
     {
         Code = code;
         Name = name;
+        LaboratoryId = laboratoryId;
         IsActive = true;
         SortOrder = 0;
     }
