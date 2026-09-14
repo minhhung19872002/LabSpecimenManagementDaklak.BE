@@ -1847,8 +1847,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // lotTracker: productId → list lô FEFO toàn bộ kho (global FEFO)
-        // Mỗi lô giữ WarehouseId để ghi đúng vào consumption record và tính stockBefore per-kho
-        var lotTracker = new Dictionary<Guid, List<(string? LotNumber, Guid? WarehouseId, decimal Remaining)>>();
+        // Mỗi lô giữ WarehouseId + ReceiptItemId để ghi đúng vào consumption record, tính stockBefore per-kho, và lookup barcode
+        var lotTracker = new Dictionary<Guid, List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal Remaining)>>();
         // stockBeforeByWarehouse: (productId, warehouseId) → tổng consumable stock (mL) tại kho đó trước khi split
         var stockBeforeByWarehouse = new Dictionary<(Guid, Guid?), decimal>();
         if (lotProductIds.Any())
@@ -1874,6 +1874,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                            select new
                            {
                                ii.ProductId,
+                               ReceiptItemId = ii.Id,
                                EffWh = ii.StorageWarehouseId ?? ir.WarehouseId,
                                ii.LotNumber,
                                ii.LotExpiryDate,
@@ -1938,7 +1939,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         ? ktvUsedDisplay / vpu2.Value
                         : ktvUsedDisplay;
                     var remaining = l.BaseReceived - l.BaseConsumed - ktvUsedBase;
-                    return (l.LotNumber, WarehouseId: l.EffWh, Remaining: remaining);
+                    return (l.LotNumber, WarehouseId: l.EffWh, ReceiptItemId: l.ReceiptItemId, Remaining: remaining);
                 }).ToList();
 
                 lotTracker[pid2] = lots;
@@ -1949,6 +1950,30 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     var totalBase = byWh.Sum(l => l.Remaining);
                     var totalDisplay = vpu2.HasValue && vpu2.Value > 0 ? totalBase * vpu2.Value : totalBase;
                     stockBeforeByWarehouse[(pid2, byWh.Key)] = Math.Max(0, totalDisplay);
+                }
+            }
+        }
+
+        // Lookup barcode codes cho tất cả receipt items trong lotTracker
+        var allReceiptItemIds = lotTracker.Values.SelectMany(lots => lots.Select(l => l.ReceiptItemId)).Distinct().ToList();
+        var barcodeMap = new Dictionary<Guid, string?>();
+        if (allReceiptItemIds.Any())
+        {
+            var barcodes = await _inventoryBarcodeRepository.GetListAsync(
+                b => allReceiptItemIds.Contains(b.OriginWarehouseImportReceiptItemId));
+            var barcodesByReceiptItem = barcodes
+                .GroupBy(b => b.OriginWarehouseImportReceiptItemId)
+                .ToDictionary(g => g.Key, g => g.ToList());
+            foreach (var riId in allReceiptItemIds)
+            {
+                if (barcodesByReceiptItem.TryGetValue(riId, out var lotBarcodes))
+                {
+                    var active = lotBarcodes
+                        .OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
+                                      b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
+                        .FirstOrDefault(b => b.Status == InventoryBarcodeStatus.InUse
+                                          || b.Status == InventoryBarcodeStatus.NotUsed);
+                    barcodeMap[riId] = active?.Code;
                 }
             }
         }
@@ -1982,16 +2007,17 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     var ratio = consumeQty / baseQty.Value;
 
                     // Collect splits FEFO global (tất cả kho), chỉ lô còn tồn > 0
-                    var splits = new List<(string? LotNumber, Guid? WarehouseId, decimal TakeBase)>();
+                    var splits = new List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal TakeBase)>();
                     for (int i = 0; i < lots.Count && remainingBase > 0; i++)
                     {
                         if (lots[i].Remaining <= 0) continue;
                         var take = Math.Min(lots[i].Remaining, remainingBase);
                         var lotNo = lots[i].LotNumber;
                         var lotWh = lots[i].WarehouseId;
-                        lots[i] = (lotNo, lotWh, lots[i].Remaining - take);
+                        var lotRiId = lots[i].ReceiptItemId;
+                        lots[i] = (lotNo, lotWh, lotRiId, lots[i].Remaining - take);
                         remainingBase -= take;
-                        splits.Add((lotNo, lotWh, take));
+                        splits.Add((lotNo, lotWh, lotRiId, take));
                     }
 
                     // Overflow: cộng vào lô cuối đã split, hoặc lô FEFO cuối nếu tất cả đã hết
@@ -2000,12 +2026,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         if (splits.Count > 0)
                         {
                             var last = splits[^1];
-                            splits[^1] = (last.LotNumber, last.WarehouseId, last.TakeBase + remainingBase);
+                            splits[^1] = (last.LotNumber, last.WarehouseId, last.ReceiptItemId, last.TakeBase + remainingBase);
                         }
                         else
                         {
                             var lastLot = lots[^1];
-                            splits.Add((lastLot.LotNumber, lastLot.WarehouseId, remainingBase));
+                            splits.Add((lastLot.LotNumber, lastLot.WarehouseId, lastLot.ReceiptItemId, remainingBase));
                         }
                         remainingBase = 0;
                     }
@@ -2023,12 +2049,15 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         c.WarehouseId = split.WarehouseId;
                         c.ConsumableStockBefore = stockBefore;
                         c.LotNumber = split.LotNumber;
+                        c.WarehouseImportReceiptItemId = split.ReceiptItemId;
+                        c.BarcodeCode = barcodeMap.GetValueOrDefault(split.ReceiptItemId);
                         await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
                     }
                 }
                 else
                 {
                     var resolvedLot = lots.FirstOrDefault(l => l.Remaining > 0);
+                    if (resolvedLot == default) resolvedLot = lots[^1];
                     var stockBefore = stockBeforeByWarehouse.GetValueOrDefault((prodId, resolvedLot.WarehouseId));
                     var c = new IndicatorConsumption(
                         GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
@@ -2039,6 +2068,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     c.WarehouseId = resolvedLot.WarehouseId;
                     c.ConsumableStockBefore = stockBefore;
                     c.LotNumber = resolvedLot.LotNumber;
+                    c.WarehouseImportReceiptItemId = resolvedLot.ReceiptItemId;
+                    c.BarcodeCode = barcodeMap.GetValueOrDefault(resolvedLot.ReceiptItemId);
                     await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
                 }
             }
