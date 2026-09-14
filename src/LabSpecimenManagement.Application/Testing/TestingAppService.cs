@@ -1954,27 +1954,47 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             }
         }
 
-        // Lookup barcode codes cho tất cả receipt items trong lotTracker
+        // Lookup barcode codes: cùng 1 lô có thể nhập nhiều phiếu (nhiều receipt items),
+        // barcode có thể nằm ở receipt item khác cùng ProductId+LotNumber
         var allReceiptItemIds = lotTracker.Values.SelectMany(lots => lots.Select(l => l.ReceiptItemId)).Distinct().ToList();
         var barcodeMap = new Dictionary<Guid, string?>();
-        if (allReceiptItemIds.Any())
+        if (lotProductIds.Any())
         {
+            // Lấy tất cả receipt items cùng ProductId để tìm barcode cross-receipt
+            var allProductReceiptItemIds = (await _importReceiptItemRepository.GetQueryableAsync())
+                .Where(ri => lotProductIds.Contains(ri.ProductId))
+                .Select(ri => new { ri.Id, ri.ProductId, ri.LotNumber })
+                .ToList();
+            var allProductRiIds = allProductReceiptItemIds.Select(ri => ri.Id).Distinct().ToList();
+
             var barcodes = await _inventoryBarcodeRepository.GetListAsync(
-                b => allReceiptItemIds.Contains(b.OriginWarehouseImportReceiptItemId));
-            var barcodesByReceiptItem = barcodes
-                .GroupBy(b => b.OriginWarehouseImportReceiptItemId)
-                .ToDictionary(g => g.Key, g => g.ToList());
+                b => allProductRiIds.Contains(b.OriginWarehouseImportReceiptItemId));
+
+            // Group barcode theo (ProductId, LotNumber) thay vì chỉ ReceiptItemId
+            var riToProductLot = allProductReceiptItemIds.ToDictionary(ri => ri.Id, ri => (ri.ProductId, ri.LotNumber));
+            var barcodesByProductLot = new Dictionary<(Guid, string?), List<InventoryBarcode>>();
+            foreach (var b in barcodes)
+            {
+                if (!riToProductLot.TryGetValue(b.OriginWarehouseImportReceiptItemId, out var key)) continue;
+                if (!barcodesByProductLot.TryGetValue(key, out var list))
+                {
+                    list = new List<InventoryBarcode>();
+                    barcodesByProductLot[key] = list;
+                }
+                list.Add(b);
+            }
+
+            // Map từng receipt item trong lotTracker → barcode (ưu tiên InUse > NotUsed)
             foreach (var riId in allReceiptItemIds)
             {
-                if (barcodesByReceiptItem.TryGetValue(riId, out var lotBarcodes))
-                {
-                    var active = lotBarcodes
-                        .OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
-                                      b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
-                        .FirstOrDefault(b => b.Status == InventoryBarcodeStatus.InUse
-                                          || b.Status == InventoryBarcodeStatus.NotUsed);
-                    barcodeMap[riId] = active?.Code;
-                }
+                if (!riToProductLot.TryGetValue(riId, out var plKey)) continue;
+                if (!barcodesByProductLot.TryGetValue(plKey, out var lotBarcodes)) continue;
+                var active = lotBarcodes
+                    .OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
+                                  b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
+                    .FirstOrDefault(b => b.Status == InventoryBarcodeStatus.InUse
+                                      || b.Status == InventoryBarcodeStatus.NotUsed);
+                barcodeMap[riId] = active?.Code;
             }
         }
 
