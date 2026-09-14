@@ -1763,7 +1763,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
 
         // Deduct stock based on material consumption setup
-        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id);
+        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id, task.LaboratoryId);
 
         // Mark corresponding batch items as externally completed
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
@@ -1787,7 +1787,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
-    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators, Guid taskId)
+    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators, Guid taskId, Guid laboratoryId)
     {
         var indicatorsWithMethod = submittedIndicators.Where(i => i.MethodId.HasValue).ToList();
         if (!indicatorsWithMethod.Any()) return;
@@ -1846,7 +1846,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var convSkuByProduct = convSkus.GroupBy(s => s.ProductId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // lotTracker: productId → list lô FEFO toàn bộ kho (global FEFO)
+        // lotTracker: productId → list lô FEFO trong kho của khoa phòng
         // Mỗi lô giữ WarehouseId + ReceiptItemId để ghi đúng vào consumption record, tính stockBefore per-kho, và lookup barcode
         var lotTracker = new Dictionary<Guid, List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal Remaining)>>();
         // stockBeforeByWarehouse: (productId, warehouseId) → tổng consumable stock (mL) tại kho đó trước khi split
@@ -1860,6 +1860,12 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var whQ = await _warehouseRepository.GetQueryableAsync();
             var excludedWhIds = whQ
                 .Where(w => w.Level == 0 || w.IsDefault)
+                .Select(w => w.Id)
+                .ToHashSet();
+
+            // Filter kho theo khoa phòng thực hiện chỉ tiêu
+            var labWarehouseIds = whQ
+                .Where(w => w.LaboratoryId == laboratoryId)
                 .Select(w => w.Id)
                 .ToHashSet();
 
@@ -1883,6 +1889,14 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                            }).ToList()
                            .Where(l => !l.EffWh.HasValue || !excludedWhIds.Contains(l.EffWh.Value))
                            .ToList();
+
+            // Filter theo kho của khoa phòng, fallback global nếu lab chưa gán kho
+            if (labWarehouseIds.Count > 0)
+            {
+                var labFilteredLots = rawLots.Where(l => l.EffWh.HasValue && labWarehouseIds.Contains(l.EffWh.Value)).ToList();
+                if (labFilteredLots.Any())
+                    rawLots = labFilteredLots;
+            }
 
             // Lấy lastInventoryDate per (productId, warehouseId) để filter consumption sau kiểm kê
             var pwiQ = await _productWarehouseInventoryRepository.GetQueryableAsync();
@@ -1912,7 +1926,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 })
                 .ToList();
 
-            // Build lotTracker per product (global FEFO — gộp tất cả kho, giữ WarehouseId per lô)
+            // Build lotTracker per product (FEFO trong kho của khoa phòng, giữ WarehouseId per lô)
             foreach (var g in rawLots.GroupBy(l => l.ProductId))
             {
                 var pid2 = g.Key;
@@ -2026,7 +2040,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     var remainingBase = baseQty.Value;
                     var ratio = consumeQty / baseQty.Value;
 
-                    // Collect splits FEFO global (tất cả kho), chỉ lô còn tồn > 0
+                    // Collect splits FEFO (kho của khoa phòng), chỉ lô còn tồn > 0
                     var splits = new List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal TakeBase)>();
                     for (int i = 0; i < lots.Count && remainingBase > 0; i++)
                     {

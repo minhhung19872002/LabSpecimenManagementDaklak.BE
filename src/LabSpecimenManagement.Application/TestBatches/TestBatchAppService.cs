@@ -595,7 +595,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var productIdsForWh = consumptionItems
             .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+        var labId = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId);
 
         foreach (var consumptionItem in consumptionItems)
         {
@@ -755,7 +756,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
+        var labId2 = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds, labId2);
         var perWhAvailable = new Dictionary<Guid, decimal>();
         if (productIds.Any())
         {
@@ -856,11 +858,12 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             await _testBatchConsumptionRepository.DeleteManyAsync(nonDeducted);
         }
 
+        var labId3 = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId3);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -950,6 +953,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         }
 
         // Step 2: Handle consumption — each submit round creates a new set of deducted consumptions (accumulate)
+        var labId4 = submittableItems.Any()
+            ? (await _laboratoryTaskRepository.FindAsync(submittableItems[0].LaboratoryTaskId))?.LaboratoryId
+            : await ResolveLaboratoryIdFromBatchAsync(batch.Id);
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
@@ -961,7 +967,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId4);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -1789,6 +1795,16 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     }
 
     #endregion
+
+    private async Task<Guid?> ResolveLaboratoryIdFromBatchAsync(Guid batchId)
+    {
+        var batchItem = await AsyncExecuter.FirstOrDefaultAsync(
+            (await _testBatchItemRepository.GetQueryableAsync())
+                .Where(bi => bi.TestBatchId == batchId));
+        if (batchItem == null) return null;
+        var labTask = await _laboratoryTaskRepository.FindAsync(batchItem.LaboratoryTaskId);
+        return labTask?.LaboratoryId;
+    }
 
     private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(
         IEnumerable<Guid> productIds, Guid? laboratoryId = null)
