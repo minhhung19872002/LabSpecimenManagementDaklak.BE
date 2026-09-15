@@ -404,29 +404,29 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         int rowIndex = 1;
 
         var sampleIndicatorToIndicatorId = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+        var sampleIndicatorToSpecimenTypeId = sampleIndicators.ToDictionary(si => si.Id, si => si.SpecimenTypeId);
 
         string GetUnit(LaboratoryTaskIndicator? ti)
         {
             var unit = ti?.Unit;
 
-            if (!string.IsNullOrWhiteSpace(unit) && HtmlToOpenXmlConverter.ContainsHtmlTags(unit))
+            if (!string.IsNullOrWhiteSpace(unit))
             {
                 return unit;
             }
 
             if (ti?.MethodId != null && sampleIndicatorToIndicatorId.TryGetValue(ti.TestRequestSampleIndicatorId, out var indicatorId))
             {
+                sampleIndicatorToSpecimenTypeId.TryGetValue(ti.TestRequestSampleIndicatorId, out var specimenTypeId);
                 var tmi = methodIndicators.FirstOrDefault(x =>
-                    x.TestMethodId == ti.MethodId && x.IndicatorId == indicatorId);
+                    x.TestMethodId == ti.MethodId && x.IndicatorId == indicatorId && x.SpecimenTypeId == specimenTypeId);
                 if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
-                {
                     return tmi.FormattedUnit;
-                }
+                if (!string.IsNullOrWhiteSpace(tmi?.Unit))
+                    return tmi.Unit;
             }
 
-            return useHyphenForEmptyUnit
-                ? (string.IsNullOrWhiteSpace(unit) ? "-" : unit!)
-                : (unit ?? "");
+            return useHyphenForEmptyUnit ? "-" : "";
         }
 
         // For subcontract flow, ưu tiên tên phương pháp phụ nhập tại popup.
@@ -4919,19 +4919,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // 4. Build table data - single indicator
-        // Resolve unit with TestMethodIndicator fallback
+        // Resolve unit: ưu tiên từ task, fallback master data khi task không có
         var resolvedUnit = labTaskIndicator.Unit;
-        if (string.IsNullOrWhiteSpace(resolvedUnit) || !HtmlToOpenXmlConverter.ContainsHtmlTags(resolvedUnit))
+        if (string.IsNullOrWhiteSpace(resolvedUnit) && labTaskIndicator.MethodId.HasValue)
         {
-            if (labTaskIndicator.MethodId.HasValue)
-            {
-                var tmi = await _testMethodIndicatorRepository.FirstOrDefaultAsync(x =>
-                    x.TestMethodId == labTaskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId);
-                if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
-                {
-                    resolvedUnit = tmi.FormattedUnit;
-                }
-            }
+            var tmi = await _testMethodIndicatorRepository.FirstOrDefaultAsync(x =>
+                x.TestMethodId == labTaskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId && x.SpecimenTypeId == sampleIndicator.SpecimenTypeId);
+            resolvedUnit = tmi?.FormattedUnit ?? tmi?.Unit;
         }
 
         var tableData = new List<ResultFormTableRow>
@@ -5103,20 +5097,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId))
             : new List<TestMethodIndicator>();
         var sampleIndicatorToIndicatorIdQm = sampleIndicators.ToDictionary(si => si.Id, si => si.IndicatorId);
+        var sampleIndicatorToSpecimenTypeIdQm = sampleIndicators.ToDictionary(si => si.Id, si => si.SpecimenTypeId);
 
         string ResolveUnitQm(LaboratoryTaskIndicator lti)
         {
             var unit = lti.Unit;
-            if (!string.IsNullOrWhiteSpace(unit) && HtmlToOpenXmlConverter.ContainsHtmlTags(unit))
+            if (!string.IsNullOrWhiteSpace(unit))
                 return unit;
             if (lti.MethodId != null && sampleIndicatorToIndicatorIdQm.TryGetValue(lti.TestRequestSampleIndicatorId, out var indicatorId))
             {
+                sampleIndicatorToSpecimenTypeIdQm.TryGetValue(lti.TestRequestSampleIndicatorId, out var specimenTypeId);
                 var tmi = methodIndicatorsQm.FirstOrDefault(x =>
-                    x.TestMethodId == lti.MethodId && x.IndicatorId == indicatorId);
-                if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
-                    return tmi.FormattedUnit;
+                    x.TestMethodId == lti.MethodId && x.IndicatorId == indicatorId && x.SpecimenTypeId == specimenTypeId);
+                return tmi?.FormattedUnit ?? tmi?.Unit ?? "-";
             }
-            return string.IsNullOrWhiteSpace(unit) ? "-" : unit;
+            return "-";
         }
 
         // Get StandardIndicator data for BM05-QLNN template (ComparisonOperator, AllowedLimit)
@@ -5879,19 +5874,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 method = methodDict.GetValueOrDefault(taskIndicator.MethodId.Value);
             }
 
-            // Resolve unit with TestMethodIndicator fallback
+            // Resolve unit: ưu tiên từ task, fallback master data khi task không có
             var resolvedUnit = taskIndicator?.Unit;
-            if (taskIndicator != null && (string.IsNullOrWhiteSpace(resolvedUnit) || !HtmlToOpenXmlConverter.ContainsHtmlTags(resolvedUnit)))
+            if (string.IsNullOrWhiteSpace(resolvedUnit) && taskIndicator?.MethodId != null && sampleIndicator != null)
             {
-                if (taskIndicator.MethodId != null && sampleIndicator != null)
-                {
-                    var tmi = methodIndicators.FirstOrDefault(x =>
-                        x.TestMethodId == taskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId);
-                    if (!string.IsNullOrWhiteSpace(tmi?.FormattedUnit))
-                    {
-                        resolvedUnit = tmi.FormattedUnit;
-                    }
-                }
+                var tmi = methodIndicators.FirstOrDefault(x =>
+                    x.TestMethodId == taskIndicator.MethodId && x.IndicatorId == sampleIndicator.IndicatorId && x.SpecimenTypeId == sampleIndicator.SpecimenTypeId);
+                resolvedUnit = tmi?.FormattedUnit ?? tmi?.Unit;
             }
 
             tableData.Add(new ResultFormTableRow
