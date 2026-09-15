@@ -239,6 +239,10 @@ public class ConsumableStockCalculator : IConsumableStockCalculator, ITransientD
             for (int j = 0; j < consumeVolumes.Length; j++)
                 totalConsumed += consumeVolumes[j];
 
+            // ConsumedBaseQuantity stays 0 (no auto-deduction), so currentConsumable = received.
+            // Subtract theoretical consumption to get actual current stock.
+            currentConsumable = Math.Max(0, currentConsumable - totalConsumed);
+
             decimal running = currentConsumable + totalConsumed;
             for (int i = allDeducted.Count - 1; i >= 0; i--)
             {

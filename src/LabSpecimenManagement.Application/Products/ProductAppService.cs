@@ -2649,6 +2649,26 @@ public class ProductAppService : ApplicationService, IProductAppService
             int defaultVpu = productSkusForLog.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
                              ?? product.VolumePerUnit ?? 0;
 
+            // When auto-deduction is OFF, ConsumedBaseQuantity stays 0 so currentConsumable = received.
+            // Subtract ALL theoretical consumption (ignoring date range) to get the true current stock.
+            var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
+                .Where(c => c.ProductId == id && c.IsDeducted);
+            if (usageLogWarehouseIds != null)
+                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+            if (!string.IsNullOrEmpty(input.LotNumber))
+                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.LotNumber == input.LotNumber);
+            var allIcForBalance = allIcForBalanceQ.ToList();
+
+            decimal totalTheoreticalVol = 0;
+            foreach (var ic in allIcForBalance)
+            {
+                if (ic.ActualQuantity > 0)
+                    totalTheoreticalVol += ConvertConsumptionToVolume(
+                        ic.ActualQuantity, ic.UnitId,
+                        product, productSkusForLog, conversionMap, defaultVpu);
+            }
+            currentConsumable = Math.Max(0, currentConsumable - totalTheoreticalVol);
+
             var consumeVolumes = new decimal[merged.Count];
             for (int i = 0; i < merged.Count; i++)
             {
@@ -2666,20 +2686,14 @@ public class ProductAppService : ApplicationService, IProductAppService
                 totalConsumedInList += consumeVolumes[j];
 
             decimal running = currentConsumable + totalConsumedInList;
-            // When filtering by lot, stored values were frozen per-product (not per-lot)
-            // and are incorrect — skip them so the per-lot running balance is used.
-            var useStoredAnchors = string.IsNullOrEmpty(input.LotNumber);
             decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
-                if (useStoredAnchors)
+                var stored = merged[i].StoredConsumableStockBefore;
+                if (stored.HasValue && stored.Value != lastAnchor)
                 {
-                    var stored = merged[i].StoredConsumableStockBefore;
-                    if (stored.HasValue && stored.Value != lastAnchor)
-                    {
-                        running = stored.Value;
-                        lastAnchor = stored.Value;
-                    }
+                    running = stored.Value;
+                    lastAnchor = stored.Value;
                 }
 
                 merged[i].ConsumableStockBefore = running;
