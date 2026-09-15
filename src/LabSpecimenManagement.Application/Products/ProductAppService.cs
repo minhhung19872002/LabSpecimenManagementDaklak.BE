@@ -1455,7 +1455,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                 ConsumedBaseQuantity = totalConsumed,
                 RemainingBaseQuantity = remaining,
                 TheoreticalConsumption = lotConsumption + psbConsumption,
-                OpeningBaseQuantity = remaining + lotConsumption,
+                OpeningBaseQuantity = remaining,
                 VolumePerUnit = volumePerUnit,
                 VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
                 PackagingUnitName = packagingUnitId.HasValue && unitNames.TryGetValue(packagingUnitId.Value, out var pun) ? pun : null,
