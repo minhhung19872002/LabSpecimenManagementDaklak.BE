@@ -2706,20 +2706,14 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             decimal currentStock = Math.Max(0, receivedVol - totalAllConsumptionVol);
             decimal running = currentStock + totalConsumedInList;
-            bool useLotFilter = !string.IsNullOrEmpty(input.LotNumber);
             decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
-                // Stored anchors are computed for the whole product (all lots combined),
-                // so they are only valid when viewing without a lot filter.
-                if (!useLotFilter)
+                var stored = merged[i].StoredConsumableStockBefore;
+                if (stored.HasValue && stored.Value != lastAnchor)
                 {
-                    var stored = merged[i].StoredConsumableStockBefore;
-                    if (stored.HasValue && stored.Value != lastAnchor)
-                    {
-                        running = stored.Value;
-                        lastAnchor = stored.Value;
-                    }
+                    running = stored.Value;
+                    lastAnchor = stored.Value;
                 }
 
                 merged[i].ConsumableStockBefore = running;
