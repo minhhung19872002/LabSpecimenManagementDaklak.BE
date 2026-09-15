@@ -147,38 +147,78 @@ public class ConsumableStockCalculator : IConsumableStockCalculator, ITransientD
         var conversions = await _conversionRepository.GetListAsync(c => affectedProductIds.Contains(c.ProductId));
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var warehouseGroups = unfrozen
-            .GroupBy(c => (c.ProductId!.Value, c.WarehouseId))
-            .Select(g => new { ProductId = g.Key.Value, WarehouseId = g.Key.WarehouseId })
+        // Group by (ProductId, WarehouseId, LotNumber) so each lot gets its own running balance
+        var lotGroups = unfrozen
+            .GroupBy(c => (c.ProductId!.Value, c.WarehouseId, c.LotNumber ?? ""))
+            .Select(g => new { ProductId = g.Key.Value, WarehouseId = g.Key.WarehouseId, LotNumber = g.Key.Item3 })
             .ToList();
 
-        var stockCache = new Dictionary<(Guid, Guid?), decimal>();
-        foreach (var wg in warehouseGroups)
-        {
-            var key = (wg.ProductId, wg.WarehouseId);
-            if (!stockCache.ContainsKey(key))
-            {
-                var map = new Dictionary<Guid, Guid?> { { wg.ProductId, wg.WarehouseId } };
-                var result = await ComputeAsync(map);
-                stockCache[key] = result.GetValueOrDefault(wg.ProductId);
-            }
-        }
+        // Pre-load receipt items per product+warehouse for per-lot stock calculation
+        var affectedPidList = affectedProductIds;
+        var itemQ = await _receiptItemRepository.GetQueryableAsync();
+        var receiptQ = await _receiptRepository.GetQueryableAsync();
 
-        foreach (var wg in warehouseGroups)
+        var allReceiptItems = (from item in itemQ
+                               join receipt in receiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                               where affectedPidList.Contains(item.ProductId)
+                                     && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                     && item.Status == WarehouseImportLineStatus.Checked
+                               select new
+                               {
+                                   item.ProductId,
+                                   item.ReceivedBaseQuantity,
+                                   item.ConsumedBaseQuantity,
+                                   item.SkuId,
+                                   item.StorageWarehouseId,
+                                   receipt.WarehouseId,
+                                   item.LotNumber
+                               }).ToList();
+
+        var skuById = skus.ToDictionary(s => s.Id);
+
+        foreach (var lg in lotGroups)
         {
-            var productId = wg.ProductId;
+            var productId = lg.ProductId;
             if (!productMap.TryGetValue(productId, out var product)) continue;
 
-            var whId = wg.WarehouseId;
-            var currentConsumable = stockCache.GetValueOrDefault((productId, whId));
+            var whId = lg.WarehouseId;
+            var lotNumber = lg.LotNumber;
 
             var productSkus = skusByProduct.GetValueOrDefault(productId) ?? new List<ProductSku>();
             int defaultVpu = productSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
                              ?? product.VolumePerUnit ?? 0;
 
+            // Compute current consumable stock for this specific lot
+            decimal currentConsumable = 0;
+            foreach (var ri in allReceiptItems.Where(r => r.ProductId == productId))
+            {
+                if (whId.HasValue)
+                {
+                    var riWh = ri.StorageWarehouseId ?? ri.WarehouseId;
+                    if (!riWh.HasValue || riWh.Value != whId.Value) continue;
+                }
+                if ((ri.LotNumber ?? "") != lotNumber) continue;
+
+                var remaining = ri.ReceivedBaseQuantity - ri.ConsumedBaseQuantity;
+                if (remaining <= 0) continue;
+
+                int? vpu = null;
+                if (ri.SkuId.HasValue && skuById.TryGetValue(ri.SkuId.Value, out var sku))
+                {
+                    if (sku.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
+                }
+                if (!vpu.HasValue && product.VolumePerUnit > 0)
+                    vpu = product.VolumePerUnit;
+
+                if (vpu.HasValue && vpu.Value > 0)
+                    currentConsumable += remaining * vpu.Value;
+            }
+
+            // Only deducted consumption for this lot
             var allDeducted = icQuery
                 .Where(c => c.ProductId == productId && c.IsDeducted
-                            && c.WarehouseId == whId)
+                            && c.WarehouseId == whId
+                            && (c.LotNumber ?? "") == lotNumber)
                 .OrderByDescending(c => c.SubmitDate)
                 .ThenByDescending(c => c.Id)
                 .ToList();

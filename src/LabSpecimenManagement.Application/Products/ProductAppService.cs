@@ -2666,14 +2666,20 @@ public class ProductAppService : ApplicationService, IProductAppService
                 totalConsumedInList += consumeVolumes[j];
 
             decimal running = currentConsumable + totalConsumedInList;
+            // When filtering by lot, stored values were frozen per-product (not per-lot)
+            // and are incorrect — skip them so the per-lot running balance is used.
+            var useStoredAnchors = string.IsNullOrEmpty(input.LotNumber);
             decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
-                var stored = merged[i].StoredConsumableStockBefore;
-                if (stored.HasValue && stored.Value != lastAnchor)
+                if (useStoredAnchors)
                 {
-                    running = stored.Value;
-                    lastAnchor = stored.Value;
+                    var stored = merged[i].StoredConsumableStockBefore;
+                    if (stored.HasValue && stored.Value != lastAnchor)
+                    {
+                        running = stored.Value;
+                        lastAnchor = stored.Value;
+                    }
                 }
 
                 merged[i].ConsumableStockBefore = running;
