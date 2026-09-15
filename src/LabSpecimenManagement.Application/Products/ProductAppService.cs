@@ -2594,52 +2594,8 @@ public class ProductAppService : ApplicationService, IProductAppService
             }
         }
 
-        // Compute current consumable stock (in volume units) for running balance
-        var logImportItemQ = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
-        var logImportReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
-
-        var lotQuery = from item in logImportItemQ
-                       join receipt in logImportReceiptQ on item.WarehouseImportReceiptId equals receipt.Id
-                       where item.ProductId == id
-                             && receipt.Status == WarehouseImportReceiptStatus.Completed
-                             && item.Status == WarehouseImportLineStatus.Checked
-                       select new { item.ReceivedBaseQuantity, item.ConsumedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId, item.LotNumber };
-
-        if (usageLogWarehouseIds != null)
-        {
-            lotQuery = lotQuery.Where(x =>
-                (x.StorageWarehouseId.HasValue && usageLogWarehouseIds.Contains(x.StorageWarehouseId.Value))
-                || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && usageLogWarehouseIds.Contains(x.WarehouseId.Value)));
-        }
-
-        if (!string.IsNullOrEmpty(input.LotNumber))
-        {
-            lotQuery = lotQuery.Where(x => x.LotNumber == input.LotNumber);
-        }
-
-        var lotItems = lotQuery.ToList();
-
-        decimal currentConsumable = 0;
-        foreach (var lot in lotItems)
-        {
-            var remaining = lot.ReceivedBaseQuantity - lot.ConsumedBaseQuantity;
-            if (remaining <= 0) continue;
-
-            int? vpu = null;
-            if (lot.SkuId.HasValue)
-            {
-                var sku = productSkusForLog.FirstOrDefault(s => s.Id == lot.SkuId.Value);
-                if (sku?.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
-            }
-            if (!vpu.HasValue && product.VolumePerUnit > 0)
-                vpu = product.VolumePerUnit;
-
-            if (vpu.HasValue && vpu.Value > 0)
-                currentConsumable += remaining * vpu.Value;
-        }
-
-        // Running balance: anchor = currentConsumable + totalConsumed (stock BEFORE any consumption in list).
-        // Walk oldest→newest subtracting each consumption. Stored values override the running anchor.
+        // Running balance for "Tồn của lô" column.
+        // Anchor = total received volume for the lot, then subtract each consumption oldest→newest.
         if (consumableUnitName != null)
         {
             var conversions = await _conversionRepository
@@ -2648,26 +2604,6 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             int defaultVpu = productSkusForLog.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
                              ?? product.VolumePerUnit ?? 0;
-
-            // When auto-deduction is OFF, ConsumedBaseQuantity stays 0 so currentConsumable = received.
-            // Subtract ALL theoretical consumption (ignoring date range) to get the true current stock.
-            var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
-                .Where(c => c.ProductId == id && c.IsDeducted);
-            if (usageLogWarehouseIds != null)
-                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
-            if (!string.IsNullOrEmpty(input.LotNumber))
-                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.LotNumber == input.LotNumber);
-            var allIcForBalance = allIcForBalanceQ.ToList();
-
-            decimal totalTheoreticalVol = 0;
-            foreach (var ic in allIcForBalance)
-            {
-                if (ic.ActualQuantity > 0)
-                    totalTheoreticalVol += ConvertConsumptionToVolume(
-                        ic.ActualQuantity, ic.UnitId,
-                        product, productSkusForLog, conversionMap, defaultVpu);
-            }
-            currentConsumable = Math.Max(0, currentConsumable - totalTheoreticalVol);
 
             var consumeVolumes = new decimal[merged.Count];
             for (int i = 0; i < merged.Count; i++)
@@ -2685,7 +2621,91 @@ public class ProductAppService : ApplicationService, IProductAppService
             for (int j = 0; j < consumeVolumes.Length; j++)
                 totalConsumedInList += consumeVolumes[j];
 
-            decimal running = currentConsumable + totalConsumedInList;
+            // Compute received volume per-lot using same grouping as GetLotStocksAsync.
+            var logImportItemQ = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+            var logImportReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+            var lotReceiptQuery = from item in logImportItemQ
+                                  join receipt in logImportReceiptQ on item.WarehouseImportReceiptId equals receipt.Id
+                                  where item.ProductId == id
+                                        && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                        && item.Status == WarehouseImportLineStatus.Checked
+                                        && !item.IsEquipment
+                                  select new { item.ReceivedBaseQuantity, item.SkuId, item.StorageWarehouseId, receipt.WarehouseId, item.LotNumber };
+
+            if (usageLogWarehouseIds != null)
+            {
+                lotReceiptQuery = lotReceiptQuery.Where(x =>
+                    (x.StorageWarehouseId.HasValue && usageLogWarehouseIds.Contains(x.StorageWarehouseId.Value))
+                    || (!x.StorageWarehouseId.HasValue && x.WarehouseId.HasValue && usageLogWarehouseIds.Contains(x.WarehouseId.Value)));
+            }
+
+            var allLotReceipts = lotReceiptQuery.ToList();
+
+            // Group by LotNumber (same as GetLotStocksAsync) to get receivedVol per lot
+            var lotKey = input.LotNumber ?? "";
+            var lotGroup = allLotReceipts
+                .GroupBy(x => x.LotNumber ?? "")
+                .FirstOrDefault(g => g.Key == lotKey);
+
+            decimal receivedVol = 0;
+            if (lotGroup != null)
+            {
+                foreach (var lot in lotGroup)
+                {
+                    int? vpu = null;
+                    if (lot.SkuId.HasValue)
+                    {
+                        var sku = productSkusForLog.FirstOrDefault(s => s.Id == lot.SkuId.Value);
+                        if (sku?.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
+                    }
+                    if (!vpu.HasValue && product.VolumePerUnit > 0)
+                        vpu = product.VolumePerUnit;
+
+                    if (vpu.HasValue && vpu.Value > 0)
+                        receivedVol += lot.ReceivedBaseQuantity * vpu.Value;
+                }
+            }
+            else if (string.IsNullOrEmpty(input.LotNumber))
+            {
+                // No lot filter — sum all lots
+                foreach (var lot in allLotReceipts)
+                {
+                    int? vpu = null;
+                    if (lot.SkuId.HasValue)
+                    {
+                        var sku = productSkusForLog.FirstOrDefault(s => s.Id == lot.SkuId.Value);
+                        if (sku?.VolumePerUnit > 0) vpu = sku.VolumePerUnit;
+                    }
+                    if (!vpu.HasValue && product.VolumePerUnit > 0)
+                        vpu = product.VolumePerUnit;
+
+                    if (vpu.HasValue && vpu.Value > 0)
+                        receivedVol += lot.ReceivedBaseQuantity * vpu.Value;
+                }
+            }
+
+            // Query total ALL consumption (ignoring date range) to compute current stock.
+            // currentStock = receivedVol - totalAllConsumption (ConsumedBaseQuantity is always 0,
+            // no auto-deduction).
+            var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
+                .Where(c => c.ProductId == id && c.IsDeducted);
+            if (usageLogWarehouseIds != null)
+                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
+            if (!string.IsNullOrEmpty(input.LotNumber))
+                allIcForBalanceQ = allIcForBalanceQ.Where(c => c.LotNumber == input.LotNumber);
+
+            decimal totalAllConsumptionVol = 0;
+            foreach (var ic in allIcForBalanceQ.ToList())
+            {
+                if (ic.ActualQuantity > 0)
+                    totalAllConsumptionVol += ConvertConsumptionToVolume(
+                        ic.ActualQuantity, ic.UnitId,
+                        product, productSkusForLog, conversionMap, defaultVpu);
+            }
+
+            decimal currentStock = Math.Max(0, receivedVol - totalAllConsumptionVol);
+            decimal running = currentStock + totalConsumedInList;
             decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
