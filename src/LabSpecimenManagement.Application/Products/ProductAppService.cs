@@ -1390,12 +1390,27 @@ public class ProductAppService : ApplicationService, IProductAppService
         var conversions = await _conversionRepository.GetListAsync(c => c.ProductId == id);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
+        // Map LotNumber → SKU để dùng đúng VolumePerUnit của từng lô khi convert
+        var lotSkuMap = lotData
+            .Where(l => l.SkuId.HasValue && !string.IsNullOrEmpty(l.LotNumber))
+            .GroupBy(l => l.LotNumber!)
+            .ToDictionary(
+                g => g.Key,
+                g => skuById.GetValueOrDefault(g.First(l => l.SkuId.HasValue).SkuId!.Value));
+
         var consumptionByLot = consumptions
             .GroupBy(ic => ic.LotNumber ?? "")
             .ToDictionary(
                 g => g.Key,
-                g => g.Sum(ic => ConvertConsumptionToPackaging(
-                    ic.ActualQuantity, ic.UnitId, product, productSkus, conversionMap)));
+                g =>
+                {
+                    var lotSku = lotSkuMap.GetValueOrDefault(g.Key);
+                    var skusForLot = lotSku != null
+                        ? new List<ProductSku> { lotSku }.Concat(productSkus.Where(s => s.Id != lotSku.Id)).ToList()
+                        : productSkus;
+                    return g.Sum(ic => ConvertConsumptionToPackaging(
+                        ic.ActualQuantity, ic.UnitId, product, skusForLot, conversionMap));
+                });
 
         // PSB consumption: IsDeducted=false, PreparedSolutionBatchId != null, dùng ActualQuantity (display qty)
         var psbConsumptions = icQuery
