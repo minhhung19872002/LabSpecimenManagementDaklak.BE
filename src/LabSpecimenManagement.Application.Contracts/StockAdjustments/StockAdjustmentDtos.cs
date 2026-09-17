@@ -134,3 +134,10 @@ public class WarehouseProductLotDto
     public decimal ConsumableQuantity { get; set; }
     public decimal TheoreticalConsumption { get; set; }
 }
+
+public class WarehouseWithLotsDto
+{
+    public Guid WarehouseId { get; set; }
+    public string WarehouseName { get; set; } = string.Empty;
+    public List<WarehouseProductLotDto> Lots { get; set; } = new();
+}

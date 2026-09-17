@@ -16,4 +16,5 @@ public interface IStockAdjustmentAppService : IApplicationService
     Task<StockAdjustmentDto> ConfirmAsync(Guid id);
     Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id);
     Task<List<WarehouseProductLotDto>> GetWarehouseProductLotsAsync(Guid warehouseId);
+    Task<List<WarehouseWithLotsDto>> GetWarehouseWithChildrenProductLotsAsync(Guid warehouseId);
 }

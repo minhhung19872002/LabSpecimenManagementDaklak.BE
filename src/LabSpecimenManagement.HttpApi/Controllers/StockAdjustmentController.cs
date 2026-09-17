@@ -74,4 +74,10 @@ public class StockAdjustmentController : LabSpecimenManagementController
     {
         return _appService.GetWarehouseProductLotsAsync(warehouseId);
     }
+
+    [HttpGet("warehouse-with-children-lots/{warehouseId}")]
+    public virtual Task<List<WarehouseWithLotsDto>> GetWarehouseWithChildrenProductLotsAsync(Guid warehouseId)
+    {
+        return _appService.GetWarehouseWithChildrenProductLotsAsync(warehouseId);
+    }
 }

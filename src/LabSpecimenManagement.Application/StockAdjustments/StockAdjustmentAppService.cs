@@ -453,6 +453,49 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
     public async Task<List<WarehouseProductLotDto>> GetWarehouseProductLotsAsync(Guid warehouseId)
     {
+        var byWarehouse = await BuildLotsPerWarehouseAsync(new List<Guid> { warehouseId });
+        return byWarehouse.GetValueOrDefault(warehouseId) ?? new List<WarehouseProductLotDto>();
+    }
+
+    public async Task<List<WarehouseWithLotsDto>> GetWarehouseWithChildrenProductLotsAsync(Guid warehouseId)
+    {
+        var allWarehouses = (await _warehouseRepository.GetQueryableAsync())
+            .Where(w => w.IsActive)
+            .Select(w => new { w.Id, w.Name, w.ParentWarehouseId })
+            .ToList();
+
+        var warehouseIds = CollectWarehouseIdsBfs(allWarehouses.Select(w => (w.Id, w.ParentWarehouseId)).ToList(), warehouseId);
+        var warehouseNameMap = allWarehouses.ToDictionary(w => w.Id, w => w.Name);
+
+        var byWarehouse = await BuildLotsPerWarehouseAsync(warehouseIds);
+
+        return warehouseIds.Select(whId => new WarehouseWithLotsDto
+        {
+            WarehouseId = whId,
+            WarehouseName = warehouseNameMap.TryGetValue(whId, out var name) ? name : whId.ToString(),
+            Lots = byWarehouse.GetValueOrDefault(whId) ?? new List<WarehouseProductLotDto>(),
+        }).ToList();
+    }
+
+    #region Private Methods
+
+    private static List<Guid> CollectWarehouseIdsBfs(List<(Guid Id, Guid? ParentWarehouseId)> all, Guid rootId)
+    {
+        var result = new List<Guid>();
+        var queue = new Queue<Guid>();
+        queue.Enqueue(rootId);
+        while (queue.Count > 0)
+        {
+            var current = queue.Dequeue();
+            result.Add(current);
+            foreach (var (id, parentId) in all.Where(w => w.ParentWarehouseId == current))
+                queue.Enqueue(id);
+        }
+        return result;
+    }
+
+    private async Task<Dictionary<Guid, List<WarehouseProductLotDto>>> BuildLotsPerWarehouseAsync(List<Guid> warehouseIds)
+    {
         var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
         var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
 
@@ -461,8 +504,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                        where ir.Status == WarehouseImportReceiptStatus.Completed
                              && ii.Status == WarehouseImportLineStatus.Checked
                              && !ii.IsEquipment
-                             && ((ii.StorageWarehouseId.HasValue && ii.StorageWarehouseId == warehouseId)
-                                 || (!ii.StorageWarehouseId.HasValue && ir.WarehouseId.HasValue && ir.WarehouseId == warehouseId))
+                             && ((ii.StorageWarehouseId.HasValue && warehouseIds.Contains(ii.StorageWarehouseId.Value))
+                                 || (!ii.StorageWarehouseId.HasValue && ir.WarehouseId.HasValue && warehouseIds.Contains(ir.WarehouseId.Value)))
                        select new
                        {
                            ii.ProductId,
@@ -470,20 +513,22 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                            ii.SkuId,
                            ii.ReceivedBaseQuantity,
                            ii.ConsumedBaseQuantity,
+                           EffectiveWarehouseId = ii.StorageWarehouseId.HasValue ? ii.StorageWarehouseId!.Value : ir.WarehouseId!.Value,
                        }).ToList();
 
+        if (lotData.Count == 0)
+            return warehouseIds.ToDictionary(id => id, _ => new List<WarehouseProductLotDto>());
+
         var productIds = lotData.Select(l => l.ProductId).Distinct().ToList();
-        if (productIds.Count == 0) return new List<WarehouseProductLotDto>();
 
         var products = (await _productRepository.GetQueryableAsync())
-            .Where(p => productIds.Contains(p.Id))
-            .ToList();
+            .Where(p => productIds.Contains(p.Id)).ToList();
         var productMap = products.ToDictionary(p => p.Id);
 
         var skus = (await _skuRepository.GetQueryableAsync())
-            .Where(s => productIds.Contains(s.ProductId))
-            .ToList();
+            .Where(s => productIds.Contains(s.ProductId)).ToList();
         var skuById = skus.ToDictionary(s => s.Id);
+        var skusByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
 
         var manufacturerIds = skus.Select(s => s.ManufacturerId).Distinct().ToList();
         var manufacturers = manufacturerIds.Count > 0
@@ -495,113 +540,115 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var unitIds = products
             .SelectMany(p => new Guid?[] { p.PackagingUnitId, p.VolumeUnitId, p.BaseUnitId })
             .Concat(skus.SelectMany(s => new Guid?[] { s.PackagingUnitId, s.VolumeUnitId }))
-            .Where(id => id.HasValue)
-            .Select(id => id!.Value)
-            .Distinct()
-            .ToList();
+            .Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
         var unitNames = unitIds.Count > 0
             ? (await _unitRepository.GetQueryableAsync())
                 .Where(u => unitIds.Contains(u.Id))
                 .ToDictionary(u => u.Id, u => u.Name)
             : new Dictionary<Guid, string>();
 
-        // Compute per-lot theoretical consumption since last inventory
         var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
         var lastInventoryMap = pwiQuery
-            .Where(pwi => productIds.Contains(pwi.ProductId) && pwi.WarehouseId == warehouseId)
-            .ToDictionary(pwi => pwi.ProductId, pwi => pwi.LastInventoryDate);
+            .Where(pwi => productIds.Contains(pwi.ProductId) && warehouseIds.Contains(pwi.WarehouseId))
+            .Select(pwi => new { pwi.ProductId, pwi.WarehouseId, pwi.LastInventoryDate })
+            .ToList()
+            .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.LastInventoryDate);
 
         var icRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<IndicatorConsumption, Guid>>();
         var icQuery = await icRepo.GetQueryableAsync();
         var consumptionRaw = icQuery
             .Where(ic => productIds.Contains(ic.ProductId!.Value)
-                         && ic.WarehouseId == warehouseId
+                         && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId!.Value)
                          && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                          && ic.SubmitDate.HasValue)
-            .Select(ic => new { ic.ProductId, ic.LotNumber, ic.RecommendedQuantity, ic.ActualQuantity, ic.UnitId, ic.SubmitDate, ic.PreparedSolutionBatchId })
+            .Select(ic => new { ic.ProductId, ic.LotNumber, ic.ActualQuantity, ic.UnitId, ic.SubmitDate, ic.PreparedSolutionBatchId, ic.WarehouseId })
             .ToList()
-            .Where(ic => !lastInventoryMap.TryGetValue(ic.ProductId!.Value, out var lid)
-                         || ic.SubmitDate!.Value > lid)
+            .Where(ic => ic.WarehouseId.HasValue
+                         && (!lastInventoryMap.TryGetValue((ic.ProductId!.Value, ic.WarehouseId.Value), out var lid)
+                             || ic.SubmitDate!.Value > lid))
             .ToList();
 
         var conversionRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<ProductUnitConversion, Guid>>();
-        var conversions = (await conversionRepo.GetQueryableAsync())
+        var conversionMap = (await conversionRepo.GetQueryableAsync())
             .Where(c => productIds.Contains(c.ProductId))
-            .ToList();
-        var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
+            .ToList()
+            .ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var skusByProduct = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
-
-        var consumptionByLot = consumptionRaw
-            .GroupBy(ic => (ic.ProductId!.Value, LotNumber: ic.LotNumber ?? ""))
+        var consumptionByWarehouseLot = consumptionRaw
+            .GroupBy(ic => (WarehouseId: ic.WarehouseId!.Value, ic.ProductId!.Value, LotNumber: ic.LotNumber ?? ""))
             .ToDictionary(
                 g => g.Key,
                 g => g.Sum(ic =>
                 {
                     // PSB consumption dùng ActualQuantity (đã ở display qty, không cần convert)
                     if (ic.PreparedSolutionBatchId != null) return ic.ActualQuantity;
-                    if (!productMap.TryGetValue(g.Key.Item1, out var prod)) return ic.ActualQuantity;
-                    var prodSkus = skusByProduct.GetValueOrDefault(g.Key.Item1) ?? new List<ProductSku>();
-                    int defaultVpu = prodSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit
-                                     ?? prod.VolumePerUnit ?? 0;
+                    if (!productMap.TryGetValue(g.Key.Item2, out var prod)) return ic.ActualQuantity;
+                    var prodSkus = skusByProduct.GetValueOrDefault(g.Key.Item2) ?? new List<ProductSku>();
+                    int defaultVpu = prodSkus.FirstOrDefault(s => s.VolumePerUnit > 0)?.VolumePerUnit ?? prod.VolumePerUnit ?? 0;
                     return ConvertConsumptionToVolume(ic.ActualQuantity, ic.UnitId, prod, prodSkus, conversionMap, defaultVpu);
                 }));
 
-        var result = new List<WarehouseProductLotDto>();
+        var lotsByWarehouse = lotData.GroupBy(l => l.EffectiveWarehouseId)
+            .ToDictionary(g => g.Key, g => g.ToList());
 
-        foreach (var group in lotData.GroupBy(l => (l.ProductId, LotNumber: l.LotNumber ?? "")))
+        var result = new Dictionary<Guid, List<WarehouseProductLotDto>>();
+        foreach (var whId in warehouseIds)
         {
-            var productId = group.Key.ProductId;
-            if (!productMap.TryGetValue(productId, out var product)) continue;
+            var whLots = lotsByWarehouse.GetValueOrDefault(whId) ?? new();
+            var dtos = new List<WarehouseProductLotDto>();
 
-            var remaining = group.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
-
-            string? manufacturerName = null;
-            int? volumePerUnit = null;
-            Guid? volumeUnitId = null;
-            Guid? packagingUnitId = null;
-
-            var firstSkuId = group.FirstOrDefault(l => l.SkuId.HasValue)?.SkuId;
-            if (firstSkuId.HasValue && skuById.TryGetValue(firstSkuId.Value, out var sku))
+            foreach (var group in whLots.GroupBy(l => (l.ProductId, LotNumber: l.LotNumber ?? "")))
             {
-                manufacturers.TryGetValue(sku.ManufacturerId, out manufacturerName);
-                if (sku.VolumePerUnit > 0) volumePerUnit = sku.VolumePerUnit;
-                volumeUnitId = sku.VolumeUnitId;
-                packagingUnitId = sku.PackagingUnitId;
+                var productId = group.Key.ProductId;
+                if (!productMap.TryGetValue(productId, out var product)) continue;
+
+                var remaining = group.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
+
+                string? manufacturerName = null;
+                int? volumePerUnit = null;
+                Guid? volumeUnitId = null;
+                Guid? packagingUnitId = null;
+
+                var firstSkuId = group.FirstOrDefault(l => l.SkuId.HasValue)?.SkuId;
+                if (firstSkuId.HasValue && skuById.TryGetValue(firstSkuId.Value, out var sku))
+                {
+                    manufacturers.TryGetValue(sku.ManufacturerId, out manufacturerName);
+                    if (sku.VolumePerUnit > 0) volumePerUnit = sku.VolumePerUnit;
+                    volumeUnitId = sku.VolumeUnitId;
+                    packagingUnitId = sku.PackagingUnitId;
+                }
+                volumePerUnit ??= product.VolumePerUnit > 0 ? product.VolumePerUnit : null;
+                volumeUnitId ??= product.VolumeUnitId;
+                packagingUnitId ??= product.PackagingUnitId;
+
+                var consumableQty = volumePerUnit is > 0
+                    ? remaining * volumePerUnit.Value
+                    : remaining;
+
+                dtos.Add(new WarehouseProductLotDto
+                {
+                    ProductId = productId,
+                    ProductName = product.Name,
+                    ProductType = product.ProductType,
+                    LotNumber = string.IsNullOrEmpty(group.Key.LotNumber) ? null : group.Key.LotNumber,
+                    ManufacturerName = manufacturerName,
+                    RemainingBaseQuantity = remaining,
+                    VolumePerUnit = volumePerUnit,
+                    VolumeUnitId = volumeUnitId,
+                    BaseUnitId = product.BaseUnitId,
+                    ConsumableQuantity = consumableQty,
+                    TheoreticalConsumption = consumptionByWarehouseLot.GetValueOrDefault((whId, productId, group.Key.LotNumber)),
+                    VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
+                    PackagingUnitName = packagingUnitId.HasValue && unitNames.TryGetValue(packagingUnitId.Value, out var pun) ? pun : null,
+                    BaseUnitName = product.BaseUnitId.HasValue && unitNames.TryGetValue(product.BaseUnitId.Value, out var bun) ? bun : null,
+                });
             }
-            volumePerUnit ??= (product.VolumePerUnit > 0 ? product.VolumePerUnit : null);
-            volumeUnitId ??= product.VolumeUnitId;
-            packagingUnitId ??= product.PackagingUnitId;
 
-            var consumableQty = volumePerUnit.HasValue && volumePerUnit.Value > 0
-                ? remaining * volumePerUnit.Value
-                : remaining;
-
-            var lotConsumption = consumptionByLot.GetValueOrDefault(group.Key);
-
-            result.Add(new WarehouseProductLotDto
-            {
-                ProductId = productId,
-                ProductName = product.Name,
-                ProductType = product.ProductType,
-                LotNumber = string.IsNullOrEmpty(group.Key.LotNumber) ? null : group.Key.LotNumber,
-                ManufacturerName = manufacturerName,
-                RemainingBaseQuantity = remaining,
-                VolumePerUnit = volumePerUnit,
-                VolumeUnitId = volumeUnitId,
-                BaseUnitId = product.BaseUnitId,
-                ConsumableQuantity = consumableQty,
-                TheoreticalConsumption = lotConsumption,
-                VolumeUnitName = volumeUnitId.HasValue && unitNames.TryGetValue(volumeUnitId.Value, out var vun) ? vun : null,
-                PackagingUnitName = packagingUnitId.HasValue && unitNames.TryGetValue(packagingUnitId.Value, out var pun) ? pun : null,
-                BaseUnitName = product.BaseUnitId.HasValue && unitNames.TryGetValue(product.BaseUnitId.Value, out var bun) ? bun : null,
-            });
+            result[whId] = dtos.OrderBy(x => x.ProductName).ThenBy(x => x.LotNumber).ToList();
         }
 
-        return result.OrderBy(x => x.ProductName).ThenBy(x => x.LotNumber).ToList();
+        return result;
     }
-
-    #region Private Methods
 
     private static decimal ConvertConsumptionToVolume(
         decimal amount,
