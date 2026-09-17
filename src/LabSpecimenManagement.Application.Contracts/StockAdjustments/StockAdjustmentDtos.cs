@@ -98,6 +98,7 @@ public class GetStockAdjustmentListInput : PagedRequestDto
     public StockAdjustmentStatus? Status { get; set; }
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
+    public Guid? WarehouseId { get; set; }
 }
 
 public class ConfirmPreviewDto

@@ -90,6 +90,17 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         if (input.ToDate.HasValue)
             query = query.Where(x => x.CreationTime <= input.ToDate.Value.AddDays(1));
 
+        if (input.WarehouseId.HasValue)
+        {
+            var itemQuery = await _itemRepository.GetQueryableAsync();
+            var matchingAdjustmentIds = itemQuery
+                .Where(i => i.WarehouseId == input.WarehouseId.Value)
+                .Select(i => i.StockAdjustmentId)
+                .Distinct();
+
+            query = query.Where(x => matchingAdjustmentIds.Contains(x.Id));
+        }
+
         if (!string.IsNullOrWhiteSpace(input.Search))
         {
             var search = input.Search.Trim().ToLower();
