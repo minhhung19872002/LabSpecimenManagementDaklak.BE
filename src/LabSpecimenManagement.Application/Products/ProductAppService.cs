@@ -2027,10 +2027,13 @@ public class ProductAppService : ApplicationService, IProductAppService
             x => x.ProductId,
             x => receiptWarehouseMap.GetValueOrDefault(x.ReceiptId));
 
-        // FIFO batch data: earliest import per product (by ActualImportDate)
+        // Active lot data: only lots with remaining stock, pick the one soonest to expire (FEFO = currently in use)
         var allImportItems = (from item in importItemQuery
                               join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                               where productIds.Contains(item.ProductId)
+                                    && receipt.Status == WarehouseImportReceiptStatus.Completed
+                                    && item.Status == WarehouseImportLineStatus.Checked
+                                    && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
                               select new
                               {
                                   item.ProductId,
@@ -2040,7 +2043,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                   receipt.ActualImportDate
                               })
                               .ToList();
-        // Nearest-expiry lot data: pick the lot soonest to expire; nulls (no expiry) sorted last
+        // FEFO: pick the active lot with nearest expiry date (currently in use)
         var earliestBatchMap = allImportItems
             .GroupBy(x => x.ProductId)
             .ToDictionary(g => g.Key, g => g
