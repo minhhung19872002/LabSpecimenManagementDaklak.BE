@@ -555,7 +555,6 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             if (!productMap.TryGetValue(productId, out var product)) continue;
 
             var remaining = group.Sum(l => Math.Max(0, l.ReceivedBaseQuantity - l.ConsumedBaseQuantity));
-            if (remaining <= 0) continue;
 
             string? manufacturerName = null;
             int? volumePerUnit = null;
