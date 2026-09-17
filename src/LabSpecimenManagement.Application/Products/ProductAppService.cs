@@ -463,43 +463,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToList()
             .ToDictionary(x => (x.ProductId, x.WarehouseId), x => x.LastInventoryDate);
 
-        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
-        var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
-        var whTheoreticalFromIC = (from ic in icQuery
-                                   join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
-                                   where ic.ProductId.HasValue
-                                         && pagedProductIds.Contains(ic.ProductId!.Value)
-                                         && ic.IsDeducted
-                                         && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
-                                   select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
-                                  .ToList()
-                                  .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
-                                               || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
-                                  .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
-                                  .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
-
-        var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
-        var tbQuery = await _testBatchRepository.GetQueryableAsync();
-        var whTheoreticalFromTBC = (from tbc in tbcQuery
-                                    join tb in tbQuery on tbc.TestBatchId equals tb.Id
-                                    where tbc.ProductId.HasValue
-                                          && pagedProductIds.Contains(tbc.ProductId!.Value)
-                                          && tbc.IsDeducted
-                                          && tbc.WarehouseId.HasValue && warehouseIds.Contains(tbc.WarehouseId.Value)
-                                    select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
-                                   .ToList()
-                                   .Where(x => !lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
-                                                || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
-                                   .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
-                                   .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
-
-        var whTheoreticalByProductWh = new Dictionary<(Guid, Guid), decimal>();
-        foreach (var kvp in whTheoreticalFromIC)
-            whTheoreticalByProductWh[kvp.Key] = kvp.Value;
-        foreach (var kvp in whTheoreticalFromTBC)
-            whTheoreticalByProductWh[kvp.Key] = whTheoreticalByProductWh.GetValueOrDefault(kvp.Key) + kvp.Value;
-
-        // 10c. Warehouse-scoped earliest lot data (fixes cross-warehouse lot/expiry display)
+        // 10c. Warehouse-scoped earliest lot data (built first so it can be used to filter consumption)
         var whEarliestLotData = (from item in importItemQuery
                                  join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
                                  where receipt.Status == WarehouseImportReceiptStatus.Completed
@@ -522,6 +486,24 @@ public class ProductAppService : ApplicationService, IProductAppService
             .ToDictionary(g => g.Key, g => g
                 .OrderBy(x => x.LotExpiryDate ?? DateTime.MaxValue)
                 .First());
+
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
+        // Only count consumption of the active FEFO lot per warehouse (TestBatchConsumption has no LotNumber so is excluded)
+        var whTheoreticalByProductWh = (from ic in icQuery
+                                        join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                        where ic.ProductId.HasValue
+                                              && pagedProductIds.Contains(ic.ProductId!.Value)
+                                              && ic.IsDeducted
+                                              && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
+                                        select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate, ic.LotNumber })
+                                       .ToList()
+                                       .Where(x => (!lastInventoryByProductWh.TryGetValue((x.ProductId!.Value, x.WarehouseId!.Value), out var lid)
+                                                    || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
+                                                   && whEarliestLotByProduct.TryGetValue(x.ProductId!.Value, out var fefoLot)
+                                                   && x.LotNumber == fefoLot.LotNumber)
+                                       .GroupBy(x => (x.ProductId!.Value, x.WarehouseId!.Value))
+                                       .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
 
         for (int i = 0; i < dtos.Count; i++)
         {
@@ -2068,39 +2050,21 @@ public class ProductAppService : ApplicationService, IProductAppService
 
         var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
         var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
-        var theoreticalFromIC = (from ic in icQuery
-                                 join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
-                                 where ic.ProductId.HasValue
-                                       && productIds.Contains(ic.ProductId!.Value)
-                                       && ic.IsDeducted
-                                 select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
-                                .ToList()
-                                .Where(x => !x.WarehouseId.HasValue
-                                             || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
-                                             || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
-                                .GroupBy(x => x.ProductId!.Value)
-                                .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
-
-        var tbcQuery = await _testBatchConsumptionRepository.GetQueryableAsync();
-        var tbQuery = await _testBatchRepository.GetQueryableAsync();
-        var theoreticalFromTBC = (from tbc in tbcQuery
-                                  join tb in tbQuery on tbc.TestBatchId equals tb.Id
-                                  where tbc.ProductId.HasValue
-                                        && productIds.Contains(tbc.ProductId!.Value)
-                                        && tbc.IsDeducted
-                                  select new { tbc.ProductId, tbc.WarehouseId, tbc.RecommendedQuantity, tb.ConsumptionConfirmedDate })
-                                 .ToList()
-                                 .Where(x => !x.WarehouseId.HasValue
-                                              || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
-                                              || (x.ConsumptionConfirmedDate.HasValue && x.ConsumptionConfirmedDate.Value > lid))
-                                 .GroupBy(x => x.ProductId!.Value)
-                                 .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
-
-        var theoreticalByProduct = new Dictionary<Guid, decimal>();
-        foreach (var kvp in theoreticalFromIC)
-            theoreticalByProduct[kvp.Key] = kvp.Value;
-        foreach (var kvp in theoreticalFromTBC)
-            theoreticalByProduct[kvp.Key] = theoreticalByProduct.GetValueOrDefault(kvp.Key) + kvp.Value;
+        // Only count consumption of the active FEFO lot (TestBatchConsumption has no LotNumber so is excluded)
+        var theoreticalByProduct = (from ic in icQuery
+                                    join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                    where ic.ProductId.HasValue
+                                          && productIds.Contains(ic.ProductId!.Value)
+                                          && ic.IsDeducted
+                                    select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate, ic.LotNumber })
+                                   .ToList()
+                                   .Where(x => (!x.WarehouseId.HasValue
+                                                || !lastInventoryMap.TryGetValue((x.ProductId!.Value, x.WarehouseId.Value), out var lid)
+                                                || (x.SubmitDate.HasValue && x.SubmitDate.Value > lid))
+                                               && earliestBatchMap.TryGetValue(x.ProductId!.Value, out var fefoLot)
+                                               && x.LotNumber == fefoLot.LotNumber)
+                                   .GroupBy(x => x.ProductId!.Value)
+                                   .ToDictionary(g => g.Key, g => g.Sum(x => x.RecommendedQuantity));
 
         // Consumable quantity = remaining lot volume (ReceivedBase - Consumed) × VolumePerUnit
         var consumableImportItems = (from item in importItemQuery
