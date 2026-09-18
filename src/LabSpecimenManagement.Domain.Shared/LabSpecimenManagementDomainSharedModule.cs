@@ -15,6 +15,8 @@ using Volo.Abp.VirtualFileSystem;
 
 namespace LabSpecimenManagement;
 
+// Build: 2026-09-18
+
 [DependsOn(
     typeof(AbpAuditLoggingDomainSharedModule),
     typeof(AbpBackgroundJobsDomainSharedModule),
