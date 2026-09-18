@@ -56,6 +56,21 @@ public static class TemplateConstants
     /// </summary>
     public const string TemplateQLNN_2Lab = "form mẫu QLNN BM05-QT13-BCKQ_3.2.template_2lab.docx";
 
+    /// <summary>
+    /// BM01 No Logo - Form trả kết quả (không có logo)
+    /// </summary>
+    public const string TemplateBM01_NoLogo = "Form trả KQ - BM01-QT13-BCKQ_3.2.no_logo.template.docx";
+
+    /// <summary>
+    /// BM04 No Logo - Form thêm cột giới hạn (không có logo)
+    /// </summary>
+    public const string TemplateBM04_NoLogo = "Form thêm cột GH BM04-QT13-BCKQ_3.2.no_logo.template.docx";
+
+    /// <summary>
+    /// QLNN No Logo - Form mẫu quản lý nhà nước (không có logo)
+    /// </summary>
+    public const string TemplateQLNN_NoLogo = "form mẫu QLNN BM05-QT13-BCKQ_3.2.no_logo.template.docx";
+
     #endregion
 
     #region Template Display Names
@@ -92,6 +107,20 @@ public static class TemplateConstants
         TemplateBM04,
         TemplateBM01,
         TemplateBM03
+    };
+
+    #endregion
+
+    #region No Logo Templates
+
+    /// <summary>
+    /// Templates without logo (không có logo)
+    /// </summary>
+    public static readonly string[] NoLogoTemplates = new[]
+    {
+        TemplateQLNN_NoLogo,
+        TemplateBM04_NoLogo,
+        TemplateBM01_NoLogo
     };
 
     #endregion

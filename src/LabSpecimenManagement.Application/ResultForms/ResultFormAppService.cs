@@ -5966,25 +5966,40 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var templatesDir = Path.Combine(_environment.WebRootPath ?? "", "templates");
         var templates = new List<TemplateDto>();
 
-        // Only return templates for In KQ Đơn
         foreach (var templateFileName in TemplateConstants.StandardBasedTemplates)
         {
             var filePath = Path.Combine(templatesDir, templateFileName);
             if (File.Exists(filePath))
             {
-                // Remove .template.docx extension to get display name
                 var displayName = TemplateConstants.GetDisplayName(templateFileName);
-
                 templates.Add(new TemplateDto
                 {
                     Name = displayName,
                     DisplayName = displayName,
-                    FileName = templateFileName
+                    FileName = templateFileName,
+                    HasLogo = true
                 });
             }
         }
 
-        return Task.FromResult(templates.OrderBy(t => t.DisplayName).ToList());
+        foreach (var templateFileName in TemplateConstants.NoLogoTemplates)
+        {
+            var filePath = Path.Combine(templatesDir, templateFileName);
+            if (File.Exists(filePath))
+            {
+                var noLogoDisplayName = TemplateConstants.GetDisplayName(templateFileName)
+                    .Replace(".no_logo", "");
+                templates.Add(new TemplateDto
+                {
+                    Name = TemplateConstants.GetDisplayName(templateFileName),
+                    DisplayName = noLogoDisplayName,
+                    FileName = templateFileName,
+                    HasLogo = false
+                });
+            }
+        }
+
+        return Task.FromResult(templates);
     }
 
     /// <summary>
