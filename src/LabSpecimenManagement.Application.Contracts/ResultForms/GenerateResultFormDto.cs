@@ -239,6 +239,11 @@ public class TemplateDto
     /// Full file name with extension
     /// </summary>
     public string FileName { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Whether this template includes a logo
+    /// </summary>
+    public bool HasLogo { get; set; } = true;
 }
 
 /// <summary>
