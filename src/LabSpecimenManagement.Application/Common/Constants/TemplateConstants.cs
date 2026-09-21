@@ -71,6 +71,11 @@ public static class TemplateConstants
     /// </summary>
     public const string TemplateQLNN_NoLogo = "form mẫu QLNN BM05-QT13-BCKQ_3.2.no_logo.template.docx";
 
+    /// <summary>
+    /// BM03 No Logo - Form trả kết quả đơn lẻ (không có logo)
+    /// </summary>
+    public const string TemplateBM03_NoLogo = "Form trả kq BM03-QT13-BCKQ_3.2.no_logo.template.docx";
+
     #endregion
 
     #region Template Display Names
@@ -120,7 +125,8 @@ public static class TemplateConstants
     {
         TemplateQLNN_NoLogo,
         TemplateBM04_NoLogo,
-        TemplateBM01_NoLogo
+        TemplateBM01_NoLogo,
+        TemplateBM03_NoLogo
     };
 
     #endregion
