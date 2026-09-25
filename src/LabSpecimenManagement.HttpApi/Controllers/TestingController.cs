@@ -696,4 +696,17 @@ public class TestingController : LabSpecimenManagementController
     }
 
     #endregion
+
+    // TODO: EXTERNAL-CONSUMPTION — remove after BA confirms
+    #region External Consumption
+
+    [AllowAnonymous]
+    [HttpPost("external-consumption")]
+    public virtual async Task ProcessExternalConsumptionAsync(
+        [FromBody] ExternalConsumptionRequestDto input)
+    {
+        await _testingAppService.ProcessExternalConsumptionAsync(input);
+    }
+
+    #endregion
 }
