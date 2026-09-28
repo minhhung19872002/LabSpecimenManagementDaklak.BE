@@ -336,7 +336,8 @@ public partial class TestRequestAppService :
                     LaboratoryName = laboratoryName,
                     TransferDate = indicator.TransferDate,
                     RequestDate = indicator.RequestDate,
-                    SentToDepartment = indicator.SentToDepartment,
+                    // Derive từ LaboratoryTaskIndicator (nguồn sự thật), không đọc cột cờ trong DB
+                    SentToDepartment = labTaskIndicator != null,
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
                     ParentIndicatorId = indicatorEntity.ParentIndicatorId,
@@ -760,8 +761,7 @@ public partial class TestRequestAppService :
                         sampleIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
-                        // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
-                        sampleIndicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
+                        // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
 
@@ -1089,8 +1089,7 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
-                            indicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
+                            // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
 
                             // Move LaboratoryTaskIndicator when lab changes and status is Pending
@@ -1147,8 +1146,7 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
-                            indicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
+                            // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.IsSubcontract = indicatorDto.IsSubcontract;
 
