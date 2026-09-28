@@ -1074,7 +1074,9 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             .Where(x => x.CurrentWarehouseId == sourceWarehouseId)
             .ToList();
 
+        // Legacy lots without barcodes: generate the missing ones and insert them in one batch.
         var nextLegacyIndex = allOriginBarcodes.Count + 1;
+        var legacyBarcodes = new List<InventoryBarcode>();
         while (available.Count < transferPlan.RequiredSourceBarcodeCount)
         {
             var code = $"LEGACY-{originalLotItem.Id:N}-{nextLegacyIndex:D3}";
@@ -1088,17 +1090,25 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             {
                 SkuId = originalLotItem.SkuId
             };
-            await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+            legacyBarcodes.Add(barcode);
             available.Add(barcode);
         }
+        // Flush the inserts before updating: the legacy barcodes may be among the ones moved
+        // below, and they must be persisted (Unchanged) before being marked Modified.
+        if (legacyBarcodes.Count > 0)
+            await _inventoryBarcodeRepository.InsertManyAsync(legacyBarcodes, autoSave: true);
 
+        // Move the selected barcodes in one batch (one SaveChanges instead of one per barcode).
+        // autoSave: true keeps the DB state visible to later steps of the same confirm
+        // (next lot of the same item, barcode status recalculation).
         var selected = available.Take(transferPlan.SourceBarcodesToMove).ToList();
         foreach (var barcode in selected)
         {
             barcode.CurrentWarehouseId = receivingWarehouseId;
             barcode.LastMaterialReceiptId = materialReceiptId;
-            await _inventoryBarcodeRepository.UpdateAsync(barcode, autoSave: true);
         }
+        if (selected.Count > 0)
+            await _inventoryBarcodeRepository.UpdateManyAsync(selected, autoSave: true);
 
         return selected.Select(x => x.Code).ToList();
     }
