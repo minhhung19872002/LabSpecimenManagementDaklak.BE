@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
@@ -12,6 +13,8 @@ namespace LabSpecimenManagement.Testing;
 // TODO: EXTERNAL-CONSUMPTION — remove this entire file after BA confirms
 public class ExternalConsumptionService : ITransientDependency
 {
+    private const string EndpointPath = "/api/v1/testing/external-consumption";
+
     private readonly ILogger<ExternalConsumptionService> _logger;
     private readonly HttpClient _httpClient;
     private readonly string? _uatApiUrl;
@@ -33,29 +36,62 @@ public class ExternalConsumptionService : ITransientDependency
         _uatApiUrl = configuration["ExternalConsumption:UatApiUrl"];
     }
 
+    /// <summary>
+    /// Gọi từ luồng submit thật: fire-and-forget, không bao giờ throw.
+    /// URL rỗng trong config = tắt.
+    /// </summary>
     public async Task NotifyAsync(ExternalConsumptionRequestDto request)
     {
         if (string.IsNullOrWhiteSpace(_uatApiUrl)) return;
 
+        var result = await SendAsync(_uatApiUrl, request);
+        if (!result.Success)
+        {
+            _logger.LogWarning(
+                "External consumption notification failed. Url: {Url}, Status: {Status}, Error: {Error}, Body: {Body}",
+                result.Url, result.StatusCode, result.Error, result.ResponseBody);
+        }
+    }
+
+    /// <summary>
+    /// Gửi payload sang UAT và trả về kết quả chi tiết (dùng cho endpoint test ẩn).
+    /// Không throw; lỗi nằm trong result.Error.
+    /// </summary>
+    public async Task<ExternalConsumptionForwardResultDto> SendAsync(
+        string? targetUrl, ExternalConsumptionRequestDto request)
+    {
+        var baseUrl = string.IsNullOrWhiteSpace(targetUrl) ? _uatApiUrl : targetUrl;
+        var json = JsonSerializer.Serialize(request, JsonOptions);
+        var result = new ExternalConsumptionForwardResultDto { RequestJson = json };
+
+        if (string.IsNullOrWhiteSpace(baseUrl))
+        {
+            result.Error = "Chưa có URL UAT: truyền targetUrl hoặc set config ExternalConsumption:UatApiUrl";
+            return result;
+        }
+
+        result.Url = $"{baseUrl.TrimEnd('/')}{EndpointPath}";
+        var sw = Stopwatch.StartNew();
         try
         {
-            var json = JsonSerializer.Serialize(request, JsonOptions);
             var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(result.Url, content);
 
-            var url = $"{_uatApiUrl.TrimEnd('/')}/api/v1/testing/external-consumption";
-            var response = await _httpClient.PostAsync(url, content);
-
-            if (!response.IsSuccessStatusCode)
-            {
-                var body = await response.Content.ReadAsStringAsync();
-                _logger.LogWarning(
-                    "External consumption notification failed. Status: {Status}, Body: {Body}",
-                    response.StatusCode, body);
-            }
+            result.StatusCode = (int)response.StatusCode;
+            result.ResponseBody = await response.Content.ReadAsStringAsync();
+            result.Success = response.IsSuccessStatusCode;
         }
-        catch (System.Exception ex)
+        catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to send external consumption notification to UAT");
+            result.Error = ex.GetType().Name + ": " + ex.Message;
+            _logger.LogWarning(ex, "Failed to send external consumption request to {Url}", result.Url);
         }
+        finally
+        {
+            sw.Stop();
+            result.ElapsedMs = sw.ElapsedMilliseconds;
+        }
+
+        return result;
     }
 }
