@@ -321,6 +321,11 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         var defaultWarehouse = (await _warehouseRepository.GetQueryableAsync())
             .FirstOrDefault(x => x.IsDefault);
 
+        // Codes generated in this confirm (across all items) — barcodes are inserted in one
+        // batch at the end, so in-memory tracking replaces the per-code DB existence check.
+        var generatedBarcodeCodes = new HashSet<string>(StringComparer.Ordinal);
+        var barcodesToInsert = new List<InventoryBarcode>();
+
         foreach (var item in materialItems.Where(x => x.Status == WarehouseImportLineStatus.Checked))
         {
             var product = await _productRepository.GetAsync(item.ProductId);
@@ -341,7 +346,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 baseQty = await _unitConversionResolver.ResolveBaseQuantityAsync(product, item.UnitId, item.ActualReceivedQuantity, item.ProductName);
             }
             product.AvailableQuantity += baseQty;
-            await _productRepository.UpdateAsync(product, autoSave: true);
+            await _productRepository.UpdateAsync(product, autoSave: false);
 
             item.ReceivedBaseQuantity = baseQty;
 
@@ -350,7 +355,19 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 item.StorageWarehouseId = defaultWarehouse.Id;
                 item.StorageWarehouseName = defaultWarehouse.Name;
                 var barcodeCount = Math.Max(1, (int)Math.Ceiling(baseQty));
-                var barcodeCodes = new List<string>();
+
+                // One query per lot: load every existing code sharing this lot's prefix,
+                // then resolve collisions in memory (same suffix rule as before: -01, -02, ...).
+                var codePrefix = InventoryBarcodeCodeBuilder.BuildPrefix(
+                    product.IdentificationCode,
+                    receipt.ActualImportDate,
+                    item.LotNumber);
+                var existingCodes = (await _inventoryBarcodeRepository.GetQueryableAsync())
+                    .Where(x => x.Code.StartsWith(codePrefix))
+                    .Select(x => x.Code)
+                    .ToHashSet(StringComparer.Ordinal);
+
+                var barcodeCodes = new List<string>(barcodeCount);
                 for (var sequence = 1; sequence <= barcodeCount; sequence++)
                 {
                     var code = InventoryBarcodeCodeBuilder.Build(
@@ -360,10 +377,11 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                         sequence);
                     var uniqueCode = code;
                     var suffix = 1;
-                    while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                    while (existingCodes.Contains(uniqueCode) || generatedBarcodeCodes.Contains(uniqueCode))
                         uniqueCode = $"{code}-{suffix++:D2}";
 
-                    var barcode = new InventoryBarcode(
+                    generatedBarcodeCodes.Add(uniqueCode);
+                    barcodesToInsert.Add(new InventoryBarcode(
                         GuidGenerator.Create(),
                         uniqueCode,
                         item.ProductId,
@@ -371,15 +389,17 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                         defaultWarehouse.Id)
                     {
                         SkuId = item.SkuId
-                    };
-                    await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                    });
                     barcodeCodes.Add(uniqueCode);
                 }
                 item.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
             }
 
-            await _itemRepository.UpdateAsync(item, autoSave: true);
+            await _itemRepository.UpdateAsync(item, autoSave: false);
         }
+
+        if (barcodesToInsert.Count > 0)
+            await _inventoryBarcodeRepository.InsertManyAsync(barcodesToInsert, autoSave: true);
 
         // Equipment items: create Equipment entities for received items
         var equipmentItems = receipt.Items.Where(x => x.IsEquipment && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received).ToList();
