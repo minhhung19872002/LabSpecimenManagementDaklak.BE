@@ -2599,10 +2599,6 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }
             }
 
-            decimal totalConsumedInList = 0;
-            for (int j = 0; j < consumeVolumes.Length; j++)
-                totalConsumedInList += consumeVolumes[j];
-
             // Compute received volume per-lot using same grouping as GetLotStocksAsync.
             var logImportItemQ = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
             var logImportReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
@@ -2667,35 +2663,67 @@ public class ProductAppService : ApplicationService, IProductAppService
                 }
             }
 
-            // Query total ALL consumption (ignoring date range) to compute current stock.
-            // currentStock = receivedVol - totalAllConsumption (ConsumedBaseQuantity is always 0,
-            // no auto-deduction). This MUST use the same universe as `merged` (which feeds
-            // totalConsumedInList): all IC rows of this product/warehouse/lot, INCLUDING
-            // PreparedSolutionBatch rows (IsDeducted=false, PreparedSolutionBatchId!=null) and
-            // without any IsDeducted filter. If one side excludes PSB rows the running balance is
-            // inflated: e.g. 50k lot + one 1k PSB consumption → running = 50k + 1k = 51k instead of 50k.
+            // "Tồn của lô" of a row = receivedVol - every consumption that happened BEFORE it.
+            // `merged` only holds rows inside the date filter whose LTI still resolves, so load
+            // ALL consumption rows of this product/warehouse/lot (same universe as `merged`:
+            // no IsDeducted filter, PreparedSolutionBatch rows included) and treat the ones that
+            // are NOT represented in `merged` as "unlisted". Unlisted consumption is subtracted
+            // only from rows dated after it — NOT from the whole list, otherwise a later
+            // consumption outside the list (or a PSB row missing on one side) shifts every
+            // row (e.g. 50k lot + 1k PSB showed 51,000 / 49,999.99 instead of 50,000).
             var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
                 .Where(c => c.ProductId == id);
             if (usageLogWarehouseIds != null)
                 allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
             if (!string.IsNullOrEmpty(input.LotNumber))
                 allIcForBalanceQ = allIcForBalanceQ.Where(c => c.LotNumber == input.LotNumber);
+            var allIcForBalance = allIcForBalanceQ.ToList();
 
-            decimal totalAllConsumptionVol = 0;
-            foreach (var ic in allIcForBalanceQ.ToList())
+            // Keys of IC rows already represented in `merged` (mirrors the enrichment loop above)
+            var listedPsbIds = new HashSet<Guid>(fromPsbPath.Select(x => x.LtiId));
+            var listedGroupKeys = merged
+                .Where(r => !listedPsbIds.Contains(r.LtiId))
+                .Select(r => (r.LtiId, r.SubmitDate, r.LotNumber, r.BarcodeCode))
+                .Where(k => icByLtiSubmit.ContainsKey(k))
+                .ToHashSet();
+            var listedLtiAny = merged
+                .Where(r => !listedPsbIds.Contains(r.LtiId)
+                            && r.SubmitDate == null
+                            && !icByLtiSubmit.ContainsKey((r.LtiId, r.SubmitDate, r.LotNumber, r.BarcodeCode)))
+                .Select(r => r.LtiId)
+                .ToHashSet();
+
+            var unlisted = new List<(DateTime Date, decimal Vol)>();
+            foreach (var ic in allIcForBalance)
             {
-                if (ic.ActualQuantity > 0)
-                    totalAllConsumptionVol += ConvertConsumptionToVolume(
-                        ic.ActualQuantity, ic.UnitId,
-                        product, productSkusForLog, conversionMap, defaultVpu);
-            }
+                if (ic.ActualQuantity <= 0) continue;
+                bool listed = ic.PreparedSolutionBatchId != null
+                    ? listedPsbIds.Contains(ic.Id)
+                    : listedGroupKeys.Contains((ic.LaboratoryTaskIndicatorId, ic.SubmitDate, ic.LotNumber, ic.BarcodeCode))
+                      || listedLtiAny.Contains(ic.LaboratoryTaskIndicatorId);
+                if (listed) continue;
 
-            decimal currentStock = Math.Max(0, receivedVol - totalAllConsumptionVol);
-            decimal running = currentStock + totalConsumedInList;
+                var date = (ic.PreparedSolutionBatchId != null ? ic.ConsumptionDate : ic.SubmitDate) ?? DateTime.MinValue;
+                unlisted.Add((date, ConvertConsumptionToVolume(
+                    ic.ActualQuantity, ic.UnitId,
+                    product, productSkusForLog, conversionMap, defaultVpu)));
+            }
+            unlisted.Sort((a, b) => a.Date.CompareTo(b.Date));
+
+            decimal running = receivedVol;
+            int unlistedIdx = 0;
             bool useLotFilter = !string.IsNullOrEmpty(input.LotNumber);
             decimal? lastAnchor = null;
             for (int i = merged.Count - 1; i >= 0; i--)
             {
+                // Apply unlisted consumption that happened before this row
+                var rowDate = merged[i].ResultSubmissionDate ?? DateTime.MinValue;
+                while (unlistedIdx < unlisted.Count && unlisted[unlistedIdx].Date < rowDate)
+                {
+                    running -= unlisted[unlistedIdx].Vol;
+                    unlistedIdx++;
+                }
+
                 // Stored anchors are computed for the whole product (all lots combined),
                 // so they are only valid when viewing without a lot filter.
                 if (!useLotFilter)
