@@ -2669,12 +2669,13 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             // Query total ALL consumption (ignoring date range) to compute current stock.
             // currentStock = receivedVol - totalAllConsumption (ConsumedBaseQuantity is always 0,
-            // no auto-deduction). Do NOT filter by IsDeducted: the merged list (totalConsumedInList)
-            // also includes non-deducted records, so both sides must use the same universe or the
-            // running balance will be inflated (e.g. 51,000 instead of 49,000 for a 50k lot with
-            // one 1k consumption that has IsDeducted=false).
+            // no auto-deduction). This MUST use the same universe as `merged` (which feeds
+            // totalConsumedInList): all IC rows of this product/warehouse/lot, INCLUDING
+            // PreparedSolutionBatch rows (IsDeducted=false, PreparedSolutionBatchId!=null) and
+            // without any IsDeducted filter. If one side excludes PSB rows the running balance is
+            // inflated: e.g. 50k lot + one 1k PSB consumption → running = 50k + 1k = 51k instead of 50k.
             var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
-                .Where(c => c.ProductId == id && c.PreparedSolutionBatchId == null);
+                .Where(c => c.ProductId == id);
             if (usageLogWarehouseIds != null)
                 allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
             if (!string.IsNullOrEmpty(input.LotNumber))
