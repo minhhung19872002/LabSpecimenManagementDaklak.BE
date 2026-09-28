@@ -760,7 +760,8 @@ public partial class TestRequestAppService :
                         sampleIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
-                        sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
+                        // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
+                        sampleIndicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
 
@@ -1088,7 +1089,8 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            indicator.SentToDepartment = indicatorDto.SentToDepartment;
+                            // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
+                            indicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
 
                             // Move LaboratoryTaskIndicator when lab changes and status is Pending
@@ -1145,7 +1147,8 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            indicator.SentToDepartment = indicatorDto.SentToDepartment;
+                            // Phòng thủ: SentToDepartment chỉ = true khi đã có LaboratoryId
+                            indicator.SentToDepartment = indicatorDto.LaboratoryId.HasValue && indicatorDto.SentToDepartment;
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.IsSubcontract = indicatorDto.IsSubcontract;
 
