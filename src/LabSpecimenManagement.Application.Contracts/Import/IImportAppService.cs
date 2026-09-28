@@ -196,6 +196,19 @@ public interface IImportAppService : IApplicationService
 
     #endregion
 
+    #region Admin Consumption Import (tiêu hao theo Nền mẫu + Chỉ tiêu + Phương pháp)
+
+    /// <summary>Trả file tĩnh "Tiêu hao.xlsx" (template do BA cung cấp)</summary>
+    Task<byte[]> GetAdminConsumptionTemplateAsync();
+
+    [DisableValidation]
+    Task<AdminConsumptionPreviewDto> PreviewAdminConsumptionAsync(byte[] fileBytes);
+
+    [DisableValidation]
+    Task<ImportResultDto> ImportAdminConsumptionAsync(byte[] fileBytes);
+
+    #endregion
+
     #region Specimen for TestRequest Import
 
     /// <summary>

@@ -379,6 +379,42 @@ public class ImportController : LabSpecimenManagementController
 
     #endregion
 
+    #region Admin Consumption Import (tiêu hao theo Nền mẫu + Chỉ tiêu + Phương pháp)
+
+    [HttpGet("indicator-groups/admin-consumption-template")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    public virtual async Task<IActionResult> GetAdminConsumptionTemplateAsync()
+    {
+        var bytes = await _importAppService.GetAdminConsumptionTemplateAsync();
+        return File(bytes, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "AdminTemplate_TieuHao.xlsx");
+    }
+
+    [HttpPost("indicator-groups/admin-consumption-preview")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<AdminConsumptionPreviewDto> PreviewAdminConsumptionAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.PreviewAdminConsumptionAsync(fileBytes);
+    }
+
+    [HttpPost("indicator-groups/admin-consumption")]
+    [Authorize(LabSpecimenManagementPermissions.Import.Default)]
+    [DisableValidation]
+    public virtual async Task<ImportResultDto> ImportAdminConsumptionAsync(IFormFile file)
+    {
+        ValidateFile(file);
+        using var memoryStream = new System.IO.MemoryStream();
+        await file.CopyToAsync(memoryStream);
+        var fileBytes = memoryStream.ToArray();
+        return await _importAppService.ImportAdminConsumptionAsync(fileBytes);
+    }
+
+    #endregion
+
     #region Specimen Import for TestRequestForm
 
     /// <summary>

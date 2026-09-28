@@ -413,3 +413,55 @@ public class AdminIndicatorNamePreviewDto
 }
 
 #endregion
+
+#region Admin Consumption Import (tiêu hao theo Nền mẫu + Chỉ tiêu + Phương pháp)
+
+/// <summary>
+/// 1 dòng trong template "Tiêu hao.xlsx" = 1 vật tư tiêu hao cho 1 combination
+/// (Nền mẫu + Chỉ tiêu + Phương pháp) → resolve ra TestMethodIndicator.
+/// Cột "Khoa phòng thực hiện" (A) hiện tại bỏ qua, không validate.
+/// </summary>
+public class AdminConsumptionPreviewItem
+{
+    public int RowNumber { get; set; }
+
+    // Combination (từ file)
+    public string SpecimenTypeName { get; set; } = string.Empty;
+    public string IndicatorName { get; set; } = string.Empty;
+    public string TestMethodName { get; set; } = string.Empty;
+
+    // Vật tư (từ file)
+    public string ProductTypeLabel { get; set; } = string.Empty;
+    public string ProductName { get; set; } = string.Empty;
+
+    // Số liệu
+    public decimal Quantity { get; set; }
+    public int EstimatedSamplesPerYear { get; set; }
+    /// <summary>Tự tính = Quantity / EstimatedSamplesPerYear</summary>
+    public decimal? AvgConsumptionPerSample { get; set; }
+
+    // Resolved (chỉ có khi hợp lệ)
+    public Guid? TestMethodIndicatorId { get; set; }
+    public Guid? ProductId { get; set; }
+    /// <summary>Không có trong template — tự lấy từ vật tư (VolumeUnitId ?? BaseUnitId) giống modal nhập tay</summary>
+    public Guid? UnitId { get; set; }
+
+    public bool IsValid { get; set; }
+    public List<string> Errors { get; set; } = new();
+}
+
+public class AdminConsumptionPreviewDto
+{
+    public int TotalRows { get; set; }
+    public int ValidRows { get; set; }
+    public int ErrorRows { get; set; }
+    /// <summary>Số dòng combination có cột E–H trống (chưa điền vật tư) → bỏ qua, không ghi đè</summary>
+    public int SkippedRows { get; set; }
+    /// <summary>Số combination (TestMethodIndicator) sẽ bị ghi đè tiêu hao vật tư khi import</summary>
+    public int AffectedIndicators { get; set; }
+    public List<AdminConsumptionPreviewItem> Items { get; set; } = new();
+    public string? ErrorFileBase64 { get; set; }
+    public string? ErrorFileName { get; set; }
+}
+
+#endregion

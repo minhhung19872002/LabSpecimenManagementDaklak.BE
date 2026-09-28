@@ -56,6 +56,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
     private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
+    private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionItemRepository;
     private readonly IGuidGenerator _guidGenerator;
     private readonly ICodeGeneratorService _codeGenerator;
     private readonly IWebHostEnvironment _webHostEnvironment;
@@ -90,6 +91,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
         IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
+        IRepository<MaterialConsumptionItem, Guid> materialConsumptionItemRepository,
         IGuidGenerator guidGenerator,
         ICodeGeneratorService codeGenerator,
         IWebHostEnvironment webHostEnvironment,
@@ -123,6 +125,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         _warehouseImportReceiptItemRepository = warehouseImportReceiptItemRepository;
         _inventoryBarcodeRepository = inventoryBarcodeRepository;
         _productSkuRepository = productSkuRepository;
+        _materialConsumptionItemRepository = materialConsumptionItemRepository;
         _guidGenerator = guidGenerator;
         _codeGenerator = codeGenerator;
         _webHostEnvironment = webHostEnvironment;
@@ -4102,6 +4105,495 @@ public class ImportAppService : ApplicationService, IImportAppService
                 TotalRows = preview.TotalRows,
                 ImportedRows = updatedCount,
                 Message = $"[Admin] Cập nhật thành công {updatedCount} tên chỉ tiêu."
+            };
+        }
+        catch (Exception ex)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                Message = $"Lỗi khi import: {ex.Message}"
+            };
+        }
+    }
+
+    #endregion
+
+    #region Admin Consumption Import (tiêu hao theo Nền mẫu + Chỉ tiêu + Phương pháp)
+
+    // Template "Tiêu hao.xlsx" (BA cung cấp), cột:
+    // A Khoa phòng thực hiện (bỏ qua) | B Nền mẫu | C Chỉ tiêu | D Tên phương pháp
+    // E Loại vật tư | F Tên vật tư | G Tiêu hao / mẫu | H Số mẫu dự tính
+    private const int ConsumptionColSpecimenType = 2;
+    private const int ConsumptionColIndicator = 3;
+    private const int ConsumptionColTestMethod = 4;
+    private const int ConsumptionColProductType = 5;
+    private const int ConsumptionColProductName = 6;
+    private const int ConsumptionColQuantity = 7;
+    private const int ConsumptionColSamples = 8;
+
+    /// <summary>
+    /// Template tiêu hao có fill sẵn data hiện có: mỗi combination (Nền mẫu + Chỉ tiêu + Phương pháp) đang hoạt động
+    /// xuất ra các dòng vật tư tiêu hao đã khai báo; combination chưa có tiêu hao xuất 1 dòng với cột E–H trống.
+    /// Dùng file tĩnh "Tiêu hao.xlsx" làm khung để giữ nguyên header/định dạng của BA.
+    /// </summary>
+    public async Task<byte[]> GetAdminConsumptionTemplateAsync()
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        var templateBytes = ReadStaticTemplate("Tiêu hao.xlsx");
+        using var templateStream = new MemoryStream(templateBytes);
+        using var workbook = new XLWorkbook(templateStream);
+        var ws = workbook.Worksheets.First();
+
+        // Xoá data mẫu của BA, giữ header dòng 1
+        var lastUsed = ws.LastRowUsed()?.RowNumber() ?? 1;
+        if (lastUsed >= 2)
+            ws.Rows(2, lastUsed).Delete();
+
+        // ===== Master data =====
+        var specimenTypeNameById = (await _specimenTypeRepository.GetListAsync())
+            .ToDictionary(x => x.Id, x => x.Name ?? "");
+        var testMethodNameById = (await _testMethodRepository.GetListAsync())
+            .ToDictionary(x => x.Id, x => x.Name ?? "");
+        var indicatorById = (await _indicatorRepository.GetListAsync())
+            .ToDictionary(x => x.Id);
+
+        var labQuery = await _laboratoryRepository.GetQueryableAsync();
+        var deptQuery = await _departmentRepository.GetQueryableAsync();
+        var labs = await AsyncExecuter.ToListAsync(
+            from lab in labQuery
+            join dept in deptQuery on lab.DepartmentId equals dept.Id into dj
+            from dept in dj.DefaultIfEmpty()
+            select new { lab.Id, DeptName = dept != null ? dept.Name : "" }
+        );
+        var labNameById = labs.ToDictionary(l => l.Id, l => l.DeptName ?? "");
+
+        var productById = (await _productRepository.GetListAsync()).ToDictionary(p => p.Id);
+
+        var tmis = (await _testMethodIndicatorRepository.GetListAsync())
+            .Where(t => t.IsActive && t.SpecimenTypeId.HasValue
+                        && indicatorById.ContainsKey(t.IndicatorId)
+                        && testMethodNameById.ContainsKey(t.TestMethodId)
+                        && specimenTypeNameById.ContainsKey(t.SpecimenTypeId.Value))
+            .ToList();
+        var tmiIds = tmis.Select(t => t.Id).ToHashSet();
+
+        var consumptionByTmi = (await _materialConsumptionItemRepository.GetListAsync(x => x.ProductId != null))
+            .Where(c => tmiIds.Contains(c.TestMethodIndicatorId))
+            .GroupBy(c => c.TestMethodIndicatorId)
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var rows = tmis
+            .Select(t =>
+            {
+                var ind = indicatorById[t.IndicatorId];
+                return new
+                {
+                    Tmi = t,
+                    LabName = labNameById.TryGetValue(ind.LaboratoryId, out var ln) ? ln : "",
+                    SpecimenTypeName = specimenTypeNameById[t.SpecimenTypeId!.Value],
+                    IndicatorName = ind.Name ?? "",
+                    TestMethodName = testMethodNameById[t.TestMethodId],
+                };
+            })
+            .OrderBy(r => r.LabName).ThenBy(r => r.SpecimenTypeName).ThenBy(r => r.IndicatorName).ThenBy(r => r.TestMethodName)
+            .ToList();
+
+        var rowNum = 2;
+        foreach (var r in rows)
+        {
+            var items = consumptionByTmi.TryGetValue(r.Tmi.Id, out var list) ? list : new List<MaterialConsumptionItem>();
+            if (items.Count == 0)
+            {
+                WriteConsumptionTemplateRow(ws, rowNum++, r.LabName, r.SpecimenTypeName, r.IndicatorName, r.TestMethodName, null, null, null, null);
+                continue;
+            }
+
+            foreach (var c in items.OrderBy(c => productById.TryGetValue(c.ProductId!.Value, out var p0) ? p0.Name : ""))
+            {
+                if (!productById.TryGetValue(c.ProductId!.Value, out var product)) continue;
+                WriteConsumptionTemplateRow(ws, rowNum++, r.LabName, r.SpecimenTypeName, r.IndicatorName, r.TestMethodName,
+                    GetProductTypeLabel(product.ProductType), product.Name ?? "", c.Quantity, c.EstimatedSamplesPerYear);
+            }
+        }
+
+        ws.Columns(1, ConsumptionColSamples).AdjustToContents();
+
+        using var outStream = new MemoryStream();
+        workbook.SaveAs(outStream);
+        return outStream.ToArray();
+    }
+
+    private static void WriteConsumptionTemplateRow(IXLWorksheet ws, int rowNum,
+        string labName, string specimenTypeName, string indicatorName, string testMethodName,
+        string? productTypeLabel, string? productName, decimal? quantity, int? samples)
+    {
+        ws.Cell(rowNum, 1).Value = labName;
+        ws.Cell(rowNum, ConsumptionColSpecimenType).Value = specimenTypeName;
+        ws.Cell(rowNum, ConsumptionColIndicator).Value = indicatorName;
+        ws.Cell(rowNum, ConsumptionColTestMethod).Value = testMethodName;
+        if (productTypeLabel != null) ws.Cell(rowNum, ConsumptionColProductType).Value = productTypeLabel;
+        if (productName != null) ws.Cell(rowNum, ConsumptionColProductName).Value = productName;
+        if (quantity.HasValue) ws.Cell(rowNum, ConsumptionColQuantity).Value = (double)quantity.Value;
+        if (samples.HasValue) ws.Cell(rowNum, ConsumptionColSamples).Value = samples.Value;
+    }
+
+    public async Task<AdminConsumptionPreviewDto> PreviewAdminConsumptionAsync(byte[] fileBytes)
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        using var memoryStream = new MemoryStream(fileBytes);
+        return await PreviewAdminConsumptionInternalAsync(memoryStream);
+    }
+
+    private static string NormalizeLookupName(string? value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return string.Empty;
+        var plain = System.Text.RegularExpressions.Regex.Replace(value, "<[^>]+>", "");
+        plain = System.Web.HttpUtility.HtmlDecode(plain);
+        plain = System.Text.RegularExpressions.Regex.Replace(plain, @"\s+", " ");
+        return plain.Trim().Normalize(NormalizationForm.FormC).ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Đọc số thập phân từ cell: nhận cả cell số lẫn cell text ("10", "10.5", "10,5").
+    /// </summary>
+    private static bool TryReadDecimalCell(IXLCell cell, out decimal value, out string raw)
+    {
+        value = 0;
+        raw = cell.GetString()?.Trim() ?? "";
+
+        if (cell.DataType == XLDataType.Number)
+        {
+            value = (decimal)cell.GetDouble();
+            return true;
+        }
+
+        if (string.IsNullOrEmpty(raw)) return false;
+
+        var candidate = raw.Replace(" ", "");
+        if (decimal.TryParse(candidate, NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+            return true;
+
+        // Kiểu vi-VN: dấu phẩy thập phân
+        if (candidate.Count(c => c == ',') == 1 && !candidate.Contains('.')
+            && decimal.TryParse(candidate.Replace(',', '.'), NumberStyles.Number, CultureInfo.InvariantCulture, out value))
+            return true;
+
+        return false;
+    }
+
+    private async Task<AdminConsumptionPreviewDto> PreviewAdminConsumptionInternalAsync(MemoryStream memoryStream)
+    {
+        using var workbook = new XLWorkbook(memoryStream);
+        var worksheet = workbook.Worksheets.First();
+        var lastRow = worksheet.LastRowUsed()?.RowNumber() ?? 1;
+
+        var headerSpecimen = worksheet.Cell(1, ConsumptionColSpecimenType).GetString()?.Trim() ?? "";
+        var headerProduct = worksheet.Cell(1, ConsumptionColProductName).GetString()?.Trim() ?? "";
+        if (!headerSpecimen.Equals("Nền mẫu", StringComparison.OrdinalIgnoreCase)
+            || !headerProduct.Equals("Tên vật tư", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new UserFriendlyException(
+                "File không đúng template tiêu hao. Vui lòng tải template \"Tải template tiêu hao\" và điền theo đúng cột.");
+        }
+
+        // ===== Master data lookups =====
+        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var specimenTypeIdsByName = specimenTypes
+            .GroupBy(x => NormalizeLookupName(x.Name))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToHashSet());
+
+        var indicators = await _indicatorRepository.GetListAsync();
+        var indicatorIdsByName = indicators
+            .GroupBy(x => NormalizeLookupName(x.Name))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToHashSet());
+
+        var testMethods = await _testMethodRepository.GetListAsync();
+        var testMethodIdsByName = testMethods
+            .GroupBy(x => NormalizeLookupName(x.Name))
+            .ToDictionary(g => g.Key, g => g.Select(x => x.Id).ToHashSet());
+
+        var testMethodIndicators = await _testMethodIndicatorRepository.GetListAsync();
+
+        var products = await _productRepository.GetListAsync();
+        // Tên vật tư: match chính xác, phân biệt hoa/thường (chỉ trim đầu/cuối)
+        var productsByExactName = products
+            .GroupBy(p => (p.Name ?? "").Trim(), StringComparer.Ordinal)
+            .ToDictionary(g => g.Key, g => g.ToList(), StringComparer.Ordinal);
+        var productsByLooseName = products
+            .GroupBy(p => NormalizeLookupName(p.Name))
+            .ToDictionary(g => g.Key, g => g.ToList());
+
+        var result = new AdminConsumptionPreviewDto();
+
+        for (int rowIdx = 2; rowIdx <= lastRow; rowIdx++)
+        {
+            var specimenTypeName = worksheet.Cell(rowIdx, ConsumptionColSpecimenType).GetString()?.Trim() ?? "";
+            var indicatorName = worksheet.Cell(rowIdx, ConsumptionColIndicator).GetString()?.Trim() ?? "";
+            var testMethodName = worksheet.Cell(rowIdx, ConsumptionColTestMethod).GetString()?.Trim() ?? "";
+            var productTypeLabel = worksheet.Cell(rowIdx, ConsumptionColProductType).GetString()?.Trim() ?? "";
+            var productName = worksheet.Cell(rowIdx, ConsumptionColProductName).GetString()?.Trim() ?? "";
+            var quantityCell = worksheet.Cell(rowIdx, ConsumptionColQuantity);
+            var samplesCell = worksheet.Cell(rowIdx, ConsumptionColSamples);
+            var quantityRaw = quantityCell.GetString()?.Trim() ?? "";
+            var samplesRaw = samplesCell.GetString()?.Trim() ?? "";
+
+            var consumptionPartBlank = string.IsNullOrWhiteSpace(productTypeLabel) && string.IsNullOrWhiteSpace(productName)
+                && string.IsNullOrWhiteSpace(quantityRaw) && string.IsNullOrWhiteSpace(samplesRaw);
+
+            // Bỏ qua dòng trống hoàn toàn (không tính cột A)
+            if (consumptionPartBlank && string.IsNullOrWhiteSpace(specimenTypeName)
+                && string.IsNullOrWhiteSpace(indicatorName) && string.IsNullOrWhiteSpace(testMethodName))
+                continue;
+
+            // Combination được xuất sẵn từ template nhưng chưa điền vật tư (E–H trống) → bỏ qua, không đụng data hiện có
+            if (consumptionPartBlank)
+            {
+                result.SkippedRows++;
+                continue;
+            }
+
+            var item = new AdminConsumptionPreviewItem
+            {
+                RowNumber = rowIdx,
+                SpecimenTypeName = specimenTypeName,
+                IndicatorName = indicatorName,
+                TestMethodName = testMethodName,
+                ProductTypeLabel = productTypeLabel,
+                ProductName = productName,
+                IsValid = true,
+            };
+
+            // ----- Bắt buộc nhập -----
+            if (string.IsNullOrWhiteSpace(specimenTypeName)) item.Errors.Add("Nền mẫu không được để trống");
+            if (string.IsNullOrWhiteSpace(indicatorName)) item.Errors.Add("Chỉ tiêu không được để trống");
+            if (string.IsNullOrWhiteSpace(testMethodName)) item.Errors.Add("Tên phương pháp không được để trống");
+            if (string.IsNullOrWhiteSpace(productTypeLabel)) item.Errors.Add("Loại vật tư không được để trống");
+            if (string.IsNullOrWhiteSpace(productName)) item.Errors.Add("Tên vật tư không được để trống");
+            if (string.IsNullOrWhiteSpace(quantityRaw)) item.Errors.Add("Tiêu hao / mẫu không được để trống");
+            if (string.IsNullOrWhiteSpace(samplesRaw)) item.Errors.Add("Số mẫu dự tính không được để trống");
+
+            // ----- Combination: Nền mẫu + Chỉ tiêu + Phương pháp → TestMethodIndicator -----
+            HashSet<Guid>? specimenTypeIds = null, indicatorIds = null, testMethodIds = null;
+
+            if (!string.IsNullOrWhiteSpace(specimenTypeName)
+                && !specimenTypeIdsByName.TryGetValue(NormalizeLookupName(specimenTypeName), out specimenTypeIds))
+                item.Errors.Add($"Nền mẫu '{specimenTypeName}' không tồn tại trong hệ thống");
+
+            if (!string.IsNullOrWhiteSpace(indicatorName)
+                && !indicatorIdsByName.TryGetValue(NormalizeLookupName(indicatorName), out indicatorIds))
+                item.Errors.Add($"Chỉ tiêu '{indicatorName}' không tồn tại trong hệ thống");
+
+            if (!string.IsNullOrWhiteSpace(testMethodName)
+                && !testMethodIdsByName.TryGetValue(NormalizeLookupName(testMethodName), out testMethodIds))
+                item.Errors.Add($"Phương pháp '{testMethodName}' không tồn tại trong hệ thống");
+
+            if (specimenTypeIds != null && indicatorIds != null && testMethodIds != null)
+            {
+                var matchedTmis = testMethodIndicators
+                    .Where(t => t.SpecimenTypeId.HasValue
+                                && specimenTypeIds.Contains(t.SpecimenTypeId.Value)
+                                && indicatorIds.Contains(t.IndicatorId)
+                                && testMethodIds.Contains(t.TestMethodId))
+                    .ToList();
+
+                // Chỉ nhận combination đang hoạt động (template cũng chỉ xuất combination đang hoạt động)
+                var activeTmis = matchedTmis.Where(t => t.IsActive).ToList();
+
+                if (matchedTmis.Count == 0)
+                    item.Errors.Add($"Chỉ tiêu '{indicatorName}' chưa được khai báo với phương pháp '{testMethodName}' trên nền mẫu '{specimenTypeName}'");
+                else if (activeTmis.Count == 0)
+                    item.Errors.Add($"Combination '{specimenTypeName}' + '{indicatorName}' + '{testMethodName}' đang ngừng hoạt động");
+                else if (activeTmis.Count > 1)
+                    item.Errors.Add($"Combination Nền mẫu + Chỉ tiêu + Phương pháp không duy nhất ({activeTmis.Count} bản ghi), vui lòng kiểm tra dữ liệu chỉ tiêu");
+                else
+                    item.TestMethodIndicatorId = activeTmis[0].Id;
+            }
+
+            // ----- Loại vật tư + Tên vật tư -----
+            var expectedProductType = ParseProductTypeLabel(productTypeLabel);
+            if (!string.IsNullOrWhiteSpace(productTypeLabel) && expectedProductType == null)
+                item.Errors.Add($"Loại vật tư '{productTypeLabel}' không hợp lệ (Hóa chất / Sinh phẩm / Vật tư tiêu hao / Chất chuẩn / Dung môi / Thiết bị phòng Lab / Dung dịch pha)");
+
+            if (!string.IsNullOrWhiteSpace(productName))
+            {
+                if (!productsByExactName.TryGetValue(productName, out var exactMatches))
+                {
+                    var hint = productsByLooseName.TryGetValue(NormalizeLookupName(productName), out var loose)
+                        ? $" (gần giống: '{loose[0].Name}' — tên phải khớp chính xác, phân biệt hoa/thường)"
+                        : "";
+                    item.Errors.Add($"Tên vật tư '{productName}' không tồn tại trong hệ thống{hint}");
+                }
+                else if (expectedProductType != null)
+                {
+                    var sameType = exactMatches.Where(p => p.ProductType == expectedProductType.Value).ToList();
+                    if (sameType.Count == 0)
+                    {
+                        var actualTypes = string.Join(", ", exactMatches.Select(p => GetProductTypeLabel(p.ProductType)).Distinct());
+                        item.Errors.Add($"Vật tư '{productName}' thuộc loại '{actualTypes}', không phải '{productTypeLabel}'");
+                    }
+                    else
+                    {
+                        var active = sameType.Where(p => p.IsActive).ToList();
+                        if (active.Count == 0)
+                            item.Errors.Add($"Vật tư '{productName}' đang ngừng hoạt động");
+                        else if (active.Count > 1)
+                            item.Errors.Add($"Tên vật tư '{productName}' không duy nhất ({active.Count} vật tư cùng tên và loại), vui lòng kiểm tra dữ liệu vật tư");
+                        else
+                        {
+                            var product = active[0];
+                            item.ProductId = product.Id;
+                            // Đơn vị không có trong template: tự gán giống modal nhập tay (volumeUnit → baseUnit)
+                            item.UnitId = product.VolumeUnitId ?? product.BaseUnitId;
+                        }
+                    }
+                }
+            }
+
+            // ----- Tiêu hao / mẫu: số thập phân >= 0 -----
+            decimal quantity = 0;
+            var quantityOk = false;
+            if (!string.IsNullOrWhiteSpace(quantityRaw))
+            {
+                if (!TryReadDecimalCell(quantityCell, out quantity, out _))
+                    item.Errors.Add($"Tiêu hao / mẫu '{quantityRaw}' không phải là số");
+                else if (quantity < 0)
+                    item.Errors.Add("Tiêu hao / mẫu không được âm");
+                else
+                    quantityOk = true;
+            }
+
+            // ----- Số mẫu dự tính: số nguyên > 0 -----
+            var samples = 0;
+            var samplesOk = false;
+            if (!string.IsNullOrWhiteSpace(samplesRaw))
+            {
+                if (!TryReadDecimalCell(samplesCell, out var samplesDec, out _))
+                    item.Errors.Add($"Số mẫu dự tính '{samplesRaw}' không phải là số");
+                else if (samplesDec != decimal.Truncate(samplesDec))
+                    item.Errors.Add($"Số mẫu dự tính '{samplesRaw}' phải là số nguyên");
+                else if (samplesDec <= 0)
+                    item.Errors.Add("Số mẫu dự tính phải lớn hơn 0");
+                else if (samplesDec > int.MaxValue)
+                    item.Errors.Add("Số mẫu dự tính quá lớn");
+                else
+                {
+                    samples = (int)samplesDec;
+                    samplesOk = true;
+                }
+            }
+
+            // Quantity lưu DB precision (18,4), Avg (18,6) → làm tròn; Avg tính từ Quantity đã làm tròn để khớp giá trị lưu
+            if (quantityOk) item.Quantity = Math.Round(quantity, 4);
+            if (samplesOk) item.EstimatedSamplesPerYear = samples;
+            if (quantityOk && samplesOk)
+                item.AvgConsumptionPerSample = Math.Round(item.Quantity / samples, 6);
+
+            item.IsValid = item.Errors.Count == 0;
+            result.Items.Add(item);
+        }
+
+        // ----- Trùng vật tư trong cùng combination -----
+        var duplicateGroups = result.Items
+            .Where(i => i.IsValid && i.TestMethodIndicatorId.HasValue && i.ProductId.HasValue)
+            .GroupBy(i => (i.TestMethodIndicatorId!.Value, i.ProductId!.Value))
+            .Where(g => g.Count() > 1);
+
+        foreach (var group in duplicateGroups)
+        {
+            var rows = string.Join(", ", group.Select(i => i.RowNumber));
+            foreach (var dup in group)
+            {
+                dup.IsValid = false;
+                dup.Errors.Add($"Vật tư '{dup.ProductName}' bị lặp trong cùng combination (các dòng {rows})");
+            }
+        }
+
+        result.TotalRows = result.Items.Count;
+        result.ValidRows = result.Items.Count(i => i.IsValid);
+        result.ErrorRows = result.Items.Count(i => !i.IsValid);
+        result.AffectedIndicators = result.Items
+            .Where(i => i.IsValid && i.TestMethodIndicatorId.HasValue)
+            .Select(i => i.TestMethodIndicatorId!.Value)
+            .Distinct()
+            .Count();
+
+        return result;
+    }
+
+    public async Task<ImportResultDto> ImportAdminConsumptionAsync(byte[] fileBytes)
+    {
+        if (!CurrentUser.IsInRole(AppConstants.RoleAdmin))
+            throw new Volo.Abp.Authorization.AbpAuthorizationException("Chỉ admin mới được sử dụng chức năng này");
+
+        using var memoryStream = new MemoryStream(fileBytes);
+        var preview = await PreviewAdminConsumptionInternalAsync(memoryStream);
+
+        if (preview.ErrorRows > 0)
+        {
+            return new ImportResultDto
+            {
+                Success = false,
+                TotalRows = preview.TotalRows,
+                FailedRows = preview.ErrorRows,
+                Errors = preview.Items
+                    .Where(i => !i.IsValid)
+                    .Select(i => new ImportRowError
+                    {
+                        RowNumber = i.RowNumber,
+                        ErrorMessage = string.Join("; ", i.Errors)
+                    })
+                    .ToList(),
+                Message = $"Có {preview.ErrorRows} dòng lỗi. Vui lòng sửa và thử lại."
+            };
+        }
+
+        var validItems = preview.Items.Where(i => i.IsValid && i.TestMethodIndicatorId.HasValue && i.ProductId.HasValue).ToList();
+        if (validItems.Count == 0)
+        {
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = 0,
+                Message = "File không có dòng tiêu hao nào để nhập."
+            };
+        }
+
+        try
+        {
+            var tmiIds = validItems.Select(i => i.TestMethodIndicatorId!.Value).Distinct().ToList();
+
+            // Ghi đè phần vật tư của các combination có trong file; giữ nguyên dòng thiết bị (template không có thiết bị)
+            var existing = await _materialConsumptionItemRepository.GetListAsync(
+                x => tmiIds.Contains(x.TestMethodIndicatorId) && x.ProductId != null);
+            if (existing.Count > 0)
+                await _materialConsumptionItemRepository.DeleteManyAsync(existing);
+
+            var newItems = validItems.Select(i => new MaterialConsumptionItem(
+                _guidGenerator.Create(),
+                i.TestMethodIndicatorId!.Value,
+                i.ProductId,
+                null,
+                i.UnitId,
+                i.Quantity,
+                i.EstimatedSamplesPerYear,
+                i.AvgConsumptionPerSample
+            )).ToList();
+
+            await _materialConsumptionItemRepository.InsertManyAsync(newItems);
+
+            return new ImportResultDto
+            {
+                Success = true,
+                TotalRows = preview.TotalRows,
+                ImportedRows = newItems.Count,
+                Message = $"[Admin] Nhập thành công {newItems.Count} dòng tiêu hao cho {tmiIds.Count} combination (Nền mẫu + Chỉ tiêu + Phương pháp)."
             };
         }
         catch (Exception ex)
