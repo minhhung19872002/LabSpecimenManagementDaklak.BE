@@ -129,7 +129,7 @@ public class ConsumableStockCalculator : IConsumableStockCalculator, ITransientD
         var unfrozen = icQuery
             .Where(c => c.ProductId.HasValue
                         && pidList.Contains(c.ProductId.Value)
-                        && c.IsDeducted
+                        && (c.IsDeducted || c.PreparedSolutionBatchId != null)
                         && c.ConsumableStockBefore == null)
             .ToList();
 
@@ -214,9 +214,9 @@ public class ConsumableStockCalculator : IConsumableStockCalculator, ITransientD
                     currentConsumable += remaining * vpu.Value;
             }
 
-            // Only deducted consumption for this lot
             var allDeducted = icQuery
-                .Where(c => c.ProductId == productId && c.IsDeducted
+                .Where(c => c.ProductId == productId
+                            && (c.IsDeducted || c.PreparedSolutionBatchId != null)
                             && c.WarehouseId == whId
                             && (c.LotNumber ?? "") == lotNumber)
                 .OrderByDescending(c => c.SubmitDate)

@@ -1914,9 +1914,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var icQ = await _indicatorConsumptionRepository.GetQueryableAsync();
             var ktvConsumedByLot = icQ
                 .Where(c => lotProductIds.Contains(c.ProductId ?? Guid.Empty)
-                    && c.PreparedSolutionBatchId == null
-                    && c.LotNumber != null
-                    && c.IsDeducted)
+                    && (c.IsDeducted || c.PreparedSolutionBatchId != null)
+                    && c.LotNumber != null)
                 .Select(c => new { c.ProductId, c.LotNumber, c.WarehouseId, c.ActualQuantity, c.ConsumptionDate, c.SubmitDate })
                 .ToList()
                 .Where(c =>

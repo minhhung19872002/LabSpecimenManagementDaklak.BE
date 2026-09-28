@@ -494,7 +494,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                         join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
                                         where ic.ProductId.HasValue
                                               && pagedProductIds.Contains(ic.ProductId!.Value)
-                                              && ic.IsDeducted
+                                              && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                                               && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
                                         select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate, ic.LotNumber })
                                        .ToList()
@@ -1232,7 +1232,7 @@ public class ProductAppService : ApplicationService, IProductAppService
             var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
             var icItems = (from ic in icQuery
                            join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
-                           where ic.ProductId == id && ic.IsDeducted
+                           where ic.ProductId == id && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                            where !warehouseId.HasValue
                                  || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value)
                            select new { ic.RecommendedQuantity, ic.SubmitDate })
@@ -2055,7 +2055,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                     join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
                                     where ic.ProductId.HasValue
                                           && productIds.Contains(ic.ProductId!.Value)
-                                          && ic.IsDeducted
+                                          && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                                     select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate, ic.LotNumber })
                                    .ToList()
                                    .Where(x => (!x.WarehouseId.HasValue
@@ -2669,9 +2669,12 @@ public class ProductAppService : ApplicationService, IProductAppService
 
             // Query total ALL consumption (ignoring date range) to compute current stock.
             // currentStock = receivedVol - totalAllConsumption (ConsumedBaseQuantity is always 0,
-            // no auto-deduction).
+            // no auto-deduction). Do NOT filter by IsDeducted: the merged list (totalConsumedInList)
+            // also includes non-deducted records, so both sides must use the same universe or the
+            // running balance will be inflated (e.g. 51,000 instead of 49,000 for a 50k lot with
+            // one 1k consumption that has IsDeducted=false).
             var allIcForBalanceQ = (await _indicatorConsumptionRepository.GetQueryableAsync())
-                .Where(c => c.ProductId == id && c.IsDeducted);
+                .Where(c => c.ProductId == id && c.PreparedSolutionBatchId == null);
             if (usageLogWarehouseIds != null)
                 allIcForBalanceQ = allIcForBalanceQ.Where(c => c.WarehouseId.HasValue && usageLogWarehouseIds.Contains(c.WarehouseId.Value));
             if (!string.IsNullOrEmpty(input.LotNumber))
@@ -3085,7 +3088,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                                        join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
                                        where ic.ProductId.HasValue
                                              && allProductIds.Contains(ic.ProductId!.Value)
-                                             && ic.IsDeducted
+                                             && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                                              && ic.WarehouseId.HasValue && warehouseIds.Contains(ic.WarehouseId.Value)
                                        select new { ic.ProductId, ic.WarehouseId, ic.RecommendedQuantity, ic.SubmitDate })
                                       .ToList()
