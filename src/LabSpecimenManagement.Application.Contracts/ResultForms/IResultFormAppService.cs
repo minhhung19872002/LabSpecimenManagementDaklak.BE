@@ -66,4 +66,9 @@ public interface IResultFormAppService : IApplicationService
     /// Used for previewing unsaved form data in create/edit mode
     /// </summary>
     Task<GenerateTestRequestFormOutput> PreviewTestRequestFormAsync(PreviewTestRequestFormInput input);
+
+    /// <summary>
+    /// Generate BM03-QT07 "Sổ quản lý mẫu" (phiếu bàn giao) for a test request
+    /// </summary>
+    Task<GenerateTestRequestFormOutput> GenerateSampleManagementBookAsync(Guid testRequestId);
 }

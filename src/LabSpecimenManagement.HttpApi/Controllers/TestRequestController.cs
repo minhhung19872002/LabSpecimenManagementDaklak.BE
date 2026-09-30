@@ -377,6 +377,25 @@ public class TestRequestController : LabSpecimenManagementController
         return _testRequestAppService.GetPublishedReportsAsync(id);
     }
 
+    /// <summary>
+    /// In phiếu bàn giao (BM03 - Sổ quản lý mẫu) + ghi lịch sử in (không đổi trạng thái)
+    /// </summary>
+    [HttpPost("{id}/print-handover")]
+    [Authorize(LabSpecimenManagementPermissions.TestRequests.Edit)]
+    public virtual Task<PrintHandoverOutput> PrintHandoverAsync(Guid id)
+    {
+        return _testRequestAppService.PrintHandoverAsync(id);
+    }
+
+    /// <summary>
+    /// Lịch sử in phiếu bàn giao
+    /// </summary>
+    [HttpGet("{id}/delivery-histories")]
+    public virtual Task<List<TestRequestDeliveryHistoryDto>> GetDeliveryHistoriesAsync(Guid id)
+    {
+        return _testRequestAppService.GetDeliveryHistoriesAsync(id);
+    }
+
     #endregion
 
     #region Cost Change History

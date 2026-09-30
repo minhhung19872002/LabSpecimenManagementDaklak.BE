@@ -4278,6 +4278,36 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppTestRequestChangeHistories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestDeliveryHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("PrintedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("StatusAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppTestRequestDeliveryHistories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestIndicator", b =>
                 {
                     b.Property<Guid>("Id")
@@ -6733,6 +6763,15 @@ namespace LabSpecimenManagement.Migrations
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", null)
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestDeliveryHistory", b =>
                 {
                     b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", null)
                         .WithMany()

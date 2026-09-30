@@ -42,6 +42,12 @@ public static class TemplateConstants
     public const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx";
 
     /// <summary>
+    /// BM03-QT07 - Sổ quản lý mẫu (phiếu bàn giao KH).
+    /// Không dùng đuôi .template.docx để không xuất hiện trong danh sách chọn template in KQ.
+    /// </summary>
+    public const string TemplateSampleManagementBook = "BM03-QT07-XXYCĐNHĐ _4.0.docx";
+
+    /// <summary>
     /// BM04 - Form thêm cột giới hạn
     /// </summary>
     public const string TemplateBM04 = "Form thêm cột GH BM04-QT13-BCKQ_3.2.template.docx";
