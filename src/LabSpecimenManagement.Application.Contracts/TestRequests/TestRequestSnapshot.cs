@@ -31,6 +31,7 @@ public class TestRequestSnapshot
     public bool SampleTypeContract { get; set; }
     public bool SampleTypeTask { get; set; }
     public bool SampleTypeSubContract { get; set; }
+    public bool SampleTypeSurveillance { get; set; }
 
     // === Yêu cầu về phương pháp ===
     public bool MethodWestHighlandInstitute { get; set; }
@@ -94,6 +95,7 @@ public class TestRequestSnapshot
             SampleTypeContract = entity.SampleTypeContract,
             SampleTypeTask = entity.SampleTypeTask,
             SampleTypeSubContract = entity.SampleTypeSubContract,
+            SampleTypeSurveillance = entity.SampleTypeSurveillance,
 
             // Yêu cầu về phương pháp
             MethodWestHighlandInstitute = entity.MethodWestHighlandInstitute,

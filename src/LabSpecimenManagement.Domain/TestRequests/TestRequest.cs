@@ -210,6 +210,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     public bool SampleTypeSubContract { get; set; }
 
     /// <summary>
+    /// Hình thức mẫu gửi - Mẫu giám sát/ nghiên cứu
+    /// </summary>
+    public bool SampleTypeSurveillance { get; set; }
+
+    /// <summary>
     /// Ngày trả kết quả
     /// </summary>
     public DateTime? ResultDeliveryDate { get; set; }

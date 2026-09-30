@@ -378,6 +378,7 @@ public partial class SyncAppService : LabSpecimenManagementAppService, ISyncAppS
             SampleTypeContract = createDto.SampleTypeContract,
             SampleTypeTask = createDto.SampleTypeTask,
             SampleTypeSubContract = createDto.SampleTypeSubContract,
+            SampleTypeSurveillance = createDto.SampleTypeSurveillance,
             ResultDeliveryDate = createDto.ResultDeliveryDate,
             SampleStorage = createDto.SampleStorage,
             TotalCost = createDto.TotalCost,

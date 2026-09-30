@@ -548,6 +548,7 @@ public partial class TestRequestAppService :
         entity.SampleTypeContract = createInput.SampleTypeContract;
         entity.SampleTypeTask = createInput.SampleTypeTask;
         entity.SampleTypeSubContract = createInput.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = createInput.SampleTypeSurveillance;
         entity.ResultDeliveryDate = createInput.ResultDeliveryDate;
         entity.SampleStorage = createInput.SampleStorage;
         entity.TotalCost = createInput.TotalCost;
@@ -570,9 +571,10 @@ public partial class TestRequestAppService :
         bool sampleTypeService,
         bool sampleTypeContract,
         bool sampleTypeTask,
-        bool sampleTypeSubContract)
+        bool sampleTypeSubContract,
+        bool sampleTypeSurveillance)
     {
-        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract;
+        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract || sampleTypeSurveillance;
     }
 
     private static bool HasAnySampleTypeSelection(TestRequest entity)
@@ -581,7 +583,8 @@ public partial class TestRequestAppService :
             entity.SampleTypeService,
             entity.SampleTypeContract,
             entity.SampleTypeTask,
-            entity.SampleTypeSubContract);
+            entity.SampleTypeSubContract,
+            entity.SampleTypeSurveillance);
     }
 
     private static string? NormalizeOptionalText(string? value)
@@ -595,7 +598,8 @@ public partial class TestRequestAppService :
                 input.SampleTypeService,
                 input.SampleTypeContract,
                 input.SampleTypeTask,
-                input.SampleTypeSubContract))
+                input.SampleTypeSubContract,
+                input.SampleTypeSurveillance))
         {
             throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
         }
@@ -616,7 +620,8 @@ public partial class TestRequestAppService :
             input.SampleTypeService,
             input.SampleTypeContract,
             input.SampleTypeTask,
-            input.SampleTypeSubContract);
+            input.SampleTypeSubContract,
+            input.SampleTypeSurveillance);
 
         // Backward compatibility for old clients/data payloads: keep existing selection
         // when incoming payload sends all flags false but existing record already has a valid selection.
@@ -626,6 +631,7 @@ public partial class TestRequestAppService :
             input.SampleTypeContract = existingEntity.SampleTypeContract;
             input.SampleTypeTask = existingEntity.SampleTypeTask;
             input.SampleTypeSubContract = existingEntity.SampleTypeSubContract;
+            input.SampleTypeSurveillance = existingEntity.SampleTypeSurveillance;
             hasAnySelectionInInput = true;
         }
 
@@ -916,6 +922,7 @@ public partial class TestRequestAppService :
         entity.SampleTypeContract = input.SampleTypeContract;
         entity.SampleTypeTask = input.SampleTypeTask;
         entity.SampleTypeSubContract = input.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = input.SampleTypeSurveillance;
         entity.ResultDeliveryDate = input.ResultDeliveryDate;
         entity.SampleStorage = input.SampleStorage;
         entity.TotalCost = input.TotalCost;
@@ -2562,6 +2569,9 @@ public partial class TestRequestAppService :
             case SortingFields.SampleTypeSubcontract:
                 entity.SampleTypeSubContract = newValue?.ToLower() == "true";
                 break;
+            case SortingFields.SampleTypeSurveillance:
+                entity.SampleTypeSurveillance = newValue?.ToLower() == "true";
+                break;
             case SortingFields.SampleStorage:
                 entity.SampleStorage = string.IsNullOrEmpty(newValue) ? SampleStorageOption.No : (SampleStorageOption)int.Parse(newValue);
                 break;
@@ -3305,6 +3315,7 @@ public partial class TestRequestAppService :
         entity.SampleTypeContract = snapshot.SampleTypeContract;
         entity.SampleTypeTask = snapshot.SampleTypeTask;
         entity.SampleTypeSubContract = snapshot.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = snapshot.SampleTypeSurveillance;
 
         // === Yêu cầu về phương pháp ===
         entity.MethodWestHighlandInstitute = snapshot.MethodWestHighlandInstitute;

@@ -4110,6 +4110,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<bool>("SampleTypeSubContract")
                         .HasColumnType("boolean");
 
+                    b.Property<bool>("SampleTypeSurveillance")
+                        .HasColumnType("boolean");
+
                     b.Property<bool>("SampleTypeTask")
                         .HasColumnType("boolean");
 

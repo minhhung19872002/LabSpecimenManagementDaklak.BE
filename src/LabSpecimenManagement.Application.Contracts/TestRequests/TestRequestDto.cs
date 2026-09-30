@@ -65,6 +65,7 @@ public class TestRequestDto : FullAuditedEntityDto<Guid>
     public bool SampleTypeContract { get; set; }
     public bool SampleTypeTask { get; set; }
     public bool SampleTypeSubContract { get; set; }
+    public bool SampleTypeSurveillance { get; set; }
     public DateTime? ResultDeliveryDate { get; set; }
     public SampleStorageOption SampleStorage { get; set; }
     public decimal TotalCost { get; set; }

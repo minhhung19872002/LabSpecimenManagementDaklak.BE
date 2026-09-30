@@ -118,6 +118,8 @@ public class CreateTestRequestDto
 
     public bool SampleTypeSubContract { get; set; }
 
+    public bool SampleTypeSurveillance { get; set; }
+
     public DateTime? ResultDeliveryDate { get; set; }
 
     public SampleStorageOption SampleStorage { get; set; } = SampleStorageOption.No;
