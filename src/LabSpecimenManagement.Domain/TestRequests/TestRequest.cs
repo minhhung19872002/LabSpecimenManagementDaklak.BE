@@ -106,6 +106,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? Phone { get; set; }
 
+    /// <summary>
+    /// Email khách hàng (không bắt buộc)
+    /// </summary>
+    public string? Email { get; set; }
+
     #endregion
 
     #region Thông tin còn lại

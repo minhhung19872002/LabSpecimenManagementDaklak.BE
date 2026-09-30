@@ -66,6 +66,9 @@ public class CreateTestRequestDto
     [StringLength(50)]
     public string? Phone { get; set; }
 
+    [StringLength(256)]
+    public string? Email { get; set; }
+
     #endregion
 
     #region Thông tin còn lại

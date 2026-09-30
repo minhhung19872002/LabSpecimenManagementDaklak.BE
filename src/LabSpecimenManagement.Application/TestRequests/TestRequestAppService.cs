@@ -527,6 +527,7 @@ public partial class TestRequestAppService :
         entity.TaxCode = createInput.TaxCode;
         entity.ContactPerson = createInput.ContactPerson;
         entity.Phone = createInput.Phone;
+        entity.Email = createInput.Email;
 
         // Method info
         entity.TotalSampleCount = createInput.TotalSampleCount;
@@ -894,6 +895,7 @@ public partial class TestRequestAppService :
         entity.TaxCode = input.TaxCode;
         entity.ContactPerson = input.ContactPerson;
         entity.Phone = input.Phone;
+        entity.Email = input.Email;
 
         // Method info
         entity.TotalSampleCount = input.TotalSampleCount;
@@ -3296,6 +3298,7 @@ public partial class TestRequestAppService :
         entity.TaxCode = snapshot.TaxCode;
         entity.ContactPerson = snapshot.ContactPerson;
         entity.Phone = snapshot.Phone;
+        entity.Email = snapshot.Email;
 
         // === Loại hình mẫu ===
         entity.SampleTypeService = snapshot.SampleTypeService;

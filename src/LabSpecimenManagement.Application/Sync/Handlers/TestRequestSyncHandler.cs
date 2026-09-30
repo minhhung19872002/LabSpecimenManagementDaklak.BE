@@ -113,6 +113,7 @@ public class TestRequestSyncHandler : ISyncEntityHandler, ITransientDependency
             TaxCode = createDto.TaxCode,
             ContactPerson = createDto.ContactPerson,
             Phone = createDto.Phone,
+            Email = createDto.Email,
             TotalSampleCount = createDto.TotalSampleCount,
             MethodWestHighlandInstitute = createDto.MethodWestHighlandInstitute,
             MethodCustomer = createDto.MethodCustomer,

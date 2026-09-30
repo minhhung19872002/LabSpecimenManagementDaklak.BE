@@ -36,6 +36,7 @@ public class TestRequestDto : FullAuditedEntityDto<Guid>
     public string? TaxCode { get; set; }
     public string? ContactPerson { get; set; }
     public string? Phone { get; set; }
+    public string? Email { get; set; }
 
     #endregion
 

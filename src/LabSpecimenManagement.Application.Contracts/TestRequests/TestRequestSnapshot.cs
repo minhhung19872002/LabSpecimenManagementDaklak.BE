@@ -24,6 +24,7 @@ public class TestRequestSnapshot
     public string? TaxCode { get; set; }
     public string? ContactPerson { get; set; }
     public string? Phone { get; set; }
+    public string? Email { get; set; }
 
     // === Loại hình mẫu ===
     public bool SampleTypeService { get; set; }
@@ -86,6 +87,7 @@ public class TestRequestSnapshot
             TaxCode = entity.TaxCode,
             ContactPerson = entity.ContactPerson,
             Phone = entity.Phone,
+            Email = entity.Email,
 
             // Loại hình mẫu
             SampleTypeService = entity.SampleTypeService,

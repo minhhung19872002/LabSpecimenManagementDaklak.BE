@@ -3940,6 +3940,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("DistrictCode")
                         .HasColumnType("text");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTime?>("ExpectedCompletionDate")
                         .HasColumnType("timestamp without time zone");
 

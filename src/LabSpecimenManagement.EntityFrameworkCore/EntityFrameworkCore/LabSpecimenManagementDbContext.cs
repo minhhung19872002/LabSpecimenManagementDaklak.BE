@@ -199,6 +199,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.TaxCode).HasMaxLength(50);
             b.Property(x => x.ContactPerson).HasMaxLength(256);
             b.Property(x => x.Phone).HasMaxLength(50);
+            b.Property(x => x.Email).HasMaxLength(256);
 
             // Test method info
             b.Property(x => x.MethodCustomerDetail).HasMaxLength(500);
