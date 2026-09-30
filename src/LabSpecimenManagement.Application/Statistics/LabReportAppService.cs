@@ -433,6 +433,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            IndicatorName = ind.Name,
                            TestMethodId = trsi.TestMethodId,
                            TestMethodName = tm != null ? tm.Name : "",
+                           TrsiUnitPrice = trsi.UnitPrice,
                        };
 
         var rawData = await AsyncExecuter.ToListAsync(rawQuery);
@@ -532,6 +533,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                 SoVoiTieuChuan = qmi?.StandardName ?? "",
                 GioiHanPhatHien = limitStr,
                 KetQua = x.LtiResult ?? "",
+                // Cùng nguồn với giá hiển thị ở trang chi tiết phiếu yêu cầu (combo miễn phí = 0)
+                ThanhTien = x.TrsiUnitPrice,
             };
         }).ToList();
 
@@ -561,7 +564,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var headers2 = new[]
         {
             "Tên mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
-            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú"
+            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Thành tiền (VNĐ)"
         };
         WriteSheetHeaders(ws2, headers2);
         for (int r = 0; r < sheet2Rows.Count; r++)
@@ -577,6 +580,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             ws2.Cell(r + 2, 8).Value = row.GioiHanPhatHien;
             ws2.Cell(r + 2, 9).Value = row.KetQua;
             ws2.Cell(r + 2, 10).Value = "";
+            ws2.Cell(r + 2, 11).Value = row.ThanhTien;
+            ws2.Cell(r + 2, 11).Style.NumberFormat.Format = "#,##0";
         }
         ws2.Columns().AdjustToContents();
 
