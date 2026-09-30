@@ -39,7 +39,7 @@ public static class TemplateConstants
     /// <summary>
     /// BM05 - Phiếu yêu cầu (request form)
     /// </summary>
-    public const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_3.2 phieu yeu cau.template.docx";
+    public const string TemplateBM05 = "BM01-QT07- XXYCĐNHĐ_4.0 phieu yeu cau.template.docx";
 
     /// <summary>
     /// BM03-QT07 - Sổ quản lý mẫu (phiếu bàn giao KH).
