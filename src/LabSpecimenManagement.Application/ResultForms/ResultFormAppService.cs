@@ -2812,6 +2812,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             tableData.Add(new TestRequestSampleTableRow
             {
                 No = rowIndex++,
+                SampleCode = sample.SampleCode ?? "",
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
@@ -3003,6 +3004,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             tableData.Add(new TestRequestSampleTableRow
             {
                 No = rowIndex++,
+                SampleCode = sample.SampleCode ?? "",
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
@@ -3726,6 +3728,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private TableRow CloneAndFillSampleRow(TableRow template, TestRequestSampleTableRow data)
     {
+        data.SampleCode = data.SampleCode?.Trim() ?? "";
         data.SampleName = data.SampleName?.Trim() ?? "";
         data.Quantity = data.Quantity?.Trim() ?? "";
         data.SampleInfo = data.SampleInfo?.Trim() ?? "";
@@ -3783,6 +3786,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 text.Text = text.Text
                     .Replace("{{TestRequestTable}}", "")
                     .Replace("{{No}}", data.No.ToString())
+                    .Replace("{{SampleCode}}", data.SampleCode)
                     .Replace("{{NameOfSample}}", data.SampleName)
                     .Replace("{{Quantity}}", data.Quantity)
                     .Replace("{{SampleInfo}}", data.SampleInfo);
@@ -4557,6 +4561,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private class TestRequestSampleTableRow
     {
         public int No { get; set; }
+        public string SampleCode { get; set; } = "";
         public string SampleName { get; set; } = "";
         public string Quantity { get; set; } = "";
         public string SampleInfo { get; set; } = "";
