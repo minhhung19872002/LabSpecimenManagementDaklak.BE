@@ -3,6 +3,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using LabSpecimenManagement.TestRequests;
+using Microsoft.Extensions.Caching.Distributed;
+using Volo.Abp.Caching;
+using Volo.Abp.DistributedLocking;
+using Volo.Abp.Uow;
 using Volo.Abp.Validation;
 
 namespace LabSpecimenManagement.Sync;
@@ -12,6 +17,11 @@ namespace LabSpecimenManagement.Sync;
 /// </summary>
 public partial class SyncAppService
 {
+    private IAbpDistributedLock DistributedLock => LazyServiceProvider.LazyGetRequiredService<IAbpDistributedLock>();
+
+    private IDistributedCache<SyncCreatedCacheItem> SyncCreatedCache =>
+        LazyServiceProvider.LazyGetRequiredService<IDistributedCache<SyncCreatedCacheItem>>();
+
     /// <inheritdoc />
     public async Task<GenericSyncBatchResponseDto> SyncBatchAsync(GenericSyncBatchRequestDto input)
     {
@@ -156,6 +166,18 @@ public partial class SyncAppService
                 item.EntityType,
                 string.Join(", ", result.ValidationErrors));
         }
+        catch (TestRequestValidationException ex)
+        {
+            // Message gốc chỉ là "Dữ liệu không hợp lệ" → trả nội dung lỗi từng trường để người dùng biết vì sao
+            result.Success = false;
+            result.Error = string.Join("; ", ex.Errors.Values);
+
+            _logger.LogWarning(
+                "Sync validation failed for ClientId: {ClientId}, EntityType: {EntityType}. Errors: {Errors}",
+                item.ClientId,
+                item.EntityType,
+                result.Error);
+        }
         catch (Exception ex)
         {
             result.Success = false;
@@ -179,7 +201,61 @@ public partial class SyncAppService
             EntityType = item.EntityType
         };
 
-        var (serverId, serverData) = await handler.CreateAsync(item.Data);
+        // Cùng 1 item create có thể bị gửi nhiều lần (nhiều tab, retry sau khi mất response).
+        // Khóa theo ClientId + nhớ ServerId đã tạo → lần gửi lặp trả về bản ghi cũ thay vì tạo bản trùng.
+        await using var lockHandle = await DistributedLock.TryAcquireAsync(
+            $"sync-create:{item.ClientId}",
+            TimeSpan.FromSeconds(30));
+        if (lockHandle == null)
+        {
+            result.Success = false;
+            result.Error = "Dữ liệu đang được đồng bộ từ phiên khác, vui lòng thử lại sau";
+            return result;
+        }
+
+        var cacheKey = $"{item.EntityType}:{item.ClientId}";
+        var created = await SyncCreatedCache.GetAsync(cacheKey);
+        if (created != null && await handler.ExistsAsync(created.ServerId))
+        {
+            return await BuildAlreadyCreatedResultAsync(handler, item, created.ServerId);
+        }
+
+        // Handler dùng ClientId làm Id: kiểm tra trong DB → bền vững qua BE restart / nhiều replica (cache + lock chỉ trong RAM)
+        Guid? clientGuid = handler.UsesClientIdAsServerId && Guid.TryParse(item.ClientId, out var parsedClientId)
+            ? parsedClientId
+            : null;
+        if (clientGuid.HasValue && await handler.ExistsAsync(clientGuid.Value))
+        {
+            return await BuildAlreadyCreatedResultAsync(handler, item, clientGuid.Value);
+        }
+
+        Guid serverId;
+        object serverData;
+        try
+        {
+            // UoW riêng, commit ngay khi còn giữ khóa: request gửi lặp chờ khóa xong sẽ thấy bản ghi đã tạo;
+            // lỗi DB của item này cũng không làm hỏng cả batch (trước đây cả request trả 500)
+            using (clientGuid.HasValue ? SyncCreateContext.UsePreferredId(clientGuid.Value) : null)
+            using (var uow = UnitOfWorkManager.Begin(requiresNew: true, isTransactional: true))
+            {
+                (serverId, serverData) = await handler.CreateAsync(item.Data);
+                await uow.CompleteAsync();
+            }
+        }
+        catch (Exception) when (clientGuid.HasValue)
+        {
+            // Request trùng chạy song song (replica khác) đã tạo trước → insert đụng khóa chính → trả lại bản ghi đó
+            if (await handler.ExistsAsync(clientGuid.Value))
+            {
+                return await BuildAlreadyCreatedResultAsync(handler, item, clientGuid.Value);
+            }
+            throw;
+        }
+
+        await SyncCreatedCache.SetAsync(
+            cacheKey,
+            new SyncCreatedCacheItem { ServerId = serverId },
+            new DistributedCacheEntryOptions { AbsoluteExpirationRelativeToNow = TimeSpan.FromDays(7) });
 
         result.Success = true;
         result.ServerId = serverId;
@@ -192,6 +268,27 @@ public partial class SyncAppService
             serverId);
 
         return result;
+    }
+
+    private async Task<GenericSyncResultDto> BuildAlreadyCreatedResultAsync(
+        ISyncEntityHandler handler,
+        GenericSyncItemDto item,
+        Guid serverId)
+    {
+        _logger.LogInformation(
+            "Generic sync create skipped (already created). ClientId: {ClientId}, EntityType: {EntityType}, ServerId: {ServerId}",
+            item.ClientId,
+            item.EntityType,
+            serverId);
+
+        return new GenericSyncResultDto
+        {
+            ClientId = item.ClientId,
+            EntityType = item.EntityType,
+            Success = true,
+            ServerId = serverId,
+            ServerData = await handler.GetAsync(serverId)
+        };
     }
 
     private async Task<GenericSyncResultDto> ProcessGenericUpdateAsync(ISyncEntityHandler handler, GenericSyncItemDto item)
@@ -217,38 +314,21 @@ public partial class SyncAppService
             return result;
         }
 
-        // Conflict detection
+        // Conflict detection - "last write wins":
+        // server sửa sau thời điểm client sửa offline → giữ bản server, FE báo cho người dùng biết bản offline bị bỏ qua
         var serverLastModified = await handler.GetLastModificationTimeAsync(item.ServerId.Value);
-        var conflict = serverLastModified.HasValue && item.ClientLastModified < serverLastModified.Value;
+        var serverIsNewer = serverLastModified.HasValue && item.ClientLastModified < serverLastModified.Value;
 
-        if (conflict)
+        if (serverIsNewer)
         {
-            // "Last write wins" - compare timestamps
-            if (item.ClientLastModified > serverLastModified)
-            {
-                // Client wins
-                result.ConflictResolution = SyncConflictResolution.ClientWins;
-                var serverData = await handler.UpdateAsync(item.ServerId.Value, item.Data);
-                result.Success = true;
-                result.ServerData = serverData;
+            result.ConflictResolution = SyncConflictResolution.ServerWins;
+            result.Success = true;
+            result.ServerData = await handler.GetAsync(item.ServerId.Value);
 
-                _logger.LogInformation(
-                    "Generic sync conflict resolved: ClientWins. ClientId: {ClientId}, EntityType: {EntityType}",
-                    item.ClientId,
-                    item.EntityType);
-            }
-            else
-            {
-                // Server wins
-                result.ConflictResolution = SyncConflictResolution.ServerWins;
-                result.Success = true;
-                result.ServerData = await handler.GetAsync(item.ServerId.Value);
-
-                _logger.LogInformation(
-                    "Generic sync conflict resolved: ServerWins. ClientId: {ClientId}, EntityType: {EntityType}",
-                    item.ClientId,
-                    item.EntityType);
-            }
+            _logger.LogInformation(
+                "Generic sync conflict resolved: ServerWins. ClientId: {ClientId}, EntityType: {EntityType}",
+                item.ClientId,
+                item.EntityType);
         }
         else
         {

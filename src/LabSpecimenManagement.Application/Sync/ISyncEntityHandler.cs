@@ -15,6 +15,11 @@ public interface ISyncEntityHandler
     SyncEntityType EntityType { get; }
 
     /// <summary>
+    /// true: bản ghi tạo từ sync lấy luôn ClientId làm Id (xem <see cref="SyncCreateContext"/>) → chống tạo trùng bền vững
+    /// </summary>
+    bool UsesClientIdAsServerId => false;
+
+    /// <summary>
     /// Process a create operation
     /// </summary>
     /// <param name="data">The entity data (JSON object)</param>

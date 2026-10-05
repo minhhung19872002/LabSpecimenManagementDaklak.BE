@@ -69,25 +69,5 @@ public class TestResultSyncHandler : ISyncEntityHandler, ITransientDependency
         return entity != null;
     }
 
-    private static T DeserializeData<T>(object data)
-    {
-        if (data is JsonElement jsonElement)
-        {
-            return JsonSerializer.Deserialize<T>(jsonElement.GetRawText(), new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            })!;
-        }
-
-        if (data is T typedData)
-        {
-            return typedData;
-        }
-
-        var json = JsonSerializer.Serialize(data);
-        return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        })!;
-    }
+    private static T DeserializeData<T>(object data) => SyncDataSerializer.Deserialize<T>(data);
 }
