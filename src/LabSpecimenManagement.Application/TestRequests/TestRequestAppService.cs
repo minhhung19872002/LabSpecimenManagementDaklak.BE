@@ -44,6 +44,9 @@ public partial class TestRequestAppService :
 {
     private const int ContractNumberSeed = 26338;
 
+    // Số HĐ tạm khi mở form lúc mất mạng - khớp với FE useTestRequestFormData: OFFLINE-YYYYMMDD-XXXX
+    internal const string OfflineContractNumberPrefix = "OFFLINE-";
+
     private readonly IRepository<TestRequestSample, Guid> _sampleRepository;
     private readonly IRepository<TestRequestSampleIndicator, Guid> _sampleIndicatorRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
@@ -641,6 +644,14 @@ public partial class TestRequestAppService :
     public override async Task<TestRequestDto> CreateAsync(CreateTestRequestDto input)
     {
         NormalizeAndValidateSampleType(input);
+
+        // Form mở lúc mất mạng nhưng bấm lưu khi đã có mạng → số tạm OFFLINE-... đi thẳng vào đây (không qua sync)
+        // → cấp số thật theo dãy tuần tự, không lưu số tạm
+        var contractNumber = input.ContractNumber?.Trim();
+        if (contractNumber != null && contractNumber.StartsWith(OfflineContractNumberPrefix, StringComparison.OrdinalIgnoreCase))
+        {
+            ReplaceContractNumber(input, contractNumber, await GenerateContractNumberAsync());
+        }
 
         // Contract number must be unique; return validation error when duplicate.
         if (!string.IsNullOrWhiteSpace(input.ContractNumber))
@@ -1300,6 +1311,23 @@ public partial class TestRequestAppService :
             var prefix = _codeGenerator.GetTodayPrefix("REQ");
             var count = await Repository.CountAsync(x => x.RequestNumber.StartsWith(prefix));
             return _codeGenerator.GenerateCodeWithDate("REQ", count);
+        }
+    }
+
+    /// <summary>
+    /// Đổi số HĐ và tiền tố mã mẫu "&lt;số cũ&gt;/001" theo số mới.
+    /// </summary>
+    internal static void ReplaceContractNumber(CreateTestRequestDto dto, string oldNumber, string newNumber)
+    {
+        dto.ContractNumber = newNumber;
+
+        var oldPrefix = oldNumber + "/";
+        foreach (var sample in dto.Samples ?? new())
+        {
+            if (sample.SampleCode != null && sample.SampleCode.StartsWith(oldPrefix, StringComparison.Ordinal))
+            {
+                sample.SampleCode = newNumber + "/" + sample.SampleCode[oldPrefix.Length..];
+            }
         }
     }
 
