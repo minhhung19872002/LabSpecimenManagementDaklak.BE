@@ -13,6 +13,9 @@ namespace LabSpecimenManagement.Sync.Handlers;
 /// </summary>
 public class TestRequestSyncHandler : ISyncEntityHandler, ITransientDependency
 {
+    // Khớp với FE useTestRequestFormData: OFFLINE-YYYYMMDD-XXXX
+    private const string OfflineContractNumberPrefix = "OFFLINE-";
+
     private readonly ITestRequestAppService _testRequestAppService;
     private readonly IRepository<TestRequest, Guid> _testRequestRepository;
 
@@ -26,11 +29,46 @@ public class TestRequestSyncHandler : ISyncEntityHandler, ITransientDependency
 
     public SyncEntityType EntityType => SyncEntityType.TestRequest;
 
+    public bool UsesClientIdAsServerId => true;
+
     public async Task<(Guid ServerId, object ServerData)> CreateAsync(object data)
     {
         var createDto = DeserializeData<CreateTestRequestDto>(data);
+        await EnsureUniqueContractNumberAsync(createDto);
         var result = await _testRequestAppService.CreateAsync(createDto);
         return (result.Id, result);
+    }
+
+    /// <summary>
+    /// Số HĐ của phiếu tạo offline chỉ là số tạm: dạng OFFLINE-... (tạo khi mất mạng) hoặc số đã lấy trước khi
+    /// mất mạng nhưng trong lúc offline đã bị phiếu khác dùng → cấp số mới theo dãy tuần tự,
+    /// đổi luôn tiền tố mã mẫu "&lt;số cũ&gt;/001" cho khớp số mới.
+    /// </summary>
+    private async Task EnsureUniqueContractNumberAsync(CreateTestRequestDto dto)
+    {
+        var oldNumber = dto.ContractNumber?.Trim();
+        if (string.IsNullOrEmpty(oldNumber))
+        {
+            return;
+        }
+
+        var isTemporary = oldNumber.StartsWith(OfflineContractNumberPrefix, StringComparison.OrdinalIgnoreCase);
+        if (!isTemporary && !await _testRequestAppService.CheckContractNumberExistsAsync(oldNumber))
+        {
+            return;
+        }
+
+        var newNumber = await _testRequestAppService.GenerateContractNumberAsync();
+        dto.ContractNumber = newNumber;
+
+        var oldPrefix = oldNumber + "/";
+        foreach (var sample in dto.Samples ?? new())
+        {
+            if (sample.SampleCode != null && sample.SampleCode.StartsWith(oldPrefix, StringComparison.Ordinal))
+            {
+                sample.SampleCode = newNumber + "/" + sample.SampleCode[oldPrefix.Length..];
+            }
+        }
     }
 
     public async Task<object> UpdateAsync(Guid serverId, object data)
@@ -70,27 +108,7 @@ public class TestRequestSyncHandler : ISyncEntityHandler, ITransientDependency
         return entity != null;
     }
 
-    private static T DeserializeData<T>(object data)
-    {
-        if (data is JsonElement jsonElement)
-        {
-            return JsonSerializer.Deserialize<T>(jsonElement.GetRawText(), new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            })!;
-        }
-
-        if (data is T typedData)
-        {
-            return typedData;
-        }
-
-        var json = JsonSerializer.Serialize(data);
-        return JsonSerializer.Deserialize<T>(json, new JsonSerializerOptions
-        {
-            PropertyNameCaseInsensitive = true
-        })!;
-    }
+    private static T DeserializeData<T>(object data) => SyncDataSerializer.Deserialize<T>(data);
 
     private static UpdateTestRequestDto MapToUpdateDto(CreateTestRequestDto createDto)
     {

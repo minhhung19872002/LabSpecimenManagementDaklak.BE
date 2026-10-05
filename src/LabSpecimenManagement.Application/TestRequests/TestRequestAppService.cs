@@ -501,7 +501,8 @@ public partial class TestRequestAppService :
         var requestNumber = await GenerateRequestNumberAsync();
 
         var entity = new TestRequest(
-            GuidGenerator.Create(),
+            // Tạo từ sync offline → dùng ClientId làm Id (chống tạo trùng khi gửi lặp)
+            Sync.SyncCreateContext.TakePreferredId() ?? GuidGenerator.Create(),
             requestNumber,
             createInput.RequestDate,
             createInput.CustomerName
