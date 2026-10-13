@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using System.Xml.Linq;
@@ -659,25 +660,53 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private const string StatusNotTested = "Chưa thử nghiệm";
     private const string StatusUndetermined = "Không xác định";
 
+    // "Không có mùi lạ", "Không có mặt"...; "Không phát hiện"/"Âm tính" đã được PassFailEvaluator parse = 0
+    private static readonly string[] NegativeResultTexts = { "không có", "khong co" };
+    private static readonly string[] PositiveResultPrefixes = { "có mặt", "dương tính" };
+
+    // Số đếm vi sinh: "3,0 x 10^2", "8,0 x 10⁰", "1,1 × 10²"
+    private static readonly Regex MicrobialCountRegex = new(@"[x×]\s*10\s*(\^|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺])", RegexOptions.Compiled);
+
     /// <summary>
-    /// Trạng thái 1 chỉ tiêu: chưa có kết quả → "Chưa thử nghiệm"; còn lại so với giới hạn tiêu chuẩn
-    /// như cột Kết luận trên trang chi tiết task / QLCL; không so được (không có giới hạn...) → "Không xác định".
+    /// Trạng thái 1 chỉ tiêu: chưa có kết quả → "Chưa thử nghiệm"; có giới hạn tiêu chuẩn thì so như cột Kết luận
+    /// trên trang chi tiết task / QLCL; không so được (không có giới hạn...) thì xét theo kết quả (quy tắc BA).
     /// </summary>
     private static string GetResultStatus(string? result, StandardIndicator? si)
     {
         if (string.IsNullOrWhiteSpace(result)) return StatusNotTested;
-        if (si == null) return StatusUndetermined;
 
-        return PassFailEvaluator.Evaluate(
-            result,
-            si.ComparisonOperator, si.AllowedLimit,
-            si.LowerOperator, si.LowerLimit,
-            si.UpperOperator, si.UpperLimit) switch
+        var evaluated = si == null
+            ? null
+            : PassFailEvaluator.Evaluate(
+                result,
+                si.ComparisonOperator, si.AllowedLimit,
+                si.LowerOperator, si.LowerLimit,
+                si.UpperOperator, si.UpperLimit);
+
+        return evaluated switch
         {
             true => StatusPass,
             false => StatusFail,
-            null => StatusUndetermined
+            null => GetStatusWithoutLimit(result)
         };
+    }
+
+    /// <summary>
+    /// Quy tắc BA khi không có giới hạn, chỉ dựa vào kết quả:
+    /// "&lt;x" (vd &lt;1, &lt;10), = 0, "Không phát hiện", "Âm tính", "Không có ..." → Đạt;
+    /// số đếm vi sinh (a x 10^b), "Có mặt", "Dương tính" → Không đạt;
+    /// còn lại (số không có giới hạn, mô tả cảm quan) → Không xác định.
+    /// </summary>
+    private static string GetStatusWithoutLimit(string result)
+    {
+        var lower = result.Trim().Normalize(NormalizationForm.FormC).ToLowerInvariant();
+
+        var (op, value) = PassFailEvaluator.ParseResultWithOperator(result);
+        if (op is "<" or "<=" || value == 0 || NegativeResultTexts.Any(lower.Contains)) return StatusPass;
+
+        if (MicrobialCountRegex.IsMatch(lower) || PositiveResultPrefixes.Any(lower.StartsWith)) return StatusFail;
+
+        return StatusUndetermined;
     }
 
     /// <summary>
