@@ -189,9 +189,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         // Set account expiration if temporary account
         if (input.IsTemporaryAccount && input.AccountExpirationDate.HasValue)
         {
-            // Store expiration date as end of day (23:59:59) for proper comparison
-            var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
-            user.SetProperty("AccountExpirationDate", expirationDate);
+            user.SetProperty("AccountExpirationDate", VietnamTime.EndOfDayToServerTime(input.AccountExpirationDate.Value));
         }
 
         // Determine password based on mode
@@ -297,9 +295,7 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
                 // Set expiration date
                 if (input.AccountExpirationDate.HasValue)
                 {
-                    // Store expiration date as end of day (23:59:59) for proper comparison
-                    var expirationDate = input.AccountExpirationDate.Value.Date.AddDays(1).AddTicks(-1);
-                    user.SetProperty("AccountExpirationDate", expirationDate);
+                    user.SetProperty("AccountExpirationDate", VietnamTime.EndOfDayToServerTime(input.AccountExpirationDate.Value));
                 }
                 else
                 {
@@ -315,11 +311,12 @@ public class EmployeeAppService : ApplicationService, IEmployeeAppService
         else if (input.AccountExpirationDate.HasValue)
         {
             // Update expiration date only
-            if (input.AccountExpirationDate.Value <= DateTime.Now)
+            var expirationDate = VietnamTime.EndOfDayToServerTime(input.AccountExpirationDate.Value);
+            if (expirationDate <= DateTime.Now)
             {
                 throw new ValidationException("accountExpirationDate", "Ngày hết hạn phải lớn hơn ngày hiện tại");
             }
-            user.SetProperty("AccountExpirationDate", input.AccountExpirationDate.Value);
+            user.SetProperty("AccountExpirationDate", expirationDate);
         }
 
         await _userManager.UpdateAsync(user);
