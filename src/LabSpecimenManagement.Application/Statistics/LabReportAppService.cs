@@ -522,6 +522,13 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .OrderBy(x => x.NenMau).ThenBy(x => x.TenChiTieu)
             .ToList();
 
+        // Nhóm "Filter Nền mẫu" tính theo mẫu: tên mẫu + mọi nền mẫu của các chỉ tiêu trong mẫu
+        var sampleGroupByTrsId = rawData
+            .GroupBy(x => x.TrsId)
+            .ToDictionary(
+                g => g.Key,
+                g => SampleGroupClassifier.Classify(g.First().TrsSampleName, g.Select(x => x.SpecimenTypeName)));
+
         // === Sheet 2: flat list — 1 dòng / LaboratoryTaskIndicator ===
         var sheet2Rows = rawData.Select(x =>
         {
@@ -552,6 +559,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             return new
             {
                 TenMau = x.TrsSampleName,
+                NhomNenMau = sampleGroupByTrsId[x.TrsId],
                 MaMau = x.TrsSampleCode,
                 NgayNhanMau = x.TrContractDate,
                 NenMau = x.SpecimenTypeName,
@@ -589,7 +597,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var ws2 = workbook.Worksheets.Add("Dữ liệu chi tiết");
         var headers2 = new[]
         {
-            "Tên mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
+            "Tên mẫu", "Filter Nền mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
             "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Trạng thái"
         };
         WriteSheetHeaders(ws2, headers2);
@@ -597,16 +605,17 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         {
             var row = sheet2Rows[r];
             ws2.Cell(r + 2, 1).Value = row.TenMau;
-            ws2.Cell(r + 2, 2).Value = row.MaMau;
-            ws2.Cell(r + 2, 3).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
-            ws2.Cell(r + 2, 4).Value = row.NenMau;
-            ws2.Cell(r + 2, 5).Value = row.TenChiTieu;
-            ws2.Cell(r + 2, 6).Value = row.PhuongPhapThu;
-            ws2.Cell(r + 2, 7).Value = row.SoVoiTieuChuan;
-            ws2.Cell(r + 2, 8).Value = row.GioiHanPhatHien;
-            ws2.Cell(r + 2, 9).Value = row.KetQua;
-            ws2.Cell(r + 2, 10).Value = "";
-            ws2.Cell(r + 2, 11).Value = row.TrangThai;
+            ws2.Cell(r + 2, 2).Value = row.NhomNenMau;
+            ws2.Cell(r + 2, 3).Value = row.MaMau;
+            ws2.Cell(r + 2, 4).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
+            ws2.Cell(r + 2, 5).Value = row.NenMau;
+            ws2.Cell(r + 2, 6).Value = row.TenChiTieu;
+            ws2.Cell(r + 2, 7).Value = row.PhuongPhapThu;
+            ws2.Cell(r + 2, 8).Value = row.SoVoiTieuChuan;
+            ws2.Cell(r + 2, 9).Value = row.GioiHanPhatHien;
+            ws2.Cell(r + 2, 10).Value = row.KetQua;
+            ws2.Cell(r + 2, 11).Value = "";
+            ws2.Cell(r + 2, 12).Value = row.TrangThai;
         }
 
         // Excel Table làm nguồn cho 3 pivot — Table cần ít nhất 1 dòng dữ liệu nên giữ 1 dòng trống khi kỳ không có số liệu
@@ -624,9 +633,10 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             valueField: "Tên chỉ tiêu", valueName: "Tổng chỉ tiêu mỗi nền mẫu");
 
         AddCountPivot(workbook, detailTable, "Tổng mẫu mỗi nền",
-            rowFields: new[] { "Tên mẫu", "Mã mẫu" },
+            rowFields: new[] { "Filter Nền mẫu", "Tên mẫu", "Mã mẫu" },
             columnField: "Trạng thái",
-            valueField: "Mã mẫu", valueName: "Tổng mẫu mỗi nền");
+            valueField: "Mã mẫu", valueName: "Tổng mẫu mỗi nền",
+            groupField: "Filter Nền mẫu");
 
         AddCountPivot(workbook, detailTable, "Theo chỉ tiêu",
             rowFields: new[] { "Tên chỉ tiêu", "Tên mẫu", "Mã mẫu" },
@@ -638,6 +648,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         // Pivot chỉ hiện cột Đạt / Không đạt như file mẫu của BA (vẫn bật lại được bằng filter trong Excel)
         HidePivotFieldItems(memoryStream, "Trạng thái", new HashSet<string> { StatusNotTested, StatusUndetermined });
+        EnablePivotColumnAutofit(memoryStream);
         memoryStream.Position = 0;
 
         var fileName = $"BaoCaoPhongLab_ChiTiet_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx";
@@ -710,7 +721,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     }
 
     /// <summary>
-    /// Thêm sheet pivot đếm số dòng từ bảng nguồn. Các row field (trừ field cuối) được thu gọn như file mẫu của BA.
+    /// Thêm sheet pivot đếm số dòng từ bảng nguồn. Các row field (trừ field cuối) được thu gọn như file mẫu của BA;
+    /// <paramref name="groupField"/> (nếu có) có dòng tổng phụ và sắp A→Z.
     /// </summary>
     private static void AddCountPivot(
         XLWorkbook workbook,
@@ -719,10 +731,13 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         string[] rowFields,
         string? columnField,
         string valueField,
-        string valueName)
+        string valueName,
+        string? groupField = null)
     {
         var ws = workbook.Worksheets.Add(sheetName);
         var pivot = ws.PivotTables.Add($"Pivot{workbook.Worksheets.Count}", ws.Cell(3, 1), source);
+        // Excel tự giãn cột theo nội dung khi refresh lúc mở file (cần thêm EnablePivotColumnAutofit sau khi lưu)
+        pivot.AutofitColumns = true;
 
         for (var i = 0; i < rowFields.Length; i++)
         {
@@ -730,6 +745,10 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             if (i < rowFields.Length - 1)
             {
                 field.SetCollapsed();
+            }
+            if (rowFields[i] == groupField)
+            {
+                field.AddSubtotal(XLSubtotalFunction.Automatic).SetSort(XLPivotSortType.Ascending);
             }
         }
 
@@ -739,6 +758,30 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         }
 
         pivot.Values.Add(valueField, valueName).SetSummaryFormula(XLPivotSummary.Count);
+    }
+
+    private const string PivotTableEntryPattern = @"(^|/)pivotTables/pivotTable\d*\.xml$";
+
+    /// <summary>
+    /// ClosedXML 0.104 luôn ghi applyWidthHeightFormats="0" (setter internal) nên Excel bỏ qua
+    /// useAutoFormatting và giữ cột pivot rộng mặc định; bật lại = "1" như pivot do Excel tạo.
+    /// </summary>
+    private static void EnablePivotColumnAutofit(MemoryStream xlsx)
+    {
+        using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
+        var pivotEntries = zip.Entries
+            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern))
+            .ToList();
+
+        foreach (var pivotEntry in pivotEntries)
+        {
+            var pivotDoc = LoadXml(pivotEntry);
+            pivotDoc.Root!.SetAttributeValue("applyWidthHeightFormats", "1");
+
+            using var stream = pivotEntry.Open();
+            stream.SetLength(0);
+            pivotDoc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
+        }
     }
 
     /// <summary>
@@ -752,7 +795,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
         var pivotEntries = zip.Entries
-            .Where(e => Regex.IsMatch(e.FullName, @"(^|/)pivotTables/pivotTable\d*\.xml$"))
+            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern))
             .ToList();
 
         foreach (var pivotEntry in pivotEntries)
