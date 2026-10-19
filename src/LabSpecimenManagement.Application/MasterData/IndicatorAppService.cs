@@ -7,7 +7,6 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
 using LabSpecimenManagement.Permissions;
-using LabSpecimenManagement.Quotations;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -28,12 +27,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<TestRequestIndicator, Guid> _testRequestIndicatorRepository;
-    private readonly IRepository<TestRequestSampleIndicator, Guid> _testRequestSampleIndicatorRepository;
-    private readonly IRepository<TestRequestSample, Guid> _testRequestSampleRepository;
-    private readonly IRepository<TestRequest, Guid> _testRequestRepository;
-    private readonly IRepository<Quotation, Guid> _quotationRepository;
-    private readonly IRepository<QuotationSampleIndicator, Guid> _quotationSampleIndicatorRepository;
-    private readonly IRepository<QuotationSample, Guid> _quotationSampleRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
@@ -44,12 +37,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<TestRequestIndicator, Guid> testRequestIndicatorRepository,
-        IRepository<TestRequestSampleIndicator, Guid> testRequestSampleIndicatorRepository,
-        IRepository<TestRequestSample, Guid> testRequestSampleRepository,
-        IRepository<TestRequest, Guid> testRequestRepository,
-        IRepository<Quotation, Guid> quotationRepository,
-        IRepository<QuotationSampleIndicator, Guid> quotationSampleIndicatorRepository,
-        IRepository<QuotationSample, Guid> quotationSampleRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
@@ -59,12 +46,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         _indicatorRepository = indicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _testRequestIndicatorRepository = testRequestIndicatorRepository;
-        _testRequestSampleIndicatorRepository = testRequestSampleIndicatorRepository;
-        _testRequestSampleRepository = testRequestSampleRepository;
-        _testRequestRepository = testRequestRepository;
-        _quotationRepository = quotationRepository;
-        _quotationSampleIndicatorRepository = quotationSampleIndicatorRepository;
-        _quotationSampleRepository = quotationSampleRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _testMethodRepository = testMethodRepository;
         _specimenTypeRepository = specimenTypeRepository;
@@ -298,11 +279,17 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             .ToHashSet();
 
         // 4. Delete removed sub-indicators (check usage first)
+        var testRequestQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
         foreach (var existingSub in existingSubs)
         {
             if (!incomingIds.Contains(existingSub.Id))
             {
-                await EnsureIndicatorNotUsedAsync(existingSub.Name, new List<Guid> { existingSub.Id }, isSubIndicator: true);
+                var isUsed = testRequestQuery.Any(x => x.IndicatorId == existingSub.Id);
+                if (isUsed)
+                {
+                    throw new UserFriendlyException(
+                        $"Không thể xóa chỉ tiêu phụ '{existingSub.Name}' vì đã được sử dụng trong phiếu yêu cầu.");
+                }
                 await _indicatorRepository.DeleteAsync(existingSub.Id);
             }
         }
@@ -351,22 +338,37 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var indicator = await _indicatorRepository.GetAsync(id);
 
-        var subIndicators = new List<Indicator>();
+        // Check if can delete
+        var canDelete = await CanDeleteAsync(id);
+        if (!canDelete)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể xóa chỉ tiêu này vì đã được sử dụng trong phiếu yêu cầu.",
+                "id");
+        }
+
+        // If this is a parent, delete all sub-indicators first
         if (indicator.ParentIndicatorId == null)
         {
             var query = await _indicatorRepository.GetQueryableAsync();
-            subIndicators = query.Where(x => x.ParentIndicatorId == id).ToList();
-        }
+            var subIndicators = query.Where(x => x.ParentIndicatorId == id).ToList();
 
-        // Parent is blocked if it or any of its sub-indicators is used
-        var checkIds = new List<Guid> { id };
-        checkIds.AddRange(subIndicators.Select(x => x.Id));
-        await EnsureIndicatorNotUsedAsync(indicator.Name, checkIds, isSubIndicator: indicator.ParentIndicatorId != null);
+            // Check if any sub-indicator is used
+            foreach (var sub in subIndicators)
+            {
+                var canDeleteSub = await CanDeleteAsync(sub.Id);
+                if (!canDeleteSub)
+                {
+                    throw new UserFriendlyException(
+                        $"Không thể xóa vì chỉ tiêu phụ '{sub.Name}' đã được sử dụng trong phiếu yêu cầu.");
+                }
+            }
 
-        // If this is a parent, delete all sub-indicators first
-        foreach (var sub in subIndicators)
-        {
-            await _indicatorRepository.DeleteAsync(sub.Id);
+            // Delete all sub-indicators
+            foreach (var sub in subIndicators)
+            {
+                await _indicatorRepository.DeleteAsync(sub.Id);
+            }
         }
 
         // Delete parent or standalone indicator
@@ -375,166 +377,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     public async Task<bool> CanDeleteAsync(Guid id)
     {
-        var undeletableIds = await GetUndeletableIndicatorIdsAsync(new List<Guid> { id });
-        return !undeletableIds.Contains(id);
-    }
-
-    /// <summary>
-    /// Throws if the indicators are referenced by test requests or quotations.
-    /// Soft-deleting master data that is still referenced breaks those screens (indicator not found).
-    /// </summary>
-    private async Task EnsureIndicatorNotUsedAsync(string indicatorName, List<Guid> indicatorIds, bool isSubIndicator)
-    {
-        var usage = await GetIndicatorUsageDescriptionAsync(indicatorIds);
-        if (usage == null)
-        {
-            return;
-        }
-
-        var label = isSubIndicator ? "chỉ tiêu phụ" : "chỉ tiêu";
-        var subject = indicatorIds.Count > 1 ? " chỉ tiêu này hoặc chỉ tiêu phụ của nó" : "";
-        throw new Common.Exceptions.InvalidOperationException(
-            $"Không thể xóa {label} '{indicatorName}' vì{subject} đang được sử dụng trong {usage}. " +
-            "Nếu không dùng nữa, hãy chuyển trạng thái sang 'Ngừng'.",
-            "id");
-    }
-
-    /// <summary>
-    /// Returns the ids (from the input) that cannot be deleted: used directly, or a parent whose sub-indicator is used.
-    /// </summary>
-    private async Task<HashSet<Guid>> GetUndeletableIndicatorIdsAsync(List<Guid> indicatorIds)
-    {
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        var subIndicators = indicatorQuery
-            .Where(x => x.ParentIndicatorId.HasValue && indicatorIds.Contains(x.ParentIndicatorId.Value))
-            .Select(x => new { x.Id, ParentId = x.ParentIndicatorId!.Value })
-            .ToList();
-
-        var usedIds = await GetUsedIndicatorIdsAsync(indicatorIds.Concat(subIndicators.Select(x => x.Id)).ToList());
-
-        var undeletableIds = indicatorIds.Where(usedIds.Contains).ToHashSet();
-        undeletableIds.UnionWith(subIndicators.Where(x => usedIds.Contains(x.Id)).Select(x => x.ParentId));
-        return undeletableIds;
-    }
-
-    /// <summary>
-    /// Ids (from the input) referenced by non-deleted test requests or quotations.
-    /// </summary>
-    private async Task<HashSet<Guid>> GetUsedIndicatorIdsAsync(List<Guid> indicatorIds)
-    {
-        var usedIds = new HashSet<Guid>();
-        if (indicatorIds.Count == 0)
-        {
-            return usedIds;
-        }
-
-        var sampleIndicatorQuery = await _testRequestSampleIndicatorRepository.GetQueryableAsync();
-        var sampleQuery = await _testRequestSampleRepository.GetQueryableAsync();
-        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
-        usedIds.UnionWith((
-            from si in sampleIndicatorQuery
-            join s in sampleQuery on si.TestRequestSampleId equals s.Id
-            join tr in testRequestQuery on s.TestRequestId equals tr.Id
-            where indicatorIds.Contains(si.IndicatorId)
-            select si.IndicatorId).Distinct().ToList());
-
-        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
-        usedIds.UnionWith((
-            from ti in testRequestIndicatorQuery
-            join tr in testRequestQuery on ti.TestRequestId equals tr.Id
-            where indicatorIds.Contains(ti.IndicatorId)
-            select ti.IndicatorId).Distinct().ToList());
-
-        var quotationIndicatorQuery = await _quotationSampleIndicatorRepository.GetQueryableAsync();
-        var quotationSampleQuery = await _quotationSampleRepository.GetQueryableAsync();
-        var quotationQuery = await _quotationRepository.GetQueryableAsync();
-        usedIds.UnionWith((
-            from qi in quotationIndicatorQuery
-            join qs in quotationSampleQuery on qi.QuotationSampleId equals qs.Id
-            join q in quotationQuery on qs.QuotationId equals q.Id
-            where indicatorIds.Contains(qi.IndicatorId)
-            select qi.IndicatorId).Distinct().ToList());
-
-        return usedIds;
-    }
-
-    /// <summary>
-    /// Describes where the indicators are used, e.g. "3 phiếu yêu cầu (HĐ 26823, 26824, 26830), 1 báo giá (BG0012)".
-    /// Returns null if they are not used anywhere.
-    /// </summary>
-    private async Task<string?> GetIndicatorUsageDescriptionAsync(List<Guid> indicatorIds)
-    {
-        const int maxCodesShown = 5;
-        var parts = new List<string>();
-
-        var sampleIndicatorQuery = await _testRequestSampleIndicatorRepository.GetQueryableAsync();
-        var sampleQuery = await _testRequestSampleRepository.GetQueryableAsync();
-        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
-        var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
-        var testRequestIds = (
-                from si in sampleIndicatorQuery
-                join s in sampleQuery on si.TestRequestSampleId equals s.Id
-                where indicatorIds.Contains(si.IndicatorId)
-                select s.TestRequestId)
-            .Distinct()
-            .ToList();
-        testRequestIds = testRequestIds
-            .Concat(testRequestIndicatorQuery
-                .Where(x => indicatorIds.Contains(x.IndicatorId))
-                .Select(x => x.TestRequestId)
-                .Distinct()
-                .ToList())
-            .Distinct()
-            .ToList();
-        if (testRequestIds.Count > 0)
-        {
-            var testRequests = testRequestQuery.Where(x => testRequestIds.Contains(x.Id));
-            var count = testRequests.Count();
-            if (count > 0)
-            {
-                var codes = testRequests
-                    .OrderByDescending(x => x.CreationTime)
-                    .Select(x => new { x.ContractNumber, x.RequestNumber })
-                    .Take(maxCodesShown)
-                    .ToList()
-                    .Select(x => string.IsNullOrWhiteSpace(x.ContractNumber) ? x.RequestNumber : $"HĐ {x.ContractNumber}")
-                    .ToList();
-                parts.Add($"{count} phiếu yêu cầu ({FormatUsageCodes(codes, count)})");
-            }
-        }
-
-        var quotationIndicatorQuery = await _quotationSampleIndicatorRepository.GetQueryableAsync();
-        var quotationSampleQuery = await _quotationSampleRepository.GetQueryableAsync();
-        var quotationQuery = await _quotationRepository.GetQueryableAsync();
-        var quotationIds = (
-                from qi in quotationIndicatorQuery
-                join qs in quotationSampleQuery on qi.QuotationSampleId equals qs.Id
-                where indicatorIds.Contains(qi.IndicatorId)
-                select qs.QuotationId)
-            .Distinct()
-            .ToList();
-        if (quotationIds.Count > 0)
-        {
-            var quotations = quotationQuery.Where(x => quotationIds.Contains(x.Id));
-            var count = quotations.Count();
-            if (count > 0)
-            {
-                var codes = quotations
-                    .OrderByDescending(x => x.CreationTime)
-                    .Select(x => x.QuotationNumber)
-                    .Take(maxCodesShown)
-                    .ToList();
-                parts.Add($"{count} báo giá ({FormatUsageCodes(codes, count)})");
-            }
-        }
-
-        return parts.Count > 0 ? string.Join(", ", parts) : null;
-    }
-
-    private static string FormatUsageCodes(List<string> codes, int totalCount)
-    {
-        var text = string.Join(", ", codes.Where(x => !string.IsNullOrWhiteSpace(x)));
-        return totalCount > codes.Count ? $"{text}, ..." : text;
+        var query = await _testRequestIndicatorRepository.GetQueryableAsync();
+        return !query.Any(x => x.IndicatorId == id);
     }
 
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
@@ -869,14 +713,19 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
         // Check which indicators can be deleted
         var indicatorIds = entities.Select(x => x.Id).ToList();
-        var undeletableIds = await GetUndeletableIndicatorIdsAsync(indicatorIds);
+        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        var usedIndicatorIds = testRequestIndicatorQuery
+            .Where(x => indicatorIds.Contains(x.IndicatorId))
+            .Select(x => x.IndicatorId)
+            .Distinct()
+            .ToList();
 
         var dtos = new List<IndicatorDto>();
         foreach (var entity in entities)
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(entity);
             dto.IndicatorGroupName = groups.GetValueOrDefault(entity.IndicatorGroupId, "");
-            dto.CanDelete = !undeletableIds.Contains(entity.Id);
+            dto.CanDelete = !usedIndicatorIds.Contains(entity.Id);
             dtos.Add(dto);
         }
 
@@ -910,7 +759,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
         // Check deletability for all indicators (parents + subs)
         var allIndicatorIds = parentIds.Concat(allSubIndicators.Select(x => x.Id)).ToList();
-        var usedIndicatorIds = await GetUsedIndicatorIdsAsync(allIndicatorIds);
+        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        var usedIndicatorIds = testRequestIndicatorQuery
+            .Where(x => allIndicatorIds.Contains(x.IndicatorId))
+            .Select(x => x.IndicatorId)
+            .Distinct()
+            .ToList();
 
         var dtos = new List<IndicatorDto>();
 
@@ -918,10 +772,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(parent);
             dto.IndicatorGroupName = groups.GetValueOrDefault(parent.IndicatorGroupId, "");
-            // Deleting a parent also deletes its subs, so a used sub blocks the parent too
-            dto.CanDelete = !usedIndicatorIds.Contains(parent.Id)
-                && !(subIndicatorsByParent.TryGetValue(parent.Id, out var parentSubs)
-                     && parentSubs.Any(x => usedIndicatorIds.Contains(x.Id)));
+            dto.CanDelete = !usedIndicatorIds.Contains(parent.Id);
             dto.HasSubIndicators = subIndicatorsByParent.ContainsKey(parent.Id);
 
             // Map sub-indicators
@@ -955,39 +806,28 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var query = await _indicatorRepository.GetQueryableAsync();
         var indicators = query.Where(x => input.Ids.Contains(x.Id)).ToList();
 
-        // Check which indicators (or their sub-indicators) are used in test requests or quotations
-        var undeletableIds = await GetUndeletableIndicatorIdsAsync(indicators.Select(x => x.Id).ToList());
-
-        var parentIds = indicators.Where(x => x.ParentIndicatorId == null).Select(x => x.Id).ToList();
-        var subIndicatorsByParent = query
-            .Where(x => x.ParentIndicatorId.HasValue && parentIds.Contains(x.ParentIndicatorId.Value))
-            .ToList()
-            .GroupBy(x => x.ParentIndicatorId!.Value)
-            .ToDictionary(g => g.Key, g => g.ToList());
+        // Check which indicators are used in test requests
+        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        var usedIndicatorIds = testRequestIndicatorQuery
+            .Where(x => input.Ids.Contains(x.IndicatorId))
+            .Select(x => x.IndicatorId)
+            .Distinct()
+            .ToList();
 
         foreach (var indicator in indicators)
         {
-            if (undeletableIds.Contains(indicator.Id))
+            if (usedIndicatorIds.Contains(indicator.Id))
             {
                 result.FailedCount++;
                 result.Errors.Add(new BatchOperationErrorDto
                 {
                     Id = indicator.Id,
                     Name = indicator.Name,
-                    ErrorMessage = "Không thể xóa vì đang được sử dụng trong phiếu yêu cầu hoặc báo giá"
+                    ErrorMessage = "Không thể xóa vì đã được sử dụng trong phiếu yêu cầu"
                 });
             }
             else
             {
-                // Same as DeleteAsync: deleting a parent also deletes its sub-indicators
-                if (subIndicatorsByParent.TryGetValue(indicator.Id, out var subs))
-                {
-                    foreach (var sub in subs)
-                    {
-                        await _indicatorRepository.DeleteAsync(sub.Id);
-                    }
-                }
-
                 await _indicatorRepository.DeleteAsync(indicator.Id);
                 result.SuccessCount++;
             }
