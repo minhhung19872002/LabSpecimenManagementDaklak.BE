@@ -1725,9 +1725,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
         }
 
-        // TODO: EXTERNAL-CONSUMPTION — remove after BA confirms
-        await NotifyExternalConsumptionAsync(submittedIndicators, task.Id);
-
         // Update task status (sử dụng TẤT CẢ indicators đã cached, không fetch lại từ DB)
         // allTaskIndicators đã được update trong memory nên sẽ có ApprovalStatus mới
         var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
