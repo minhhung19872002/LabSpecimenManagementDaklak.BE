@@ -24,12 +24,14 @@ public class TestRequestSnapshot
     public string? TaxCode { get; set; }
     public string? ContactPerson { get; set; }
     public string? Phone { get; set; }
+    public string? Email { get; set; }
 
     // === Loại hình mẫu ===
     public bool SampleTypeService { get; set; }
     public bool SampleTypeContract { get; set; }
     public bool SampleTypeTask { get; set; }
     public bool SampleTypeSubContract { get; set; }
+    public bool SampleTypeSurveillance { get; set; }
 
     // === Yêu cầu về phương pháp ===
     public bool MethodWestHighlandInstitute { get; set; }
@@ -86,12 +88,14 @@ public class TestRequestSnapshot
             TaxCode = entity.TaxCode,
             ContactPerson = entity.ContactPerson,
             Phone = entity.Phone,
+            Email = entity.Email,
 
             // Loại hình mẫu
             SampleTypeService = entity.SampleTypeService,
             SampleTypeContract = entity.SampleTypeContract,
             SampleTypeTask = entity.SampleTypeTask,
             SampleTypeSubContract = entity.SampleTypeSubContract,
+            SampleTypeSurveillance = entity.SampleTypeSurveillance,
 
             // Yêu cầu về phương pháp
             MethodWestHighlandInstitute = entity.MethodWestHighlandInstitute,

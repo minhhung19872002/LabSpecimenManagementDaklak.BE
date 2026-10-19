@@ -301,6 +301,9 @@ public class PreviewTestRequestFormInput
     [StringLength(50)]
     public string? Phone { get; set; }
 
+    [StringLength(256)]
+    public string? Email { get; set; }
+
     #endregion
 
     #region Thông tin còn lại
@@ -349,6 +352,8 @@ public class PreviewTestRequestFormInput
     public bool SampleTypeTask { get; set; }
 
     public bool SampleTypeSubContract { get; set; }
+
+    public bool SampleTypeSurveillance { get; set; }
 
     public DateTime? ResultDeliveryDate { get; set; }
 

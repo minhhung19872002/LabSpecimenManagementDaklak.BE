@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 using ClosedXML.Excel;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.QualityManagement;
@@ -423,6 +427,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                        {
                            LtiId = lti.Id,
                            LtiResult = lti.Result,
+                           LtiStandardId = lti.StandardId,
+                           LtiMethodId = lti.MethodId,
                            TrsId = trs.Id,
                            TrsSampleName = trs.SampleName,
                            TrsSampleCode = trs.SampleCode,
@@ -440,23 +446,32 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var ltiIds = rawData.Select(x => x.LtiId).Distinct().ToList();
         var indicatorIds = rawData.Select(x => x.IndicatorId).Distinct().ToList();
 
-        // QualityManagementIndicator → Standard (cho Sheet 2: So với tiêu chuẩn + Giới hạn phát hiện)
+        // Tiêu chuẩn của từng LTI giống trang QLCL: LTI.StandardId (KTV chọn) ?? QMI.StandardId
         var qmiData = await AsyncExecuter.ToListAsync(
-            from qmi in qmiQuery
-            join std in stdQuery on qmi.StandardId equals std.Id into stdGroup
-            from std in stdGroup.DefaultIfEmpty()
-            where ltiIds.Contains(qmi.LaboratoryTaskIndicatorId)
-            select new
-            {
-                qmi.LaboratoryTaskIndicatorId,
-                qmi.StandardId,
-                StandardName = std != null ? std.Name : (string?)null,
-            }
+            qmiQuery
+                .Where(qmi => ltiIds.Contains(qmi.LaboratoryTaskIndicatorId))
+                .Select(qmi => new { qmi.LaboratoryTaskIndicatorId, qmi.StandardId })
         );
 
-        var qmiByLtiId = qmiData
+        var qmiStandardIdByLtiId = qmiData
             .GroupBy(x => x.LaboratoryTaskIndicatorId)
-            .ToDictionary(g => g.Key, g => g.First());
+            .ToDictionary(g => g.Key, g => g.First().StandardId);
+
+        Guid? ResolveStandardId(Guid ltiId, Guid? ltiStandardId) =>
+            ltiStandardId ?? qmiStandardIdByLtiId.GetValueOrDefault(ltiId);
+
+        var standardIds = rawData
+            .Select(x => ResolveStandardId(x.LtiId, x.LtiStandardId))
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+
+        var standardNameById = standardIds.Any()
+            ? (await AsyncExecuter.ToListAsync(
+                    stdQuery.Where(s => standardIds.Contains(s.Id)).Select(s => new { s.Id, s.Name })))
+                .ToDictionary(s => s.Id, s => s.Name)
+            : new Dictionary<Guid, string>();
 
         // StandardIndicator — dùng cho Giới hạn phát hiện (không dùng cho Nền mẫu)
         // Không filter IsActive vì báo cáo cần hiển thị giới hạn của phiếu cũ kể cả khi đã ngưng
@@ -467,6 +482,10 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         var siByStdAndInd = siData
             .GroupBy(si => (si.StandardId, si.IndicatorId))
+            .ToDictionary(g => g.Key, g => g.First());
+
+        var siByStdIndAndMethod = siData
+            .GroupBy(si => (si.StandardId, si.IndicatorId, si.TestMethodId))
             .ToDictionary(g => g.Key, g => g.First());
 
         // === Sheet 1: group by (SpecimenType + Indicator + Method) ===
@@ -503,42 +522,60 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .OrderBy(x => x.NenMau).ThenBy(x => x.TenChiTieu)
             .ToList();
 
+        // Nhóm "Filter Nền mẫu" tính theo mẫu: tên mẫu + mọi nền mẫu của các chỉ tiêu trong mẫu
+        var sampleGroupByTrsId = rawData
+            .GroupBy(x => x.TrsId)
+            .ToDictionary(
+                g => g.Key,
+                g => SampleGroupClassifier.Classify(g.First().TrsSampleName, g.Select(x => x.SpecimenTypeName)));
+
         // === Sheet 2: flat list — 1 dòng / LaboratoryTaskIndicator ===
         var sheet2Rows = rawData.Select(x =>
         {
-            var qmi = qmiByLtiId.TryGetValue(x.LtiId, out var q) ? q : null;
+            var standardId = ResolveStandardId(x.LtiId, x.LtiStandardId);
 
-            var limitStr = "";
-            if (qmi?.StandardId.HasValue == true)
+            // Khớp StandardIndicator giống QLCL: ưu tiên đúng phương pháp (LTI ?? phiếu), fallback theo chỉ tiêu
+            StandardIndicator? si = null;
+            if (standardId.HasValue)
             {
-                var key = (qmi.StandardId!.Value, x.IndicatorId);
-                if (siByStdAndInd.TryGetValue(key, out var si))
+                var methodId = x.LtiMethodId ?? x.TestMethodId;
+                if (methodId.HasValue)
                 {
-                    limitStr = BuildCompareWithStandard(
-                        si.ComparisonOperator, si.AllowedLimit,
-                        si.LowerOperator, si.LowerLimit,
-                        si.UpperOperator, si.UpperLimit);
+                    siByStdIndAndMethod.TryGetValue((standardId.Value, x.IndicatorId, methodId.Value), out si);
+                }
+                if (si == null)
+                {
+                    siByStdAndInd.TryGetValue((standardId.Value, x.IndicatorId), out si);
                 }
             }
+
+            var limitStr = si == null
+                ? ""
+                : BuildCompareWithStandard(
+                    si.ComparisonOperator, si.AllowedLimit,
+                    si.LowerOperator, si.LowerLimit,
+                    si.UpperOperator, si.UpperLimit);
 
             return new
             {
                 TenMau = x.TrsSampleName,
+                NhomNenMau = sampleGroupByTrsId[x.TrsId],
                 MaMau = x.TrsSampleCode,
                 NgayNhanMau = x.TrContractDate,
                 NenMau = x.SpecimenTypeName,
                 TenChiTieu = x.IndicatorName,
                 PhuongPhapThu = x.TestMethodName,
-                SoVoiTieuChuan = qmi?.StandardName ?? "",
+                SoVoiTieuChuan = standardId.HasValue ? standardNameById.GetValueOrDefault(standardId.Value) ?? "" : "",
                 GioiHanPhatHien = limitStr,
                 KetQua = x.LtiResult ?? "",
+                TrangThai = GetResultStatus(x.LtiResult, si),
             };
         }).ToList();
 
         // === Tạo file Excel với ClosedXML ===
         using var workbook = new XLWorkbook();
 
-        var ws1 = workbook.Worksheets.Add("Sheet1");
+        var ws1 = workbook.Worksheets.Add("Dữ liệu tổng quan");
         var headers1 = new[]
         {
             "Nền mẫu (loại mẫu)", "Tên chỉ tiêu", "Phương pháp thử",
@@ -557,31 +594,61 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         }
         ws1.Columns().AdjustToContents();
 
-        var ws2 = workbook.Worksheets.Add("Sheet2");
+        var ws2 = workbook.Worksheets.Add("Dữ liệu chi tiết");
         var headers2 = new[]
         {
-            "Tên mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
-            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú"
+            "Tên mẫu", "Filter Nền mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
+            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Trạng thái"
         };
         WriteSheetHeaders(ws2, headers2);
         for (int r = 0; r < sheet2Rows.Count; r++)
         {
             var row = sheet2Rows[r];
             ws2.Cell(r + 2, 1).Value = row.TenMau;
-            ws2.Cell(r + 2, 2).Value = row.MaMau;
-            ws2.Cell(r + 2, 3).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
-            ws2.Cell(r + 2, 4).Value = row.NenMau;
-            ws2.Cell(r + 2, 5).Value = row.TenChiTieu;
-            ws2.Cell(r + 2, 6).Value = row.PhuongPhapThu;
-            ws2.Cell(r + 2, 7).Value = row.SoVoiTieuChuan;
-            ws2.Cell(r + 2, 8).Value = row.GioiHanPhatHien;
-            ws2.Cell(r + 2, 9).Value = row.KetQua;
-            ws2.Cell(r + 2, 10).Value = "";
+            ws2.Cell(r + 2, 2).Value = row.NhomNenMau;
+            ws2.Cell(r + 2, 3).Value = row.MaMau;
+            ws2.Cell(r + 2, 4).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
+            ws2.Cell(r + 2, 5).Value = row.NenMau;
+            ws2.Cell(r + 2, 6).Value = row.TenChiTieu;
+            ws2.Cell(r + 2, 7).Value = row.PhuongPhapThu;
+            ws2.Cell(r + 2, 8).Value = row.SoVoiTieuChuan;
+            ws2.Cell(r + 2, 9).Value = row.GioiHanPhatHien;
+            ws2.Cell(r + 2, 10).Value = row.KetQua;
+            ws2.Cell(r + 2, 11).Value = "";
+            ws2.Cell(r + 2, 12).Value = row.TrangThai;
         }
+
+        // Excel Table làm nguồn cho 3 pivot — Table cần ít nhất 1 dòng dữ liệu nên giữ 1 dòng trống khi kỳ không có số liệu
+        var detailTable = ws2
+            .Range(1, 1, Math.Max(sheet2Rows.Count, 1) + 1, headers2.Length)
+            .CreateTable("DuLieuChiTiet");
+        detailTable.Theme = XLTableTheme.TableStyleMedium2;
+        ws2.SheetView.FreezeRows(1);
         ws2.Columns().AdjustToContents();
+
+        // === 3 sheet pivot từ "Dữ liệu chi tiết" (Excel tự refresh khi mở file) ===
+        AddCountPivot(workbook, detailTable, "Tổng chỉ tiêu mỗi nền mẫu",
+            rowFields: new[] { "Tên mẫu", "Tên chỉ tiêu" },
+            columnField: null,
+            valueField: "Tên chỉ tiêu", valueName: "Tổng chỉ tiêu mỗi nền mẫu");
+
+        AddCountPivot(workbook, detailTable, "Tổng mẫu mỗi nền",
+            rowFields: new[] { "Filter Nền mẫu", "Tên mẫu", "Mã mẫu" },
+            columnField: "Trạng thái",
+            valueField: "Mã mẫu", valueName: "Tổng mẫu mỗi nền",
+            groupField: "Filter Nền mẫu");
+
+        AddCountPivot(workbook, detailTable, "Theo chỉ tiêu",
+            rowFields: new[] { "Tên chỉ tiêu", "Tên mẫu", "Mã mẫu" },
+            columnField: "Trạng thái",
+            valueField: "Tên mẫu", valueName: "Count of Tên mẫu");
 
         var memoryStream = new MemoryStream();
         workbook.SaveAs(memoryStream);
+
+        // Pivot chỉ hiện cột Đạt / Không đạt như file mẫu của BA (vẫn bật lại được bằng filter trong Excel)
+        HidePivotFieldItems(memoryStream, "Trạng thái", new HashSet<string> { StatusNotTested, StatusUndetermined });
+        EnablePivotColumnAutofit(memoryStream);
         memoryStream.Position = 0;
 
         var fileName = $"BaoCaoPhongLab_ChiTiet_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx";
@@ -597,6 +664,194 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             cell.Style.Font.Bold = true;
             cell.Style.Font.FontColor = XLColor.Red;
         }
+    }
+
+    private const string StatusPass = "Đạt";
+    private const string StatusFail = "Không đạt";
+    private const string StatusNotTested = "Chưa thử nghiệm";
+    private const string StatusUndetermined = "Không xác định";
+
+    // "Không có mùi lạ", "Không có mặt"...; "Không phát hiện"/"Âm tính" đã được PassFailEvaluator parse = 0
+    private static readonly string[] NegativeResultTexts = { "không có", "khong co" };
+    private static readonly string[] PositiveResultPrefixes = { "có mặt", "dương tính" };
+
+    // Số đếm vi sinh: "3,0 x 10^2", "8,0 x 10⁰", "1,1 × 10²"
+    private static readonly Regex MicrobialCountRegex = new(@"[x×]\s*10\s*(\^|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺])", RegexOptions.Compiled);
+
+    /// <summary>
+    /// Trạng thái 1 chỉ tiêu: chưa có kết quả → "Chưa thử nghiệm"; có giới hạn tiêu chuẩn thì so như cột Kết luận
+    /// trên trang chi tiết task / QLCL; không so được (không có giới hạn...) thì xét theo kết quả (quy tắc BA).
+    /// </summary>
+    private static string GetResultStatus(string? result, StandardIndicator? si)
+    {
+        if (string.IsNullOrWhiteSpace(result)) return StatusNotTested;
+
+        var evaluated = si == null
+            ? null
+            : PassFailEvaluator.Evaluate(
+                result,
+                si.ComparisonOperator, si.AllowedLimit,
+                si.LowerOperator, si.LowerLimit,
+                si.UpperOperator, si.UpperLimit);
+
+        return evaluated switch
+        {
+            true => StatusPass,
+            false => StatusFail,
+            null => GetStatusWithoutLimit(result)
+        };
+    }
+
+    /// <summary>
+    /// Quy tắc BA khi không có giới hạn, chỉ dựa vào kết quả:
+    /// "&lt;x" (vd &lt;1, &lt;10), = 0, "Không phát hiện", "Âm tính", "Không có ..." → Đạt;
+    /// số đếm vi sinh (a x 10^b), "Có mặt", "Dương tính" → Không đạt;
+    /// còn lại (số không có giới hạn, mô tả cảm quan) → Không xác định.
+    /// </summary>
+    private static string GetStatusWithoutLimit(string result)
+    {
+        var lower = result.Trim().Normalize(NormalizationForm.FormC).ToLowerInvariant();
+
+        var (op, value) = PassFailEvaluator.ParseResultWithOperator(result);
+        if (op is "<" or "<=" || value == 0 || NegativeResultTexts.Any(lower.Contains)) return StatusPass;
+
+        if (MicrobialCountRegex.IsMatch(lower) || PositiveResultPrefixes.Any(lower.StartsWith)) return StatusFail;
+
+        return StatusUndetermined;
+    }
+
+    /// <summary>
+    /// Thêm sheet pivot đếm số dòng từ bảng nguồn. Các row field (trừ field cuối) được thu gọn như file mẫu của BA;
+    /// <paramref name="groupField"/> (nếu có) có dòng tổng phụ và sắp A→Z.
+    /// </summary>
+    private static void AddCountPivot(
+        XLWorkbook workbook,
+        IXLTable source,
+        string sheetName,
+        string[] rowFields,
+        string? columnField,
+        string valueField,
+        string valueName,
+        string? groupField = null)
+    {
+        var ws = workbook.Worksheets.Add(sheetName);
+        var pivot = ws.PivotTables.Add($"Pivot{workbook.Worksheets.Count}", ws.Cell(3, 1), source);
+        // Excel tự giãn cột theo nội dung khi refresh lúc mở file (cần thêm EnablePivotColumnAutofit sau khi lưu)
+        pivot.AutofitColumns = true;
+
+        for (var i = 0; i < rowFields.Length; i++)
+        {
+            var field = pivot.RowLabels.Add(rowFields[i]);
+            if (i < rowFields.Length - 1)
+            {
+                field.SetCollapsed();
+            }
+            if (rowFields[i] == groupField)
+            {
+                field.AddSubtotal(XLSubtotalFunction.Automatic).SetSort(XLPivotSortType.Ascending);
+            }
+        }
+
+        if (columnField != null)
+        {
+            pivot.ColumnLabels.Add(columnField);
+        }
+
+        pivot.Values.Add(valueField, valueName).SetSummaryFormula(XLPivotSummary.Count);
+    }
+
+    private const string PivotTableEntryPattern = @"(^|/)pivotTables/pivotTable\d*\.xml$";
+
+    /// <summary>
+    /// ClosedXML 0.104 luôn ghi applyWidthHeightFormats="0" (setter internal) nên Excel bỏ qua
+    /// useAutoFormatting và giữ cột pivot rộng mặc định; bật lại = "1" như pivot do Excel tạo.
+    /// </summary>
+    private static void EnablePivotColumnAutofit(MemoryStream xlsx)
+    {
+        using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
+        var pivotEntries = zip.Entries
+            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern))
+            .ToList();
+
+        foreach (var pivotEntry in pivotEntries)
+        {
+            var pivotDoc = LoadXml(pivotEntry);
+            pivotDoc.Root!.SetAttributeValue("applyWidthHeightFormats", "1");
+
+            using var stream = pivotEntry.Open();
+            stream.SetLength(0);
+            pivotDoc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
+        }
+    }
+
+    /// <summary>
+    /// Ẩn các item của 1 field trong mọi pivot của file (ClosedXML 0.104 chưa có API public cho item ẩn)
+    /// bằng cách gắn h="1" vào item tương ứng trong pivotTable XML.
+    /// </summary>
+    private static void HidePivotFieldItems(MemoryStream xlsx, string fieldName, ISet<string> hiddenValues)
+    {
+        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
+        XNamespace relNs = "http://schemas.openxmlformats.org/package/2006/relationships";
+
+        using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
+        var pivotEntries = zip.Entries
+            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern))
+            .ToList();
+
+        foreach (var pivotEntry in pivotEntries)
+        {
+            var dir = pivotEntry.FullName[..(pivotEntry.FullName.LastIndexOf('/') + 1)];
+            var relsEntry = zip.GetEntry($"{dir}_rels/{pivotEntry.Name}.rels");
+            if (relsEntry == null) continue;
+
+            var target = LoadXml(relsEntry).Descendants(relNs + "Relationship")
+                .FirstOrDefault(rel => ((string?)rel.Attribute("Type"))?.EndsWith("/pivotCacheDefinition") == true)
+                ?.Attribute("Target")?.Value;
+            if (target == null) continue;
+
+            var cachePath = target.StartsWith('/')
+                ? target.TrimStart('/')
+                : new Uri(new Uri("http://package/" + dir), target).AbsolutePath.TrimStart('/');
+            var cacheEntry = zip.GetEntry(cachePath);
+            if (cacheEntry == null) continue;
+
+            // Index của pivotField trong pivotTable trùng với index cacheField; item x = index trong sharedItems
+            var cacheFields = LoadXml(cacheEntry).Descendants(ns + "cacheField").ToList();
+            var fieldIndex = cacheFields.FindIndex(f => (string?)f.Attribute("name") == fieldName);
+            if (fieldIndex < 0) continue;
+
+            var sharedItems = cacheFields[fieldIndex].Element(ns + "sharedItems")?.Elements()
+                .Select(e => (string?)e.Attribute("v"))
+                .ToList() ?? new List<string?>();
+
+            var pivotDoc = LoadXml(pivotEntry);
+            var pivotField = pivotDoc.Descendants(ns + "pivotField").ElementAtOrDefault(fieldIndex);
+            if (pivotField?.Attribute("axis") == null) continue;
+
+            var changed = false;
+            foreach (var item in pivotField.Descendants(ns + "item"))
+            {
+                if (int.TryParse((string?)item.Attribute("x"), out var x)
+                    && x < sharedItems.Count
+                    && sharedItems[x] is { } value
+                    && hiddenValues.Contains(value))
+                {
+                    item.SetAttributeValue("h", "1");
+                    changed = true;
+                }
+            }
+            if (!changed) continue;
+
+            using var stream = pivotEntry.Open();
+            stream.SetLength(0);
+            pivotDoc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
+        }
+    }
+
+    private static XDocument LoadXml(ZipArchiveEntry entry)
+    {
+        using var stream = entry.Open();
+        return XDocument.Load(stream);
     }
 
     private static string BuildCompareWithStandard(

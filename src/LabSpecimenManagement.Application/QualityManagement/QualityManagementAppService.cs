@@ -421,6 +421,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         indicator.ApprovalDate = DateTime.Now;
         indicator.ApprovedById = CurrentUser.Id;
         indicator.RejectionReason = reason;
+        // Trả lại KQ đã in → bắt buộc in lại sau khi duyệt lại (giữ nguyên PrintedDate)
+        indicator.IsPrinted = false;
         await _indicatorRepository.UpdateAsync(indicator);
 
         // Create history
@@ -616,6 +618,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 indicator.ApprovalDate = DateTime.Now;
                 indicator.ApprovedById = CurrentUser.Id;
                 indicator.RejectionReason = reason;
+                // Trả lại KQ đã in → bắt buộc in lại sau khi duyệt lại (giữ nguyên PrintedDate)
+                indicator.IsPrinted = false;
                 await _indicatorRepository.UpdateAsync(indicator);
 
                 // Create history
@@ -2505,8 +2509,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         if (allApproved)
         {
-            // Tất cả APPROVED → Chờ phát hành (PendingPublish)
-            task.Status = QualityManagementStatus.PendingPublish;
+            // Tất cả APPROVED → tính theo số chỉ tiêu đã in (duyệt lại sau khi in không được kéo lùi về Chờ phát hành)
+            task.Status = await ResolvePublishStatusAsync(task, indicators);
         }
         else if (anyRejected && !anyPending)
         {
@@ -2519,8 +2523,8 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
 
         await _taskRepository.UpdateAsync(task);
 
-        // Update TestRequest approval info when task becomes PendingPublish (tất cả chỉ tiêu đã duyệt)
-        if (task.Status == QualityManagementStatus.PendingPublish && previousStatus != QualityManagementStatus.PendingPublish)
+        // Update TestRequest approval info when all indicators become approved
+        if (allApproved && previousStatus != QualityManagementStatus.PendingPublish)
         {
             var testRequest = await _testRequestRepository.GetAsync(task.TestRequestId);
 
@@ -2587,25 +2591,13 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
             return;
         }
 
-        var totalPrintedCount = approvedIndicators.Count(i => i.IsPrinted);
-
-        if (totalPrintedCount == 0)
+        if (!approvedIndicators.Any(i => i.IsPrinted))
         {
             // Chưa in gì - giữ PendingPublish
             return;
         }
 
-        // So sánh với tổng chỉ tiêu thực tế của phiếu yêu cầu (không chỉ QM indicators)
-        var totalExpected = await GetTotalActiveSampleIndicatorCountAsync(task.TestRequestId);
-
-        if (totalPrintedCount < totalExpected)
-        {
-            task.Status = QualityManagementStatus.PartialPublished;
-        }
-        else
-        {
-            task.Status = QualityManagementStatus.FullyPublished;
-        }
+        task.Status = await ResolvePublishStatusAsync(task, approvedIndicators);
 
         await _taskRepository.UpdateAsync(task);
 
@@ -2757,6 +2749,25 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Trạng thái phát hành khi tất cả chỉ tiêu đã duyệt: dựa vào số chỉ tiêu đã in
+    /// so với tổng chỉ tiêu thực tế của phiếu yêu cầu (không chỉ QM indicators)
+    /// </summary>
+    private async Task<QualityManagementStatus> ResolvePublishStatusAsync(
+        QualityManagementTask task, List<QualityManagementIndicator> approvedIndicators)
+    {
+        var printedCount = approvedIndicators.Count(i => i.IsPrinted);
+        if (printedCount == 0)
+        {
+            return QualityManagementStatus.PendingPublish;
+        }
+
+        var totalExpected = await GetTotalActiveSampleIndicatorCountAsync(task.TestRequestId);
+        return printedCount < totalExpected
+            ? QualityManagementStatus.PartialPublished
+            : QualityManagementStatus.FullyPublished;
     }
 
     private async Task<int> GetTotalActiveSampleIndicatorCountAsync(Guid testRequestId)

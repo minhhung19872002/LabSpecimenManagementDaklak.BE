@@ -19,7 +19,7 @@ public class TemporaryAccessGrant : FullAuditedAggregateRoot<Guid>
     public string? EmployeeEmail { get; set; }
     public string? EmployeePhone { get; set; }
 
-    // Time window: StartDate = today 00:00, ExpiryDate = chosen day 23:59:59
+    // Time window: StartDate = today 00:00, ExpiryDate = chosen day 23:59:59 giờ VN (lưu theo giờ server)
     public DateTime StartDate { get; set; }
     public DateTime ExpiryDate { get; set; }
 

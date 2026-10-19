@@ -135,6 +135,7 @@ public class LabSpecimenManagementDbContext :
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
     public DbSet<CostChangeHistory> CostChangeHistories { get; set; }
+    public DbSet<TestRequestDeliveryHistory> TestRequestDeliveryHistories { get; set; }
     public DbSet<Notification> Notifications { get; set; }
 
     // Quality Management Entities
@@ -251,6 +252,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.TaxCode).HasMaxLength(50);
             b.Property(x => x.ContactPerson).HasMaxLength(256);
             b.Property(x => x.Phone).HasMaxLength(50);
+            b.Property(x => x.Email).HasMaxLength(256);
 
             // Test method info
             b.Property(x => x.MethodCustomerDetail).HasMaxLength(500);
@@ -1677,6 +1679,24 @@ public class LabSpecimenManagementDbContext :
             b.HasOne(x => x.QualityManagementTask)
                 .WithMany()
                 .HasForeignKey(x => x.QualityManagementTaskId)
+                .IsRequired()
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ============ DELIVERY (HANDOVER PRINT) HISTORY CONFIGURATION ============
+
+        builder.Entity<TestRequestDeliveryHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestRequestDeliveryHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.Property(x => x.PrintedByUserName).HasMaxLength(256);
+
+            b.HasIndex(x => x.TestRequestId);
+
+            b.HasOne<TestRequest>()
+                .WithMany()
+                .HasForeignKey(x => x.TestRequestId)
                 .IsRequired()
                 .OnDelete(DeleteBehavior.Cascade);
         });

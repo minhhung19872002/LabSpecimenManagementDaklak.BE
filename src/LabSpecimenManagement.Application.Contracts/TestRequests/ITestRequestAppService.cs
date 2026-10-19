@@ -208,6 +208,17 @@ public interface ITestRequestAppService :
     /// </summary>
     Task<List<PublishedReports.PublishedReportDto>> GetPublishedReportsAsync(Guid id);
 
+    /// <summary>
+    /// In phiếu bàn giao (BM03 - Sổ quản lý mẫu).
+    /// Chỉ in, không cập nhật trạng thái. Mỗi lần in đều ghi lịch sử.
+    /// </summary>
+    Task<PrintHandoverOutput> PrintHandoverAsync(Guid id);
+
+    /// <summary>
+    /// Lịch sử in phiếu bàn giao (mới nhất trước)
+    /// </summary>
+    Task<List<TestRequestDeliveryHistoryDto>> GetDeliveryHistoriesAsync(Guid id);
+
     #endregion
 
     #region Existing Samples (for reuse)

@@ -2707,6 +2707,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TaxNo}}", input.TaxCode ?? "" },
             { "{{ContactPerson}}", input.ContactPerson ?? "" },
             { "{{PhoneNumber}}", input.Phone ?? "" },
+            { "{{Email}}", input.Email ?? "" },
             { "{{SampleTotal}}", input.TotalSampleCount.ToString() },
             { "{{ResultCopies}}", resultCopies },
             { "{{CertifiedCopies}}", resultCopies },
@@ -2752,6 +2753,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{CB_Service}}", input.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_Contract}}", input.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_QLNN}}", input.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_MGS}}", input.SampleTypeSurveillance ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_SubContract}}", input.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Storage
@@ -2791,10 +2793,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
+        var methodDict = await GetTestMethodDictAsync(
+            samples.SelectMany(s => s.Indicators.Select(i => i.TestMethodId)));
+
         foreach (var sample in samples.OrderBy(s => s.SampleCode))
         {
             // Build indicator details with parent-child grouping
-            var indicatorDetails = BuildPreviewIndicatorSubTableWithGrouping(sample.Indicators, indicatorDict);
+            var indicatorDetails = BuildPreviewIndicatorSubTableWithGrouping(sample.Indicators, indicatorDict, methodDict);
 
             var indicatorNames = sample.Indicators
                 .Select(i => i.IndicatorName)
@@ -2807,6 +2812,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             tableData.Add(new TestRequestSampleTableRow
             {
                 No = rowIndex++,
+                SampleCode = sample.SampleCode ?? "",
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
@@ -2824,7 +2830,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private List<IndicatorSubTableRow> BuildPreviewIndicatorSubTableWithGrouping(
         List<PreviewSampleIndicatorDto> previewIndicators,
-        Dictionary<Guid, Indicator> indicatorDict)
+        Dictionary<Guid, Indicator> indicatorDict,
+        Dictionary<Guid, TestMethod> methodDict)
     {
         var indicatorDetails = new List<IndicatorSubTableRow>();
         int subRowIndex = 1;
@@ -2909,25 +2916,25 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     processedKeys.Add(childKey);
                 }
 
-                indicatorDetails.Add(new IndicatorSubTableRow
+                indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
                     IndicatorName = namePlainBuilder.ToString(),
                     IndicatorFormattedName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
                     UnitPrice = totalPrice.ToString("N0")
-                });
+                }, previewInd.TestMethodId, methodDict));
             }
             else
             {
                 // Single indicator (no children or orphan child)
                 // Use DB values for name/formattedName to ensure consistency
-                indicatorDetails.Add(new IndicatorSubTableRow
+                indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
                     IndicatorName = indicator.Name ?? previewInd.IndicatorName,
                     IndicatorFormattedName = indicator.FormattedName ?? previewInd.IndicatorFormattedName,
                     UnitPrice = previewInd.UnitPrice.ToString("N0")
-                });
+                }, previewInd.TestMethodId, methodDict));
             }
 
             processedKeys.Add(currentKey);
@@ -2939,13 +2946,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             var key = MakeKey(previewInd.IndicatorId, previewInd.TestMethodId, previewInd.SpecimenTypeId);
             if (!processedKeys.Contains(key) && !indicatorDict.ContainsKey(previewInd.IndicatorId))
             {
-                indicatorDetails.Add(new IndicatorSubTableRow
+                indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
                     IndicatorName = previewInd.IndicatorName,
                     IndicatorFormattedName = previewInd.IndicatorFormattedName,
                     UnitPrice = previewInd.UnitPrice.ToString("N0")
-                });
+                }, previewInd.TestMethodId, methodDict));
             }
         }
 
@@ -2973,6 +2980,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
+        var methodDict = await GetTestMethodDictAsync(allSampleIndicators.Select(si => si.TestMethodId));
+
         foreach (var sample in samples.OrderBy(s => s.SampleCode))
         {
             // Get sample indicators for this sample with their prices
@@ -2981,7 +2990,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 .ToList();
 
             // Build indicator details for sub-table with parent-child grouping
-            var indicatorDetails = BuildIndicatorSubTableWithGrouping(sampleIndicatorList, indicatorDict);
+            var indicatorDetails = BuildIndicatorSubTableWithGrouping(sampleIndicatorList, indicatorDict, methodDict);
 
             // Format indicators as list with - prefix and newline (for fallback/old template)
             var indicatorNames = sampleIndicatorList
@@ -2995,6 +3004,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             tableData.Add(new TestRequestSampleTableRow
             {
                 No = rowIndex++,
+                SampleCode = sample.SampleCode ?? "",
                 SampleName = sample.SampleName ?? "",
                 Quantity = sample.SampleQuantity ?? "",
                 SampleInfo = sample.StatusText ?? "",
@@ -3013,7 +3023,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private List<IndicatorSubTableRow> BuildIndicatorSubTableWithGrouping(
         List<TestRequestSampleIndicator> sampleIndicators,
-        Dictionary<Guid, Indicator> indicatorDict)
+        Dictionary<Guid, Indicator> indicatorDict,
+        Dictionary<Guid, TestMethod> methodDict)
     {
         var indicatorDetails = new List<IndicatorSubTableRow>();
         int subRowIndex = 1;
@@ -3098,30 +3109,61 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     processedKeys.Add(childKey);
                 }
 
-                indicatorDetails.Add(new IndicatorSubTableRow
+                indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
                     IndicatorName = namePlainBuilder.ToString(),
                     IndicatorFormattedName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
                     UnitPrice = totalPrice.ToString("N0")
-                });
+                }, si.TestMethodId, methodDict));
             }
             else
             {
                 // Single indicator (no children or orphan child)
-                indicatorDetails.Add(new IndicatorSubTableRow
+                indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
                     IndicatorName = indicator.Name ?? "",
                     IndicatorFormattedName = indicator.FormattedName,
                     UnitPrice = si.UnitPrice.ToString("N0")
-                });
+                }, si.TestMethodId, methodDict));
             }
 
             processedKeys.Add(currentKey);
         }
 
         return indicatorDetails;
+    }
+
+    /// <summary>
+    /// Load test methods by IDs (for {{TestMethod}} column in BM05 indicator sub-table)
+    /// </summary>
+    private async Task<Dictionary<Guid, TestMethod>> GetTestMethodDictAsync(IEnumerable<Guid?> testMethodIds)
+    {
+        var ids = testMethodIds
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .Distinct()
+            .ToList();
+        if (!ids.Any()) return new Dictionary<Guid, TestMethod>();
+
+        var methods = await _testMethodRepository.GetListAsync(x => ids.Contains(x.Id));
+        return methods.ToDictionary(m => m.Id);
+    }
+
+    /// <summary>
+    /// Fill test method name for sub-table row. Grouped parent-child rows share the same testMethodId.
+    /// Missing/pending method → empty.
+    /// </summary>
+    private static IndicatorSubTableRow WithTestMethod(
+        IndicatorSubTableRow row, Guid? testMethodId, Dictionary<Guid, TestMethod> methodDict)
+    {
+        if (testMethodId.HasValue && methodDict.TryGetValue(testMethodId.Value, out var method))
+        {
+            row.TestMethodName = method.Name ?? "";
+            row.TestMethodFormattedName = method.FormattedName;
+        }
+        return row;
     }
 
     /// <summary>
@@ -3686,6 +3728,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// </summary>
     private TableRow CloneAndFillSampleRow(TableRow template, TestRequestSampleTableRow data)
     {
+        data.SampleCode = data.SampleCode?.Trim() ?? "";
         data.SampleName = data.SampleName?.Trim() ?? "";
         data.Quantity = data.Quantity?.Trim() ?? "";
         data.SampleInfo = data.SampleInfo?.Trim() ?? "";
@@ -3743,6 +3786,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 text.Text = text.Text
                     .Replace("{{TestRequestTable}}", "")
                     .Replace("{{No}}", data.No.ToString())
+                    .Replace("{{SampleCode}}", data.SampleCode)
                     .Replace("{{NameOfSample}}", data.SampleName)
                     .Replace("{{Quantity}}", data.Quantity)
                     .Replace("{{SampleInfo}}", data.SampleInfo);
@@ -3849,6 +3893,27 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                             .Replace("{{SubNo}}", indicator.No.ToString())
                             .Replace("{{SubIndicator}}", indicatorDisplayName ?? "")
                             .Replace("{{SubPrice}}", indicator.UnitPrice);
+                    }
+                }
+                else if (text.Text.Contains("{{TestMethod}}"))
+                {
+                    // Use formatted name if available, otherwise plain name
+                    var testMethodDisplayName = !string.IsNullOrEmpty(indicator.TestMethodFormattedName)
+                        ? indicator.TestMethodFormattedName
+                        : indicator.TestMethodName;
+
+                    text.Text = text.Text
+                        .Replace("{{SubTable}}", "")
+                        .Replace("{{SubNo}}", indicator.No.ToString())
+                        .Replace("{{SubPrice}}", indicator.UnitPrice);
+
+                    if (HtmlToOpenXmlConverter.ContainsHtmlTags(testMethodDisplayName) || testMethodDisplayName.Contains('\n'))
+                    {
+                        ReplaceTextWithFormattedRuns(text, "{{TestMethod}}", testMethodDisplayName);
+                    }
+                    else
+                    {
+                        text.Text = text.Text.Replace("{{TestMethod}}", testMethodDisplayName);
                     }
                 }
                 else
@@ -4496,6 +4561,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     private class TestRequestSampleTableRow
     {
         public int No { get; set; }
+        public string SampleCode { get; set; } = "";
         public string SampleName { get; set; } = "";
         public string Quantity { get; set; } = "";
         public string SampleInfo { get; set; } = "";
@@ -4514,6 +4580,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         /// Tên có định dạng HTML (nếu có)
         /// </summary>
         public string? IndicatorFormattedName { get; set; }
+        public string TestMethodName { get; set; } = "";
+        /// <summary>
+        /// Tên phương pháp có định dạng HTML (nếu có)
+        /// </summary>
+        public string? TestMethodFormattedName { get; set; }
         public string UnitPrice { get; set; } = "";
     }
 
@@ -4620,6 +4691,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{TaxNo}}", testRequest.TaxCode ?? "" },
             { "{{ContactPerson}}", testRequest.ContactPerson ?? "" },
             { "{{PhoneNumber}}", testRequest.Phone ?? "" },
+            { "{{Email}}", testRequest.Email ?? "" },
             { "{{SampleTotal}}", testRequest.TotalSampleCount.ToString() },
             { "{{ResultCopies}}", resultCopies },
             { "{{CertifiedCopies}}", resultCopies }, // Same as ResultCopies
@@ -4665,6 +4737,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             { "{{CB_Service}}", testRequest.SampleTypeService ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_Contract}}", testRequest.SampleTypeContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_QLNN}}", testRequest.SampleTypeTask ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
+            { "{{CB_MGS}}", testRequest.SampleTypeSurveillance ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
             { "{{CB_SubContract}}", testRequest.SampleTypeSubContract ? TemplateConstants.CheckedBox : TemplateConstants.UncheckedBox },
 
             // Checkbox - Sample Storage

@@ -274,7 +274,8 @@ public class TestRequestDtoEnricher : ITransientDependency
             LaboratoryName = laboratory?.Name,
             TransferDate = indicatorLink.TransferDate,
             RequestDate = indicatorLink.RequestDate,
-            SentToDepartment = indicatorLink.SentToDepartment,
+            // Derive từ LaboratoryTaskIndicator (nguồn sự thật), không đọc cột cờ trong DB
+            SentToDepartment = labTaskIndicator != null,
             ApprovalStatus = labTaskIndicator?.ApprovalStatus,
             TestDate = labTaskIndicator?.TestDate,
             ParentIndicatorId = indicator?.ParentIndicatorId,

@@ -107,6 +107,8 @@ public static class SortingFields
     public const string SampleTypeTaskDesc = "sampletypetask desc";
     public const string SampleTypeSubcontract = "sampletypesubcontract";
     public const string SampleTypeSubcontractDesc = "sampletypesubcontract desc";
+    public const string SampleTypeSurveillance = "sampletypesurveillance";
+    public const string SampleTypeSurveillanceDesc = "sampletypesurveillance desc";
     public const string SampleStorage = "samplestorage";
     public const string SampleStorageDesc = "samplestorage desc";
 

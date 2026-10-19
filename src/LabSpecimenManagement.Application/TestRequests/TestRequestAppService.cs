@@ -74,6 +74,7 @@ public partial class TestRequestAppService :
     private readonly IRepository<MethodChangeHistory, Guid> _methodChangeHistoryRepository;
     private readonly IPublishedReportRepository _publishedReportRepository;
     private readonly IRepository<CostChangeHistory, Guid> _costChangeHistoryRepository;
+    private readonly IRepository<TestRequestDeliveryHistory, Guid> _deliveryHistoryRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
     private readonly IRepository<StandardIndicator, Guid> _standardIndicatorRepository;
@@ -110,6 +111,7 @@ public partial class TestRequestAppService :
         IRepository<MethodChangeHistory, Guid> methodChangeHistoryRepository,
         IPublishedReportRepository publishedReportRepository,
         IRepository<CostChangeHistory, Guid> costChangeHistoryRepository,
+        IRepository<TestRequestDeliveryHistory, Guid> deliveryHistoryRepository,
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<StandardIndicator, Guid> standardIndicatorRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
@@ -145,6 +147,7 @@ public partial class TestRequestAppService :
         _methodChangeHistoryRepository = methodChangeHistoryRepository;
         _publishedReportRepository = publishedReportRepository;
         _costChangeHistoryRepository = costChangeHistoryRepository;
+        _deliveryHistoryRepository = deliveryHistoryRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _standardIndicatorRepository = standardIndicatorRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
@@ -337,7 +340,8 @@ public partial class TestRequestAppService :
                     LaboratoryName = laboratoryName,
                     TransferDate = indicator.TransferDate,
                     RequestDate = indicator.RequestDate,
-                    SentToDepartment = indicator.SentToDepartment,
+                    // Derive từ LaboratoryTaskIndicator (nguồn sự thật), không đọc cột cờ trong DB
+                    SentToDepartment = labTaskIndicator != null,
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
                     ParentIndicatorId = indicatorEntity.ParentIndicatorId,
@@ -525,6 +529,7 @@ public partial class TestRequestAppService :
         entity.TaxCode = createInput.TaxCode;
         entity.ContactPerson = createInput.ContactPerson;
         entity.Phone = createInput.Phone;
+        entity.Email = createInput.Email;
 
         // Method info
         entity.TotalSampleCount = createInput.TotalSampleCount;
@@ -545,6 +550,7 @@ public partial class TestRequestAppService :
         entity.SampleTypeContract = createInput.SampleTypeContract;
         entity.SampleTypeTask = createInput.SampleTypeTask;
         entity.SampleTypeSubContract = createInput.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = createInput.SampleTypeSurveillance;
         entity.ResultDeliveryDate = createInput.ResultDeliveryDate;
         entity.SampleStorage = createInput.SampleStorage;
         entity.TotalCost = createInput.TotalCost;
@@ -567,9 +573,10 @@ public partial class TestRequestAppService :
         bool sampleTypeService,
         bool sampleTypeContract,
         bool sampleTypeTask,
-        bool sampleTypeSubContract)
+        bool sampleTypeSubContract,
+        bool sampleTypeSurveillance)
     {
-        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract;
+        return sampleTypeService || sampleTypeContract || sampleTypeTask || sampleTypeSubContract || sampleTypeSurveillance;
     }
 
     private static bool HasAnySampleTypeSelection(TestRequest entity)
@@ -578,7 +585,8 @@ public partial class TestRequestAppService :
             entity.SampleTypeService,
             entity.SampleTypeContract,
             entity.SampleTypeTask,
-            entity.SampleTypeSubContract);
+            entity.SampleTypeSubContract,
+            entity.SampleTypeSurveillance);
     }
 
     private static string? NormalizeOptionalText(string? value)
@@ -592,7 +600,8 @@ public partial class TestRequestAppService :
                 input.SampleTypeService,
                 input.SampleTypeContract,
                 input.SampleTypeTask,
-                input.SampleTypeSubContract))
+                input.SampleTypeSubContract,
+                input.SampleTypeSurveillance))
         {
             throw new TestRequestValidationException("sampleType", "Vui lòng chọn ít nhất một loại hình mẫu");
         }
@@ -613,7 +622,8 @@ public partial class TestRequestAppService :
             input.SampleTypeService,
             input.SampleTypeContract,
             input.SampleTypeTask,
-            input.SampleTypeSubContract);
+            input.SampleTypeSubContract,
+            input.SampleTypeSurveillance);
 
         // Backward compatibility for old clients/data payloads: keep existing selection
         // when incoming payload sends all flags false but existing record already has a valid selection.
@@ -623,6 +633,7 @@ public partial class TestRequestAppService :
             input.SampleTypeContract = existingEntity.SampleTypeContract;
             input.SampleTypeTask = existingEntity.SampleTypeTask;
             input.SampleTypeSubContract = existingEntity.SampleTypeSubContract;
+            input.SampleTypeSurveillance = existingEntity.SampleTypeSurveillance;
             hasAnySelectionInInput = true;
         }
 
@@ -770,7 +781,7 @@ public partial class TestRequestAppService :
                         sampleIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         sampleIndicator.TransferDate = indicatorDto.TransferDate;
                         sampleIndicator.RequestDate = indicatorDto.RequestDate;
-                        sampleIndicator.SentToDepartment = indicatorDto.SentToDepartment;
+                        // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
 
@@ -900,6 +911,7 @@ public partial class TestRequestAppService :
         entity.TaxCode = input.TaxCode;
         entity.ContactPerson = input.ContactPerson;
         entity.Phone = input.Phone;
+        entity.Email = input.Email;
 
         // Method info
         entity.TotalSampleCount = input.TotalSampleCount;
@@ -920,6 +932,7 @@ public partial class TestRequestAppService :
         entity.SampleTypeContract = input.SampleTypeContract;
         entity.SampleTypeTask = input.SampleTypeTask;
         entity.SampleTypeSubContract = input.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = input.SampleTypeSurveillance;
         entity.ResultDeliveryDate = input.ResultDeliveryDate;
         entity.SampleStorage = input.SampleStorage;
         entity.TotalCost = input.TotalCost;
@@ -1098,7 +1111,7 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            indicator.SentToDepartment = indicatorDto.SentToDepartment;
+                            // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
 
                             // Move LaboratoryTaskIndicator when lab changes and status is Pending
@@ -1155,7 +1168,7 @@ public partial class TestRequestAppService :
                             indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
-                            indicator.SentToDepartment = indicatorDto.SentToDepartment;
+                            // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.IsSubcontract = indicatorDto.IsSubcontract;
 
@@ -2583,6 +2596,9 @@ public partial class TestRequestAppService :
             case SortingFields.SampleTypeSubcontract:
                 entity.SampleTypeSubContract = newValue?.ToLower() == "true";
                 break;
+            case SortingFields.SampleTypeSurveillance:
+                entity.SampleTypeSurveillance = newValue?.ToLower() == "true";
+                break;
             case SortingFields.SampleStorage:
                 entity.SampleStorage = string.IsNullOrEmpty(newValue) ? SampleStorageOption.No : (SampleStorageOption)int.Parse(newValue);
                 break;
@@ -3319,12 +3335,14 @@ public partial class TestRequestAppService :
         entity.TaxCode = snapshot.TaxCode;
         entity.ContactPerson = snapshot.ContactPerson;
         entity.Phone = snapshot.Phone;
+        entity.Email = snapshot.Email;
 
         // === Loại hình mẫu ===
         entity.SampleTypeService = snapshot.SampleTypeService;
         entity.SampleTypeContract = snapshot.SampleTypeContract;
         entity.SampleTypeTask = snapshot.SampleTypeTask;
         entity.SampleTypeSubContract = snapshot.SampleTypeSubContract;
+        entity.SampleTypeSurveillance = snapshot.SampleTypeSurveillance;
 
         // === Yêu cầu về phương pháp ===
         entity.MethodWestHighlandInstitute = snapshot.MethodWestHighlandInstitute;
@@ -4583,6 +4601,69 @@ public partial class TestRequestAppService :
                 "status");
         }
 
+        await ApplyDeliveryToCustomerAsync(testRequest, input?.Note);
+        await Repository.UpdateAsync(testRequest);
+    }
+
+    /// <summary>
+    /// In phiếu bàn giao (BM03 - Sổ quản lý mẫu):
+    /// Chỉ in phiếu, KHÔNG cập nhật trạng thái phiếu yêu cầu (BA chốt 2026-09-30).
+    /// Mỗi lần in đều ghi lịch sử (ngày in + người in)
+    /// </summary>
+    public async Task<PrintHandoverOutput> PrintHandoverAsync(Guid id)
+    {
+        var testRequest = await Repository.GetAsync(id);
+
+        if (testRequest.Status != TestRequestStatus.ReportPublished &&
+            testRequest.Status != TestRequestStatus.PartialResultSent &&
+            testRequest.Status != TestRequestStatus.Completed)
+        {
+            throw new Common.Exceptions.InvalidOperationException(
+                "Không thể in phiếu bàn giao ở trạng thái này. Yêu cầu phải ở trạng thái 'Đã phát hành BC', 'Đã trả 1 phần KQ' hoặc 'Hoàn thành'.",
+                "status");
+        }
+
+        var document = await _resultFormAppService.GenerateSampleManagementBookAsync(id);
+
+        var printedByUserName = await _userNameProvider.GetUserNameAsync(_currentUser.Id);
+        await _deliveryHistoryRepository.InsertAsync(new TestRequestDeliveryHistory(
+            GuidGenerator.Create(),
+            testRequest.Id,
+            printedByUserName,
+            testRequest.Status));
+
+        return new PrintHandoverOutput
+        {
+            FileName = document.FileName,
+            Status = testRequest.Status
+        };
+    }
+
+    public async Task<List<TestRequestDeliveryHistoryDto>> GetDeliveryHistoriesAsync(Guid id)
+    {
+        var histories = await _deliveryHistoryRepository.GetListAsync(h => h.TestRequestId == id);
+
+        return histories
+            .OrderByDescending(h => h.CreationTime)
+            .Select(h => new TestRequestDeliveryHistoryDto
+            {
+                Id = h.Id,
+                TestRequestId = h.TestRequestId,
+                PrintedDate = h.CreationTime,
+                PrintedByUserName = h.PrintedByUserName,
+                StatusAfter = h.StatusAfter
+            })
+            .ToList();
+    }
+
+    /// <summary>
+    /// Tính trạng thái bàn giao dựa trên chỉ tiêu đã xuất bên QLCL và ghi nhận ngày/người bàn giao.
+    /// Không lưu DB - caller tự UpdateAsync.
+    /// </summary>
+    private async Task ApplyDeliveryToCustomerAsync(TestRequest testRequest, string? note)
+    {
+        var id = testRequest.Id;
+
         // Lấy tất cả quality tasks của test request
         var qualityTasks = await _qualityTaskRepository.GetListAsync(t => t.TestRequestId == id);
 
@@ -4621,16 +4702,14 @@ public partial class TestRequestAppService :
         }
 
         // Ghi chú nếu có
-        if (!string.IsNullOrWhiteSpace(input?.Note))
+        if (!string.IsNullOrWhiteSpace(note))
         {
-            testRequest.DeliveryNote = input.Note;
+            testRequest.DeliveryNote = note;
         }
 
         testRequest.DeliveredToCustomerDate = Clock.Now;
         testRequest.DeliveredToCustomerByUserId = _currentUser.Id;
         testRequest.DeliveredToCustomerByUserName = await _userNameProvider.GetUserNameAsync(_currentUser.Id);
-
-        await Repository.UpdateAsync(testRequest);
     }
 
     /// <summary>

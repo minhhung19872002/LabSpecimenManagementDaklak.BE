@@ -6164,6 +6164,10 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("DistrictCode")
                         .HasColumnType("text");
 
+                    b.Property<string>("Email")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<DateTime?>("ExpectedCompletionDate")
                         .HasColumnType("timestamp without time zone");
 
@@ -6328,6 +6332,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("boolean");
 
                     b.Property<bool>("SampleTypeSubContract")
+                        .HasColumnType("boolean");
+
+                    b.Property<bool>("SampleTypeSurveillance")
                         .HasColumnType("boolean");
 
                     b.Property<bool>("SampleTypeTask")
@@ -6500,6 +6507,36 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("TestRequestId");
 
                     b.ToTable("AppTestRequestChangeHistories", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestDeliveryHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<string>("PrintedByUserName")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<int>("StatusAfter")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("TestRequestId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestRequestId");
+
+                    b.ToTable("AppTestRequestDeliveryHistories", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestIndicator", b =>
@@ -9642,6 +9679,15 @@ namespace LabSpecimenManagement.Migrations
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestChangeHistory", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", null)
+                        .WithMany()
+                        .HasForeignKey("TestRequestId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.TestRequestDeliveryHistory", b =>
                 {
                     b.HasOne("LabSpecimenManagement.TestRequests.TestRequest", null)
                         .WithMany()

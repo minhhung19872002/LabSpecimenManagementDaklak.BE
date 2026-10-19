@@ -106,6 +106,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// </summary>
     public string? Phone { get; set; }
 
+    /// <summary>
+    /// Email khách hàng (không bắt buộc)
+    /// </summary>
+    public string? Email { get; set; }
+
     #endregion
 
     #region Thông tin còn lại
@@ -203,6 +208,11 @@ public class TestRequest : FullAuditedAggregateRoot<Guid>
     /// Hình thức mẫu gửi - Hợp đồng phụ
     /// </summary>
     public bool SampleTypeSubContract { get; set; }
+
+    /// <summary>
+    /// Hình thức mẫu gửi - Mẫu giám sát/ nghiên cứu
+    /// </summary>
+    public bool SampleTypeSurveillance { get; set; }
 
     /// <summary>
     /// Ngày trả kết quả

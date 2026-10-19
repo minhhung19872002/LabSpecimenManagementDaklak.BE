@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
@@ -77,13 +78,13 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
     public async Task<TemporaryAccessGrantDto> CreateAsync(CreateTemporaryAccessGrantDto input)
     {
         var startDate = input.StartDate.Date;
-        var expiryDate = input.ExpiryDate.Date.AddDays(1).AddTicks(-1); // end of day 23:59:59
+        var expiryDate = VietnamTime.EndOfDayToServerTime(input.ExpiryDate); // 23:59:59 giờ VN
 
         // W3: Không cho phép ngày phân công trong quá khứ
-        if (startDate < DateTime.Today)
+        if (startDate < VietnamTime.Today)
             throw new UserFriendlyException("Ngày phân công không được nhỏ hơn ngày hôm nay");
 
-        if (expiryDate.Date < startDate)
+        if (input.ExpiryDate.Date < startDate)
             throw new UserFriendlyException("Ngày hết hiệu lực không được nhỏ hơn ngày phân công");
 
         Guid userId;
@@ -176,12 +177,12 @@ public class TemporaryAccessGrantAppService : ApplicationService, ITemporaryAcce
             throw new UserFriendlyException("Không thể sửa lịch trực đã hết hạn");
 
         var startDate = input.StartDate.Date;
-        var expiryDate = input.ExpiryDate.Date.AddDays(1).AddTicks(-1);
+        var expiryDate = VietnamTime.EndOfDayToServerTime(input.ExpiryDate); // 23:59:59 giờ VN
 
         // Grant may have already started — only enforce ordering
-        if (expiryDate.Date < startDate)
+        if (input.ExpiryDate.Date < startDate)
             throw new UserFriendlyException("Ngày hết hiệu lực không được nhỏ hơn ngày phân công");
-        if (expiryDate.Date < DateTime.Today)
+        if (input.ExpiryDate.Date < VietnamTime.Today)
             throw new UserFriendlyException("Ngày hết hạn không được nhỏ hơn ngày hôm nay");
 
         var userId = grant.EmployeeType == TemporaryEmployeeType.Internal
