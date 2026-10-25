@@ -176,4 +176,7 @@ public interface ITestingAppService : IApplicationService
     /// Gửi kết quả nhiều chỉ tiêu cùng lúc kèm xác nhận tiêu hao nguyên liệu (bulk direct submit)
     /// </summary>
     Task<TestingDetailDto> SubmitBulkIndicatorsWithConsumptionAsync(Guid laboratoryTaskId, BulkSubmitIndicatorWithConsumptionDto input);
+
+    // TODO: EXTERNAL-CONSUMPTION — remove after BA confirms
+    Task ProcessExternalConsumptionAsync(ExternalConsumptionRequestDto input);
 }

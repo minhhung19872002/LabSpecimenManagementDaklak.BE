@@ -1762,6 +1762,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             throw new ValidationException("indicators", "Không có chỉ tiêu nào được gửi duyệt");
         }
 
+        // TODO: EXTERNAL-CONSUMPTION — remove after BA confirms
+        await NotifyExternalConsumptionAsync(submittedIndicators, task.Id);
+
         // Deduct stock based on material consumption setup
         await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id, task.LaboratoryId);
 
