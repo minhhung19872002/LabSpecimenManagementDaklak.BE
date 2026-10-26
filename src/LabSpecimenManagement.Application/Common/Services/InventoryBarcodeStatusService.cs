@@ -13,7 +13,7 @@ namespace LabSpecimenManagement.Common;
 
 public class InventoryBarcodeStatusService : ITransientDependency
 {
-    private readonly IRepository<InventoryBarcode, Guid> _barcodeRepository;
+    private readonly IInventoryBarcodeRepository _barcodeRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
@@ -25,7 +25,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
     private readonly IAsyncQueryableExecuter AsyncExecuter;
 
     public InventoryBarcodeStatusService(
-        IRepository<InventoryBarcode, Guid> barcodeRepository,
+        IInventoryBarcodeRepository barcodeRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importItemRepository,
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
@@ -76,14 +76,20 @@ public class InventoryBarcodeStatusService : ITransientDependency
 
         if (warehouseItems.Count == 0) return;
 
+        // Only Id/Code/Status are read (not tracked): a warehouse can hold tens of thousands of
+        // barcodes of one product. Every barcode write is saved right away, so the database values
+        // are the current ones.
         var barcodeQuery = await _barcodeRepository.GetQueryableAsync();
         var barcodes = await AsyncExecuter.ToListAsync(
             barcodeQuery.Where(b => b.ProductId == productId && b.CurrentWarehouseId == warehouseId)
-                .OrderBy(b => b.CreationTime));
+                .OrderBy(b => b.CreationTime)
+                .Select(b => new { b.Id, b.Code, b.Status }));
 
         if (barcodes.Count == 0) return;
 
-        var barcodeByCode = barcodes.ToDictionary(b => b.Code);
+        var barcodeByCode = barcodes.ToDictionary(
+            b => b.Code,
+            b => new BarcodeState { Id = b.Id, Status = b.Status });
 
         var product = await _productRepository.GetAsync(productId);
 
@@ -129,7 +135,7 @@ public class InventoryBarcodeStatusService : ITransientDependency
         var consumed = await AllocateConsumptionToLotsAsync(
             productId, warehouseId, product, allSkus, useVolumeBased, lotInfos);
 
-        var updatedBarcodes = new List<InventoryBarcode>();
+        var updatedStatuses = new Dictionary<Guid, InventoryBarcodeStatus>();
 
         foreach (var lot in lotInfos)
         {
@@ -163,14 +169,15 @@ public class InventoryBarcodeStatusService : ITransientDependency
                 if (barcode.Status != newStatus)
                 {
                     barcode.Status = newStatus;
-                    updatedBarcodes.Add(barcode);
+                    updatedStatuses[barcode.Id] = newStatus;
                 }
             }
         }
 
-        if (updatedBarcodes.Count > 0)
+        // One UPDATE statement per status instead of tracking and saving each barcode.
+        foreach (var group in updatedStatuses.GroupBy(x => x.Value, x => x.Key))
         {
-            await _barcodeRepository.UpdateManyAsync(updatedBarcodes, autoSave: true);
+            await _barcodeRepository.UpdateStatusAsync(group.ToList(), group.Key);
         }
     }
 
@@ -405,6 +412,12 @@ public class InventoryBarcodeStatusService : ITransientDependency
         {
             return new List<string>();
         }
+    }
+
+    private class BarcodeState
+    {
+        public Guid Id { get; init; }
+        public InventoryBarcodeStatus Status { get; set; }
     }
 
     private class LotAllocationInfo

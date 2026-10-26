@@ -1,8 +1,10 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Products;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.ChangeTracking;
 using Npgsql;
 using NpgsqlTypes;
 using Volo.Abp.Auditing;
@@ -97,6 +99,76 @@ public class EfCoreInventoryBarcodeRepository
         finally
         {
             await dbContext.Database.CloseConnectionAsync();
+        }
+    }
+
+    public async Task MoveToWarehouseAsync(
+        IReadOnlyCollection<Guid> ids, Guid warehouseId, Guid lastMaterialReceiptId)
+    {
+        if (ids.Count == 0)
+            return;
+
+        var idArray = await SavePendingChangesAsync(ids);
+        await (await GetDbSetAsync())
+            .Where(x => idArray.Contains(x.Id))
+            .ExecuteUpdateAsync(s => s
+                    .SetProperty(x => x.CurrentWarehouseId, warehouseId)
+                    .SetProperty(x => x.LastMaterialReceiptId, lastMaterialReceiptId),
+                GetCancellationToken());
+
+        await SyncTrackedAsync(idArray, entry =>
+        {
+            entry.Entity.CurrentWarehouseId = warehouseId;
+            entry.Entity.LastMaterialReceiptId = lastMaterialReceiptId;
+            MarkSaved(entry.Property(x => x.CurrentWarehouseId), warehouseId);
+            MarkSaved(entry.Property(x => x.LastMaterialReceiptId), lastMaterialReceiptId);
+        });
+    }
+
+    public async Task UpdateStatusAsync(IReadOnlyCollection<Guid> ids, InventoryBarcodeStatus status)
+    {
+        if (ids.Count == 0)
+            return;
+
+        var idArray = await SavePendingChangesAsync(ids);
+        await (await GetDbSetAsync())
+            .Where(x => idArray.Contains(x.Id))
+            .ExecuteUpdateAsync(s => s.SetProperty(x => x.Status, status), GetCancellationToken());
+
+        await SyncTrackedAsync(idArray, entry =>
+        {
+            entry.Entity.Status = status;
+            MarkSaved(entry.Property(x => x.Status), status);
+        });
+    }
+
+    private static void MarkSaved<TProperty>(PropertyEntry<InventoryBarcode, TProperty> property, TProperty value)
+    {
+        property.OriginalValue = value;
+        property.IsModified = false;
+    }
+
+    // Same as UpdateManyAsync(autoSave: true): pending changes of the unit of work are saved too.
+    private async Task<Guid[]> SavePendingChangesAsync(IReadOnlyCollection<Guid> ids)
+    {
+        var dbContext = await GetDbContextAsync();
+        if (dbContext.ChangeTracker.HasChanges())
+            await dbContext.SaveChangesAsync(GetCancellationToken());
+        return ids as Guid[] ?? ids.ToArray();
+    }
+
+    // ExecuteUpdate bypasses the change tracker. Barcodes the unit of work already tracks get the
+    // new values as saved values (state stays Unchanged), as after UpdateManyAsync(autoSave: true),
+    // so a later save cannot write the old values back.
+    private async Task SyncTrackedAsync(Guid[] ids, Action<EntityEntry<InventoryBarcode>> apply)
+    {
+        var dbContext = await GetDbContextAsync();
+        HashSet<Guid>? idSet = null;
+        foreach (var entry in dbContext.ChangeTracker.Entries<InventoryBarcode>())
+        {
+            idSet ??= ids.ToHashSet();
+            if (idSet.Contains(entry.Entity.Id))
+                apply(entry);
         }
     }
 

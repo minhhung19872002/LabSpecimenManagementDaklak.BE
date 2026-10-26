@@ -1066,12 +1066,16 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             deductedBaseQuantity,
             remainingBaseQuantity);
 
+        // Only Id/Code/warehouse are read (not tracked): a lot can hold tens of thousands of barcodes.
+        // Every barcode write is saved right away, so the database values are the current ones.
         var query = await _inventoryBarcodeRepository.GetQueryableAsync();
         var allOriginBarcodes = await _asyncExecuter.ToListAsync(query
             .Where(x => x.OriginWarehouseImportReceiptItemId == originalLotItem.Id)
-            .OrderBy(x => x.CreationTime));
+            .OrderBy(x => x.CreationTime)
+            .Select(x => new { x.Id, x.Code, x.CurrentWarehouseId }));
         var available = allOriginBarcodes
             .Where(x => x.CurrentWarehouseId == sourceWarehouseId)
+            .Select(x => (x.Id, x.Code))
             .ToList();
 
         // Legacy lots without barcodes: generate the missing ones and insert them in one batch.
@@ -1091,24 +1095,20 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 SkuId = originalLotItem.SkuId
             };
             legacyBarcodes.Add(barcode);
-            available.Add(barcode);
+            available.Add((barcode.Id, barcode.Code));
         }
         // Insert before updating: the legacy barcodes may be among the ones moved below.
-        // BulkInsertAsync leaves them untracked, so UpdateManyAsync attaches them as Modified.
         if (legacyBarcodes.Count > 0)
             await _inventoryBarcodeRepository.BulkInsertAsync(legacyBarcodes);
 
-        // Move the selected barcodes in one batch (one SaveChanges instead of one per barcode).
-        // autoSave: true keeps the DB state visible to later steps of the same confirm
+        // Move the selected barcodes with one UPDATE statement. It is saved right away, so the
+        // DB state is visible to later steps of the same confirm
         // (next lot of the same item, barcode status recalculation).
         var selected = available.Take(transferPlan.SourceBarcodesToMove).ToList();
-        foreach (var barcode in selected)
-        {
-            barcode.CurrentWarehouseId = receivingWarehouseId;
-            barcode.LastMaterialReceiptId = materialReceiptId;
-        }
-        if (selected.Count > 0)
-            await _inventoryBarcodeRepository.UpdateManyAsync(selected, autoSave: true);
+        await _inventoryBarcodeRepository.MoveToWarehouseAsync(
+            selected.Select(x => x.Id).ToList(),
+            receivingWarehouseId,
+            materialReceiptId);
 
         return selected.Select(x => x.Code).ToList();
     }
