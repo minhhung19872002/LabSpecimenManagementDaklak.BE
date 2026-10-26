@@ -14,6 +14,8 @@ using Volo.Abp.SettingManagement.EntityFrameworkCore;
 using Volo.Abp.TenantManagement.EntityFrameworkCore;
 using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.EntityFrameworkCore.PublishedReports;
+using LabSpecimenManagement.Products;
+using LabSpecimenManagement.EntityFrameworkCore.Products;
 
 namespace LabSpecimenManagement.EntityFrameworkCore;
 
@@ -49,6 +51,9 @@ public class LabSpecimenManagementEntityFrameworkCoreModule : AbpModule
 
             // Custom repository for PublishedReport with additional methods
             options.AddRepository<PublishedReport, EfCorePublishedReportRepository>();
+
+            // Bulk COPY insert for barcodes (one import can create 100k+ rows)
+            options.AddRepository<InventoryBarcode, EfCoreInventoryBarcodeRepository>();
         });
 
         Configure<AbpDbContextOptions>(options =>

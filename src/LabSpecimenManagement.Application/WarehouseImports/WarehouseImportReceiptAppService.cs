@@ -41,7 +41,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
-    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IInventoryBarcodeRepository _inventoryBarcodeRepository;
     private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
 
     public WarehouseImportReceiptAppService(
@@ -60,7 +60,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
         IRepository<Equipment, Guid> equipmentRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IInventoryBarcodeRepository inventoryBarcodeRepository,
         IRepository<PreparedSolutionBatch, Guid> preparedSolutionBatchRepository)
     {
         _receiptRepository = receiptRepository;
@@ -399,7 +399,7 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         }
 
         if (barcodesToInsert.Count > 0)
-            await _inventoryBarcodeRepository.InsertManyAsync(barcodesToInsert, autoSave: true);
+            await _inventoryBarcodeRepository.BulkInsertAsync(barcodesToInsert);
 
         // Equipment items: create Equipment entities for received items
         var equipmentItems = receipt.Items.Where(x => x.IsEquipment && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received).ToList();
