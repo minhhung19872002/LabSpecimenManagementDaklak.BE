@@ -30,7 +30,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
-    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IInventoryBarcodeRepository _inventoryBarcodeRepository;
     private readonly IRepository<IndicatorConsumption, Guid> _indicatorConsumptionRepository;
     private readonly IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
@@ -46,7 +46,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         IRepository<WarehouseImportReceipt, Guid> importReceiptRepository,
         IRepository<WarehouseImportReceiptItem, Guid> importReceiptItemRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IInventoryBarcodeRepository inventoryBarcodeRepository,
         IRepository<IndicatorConsumption, Guid> indicatorConsumptionRepository,
         IRepository<ProductWarehouseInventory, Guid> productWarehouseInventoryRepository,
         IFifoStockDeductionService fifoStockService,
@@ -542,6 +542,19 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         {
             var barcodeCount = Math.Max(1, (int)Math.Ceiling(storageQty));
             var barcodeCodes = new List<string>(barcodeCount);
+
+            // One query for the whole lot: every candidate code (with or without -NN suffix)
+            // starts with this prefix, so checking the set is the same as checking the table.
+            var codePrefix = InventoryBarcodeCodeBuilder.BuildPrefix(
+                solutionProduct.IdentificationCode,
+                batch.PreparationDate,
+                batch.LotCode);
+            var takenCodes = (await AsyncExecuter.ToListAsync((await _inventoryBarcodeRepository.GetQueryableAsync())
+                    .Where(x => x.Code.StartsWith(codePrefix))
+                    .Select(x => x.Code)))
+                .ToHashSet(StringComparer.Ordinal);
+
+            var barcodesToInsert = new List<InventoryBarcode>(barcodeCount);
             for (var sequence = 1; sequence <= barcodeCount; sequence++)
             {
                 var code = InventoryBarcodeCodeBuilder.Build(
@@ -551,10 +564,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                     sequence);
                 var uniqueCode = code;
                 var suffix = 1;
-                while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                while (takenCodes.Contains(uniqueCode))
                     uniqueCode = $"{code}-{suffix++:D2}";
 
-                await _inventoryBarcodeRepository.InsertAsync(new InventoryBarcode(
+                takenCodes.Add(uniqueCode);
+                barcodesToInsert.Add(new InventoryBarcode(
                     GuidGenerator.Create(),
                     uniqueCode,
                     solutionProduct.Id,
@@ -562,9 +576,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                     batch.StorageWarehouseId.Value)
                 {
                     SkuId = tuPhaSku.Id
-                }, autoSave: true);
+                });
                 barcodeCodes.Add(uniqueCode);
             }
+            await _inventoryBarcodeRepository.BulkInsertAsync(barcodesToInsert);
             lotItem.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
             await _importReceiptItemRepository.UpdateAsync(lotItem, autoSave: true);
         }

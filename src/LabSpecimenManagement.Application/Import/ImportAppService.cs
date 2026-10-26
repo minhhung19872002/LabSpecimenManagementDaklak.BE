@@ -54,7 +54,7 @@ public class ImportAppService : ApplicationService, IImportAppService
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _warehouseImportReceiptRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportReceiptItemRepository;
-    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IInventoryBarcodeRepository _inventoryBarcodeRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionItemRepository;
     private readonly IGuidGenerator _guidGenerator;
@@ -89,7 +89,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         IRepository<Unit, Guid> unitRepository,
         IRepository<WarehouseImportReceipt, Guid> warehouseImportReceiptRepository,
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportReceiptItemRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IInventoryBarcodeRepository inventoryBarcodeRepository,
         IRepository<ProductSku, Guid> productSkuRepository,
         IRepository<MaterialConsumptionItem, Guid> materialConsumptionItemRepository,
         IGuidGenerator guidGenerator,
@@ -8398,6 +8398,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                             .CountAsync(x => x.OriginWarehouseImportReceiptItemId == existingItem.Id);
                         var newBarcodeCount = Math.Max(0, (int)Math.Ceiling(baseQty) - (int)existingBarcodeCount);
                         var startSeq = (int)existingBarcodeCount + 1;
+                        var takenCodes = await LoadBarcodeCodesWithPrefixAsync(
+                            product.IdentificationCode,
+                            receipt.ActualImportDate,
+                            previewItem.LotNumber);
+                        var barcodesToInsert = new List<InventoryBarcode>(newBarcodeCount);
                         for (var seq = startSeq; seq < startSeq + newBarcodeCount; seq++)
                         {
                             var code = BuildProductBarcodeCode(
@@ -8407,17 +8412,18 @@ public class ImportAppService : ApplicationService, IImportAppService
                                 seq);
                             var uniqueCode = code;
                             var suffix = 1;
-                            while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                            while (takenCodes.Contains(uniqueCode))
                                 uniqueCode = $"{code}-{suffix++:D2}";
 
-                            var barcode = new InventoryBarcode(
+                            takenCodes.Add(uniqueCode);
+                            barcodesToInsert.Add(new InventoryBarcode(
                                 GuidGenerator.Create(),
                                 uniqueCode,
                                 product.Id,
                                 existingItem.Id,
-                                warehouseId);
-                            await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                                warehouseId));
                         }
+                        await _inventoryBarcodeRepository.BulkInsertAsync(barcodesToInsert);
                     }
 
                     updatedCount++;
@@ -8464,6 +8470,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                     var product = productByCode.Values.FirstOrDefault(p => p.Id == receiptItem.ProductId);
                     var barcodeCount = Math.Max(1, (int)Math.Ceiling(receiptItem.ReceivedBaseQuantity));
                     var barcodeCodes = new List<string>();
+                    var takenCodes = await LoadBarcodeCodesWithPrefixAsync(
+                        product?.IdentificationCode,
+                        receipt.ActualImportDate,
+                        receiptItem.LotNumber);
+                    var barcodesToInsert = new List<InventoryBarcode>(barcodeCount);
                     for (var seq = 1; seq <= barcodeCount; seq++)
                     {
                         var code = BuildProductBarcodeCode(
@@ -8473,18 +8484,19 @@ public class ImportAppService : ApplicationService, IImportAppService
                             seq);
                         var uniqueCode = code;
                         var suffix = 1;
-                        while (await _inventoryBarcodeRepository.AnyAsync(x => x.Code == uniqueCode))
+                        while (takenCodes.Contains(uniqueCode))
                             uniqueCode = $"{code}-{suffix++:D2}";
 
-                        var barcode = new InventoryBarcode(
+                        takenCodes.Add(uniqueCode);
+                        barcodesToInsert.Add(new InventoryBarcode(
                             GuidGenerator.Create(),
                             uniqueCode,
                             receiptItem.ProductId,
                             receiptItem.Id,
-                            warehouseId);
-                        await _inventoryBarcodeRepository.InsertAsync(barcode, autoSave: true);
+                            warehouseId));
                         barcodeCodes.Add(uniqueCode);
                     }
+                    await _inventoryBarcodeRepository.BulkInsertAsync(barcodesToInsert);
                     receiptItem.BarcodeValues = JsonSerializer.Serialize(barcodeCodes);
                     await _warehouseImportReceiptItemRepository.UpdateAsync(receiptItem, autoSave: true);
                 }
@@ -8549,6 +8561,23 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var outputStream = new MemoryStream();
         workbook.SaveAs(outputStream);
         return outputStream.ToArray();
+    }
+
+    /// <summary>
+    /// Every code BuildProductBarcodeCode can return for this lot (with or without a -NN suffix)
+    /// starts with this prefix, so checking this set is the same as checking the table.
+    /// </summary>
+    private async Task<HashSet<string>> LoadBarcodeCodesWithPrefixAsync(
+        string? identificationCode,
+        DateTime importDate,
+        string? lotNumber)
+    {
+        var codePrefix = InventoryBarcodeCodeBuilder.BuildPrefix(identificationCode, importDate, lotNumber);
+        var query = await _inventoryBarcodeRepository.GetQueryableAsync();
+        return (await AsyncExecuter.ToListAsync(query
+                .Where(x => x.Code.StartsWith(codePrefix))
+                .Select(x => x.Code)))
+            .ToHashSet(StringComparer.Ordinal);
     }
 
     private static string BuildProductBarcodeCode(

@@ -35,7 +35,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _warehouseImportItemRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<Manufacturer, Guid> _manufacturerRepository;
-    private readonly IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository;
+    private readonly IInventoryBarcodeRepository _inventoryBarcodeRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
     private readonly IUnitConversionResolver _unitConversionResolver;
     private readonly ICodeGeneratorService _codeGenerator;
@@ -57,7 +57,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         IRepository<WarehouseImportReceiptItem, Guid> warehouseImportItemRepository,
         IRepository<Unit, Guid> unitRepository,
         IRepository<Manufacturer, Guid> manufacturerRepository,
-        IRepository<InventoryBarcode, Guid> inventoryBarcodeRepository,
+        IInventoryBarcodeRepository inventoryBarcodeRepository,
         IFifoStockDeductionService fifoStockService,
         IUnitConversionResolver unitConversionResolver,
         ICodeGeneratorService codeGenerator,
@@ -1093,10 +1093,10 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             legacyBarcodes.Add(barcode);
             available.Add(barcode);
         }
-        // Flush the inserts before updating: the legacy barcodes may be among the ones moved
-        // below, and they must be persisted (Unchanged) before being marked Modified.
+        // Insert before updating: the legacy barcodes may be among the ones moved below.
+        // BulkInsertAsync leaves them untracked, so UpdateManyAsync attaches them as Modified.
         if (legacyBarcodes.Count > 0)
-            await _inventoryBarcodeRepository.InsertManyAsync(legacyBarcodes, autoSave: true);
+            await _inventoryBarcodeRepository.BulkInsertAsync(legacyBarcodes);
 
         // Move the selected barcodes in one batch (one SaveChanges instead of one per barcode).
         // autoSave: true keeps the DB state visible to later steps of the same confirm

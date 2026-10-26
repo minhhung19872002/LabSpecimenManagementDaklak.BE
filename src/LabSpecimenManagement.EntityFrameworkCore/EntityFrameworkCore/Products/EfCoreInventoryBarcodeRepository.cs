@@ -26,11 +26,32 @@ public class EfCoreInventoryBarcodeRepository
         if (barcodes.Count == 0)
             return;
 
+        var dbContext = await GetDbContextAsync();
+
+        // COPY is PostgreSQL only (unit tests run on SQLite).
+        if (dbContext.Database.GetDbConnection() is not NpgsqlConnection)
+        {
+            await InsertManyAsync(barcodes, autoSave: true);
+            return;
+        }
+
         var auditPropertySetter = LazyServiceProvider.LazyGetRequiredService<IAuditPropertySetter>();
         foreach (var barcode in barcodes)
+        {
             auditPropertySetter.SetCreationProperties(barcode);
 
-        var dbContext = await GetDbContextAsync();
+            // Same as an EF insert: Status has a database default (NotUsed), so EF omits the
+            // CLR default value (InUse = 0) from the INSERT and the row gets NotUsed.
+            if (barcode.Status == default)
+                barcode.Status = InventoryBarcodeStatus.NotUsed;
+        }
+
+        var cancellationToken = GetCancellationToken();
+
+        // Same as InsertAsync(autoSave: true): pending changes of the unit of work are saved too.
+        if (dbContext.ChangeTracker.HasChanges())
+            await dbContext.SaveChangesAsync(cancellationToken);
+
         var entityType = dbContext.Model.FindEntityType(typeof(InventoryBarcode))!;
         var table = entityType.GetSchema() is { } schema
             ? $"\"{schema}\".\"{entityType.GetTableName()}\""
@@ -50,8 +71,6 @@ public class EfCoreInventoryBarcodeRepository
             $"{Column(nameof(InventoryBarcode.CreationTime))}, " +
             $"{Column(nameof(InventoryBarcode.CreatorId))}" +
             ") FROM STDIN (FORMAT BINARY)";
-
-        var cancellationToken = GetCancellationToken();
 
         // COPY runs on the unit of work's connection, so it joins the UoW transaction.
         await dbContext.Database.OpenConnectionAsync(cancellationToken);
