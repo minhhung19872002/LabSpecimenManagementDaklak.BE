@@ -1983,34 +1983,25 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 .ToList();
             var allProductRiIds = allProductReceiptItemIds.Select(ri => ri.Id).Distinct().ToList();
 
-            var barcodes = await _inventoryBarcodeRepository.GetListAsync(
-                b => allProductRiIds.Contains(b.OriginWarehouseImportReceiptItemId));
+            var activeCodes = await _inventoryBarcodeRepository.GetActiveCodeByReceiptItemAsync(allProductRiIds);
 
-            // Group barcode theo (ProductId, LotNumber) thay vì chỉ ReceiptItemId
+            // Group barcode theo (ProductId, LotNumber) thay vì chỉ ReceiptItemId (ưu tiên InUse > NotUsed)
             var riToProductLot = allProductReceiptItemIds.ToDictionary(ri => ri.Id, ri => (ri.ProductId, ri.LotNumber));
-            var barcodesByProductLot = new Dictionary<(Guid, string?), List<InventoryBarcode>>();
-            foreach (var b in barcodes)
+            var activeCodeByProductLot = new Dictionary<(Guid, string?), (InventoryBarcodeStatus Status, string Code)>();
+            foreach (var (riId, active) in activeCodes)
             {
-                if (!riToProductLot.TryGetValue(b.OriginWarehouseImportReceiptItemId, out var key)) continue;
-                if (!barcodesByProductLot.TryGetValue(key, out var list))
-                {
-                    list = new List<InventoryBarcode>();
-                    barcodesByProductLot[key] = list;
-                }
-                list.Add(b);
+                if (!riToProductLot.TryGetValue(riId, out var key)) continue;
+                if (!activeCodeByProductLot.TryGetValue(key, out var current)
+                    || (active.Status == InventoryBarcodeStatus.InUse && current.Status != InventoryBarcodeStatus.InUse))
+                    activeCodeByProductLot[key] = active;
             }
 
-            // Map từng receipt item trong lotTracker → barcode (ưu tiên InUse > NotUsed)
+            // Map từng receipt item trong lotTracker → barcode
             foreach (var riId in allReceiptItemIds)
             {
                 if (!riToProductLot.TryGetValue(riId, out var plKey)) continue;
-                if (!barcodesByProductLot.TryGetValue(plKey, out var lotBarcodes)) continue;
-                var active = lotBarcodes
-                    .OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
-                                  b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
-                    .FirstOrDefault(b => b.Status == InventoryBarcodeStatus.InUse
-                                      || b.Status == InventoryBarcodeStatus.NotUsed);
-                barcodeMap[riId] = active?.Code;
+                if (!activeCodeByProductLot.TryGetValue(plKey, out var active)) continue;
+                barcodeMap[riId] = active.Code;
             }
         }
 

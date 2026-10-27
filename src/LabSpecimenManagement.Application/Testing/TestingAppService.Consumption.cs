@@ -42,8 +42,8 @@ public partial class TestingAppService
     private IRepository<ProductWarehouseInventory, Guid> _productWarehouseInventoryRepository =>
         LazyServiceProvider.LazyGetRequiredService<IRepository<ProductWarehouseInventory, Guid>>();
 
-    private IRepository<InventoryBarcode, Guid> _inventoryBarcodeRepository =>
-        LazyServiceProvider.LazyGetRequiredService<IRepository<InventoryBarcode, Guid>>();
+    private IInventoryBarcodeRepository _inventoryBarcodeRepository =>
+        LazyServiceProvider.LazyGetRequiredService<IInventoryBarcodeRepository>();
 
     // -------------------------------------------------------------------------
     // Public methods
@@ -1041,28 +1041,11 @@ public partial class TestingAppService
         if (!receiptItemIds.Any())
             return new Dictionary<Guid, string?>();
 
-        var barcodes = await _inventoryBarcodeRepository.GetListAsync(
-            b => receiptItemIds.Contains(b.OriginWarehouseImportReceiptItemId));
-
-        var barcodesByReceiptItem = barcodes
-            .GroupBy(b => b.OriginWarehouseImportReceiptItemId)
-            .ToDictionary(
-                g => g.Key,
-                g => g.OrderBy(b => b.Status == InventoryBarcodeStatus.InUse ? 0 :
-                                    b.Status == InventoryBarcodeStatus.NotUsed ? 1 : 2)
-                      .ToList());
+        var activeCodes = await _inventoryBarcodeRepository.GetActiveCodeByReceiptItemAsync(receiptItemIds);
 
         return receiptItemIds.ToDictionary(
             riId => riId,
-            riId =>
-            {
-                if (!barcodesByReceiptItem.TryGetValue(riId, out var lotBarcodes))
-                    return (string?)null;
-                var active = lotBarcodes.FirstOrDefault(b =>
-                    b.Status == InventoryBarcodeStatus.InUse
-                    || b.Status == InventoryBarcodeStatus.NotUsed);
-                return active?.Code;
-            });
+            riId => activeCodes.TryGetValue(riId, out var active) ? active.Code : (string?)null);
     }
 
     private decimal? ResolveUnitsPerStorage(

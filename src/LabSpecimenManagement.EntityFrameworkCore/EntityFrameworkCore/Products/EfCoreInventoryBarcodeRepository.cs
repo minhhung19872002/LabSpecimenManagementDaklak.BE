@@ -142,6 +142,30 @@ public class EfCoreInventoryBarcodeRepository
         });
     }
 
+    public async Task<Dictionary<Guid, (InventoryBarcodeStatus Status, string Code)>> GetActiveCodeByReceiptItemAsync(
+        IReadOnlyCollection<Guid> receiptItemIds)
+    {
+        var result = new Dictionary<Guid, (InventoryBarcodeStatus Status, string Code)>();
+        if (receiptItemIds.Count == 0)
+            return result;
+
+        var idArray = receiptItemIds as Guid[] ?? receiptItemIds.ToArray();
+        var rows = await (await GetDbSetAsync())
+            .Where(x => idArray.Contains(x.OriginWarehouseImportReceiptItemId)
+                        && (x.Status == InventoryBarcodeStatus.InUse || x.Status == InventoryBarcodeStatus.NotUsed))
+            .GroupBy(x => new { x.OriginWarehouseImportReceiptItemId, x.Status })
+            .Select(g => new { g.Key.OriginWarehouseImportReceiptItemId, g.Key.Status, Code = g.Min(x => x.Code) })
+            .ToListAsync(GetCancellationToken());
+
+        foreach (var row in rows)
+        {
+            if (!result.ContainsKey(row.OriginWarehouseImportReceiptItemId) || row.Status == InventoryBarcodeStatus.InUse)
+                result[row.OriginWarehouseImportReceiptItemId] = (row.Status, row.Code);
+        }
+
+        return result;
+    }
+
     private static void MarkSaved<TProperty>(PropertyEntry<InventoryBarcode, TProperty> property, TProperty value)
     {
         property.OriginalValue = value;

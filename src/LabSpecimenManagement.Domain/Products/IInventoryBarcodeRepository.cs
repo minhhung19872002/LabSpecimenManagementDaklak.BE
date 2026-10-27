@@ -29,4 +29,12 @@ public interface IInventoryBarcodeRepository : IRepository<InventoryBarcode, Gui
     /// Same drop-in guarantees as <see cref="MoveToWarehouseAsync"/>.
     /// </summary>
     Task UpdateStatusAsync(IReadOnlyCollection<Guid> ids, InventoryBarcodeStatus status);
+
+    /// <summary>
+    /// For each origin import receipt item: the code of one InUse barcode, else of one NotUsed barcode
+    /// (the smallest code of that status). Receipt items without such a barcode are left out.
+    /// Computed by the database: one receipt item can have tens of thousands of barcodes, too many to load.
+    /// </summary>
+    Task<Dictionary<Guid, (InventoryBarcodeStatus Status, string Code)>> GetActiveCodeByReceiptItemAsync(
+        IReadOnlyCollection<Guid> receiptItemIds);
 }
