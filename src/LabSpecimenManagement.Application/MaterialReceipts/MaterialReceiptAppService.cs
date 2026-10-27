@@ -462,10 +462,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 var isLastLot = lotIndex == lotDeductions.Count - 1;
                 var actualQuantityForLot = isLastLot
                     ? remainingActualQuantity
-                    : Math.Round(
-                        item.Quantity * lot.DeductedBaseQty / baseQty,
-                        4,
-                        MidpointRounding.AwayFromZero);
+                    : item.Quantity * lot.DeductedBaseQty / baseQty;
                 remainingActualQuantity -= actualQuantityForLot;
 
                 syntheticItems.Add(new WarehouseImportReceiptItem(
@@ -1279,10 +1276,7 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
         if (selectedUnitId == sku.VolumeUnitId && sku.VolumePerUnit > 0)
         {
-            return Math.Round(
-                quantity / sku.VolumePerUnit.Value,
-                4,
-                MidpointRounding.AwayFromZero);
+            return quantity / sku.VolumePerUnit.Value;
         }
 
         return quantity;

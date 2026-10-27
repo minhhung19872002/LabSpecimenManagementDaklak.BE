@@ -566,7 +566,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.BaseProductId);
             b.Property(x => x.FormattedStorageConditions);
             b.Property(x => x.ChemicalFormula).HasMaxLength(256);
-            b.Property(x => x.MinStockLevel).HasPrecision(18, 4);
+            b.Property(x => x.MinStockLevel).HasColumnType("numeric");
             b.Property(x => x.EquipmentModel).HasMaxLength(256);
             b.Property(x => x.ManufactureYear);
             b.Property(x => x.PowerConsumption).HasPrecision(18, 2);
@@ -655,7 +655,7 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.ProductName).HasMaxLength(500);
             b.Property(x => x.UnitName).HasMaxLength(100);
-            b.Property(x => x.Quantity).HasPrecision(18, 4);
+            b.Property(x => x.Quantity).HasColumnType("numeric");
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
             b.Property(x => x.AmountBeforeVat).HasPrecision(18, 2);
             b.Property(x => x.VatPercent).HasPrecision(5, 2);
@@ -746,8 +746,8 @@ public class LabSpecimenManagementDbContext :
             b.ConfigureByConvention();
 
             b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
-            b.Property(x => x.OrderedQuantity).HasPrecision(18, 4);
-            b.Property(x => x.ActualReceivedQuantity).HasPrecision(18, 4);
+            b.Property(x => x.OrderedQuantity).HasColumnType("numeric");
+            b.Property(x => x.ActualReceivedQuantity).HasColumnType("numeric");
             b.Property(x => x.UnitName).HasMaxLength(100);
             b.Property(x => x.LotNumber).HasMaxLength(100);
             b.Property(x => x.QualityDocumentFileId).HasMaxLength(50);
@@ -757,11 +757,11 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.SkuId);
             b.Property(x => x.StorageWarehouseId);
             b.Property(x => x.StorageWarehouseName).HasMaxLength(500);
-            b.Property(x => x.ReceivedBaseQuantity).HasPrecision(18, 4);
-            b.Property(x => x.ConsumedBaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.ReceivedBaseQuantity).HasColumnType("numeric");
+            b.Property(x => x.ConsumedBaseQuantity).HasColumnType("numeric");
             b.Property(x => x.BarcodeValues).HasColumnType("text");
-            b.Property(x => x.StockBeforeBaseQuantity).HasPrecision(18, 4);
-            b.Property(x => x.StockAfterBaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.StockBeforeBaseQuantity).HasColumnType("numeric");
+            b.Property(x => x.StockAfterBaseQuantity).HasColumnType("numeric");
 
             b.Property(x => x.UnitPrice).HasPrecision(18, 2);
             b.Property(x => x.VatPercent);
@@ -866,8 +866,8 @@ public class LabSpecimenManagementDbContext :
         {
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MaterialConsumptionItems", LabSpecimenManagementConsts.DbSchema);
             b.HasKey(x => x.Id);
-            b.Property(x => x.Quantity).HasPrecision(18, 4);
-            b.Property(x => x.AvgConsumptionPerSample).HasPrecision(18, 6);
+            b.Property(x => x.Quantity).HasColumnType("numeric"); // numeric không giới hạn: số lượng có thể rất nhỏ (VD 0,000000005)
+            b.Property(x => x.AvgConsumptionPerSample).HasColumnType("numeric");
             b.HasIndex(x => x.TestMethodIndicatorId);
             b.HasIndex(x => x.ProductId);
             b.HasIndex(x => x.EquipmentId);
@@ -1743,9 +1743,9 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
             b.Property(x => x.UnitName).HasMaxLength(100);
-            b.Property(x => x.QuantityBefore).HasPrecision(18, 4);
-            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
-            b.Property(x => x.AdjustmentQuantity).HasPrecision(18, 4);
+            b.Property(x => x.QuantityBefore).HasColumnType("numeric");
+            b.Property(x => x.ActualQuantity).HasColumnType("numeric");
+            b.Property(x => x.AdjustmentQuantity).HasColumnType("numeric");
             b.Property(x => x.WarehouseName).HasMaxLength(256);
             b.Property(x => x.ActualUnitName).HasMaxLength(100);
             b.Property(x => x.Reason).HasMaxLength(1000);
@@ -1773,9 +1773,9 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
             b.Property(x => x.ReferenceCode).HasMaxLength(100);
             b.Property(x => x.Notes).HasMaxLength(1000);
-            b.Property(x => x.QuantityBefore).HasPrecision(18, 4);
-            b.Property(x => x.QuantityAfter).HasPrecision(18, 4);
-            b.Property(x => x.ChangeQuantity).HasPrecision(18, 4);
+            b.Property(x => x.QuantityBefore).HasColumnType("numeric");
+            b.Property(x => x.QuantityAfter).HasColumnType("numeric");
+            b.Property(x => x.ChangeQuantity).HasColumnType("numeric");
 
             b.Property(x => x.LotNumber).HasMaxLength(100);
 
@@ -1898,8 +1898,8 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "TestBatchConsumptions", LabSpecimenManagementConsts.DbSchema);
             b.HasKey(x => x.Id);
 
-            b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
-            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
+            b.Property(x => x.RecommendedQuantity).HasColumnType("numeric");
+            b.Property(x => x.ActualQuantity).HasColumnType("numeric");
 
             b.HasIndex(x => x.TestBatchId);
             b.HasIndex(x => x.ProductId);
@@ -1912,9 +1912,9 @@ public class LabSpecimenManagementDbContext :
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorConsumptions", LabSpecimenManagementConsts.DbSchema);
             b.HasKey(x => x.Id);
 
-            b.Property(x => x.RecommendedQuantity).HasPrecision(18, 4);
-            b.Property(x => x.ActualQuantity).HasPrecision(18, 4);
-            b.Property(x => x.ConsumableStockBefore).HasPrecision(18, 4);
+            b.Property(x => x.RecommendedQuantity).HasColumnType("numeric");
+            b.Property(x => x.ActualQuantity).HasColumnType("numeric");
+            b.Property(x => x.ConsumableStockBefore).HasColumnType("numeric");
 
             b.Property(x => x.LotNumber).HasMaxLength(200);
             b.Property(x => x.TechnicianName).HasMaxLength(256);
@@ -2075,8 +2075,8 @@ public class LabSpecimenManagementDbContext :
 
             b.Property(x => x.ProductName).IsRequired().HasMaxLength(500);
             b.Property(x => x.UnitName).HasMaxLength(100);
-            b.Property(x => x.Quantity).HasPrecision(18, 4);
-            b.Property(x => x.BaseQuantity).HasPrecision(18, 4);
+            b.Property(x => x.Quantity).HasColumnType("numeric");
+            b.Property(x => x.BaseQuantity).HasColumnType("numeric");
             b.Property(x => x.ReceivingWarehouseName).IsRequired().HasMaxLength(500);
             b.Property(x => x.LotNumber).HasMaxLength(200);
             b.Property(x => x.ManufacturerName).HasMaxLength(500);

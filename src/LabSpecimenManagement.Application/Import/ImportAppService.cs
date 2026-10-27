@@ -4488,11 +4488,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            // Quantity lưu DB precision (18,4), Avg (18,6) → làm tròn; Avg tính từ Quantity đã làm tròn để khớp giá trị lưu
-            if (quantityOk) item.Quantity = Math.Round(quantity, 4);
+            // Quantity/Avg lưu numeric không giới hạn → giữ nguyên số thập phân (có thể rất nhỏ)
+            if (quantityOk) item.Quantity = quantity;
             if (samplesOk) item.EstimatedSamplesPerYear = samples;
             if (quantityOk && samplesOk)
-                item.AvgConsumptionPerSample = Math.Round(item.Quantity / samples, 6);
+                item.AvgConsumptionPerSample = item.Quantity / samples;
 
             item.IsValid = item.Errors.Count == 0;
             result.Items.Add(item);

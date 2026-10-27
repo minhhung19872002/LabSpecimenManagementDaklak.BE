@@ -706,8 +706,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime?>("ReceivedDate")
                         .HasColumnType("timestamp without time zone");
@@ -1951,8 +1950,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal?>("AvgConsumptionPerSample")
-                        .HasPrecision(18, 6)
-                        .HasColumnType("numeric(18,6)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
@@ -1964,8 +1962,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid>("TestMethodIndicatorId")
                         .HasColumnType("uuid");
@@ -3146,8 +3143,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("BaseQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("LotNumber")
                         .HasMaxLength(200)
@@ -3169,8 +3165,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<decimal>("Quantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid>("ReceivingWarehouseId")
                         .HasColumnType("uuid");
@@ -3807,8 +3802,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text");
 
                     b.Property<decimal?>("MinStockLevel")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Name")
                         .IsRequired()
@@ -3989,8 +3983,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ChangeQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime>("CreationTime")
                         .HasColumnType("timestamp without time zone")
@@ -4020,12 +4013,10 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<decimal>("QuantityAfter")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<decimal>("QuantityBefore")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("ReferenceCode")
                         .HasMaxLength(100)
@@ -4973,8 +4964,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ActualQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid?>("ActualUnitId")
                         .HasColumnType("uuid");
@@ -4984,8 +4974,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<decimal>("AdjustmentQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<decimal?>("ConsumableQuantityBefore")
                         .HasColumnType("numeric");
@@ -5010,8 +4999,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<decimal>("QuantityBefore")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("Reason")
                         .HasMaxLength(1000)
@@ -6895,16 +6883,14 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ActualQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("BarcodeCode")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)");
 
                     b.Property<decimal?>("ConsumableStockBefore")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime?>("ConsumptionDate")
                         .HasColumnType("timestamp without time zone");
@@ -6929,8 +6915,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("RecommendedQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<DateTime?>("SubmitDate")
                         .HasColumnType("timestamp without time zone");
@@ -7078,8 +7063,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ActualQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid?>("EquipmentId")
                         .HasColumnType("uuid");
@@ -7091,8 +7075,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("RecommendedQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<Guid>("TestBatchId")
                         .HasColumnType("uuid");
@@ -7336,8 +7319,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<decimal>("ActualReceivedQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("AssetCode")
                         .HasMaxLength(100)
@@ -7347,8 +7329,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("text");
 
                     b.Property<decimal>("ConsumedBaseQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<int?>("DepreciationPeriod")
                         .HasColumnType("integer");
@@ -7392,8 +7373,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(1000)");
 
                     b.Property<decimal>("OrderedQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<decimal?>("OriginalPrice")
                         .HasPrecision(18)
@@ -7423,8 +7403,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("bigint");
 
                     b.Property<decimal>("ReceivedBaseQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("SerialNumber")
                         .HasMaxLength(200)
@@ -7437,15 +7416,13 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("integer");
 
                     b.Property<decimal?>("StockAfterBaseQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("StockAfterByUnitsJson")
                         .HasColumnType("text");
 
                     b.Property<decimal?>("StockBeforeBaseQuantity")
-                        .HasPrecision(18, 4)
-                        .HasColumnType("numeric(18,4)");
+                        .HasColumnType("numeric");
 
                     b.Property<string>("StockBeforeByUnitsJson")
                         .HasColumnType("text");
