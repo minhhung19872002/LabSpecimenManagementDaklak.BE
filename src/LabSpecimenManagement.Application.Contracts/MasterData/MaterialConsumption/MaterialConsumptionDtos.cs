@@ -36,7 +36,7 @@ public class SaveMaterialConsumptionItemDto
     public bool IsEquipment { get; set; }
     public Guid? UnitId { get; set; }
 
-    [Range(0.0001, double.MaxValue, ErrorMessage = "Số lượng phải lớn hơn 0")]
+    [Range(0d, double.MaxValue, MinimumIsExclusive = true, ErrorMessage = "Số lượng phải lớn hơn 0")]
     public decimal Quantity { get; set; }
     public int? EstimatedSamplesPerYear { get; set; }
     public decimal? AvgConsumptionPerSample { get; set; }
