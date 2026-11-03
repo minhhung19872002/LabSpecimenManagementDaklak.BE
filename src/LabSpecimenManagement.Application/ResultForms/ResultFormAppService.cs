@@ -2569,7 +2569,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var currentHash = ComputeIndicatorHash(allIndicatorIds);
 
         // Recalculate TotalCost from indicators (stored value may be stale)
-        var recalculatedTotalCost = allSampleIndicators.Sum(si => si.UnitPrice);
+        // Không tính tiền chỉ tiêu KH hủy / từ chối TN đã được KH xác nhận
+        var costExcludedIndicatorIds = (await _laboratoryTaskIndicatorRepository.GetListAsync(
+                lti => allIndicatorIds.Contains(lti.TestRequestSampleIndicatorId)))
+            .Where(lti => lti.IsExcludedFromCost())
+            .Select(lti => lti.TestRequestSampleIndicatorId)
+            .ToHashSet();
+        var recalculatedTotalCost = allSampleIndicators
+            .Where(si => !costExcludedIndicatorIds.Contains(si.Id))
+            .Sum(si => si.UnitPrice);
         if (testRequest.TotalCost != recalculatedTotalCost)
         {
             testRequest.TotalCost = recalculatedTotalCost;

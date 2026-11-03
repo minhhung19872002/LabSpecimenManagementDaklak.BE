@@ -152,7 +152,9 @@ public class TestRequestDtoEnricher : ITransientDependency
                 sampleDto.Indicators.Add(indicatorDto);
             }
 
-            sampleDto.TotalIndicatorCost = sampleDto.Indicators.Sum(i => i.UnitPrice);
+            sampleDto.TotalIndicatorCost = sampleIndicatorLinks
+                .Where(link => labTaskIndicators.GetValueOrDefault(link.Id)?.IsExcludedFromCost() != true)
+                .Sum(link => link.UnitPrice);
             sampleDtos.Add(sampleDto);
         }
 
@@ -169,7 +171,16 @@ public class TestRequestDtoEnricher : ITransientDependency
         var testRequestIds = dtos.Select(d => d.Id).ToList();
         var samples = await _sampleRepository.GetListAsync(s => testRequestIds.Contains(s.TestRequestId));
         var sampleIds = samples.Select(s => s.Id).ToList();
-        var indicators = await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId));
+        var allIndicators = await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId));
+
+        // Không tính tiền chỉ tiêu KH hủy / từ chối TN đã được KH xác nhận
+        var allIndicatorIds = allIndicators.Select(i => i.Id).ToList();
+        var excludedIndicatorIds = (await _laboratoryTaskIndicatorRepository.GetListAsync(
+                lti => allIndicatorIds.Contains(lti.TestRequestSampleIndicatorId)))
+            .Where(lti => lti.IsExcludedFromCost())
+            .Select(lti => lti.TestRequestSampleIndicatorId)
+            .ToHashSet();
+        var indicators = allIndicators.Where(i => !excludedIndicatorIds.Contains(i.Id)).ToList();
 
         // Group costs by test request
         var costsByRequest = samples

@@ -351,7 +351,10 @@ public partial class TestRequestAppService :
                     IsSentToQLKT = labTaskIndicator != null,
                     IsSubcontract = indicator.IsSubcontract
                 });
-                sampleIndicatorCost += indicator.UnitPrice;
+                if (labTaskIndicator == null || !labTaskIndicator.IsExcludedFromCost())
+                {
+                    sampleIndicatorCost += indicator.UnitPrice;
+                }
             }
 
             // Calculate sample total cost from indicators
@@ -1095,6 +1098,7 @@ public partial class TestRequestAppService :
                     }
                 }
 
+                var costExcludedIndicatorIds = await GetCostExcludedSampleIndicatorIdsAsync(existingIndicators.Select(i => i.Id).ToList());
                 decimal sampleIndicatorCost = 0;
                 if (sampleDto.Indicators != null)
                 {
@@ -1176,7 +1180,10 @@ public partial class TestRequestAppService :
 
                             await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
                         }
-                        sampleIndicatorCost += indicatorDto.UnitPrice;
+                        if (!indicatorDto.Id.HasValue || !costExcludedIndicatorIds.Contains(indicatorDto.Id.Value))
+                        {
+                            sampleIndicatorCost += indicatorDto.UnitPrice;
+                        }
                     }
                 }
 
@@ -2810,6 +2817,7 @@ public partial class TestRequestAppService :
                 }
             }
 
+            var costExcludedIndicatorIds = await GetCostExcludedSampleIndicatorIdsAsync(existingIndicators.Select(i => i.Id).ToList());
             decimal sampleIndicatorCost = 0;
             if (sampleDto.Indicators != null)
             {
@@ -2857,7 +2865,10 @@ public partial class TestRequestAppService :
                         // Track for notification (Case 8.1)
                         newIndicatorCount++;
                     }
-                    sampleIndicatorCost += indicatorDto.UnitPrice;
+                    if (!indicatorDto.Id.HasValue || !costExcludedIndicatorIds.Contains(indicatorDto.Id.Value))
+                    {
+                        sampleIndicatorCost += indicatorDto.UnitPrice;
+                    }
                 }
             }
 
@@ -4889,6 +4900,21 @@ public partial class TestRequestAppService :
                 await _qualityTaskRepository.UpdateAsync(qualityTask, autoSave: true);
             }
         }
+    }
+
+    /// <summary>
+    /// Lấy ID các chỉ tiêu mẫu không tính tiền (KH hủy / từ chối TN đã được KH xác nhận)
+    /// </summary>
+    private async Task<HashSet<Guid>> GetCostExcludedSampleIndicatorIdsAsync(List<Guid> sampleIndicatorIds)
+    {
+        if (sampleIndicatorIds.Count == 0) return new HashSet<Guid>();
+
+        var labTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
+            lti => sampleIndicatorIds.Contains(lti.TestRequestSampleIndicatorId));
+        return labTaskIndicators
+            .Where(lti => lti.IsExcludedFromCost())
+            .Select(lti => lti.TestRequestSampleIndicatorId)
+            .ToHashSet();
     }
 
     #endregion

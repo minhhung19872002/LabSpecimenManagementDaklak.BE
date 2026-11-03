@@ -376,7 +376,7 @@ public partial class TestRequestAppService
                     CostChangeType.IndicatorCancelled,
                     oldTotalCost,
                     newTotalCost,
-                    reason: "KH hủy chỉ tiêu do không đồng ý thay đổi phương pháp");
+                    reason: "Trừ tiền chỉ tiêu KH hủy / từ chối thử nghiệm đã được KH xác nhận");
 
                 testRequest.TotalCost = newTotalCost;
             }
@@ -386,7 +386,7 @@ public partial class TestRequestAppService
     }
 
     /// <summary>
-    /// Tính lại TotalCost, loại trừ các chỉ tiêu CustomerCancelled
+    /// Tính lại TotalCost, loại trừ các chỉ tiêu không tính tiền (xem LaboratoryTaskIndicator.IsExcludedFromCost)
     /// </summary>
     private async Task<decimal> RecalculateTotalCostExcludingCancelledAsync(Guid testRequestId)
     {
@@ -419,13 +419,11 @@ public partial class TestRequestAppService
 
             foreach (var sampleIndicator in sampleIndicators)
             {
-                // Kiểm tra LaboratoryTaskIndicator có bị CustomerCancelled không
                 var labTaskIndicator = allLabTaskIndicators.FirstOrDefault(lti =>
                     lti.TestRequestSampleIndicatorId == sampleIndicator.Id);
 
-                // Chỉ tính tiền nếu KHÔNG bị CustomerCancelled
-                if (labTaskIndicator == null ||
-                    labTaskIndicator.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled)
+                // Không tính tiền chỉ tiêu KH hủy / từ chối TN đã được KH xác nhận
+                if (labTaskIndicator == null || !labTaskIndicator.IsExcludedFromCost())
                 {
                     sampleCost += sampleIndicator.UnitPrice;
                 }
