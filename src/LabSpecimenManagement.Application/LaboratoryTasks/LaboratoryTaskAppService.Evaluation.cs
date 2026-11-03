@@ -541,6 +541,10 @@ public partial class LaboratoryTaskAppService
         indicator.TestingRejectionDate = Clock.Now;
         indicator.TestingRejectedById = CurrentUser.Id;
         indicator.TestingRejectedByName = CurrentUser.Name ?? CurrentUser.UserName;
+        // Lần từ chối mới phải chờ KH xác nhận lại (xóa ngày xác nhận cũ nếu có)
+        indicator.CustomerConfirmationDate = null;
+        indicator.CustomerConfirmedById = null;
+        indicator.CustomerConfirmedByName = null;
         return Task.CompletedTask;
     }
 

@@ -236,4 +236,16 @@ public class LaboratoryTaskIndicator : Entity<Guid>
         TestRequestSampleIndicatorId = testRequestSampleIndicatorId;
         ApprovalStatus = IndicatorApprovalStatus.Pending;
     }
+
+    /// <summary>
+    /// Chỉ tiêu đã chốt không thử nghiệm → không tính tiền:
+    /// - CustomerCancelled: KH hủy chỉ tiêu
+    /// - TestingRejected + CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
+    /// (TestingRejected chưa xác nhận vẫn tính tiền vì KH có thể không đồng ý → quay lại Pending)
+    /// </summary>
+    public bool IsExcludedFromCost()
+    {
+        return ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled ||
+               (ApprovalStatus == IndicatorApprovalStatus.TestingRejected && CustomerConfirmationDate.HasValue);
+    }
 }
