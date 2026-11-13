@@ -429,10 +429,15 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            LtiResult = lti.Result,
                            LtiStandardId = lti.StandardId,
                            LtiMethodId = lti.MethodId,
+                           LtiApprovalStatus = lti.ApprovalStatus,
+                           LtiCustomerConfirmationDate = lti.CustomerConfirmationDate,
                            TrsId = trs.Id,
                            TrsSampleName = trs.SampleName,
                            TrsSampleCode = trs.SampleCode,
+                           TrContractNumber = tr.ContractNumber,
+                           TrRequestNumber = tr.RequestNumber,
                            TrContractDate = tr.ContractDate,
+                           TrsiUnitPrice = trsi.UnitPrice,
                            SpecimenTypeId = trsi.SpecimenTypeId,
                            SpecimenTypeName = st != null ? st.Name : "",
                            IndicatorId = trsi.IndicatorId,
@@ -569,6 +574,11 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                 GioiHanPhatHien = limitStr,
                 KetQua = x.LtiResult ?? "",
                 TrangThai = GetResultStatus(x.LtiResult, si),
+                SoHopDong = x.TrContractNumber ?? x.TrRequestNumber,
+                // Cùng quy tắc TotalCost của phiếu: chỉ tiêu KH hủy / từ chối TN đã xác nhận không tính tiền
+                DonGia = LaboratoryTaskIndicator.IsExcludedFromCost(x.LtiApprovalStatus, x.LtiCustomerConfirmationDate)
+                    ? 0m
+                    : x.TrsiUnitPrice,
             };
         }).ToList();
 
@@ -598,7 +608,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var headers2 = new[]
         {
             "Tên mẫu", "Filter Nền mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
-            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Trạng thái"
+            "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Trạng thái",
+            "Số HĐ", "Đơn giá (VNĐ)"
         };
         WriteSheetHeaders(ws2, headers2);
         for (int r = 0; r < sheet2Rows.Count; r++)
@@ -616,7 +627,10 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             ws2.Cell(r + 2, 10).Value = row.KetQua;
             ws2.Cell(r + 2, 11).Value = "";
             ws2.Cell(r + 2, 12).Value = row.TrangThai;
+            ws2.Cell(r + 2, 13).Value = row.SoHopDong;
+            ws2.Cell(r + 2, 14).Value = row.DonGia;
         }
+        ws2.Column(14).Style.NumberFormat.Format = "#,##0";
 
         // Excel Table làm nguồn cho 3 pivot — Table cần ít nhất 1 dòng dữ liệu nên giữ 1 dòng trống khi kỳ không có số liệu
         var detailTable = ws2

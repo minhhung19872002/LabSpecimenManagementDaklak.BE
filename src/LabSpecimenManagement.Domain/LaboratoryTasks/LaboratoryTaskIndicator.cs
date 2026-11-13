@@ -245,7 +245,15 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// </summary>
     public bool IsExcludedFromCost()
     {
-        return ApprovalStatus == IndicatorApprovalStatus.CustomerCancelled ||
-               (ApprovalStatus == IndicatorApprovalStatus.TestingRejected && CustomerConfirmationDate.HasValue);
+        return IsExcludedFromCost(ApprovalStatus, CustomerConfirmationDate);
+    }
+
+    /// <summary>
+    /// Bản static của <see cref="IsExcludedFromCost()"/> cho query chỉ select vài cột (vd báo cáo lab)
+    /// </summary>
+    public static bool IsExcludedFromCost(IndicatorApprovalStatus approvalStatus, DateTime? customerConfirmationDate)
+    {
+        return approvalStatus == IndicatorApprovalStatus.CustomerCancelled ||
+               (approvalStatus == IndicatorApprovalStatus.TestingRejected && customerConfirmationDate.HasValue);
     }
 }
