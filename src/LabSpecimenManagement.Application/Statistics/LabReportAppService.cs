@@ -535,6 +535,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                 g => SampleGroupClassifier.Classify(g.First().TrsSampleName, g.Select(x => x.SpecimenTypeName)));
 
         // === Sheet 2: flat list — 1 dòng / LaboratoryTaskIndicator ===
+        // "Số mẫu" = 1 ở dòng đầu của mỗi mẫu → Sum ra số mẫu không trùng (ClosedXML không tạo được pivot Distinct Count)
+        var countedSampleIds = new HashSet<Guid>();
         var sheet2Rows = rawData.Select(x =>
         {
             var standardId = ResolveStandardId(x.LtiId, x.LtiStandardId);
@@ -568,17 +570,19 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                 MaMau = x.TrsSampleCode,
                 NgayNhanMau = x.TrContractDate,
                 NenMau = x.SpecimenTypeName,
-                TenChiTieu = x.IndicatorName,
+                // Gộp tên chỉ tiêu chỉ khác dạng Unicode / khoảng trắng (vd "Độ ẩm" dựng sẵn vs tổ hợp) thành 1 dòng pivot
+                TenChiTieu = NormalizeText(x.IndicatorName),
                 PhuongPhapThu = x.TestMethodName,
                 SoVoiTieuChuan = standardId.HasValue ? standardNameById.GetValueOrDefault(standardId.Value) ?? "" : "",
                 GioiHanPhatHien = limitStr,
                 KetQua = x.LtiResult ?? "",
                 TrangThai = GetResultStatus(x.LtiResult, si),
-                SoHopDong = x.TrContractNumber ?? x.TrRequestNumber,
+                SoHopDong = (x.TrContractNumber ?? x.TrRequestNumber)?.Trim(),
                 // Cùng quy tắc TotalCost của phiếu: chỉ tiêu KH hủy / từ chối TN đã xác nhận không tính tiền
                 DonGia = LaboratoryTaskIndicator.IsExcludedFromCost(x.LtiApprovalStatus, x.LtiCustomerConfirmationDate)
                     ? 0m
                     : x.TrsiUnitPrice,
+                SoMau = countedSampleIds.Add(x.TrsId) ? 1 : 0,
             };
         }).ToList();
 
@@ -603,13 +607,15 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             ws1.Cell(r + 2, 6).Value = "";
         }
         ws1.Columns().AdjustToContents();
+        // File mẫu "Báo cáo tổng quan" của BA để ẩn sheet này
+        ws1.Hide();
 
         var ws2 = workbook.Worksheets.Add("Dữ liệu chi tiết");
         var headers2 = new[]
         {
-            "Tên mẫu", "Filter Nền mẫu", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
+            "Tên mẫu", "Filter Nền mẫu", "Số HĐ", "Mã mẫu", "Ngày nhận mẫu", "Nền mẫu (loại mẫu)", "Tên chỉ tiêu",
             "Phương pháp thử", "So với tiêu chuẩn", "Giới hạn phát hiện", "Kết quả", "Ghi chú", "Trạng thái",
-            "Số HĐ", "Đơn giá (VNĐ)"
+            "Đơn giá (VNĐ)", "Số mẫu"
         };
         WriteSheetHeaders(ws2, headers2);
         for (int r = 0; r < sheet2Rows.Count; r++)
@@ -617,52 +623,74 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             var row = sheet2Rows[r];
             ws2.Cell(r + 2, 1).Value = row.TenMau;
             ws2.Cell(r + 2, 2).Value = row.NhomNenMau;
-            ws2.Cell(r + 2, 3).Value = row.MaMau;
-            ws2.Cell(r + 2, 4).Value = row.NgayNhanMau?.ToString("dd/MM/yyyy") ?? "";
-            ws2.Cell(r + 2, 5).Value = row.NenMau;
-            ws2.Cell(r + 2, 6).Value = row.TenChiTieu;
-            ws2.Cell(r + 2, 7).Value = row.PhuongPhapThu;
-            ws2.Cell(r + 2, 8).Value = row.SoVoiTieuChuan;
-            ws2.Cell(r + 2, 9).Value = row.GioiHanPhatHien;
-            ws2.Cell(r + 2, 10).Value = row.KetQua;
-            ws2.Cell(r + 2, 11).Value = "";
-            ws2.Cell(r + 2, 12).Value = row.TrangThai;
-            ws2.Cell(r + 2, 13).Value = row.SoHopDong;
+            ws2.Cell(r + 2, 3).Value = row.SoHopDong;
+            ws2.Cell(r + 2, 4).Value = row.MaMau;
+            // Ghi kiểu ngày (không phải chuỗi) để pivot "Tổng tiền mỗi HĐ" sắp theo thời gian
+            ws2.Cell(r + 2, 5).Value = row.NgayNhanMau?.Date;
+            ws2.Cell(r + 2, 6).Value = row.NenMau;
+            ws2.Cell(r + 2, 7).Value = row.TenChiTieu;
+            ws2.Cell(r + 2, 8).Value = row.PhuongPhapThu;
+            ws2.Cell(r + 2, 9).Value = row.SoVoiTieuChuan;
+            ws2.Cell(r + 2, 10).Value = row.GioiHanPhatHien;
+            ws2.Cell(r + 2, 11).Value = row.KetQua;
+            ws2.Cell(r + 2, 12).Value = "";
+            ws2.Cell(r + 2, 13).Value = row.TrangThai;
             ws2.Cell(r + 2, 14).Value = row.DonGia;
+            ws2.Cell(r + 2, 15).Value = row.SoMau;
         }
-        ws2.Column(14).Style.NumberFormat.Format = "#,##0";
+        ws2.Column(5).Style.NumberFormat.Format = DateFormat;
+        ws2.Column(14).Style.NumberFormat.Format = MoneyFormat;
 
-        // Excel Table làm nguồn cho 3 pivot — Table cần ít nhất 1 dòng dữ liệu nên giữ 1 dòng trống khi kỳ không có số liệu
+        // Excel Table làm nguồn cho các pivot — Table cần ít nhất 1 dòng dữ liệu nên giữ 1 dòng trống khi kỳ không có số liệu
         var detailTable = ws2
             .Range(1, 1, Math.Max(sheet2Rows.Count, 1) + 1, headers2.Length)
             .CreateTable("DuLieuChiTiet");
         detailTable.Theme = XLTableTheme.TableStyleMedium2;
         ws2.SheetView.FreezeRows(1);
+        // Tên mẫu dài có thể làm cột rộng ~200 → giới hạn như file mẫu
         ws2.Columns().AdjustToContents();
+        foreach (var column in ws2.ColumnsUsed().Where(c => c.Width > 70))
+        {
+            column.Width = 70;
+        }
 
-        // === 3 sheet pivot từ "Dữ liệu chi tiết" (Excel tự refresh khi mở file) ===
-        AddCountPivot(workbook, detailTable, "Tổng chỉ tiêu mỗi nền mẫu",
-            rowFields: new[] { "Tên mẫu", "Tên chỉ tiêu" },
+        // === 5 sheet pivot từ "Dữ liệu chi tiết" theo file mẫu của BA (Excel tự refresh khi mở file) ===
+        var totalMoney = new PivotValue("Đơn giá (VNĐ)", "Tổng tiền", XLPivotSummary.Sum, AccountingFormat);
+        var statusCount = new PivotValue("Trạng thái", "Count of Trạng thái", XLPivotSummary.Count);
+
+        AddPivot(workbook, detailTable, "Tổng tiền mỗi HĐ",
+            rowFields: new[] { "Ngày nhận mẫu", "Số HĐ" },
             columnField: null,
-            valueField: "Tên chỉ tiêu", valueName: "Tổng chỉ tiêu mỗi nền mẫu");
+            new PivotValue("Đơn giá (VNĐ)", "Sum of Đơn giá (VNĐ)", XLPivotSummary.Sum, MoneyFormat));
 
-        AddCountPivot(workbook, detailTable, "Tổng mẫu mỗi nền",
-            rowFields: new[] { "Filter Nền mẫu", "Tên mẫu", "Mã mẫu" },
-            columnField: "Trạng thái",
-            valueField: "Mã mẫu", valueName: "Tổng mẫu mỗi nền",
-            groupField: "Filter Nền mẫu");
+        var indicatorPivot = AddPivot(workbook, detailTable, "Tổng chỉ tiêu mỗi nền",
+            rowFields: new[] { "Tên chỉ tiêu" },
+            columnField: null,
+            new PivotValue("Tên chỉ tiêu", "Tổng chỉ tiêu", XLPivotSummary.Count),
+            totalMoney);
 
-        AddCountPivot(workbook, detailTable, "Theo chỉ tiêu",
-            rowFields: new[] { "Tên chỉ tiêu", "Tên mẫu", "Mã mẫu" },
+        AddPivot(workbook, detailTable, "Tổng mẫu mỗi nền",
+            rowFields: new[] { "Filter Nền mẫu", "Số HĐ", "Mã mẫu" },
+            columnField: null,
+            new PivotValue("Số mẫu", "Tổng mã mẫu", XLPivotSummary.Sum),
+            totalMoney);
+
+        AddPivot(workbook, detailTable, "Kết quả theo nền mẫu",
+            rowFields: new[] { "Filter Nền mẫu", "Mã mẫu", "Tên chỉ tiêu" },
             columnField: "Trạng thái",
-            valueField: "Tên mẫu", valueName: "Count of Tên mẫu");
+            statusCount);
+
+        AddPivot(workbook, detailTable, "Kết quả theo chỉ tiêu",
+            rowFields: new[] { "Tên chỉ tiêu" },
+            columnField: "Trạng thái",
+            statusCount);
 
         var memoryStream = new MemoryStream();
         workbook.SaveAs(memoryStream);
 
-        // Pivot chỉ hiện cột Đạt / Không đạt như file mẫu của BA (vẫn bật lại được bằng filter trong Excel)
-        HidePivotFieldItems(memoryStream, "Trạng thái", new HashSet<string> { StatusNotTested, StatusUndetermined });
         EnablePivotColumnAutofit(memoryStream);
+        SetPivotFieldNumberFormat(memoryStream, "Ngày nhận mẫu", DateFormat);
+        SetPivotRowHeaderCaption(memoryStream, indicatorPivot.Name, "Tên chỉ tiêu");
         memoryStream.Position = 0;
 
         var fileName = $"BaoCaoPhongLab_ChiTiet_{fromDate:yyyyMMdd}_{toDate:yyyyMMdd}.xlsx";
@@ -690,7 +718,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private static readonly string[] PositiveResultPrefixes = { "có mặt", "dương tính" };
 
     // Số đếm vi sinh: "3,0 x 10^2", "8,0 x 10⁰", "1,1 × 10²"
-    private static readonly Regex MicrobialCountRegex = new(@"[x×]\s*10\s*(\^|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺])", RegexOptions.Compiled);
+    // "4,1 x 10" (không ghi số mũ = 10^1) cũng là số đếm
+    private static readonly Regex MicrobialCountRegex = new(@"[x×]\s*10\s*(\^|[⁰¹²³⁴⁵⁶⁷⁸⁹⁻⁺]|$)", RegexOptions.Compiled);
 
     /// <summary>
     /// Trạng thái 1 chỉ tiêu: chưa có kết quả → "Chưa thử nghiệm"; có giới hạn tiêu chuẩn thì so như cột Kết luận
@@ -734,19 +763,24 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         return StatusUndetermined;
     }
 
+    private const string MoneyFormat = "#,##0";
+    // Định dạng Accounting như file mẫu: số 0 hiện "-"
+    private const string AccountingFormat = @"_(* #,##0_);_(* \(#,##0\);_(* ""-""??_);_(@_)";
+    private const string DateFormat = "dd/mm/yyyy";
+
+    private sealed record PivotValue(string SourceField, string Name, XLPivotSummary Summary, string? NumberFormat = null);
+
     /// <summary>
-    /// Thêm sheet pivot đếm số dòng từ bảng nguồn. Các row field (trừ field cuối) được thu gọn như file mẫu của BA;
-    /// <paramref name="groupField"/> (nếu có) có dòng tổng phụ và sắp A→Z.
+    /// Thêm sheet pivot từ bảng nguồn như file mẫu của BA: row field đầu thu gọn, các row field (trừ field cuối)
+    /// có dòng tổng phụ; mọi row field sắp tăng dần.
     /// </summary>
-    private static void AddCountPivot(
+    private static IXLPivotTable AddPivot(
         XLWorkbook workbook,
         IXLTable source,
         string sheetName,
         string[] rowFields,
         string? columnField,
-        string valueField,
-        string valueName,
-        string? groupField = null)
+        params PivotValue[] values)
     {
         var ws = workbook.Worksheets.Add(sheetName);
         var pivot = ws.PivotTables.Add($"Pivot{workbook.Worksheets.Count}", ws.Cell(3, 1), source);
@@ -755,23 +789,33 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
 
         for (var i = 0; i < rowFields.Length; i++)
         {
-            var field = pivot.RowLabels.Add(rowFields[i]);
+            var field = pivot.RowLabels.Add(rowFields[i]).SetSort(XLPivotSortType.Ascending);
             if (i < rowFields.Length - 1)
             {
-                field.SetCollapsed();
+                field.AddSubtotal(XLSubtotalFunction.Automatic);
             }
-            if (rowFields[i] == groupField)
+            if (i == 0 && rowFields.Length > 1)
             {
-                field.AddSubtotal(XLSubtotalFunction.Automatic).SetSort(XLPivotSortType.Ascending);
+                field.SetCollapsed();
             }
         }
 
         if (columnField != null)
         {
-            pivot.ColumnLabels.Add(columnField);
+            // Sắp tăng dần như file mẫu: Chưa thử nghiệm, Đạt, Không đạt, Không xác định
+            pivot.ColumnLabels.Add(columnField).SetSort(XLPivotSortType.Ascending);
         }
 
-        pivot.Values.Add(valueField, valueName).SetSummaryFormula(XLPivotSummary.Count);
+        foreach (var value in values)
+        {
+            var dataField = pivot.Values.Add(value.SourceField, value.Name).SetSummaryFormula(value.Summary);
+            if (value.NumberFormat != null)
+            {
+                dataField.NumberFormat.Format = value.NumberFormat;
+            }
+        }
+
+        return pivot;
     }
 
     private const string PivotTableEntryPattern = @"(^|/)pivotTables/pivotTable\d*\.xml$";
@@ -799,67 +843,70 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     }
 
     /// <summary>
-    /// Ẩn các item của 1 field trong mọi pivot của file (ClosedXML 0.104 chưa có API public cho item ẩn)
-    /// bằng cách gắn h="1" vào item tương ứng trong pivotTable XML.
+    /// IXLPivotField không có API định dạng số → nhãn ngày trong pivot hiện theo locale máy (m/d/yyyy).
+    /// Gán numFmtId của <paramref name="formatCode"/> (đã có trong styles.xml do cột nguồn dùng format này)
+    /// cho cacheField và pivotField cùng tên.
     /// </summary>
-    private static void HidePivotFieldItems(MemoryStream xlsx, string fieldName, ISet<string> hiddenValues)
+    private static void SetPivotFieldNumberFormat(MemoryStream xlsx, string fieldName, string formatCode)
     {
-        XNamespace ns = "http://schemas.openxmlformats.org/spreadsheetml/2006/main";
-        XNamespace relNs = "http://schemas.openxmlformats.org/package/2006/relationships";
-
         using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
-        var pivotEntries = zip.Entries
-            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern))
+
+        var stylesEntry = zip.GetEntry("xl/styles.xml");
+        if (stylesEntry == null) return;
+        var numFmtId = LoadXml(stylesEntry).Descendants()
+            .Where(e => e.Name.LocalName == "numFmt" && (string?)e.Attribute("formatCode") == formatCode)
+            .Select(e => (string?)e.Attribute("numFmtId"))
+            .FirstOrDefault();
+        if (numFmtId == null) return;
+
+        var entries = zip.Entries
+            .Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern) ||
+                        Regex.IsMatch(e.FullName, @"(^|/)pivotCacheDefinition\d*\.xml$"))
             .ToList();
 
-        foreach (var pivotEntry in pivotEntries)
+        foreach (var entry in entries)
         {
-            var dir = pivotEntry.FullName[..(pivotEntry.FullName.LastIndexOf('/') + 1)];
-            var relsEntry = zip.GetEntry($"{dir}_rels/{pivotEntry.Name}.rels");
-            if (relsEntry == null) continue;
+            var doc = LoadXml(entry);
+            var fields = doc.Descendants()
+                .Where(e => e.Name.LocalName is "cacheField" or "pivotField" &&
+                            (string?)e.Attribute("name") == fieldName)
+                .ToList();
+            if (fields.Count == 0) continue;
 
-            var target = LoadXml(relsEntry).Descendants(relNs + "Relationship")
-                .FirstOrDefault(rel => ((string?)rel.Attribute("Type"))?.EndsWith("/pivotCacheDefinition") == true)
-                ?.Attribute("Target")?.Value;
-            if (target == null) continue;
-
-            var cachePath = target.StartsWith('/')
-                ? target.TrimStart('/')
-                : new Uri(new Uri("http://package/" + dir), target).AbsolutePath.TrimStart('/');
-            var cacheEntry = zip.GetEntry(cachePath);
-            if (cacheEntry == null) continue;
-
-            // Index của pivotField trong pivotTable trùng với index cacheField; item x = index trong sharedItems
-            var cacheFields = LoadXml(cacheEntry).Descendants(ns + "cacheField").ToList();
-            var fieldIndex = cacheFields.FindIndex(f => (string?)f.Attribute("name") == fieldName);
-            if (fieldIndex < 0) continue;
-
-            var sharedItems = cacheFields[fieldIndex].Element(ns + "sharedItems")?.Elements()
-                .Select(e => (string?)e.Attribute("v"))
-                .ToList() ?? new List<string?>();
-
-            var pivotDoc = LoadXml(pivotEntry);
-            var pivotField = pivotDoc.Descendants(ns + "pivotField").ElementAtOrDefault(fieldIndex);
-            if (pivotField?.Attribute("axis") == null) continue;
-
-            var changed = false;
-            foreach (var item in pivotField.Descendants(ns + "item"))
+            foreach (var field in fields)
             {
-                if (int.TryParse((string?)item.Attribute("x"), out var x)
-                    && x < sharedItems.Count
-                    && sharedItems[x] is { } value
-                    && hiddenValues.Contains(value))
-                {
-                    item.SetAttributeValue("h", "1");
-                    changed = true;
-                }
+                field.SetAttributeValue("numFmtId", numFmtId);
             }
-            if (!changed) continue;
 
-            using var stream = pivotEntry.Open();
+            using var stream = entry.Open();
             stream.SetLength(0);
-            pivotDoc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
+            doc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
         }
+    }
+
+    /// <summary>
+    /// Đổi tiêu đề "Row Labels" của pivot (ClosedXML để setter RowHeaderCaption internal).
+    /// </summary>
+    private static void SetPivotRowHeaderCaption(MemoryStream xlsx, string pivotName, string caption)
+    {
+        using var zip = new ZipArchive(xlsx, ZipArchiveMode.Update, leaveOpen: true);
+        foreach (var entry in zip.Entries.Where(e => Regex.IsMatch(e.FullName, PivotTableEntryPattern)).ToList())
+        {
+            var doc = LoadXml(entry);
+            if ((string?)doc.Root!.Attribute("name") != pivotName) continue;
+
+            doc.Root.SetAttributeValue("rowHeaderCaption", caption);
+            using var stream = entry.Open();
+            stream.SetLength(0);
+            doc.Save(stream, System.Xml.Linq.SaveOptions.DisableFormatting);
+            return;
+        }
+    }
+
+    private static string NormalizeText(string? text)
+    {
+        if (string.IsNullOrEmpty(text)) return "";
+        return Regex.Replace(text.Normalize(NormalizationForm.FormC), @"\s+", " ").Trim();
     }
 
     private static XDocument LoadXml(ZipArchiveEntry entry)
