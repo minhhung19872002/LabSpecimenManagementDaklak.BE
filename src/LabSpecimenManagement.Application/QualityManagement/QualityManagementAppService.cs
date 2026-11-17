@@ -381,7 +381,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 labTask.TestRequestId,
                 qualityManagerName,
                 sample?.SampleName,
-                masterIndicator?.Name,
+                MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                 method?.Name
             );
         }
@@ -395,7 +395,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 labTask.TestRequestId,
                 qualityManagerName,
                 sample?.SampleName,
-                masterIndicator?.Name,
+                MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                 method?.Name
             );
         }
@@ -485,7 +485,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                 qualityManagerName,
                 1, // Single rejection
                 sample?.SampleName,
-                masterIndicator?.Name,
+                MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                 method?.Name
             );
         }
@@ -554,7 +554,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         labTask.TestRequestId,
                         qualityManagerName,
                         sample?.SampleName,
-                        masterIndicator?.Name,
+                        MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                         method?.Name
                     );
                 }
@@ -568,7 +568,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         labTask.TestRequestId,
                         qualityManagerName,
                         sample?.SampleName,
-                        masterIndicator?.Name,
+                        MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                         method?.Name
                     );
                 }
@@ -682,7 +682,7 @@ public partial class QualityManagementAppService : ApplicationService, IQualityM
                         qualityManagerName,
                         1,
                         sample?.SampleName,
-                        masterIndicator?.Name,
+                        MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, masterIndicator?.Name),
                         method?.Name
                     );
                 }

@@ -456,6 +456,11 @@ public class PreviewSampleIndicatorDto
     public string? IndicatorFormattedName { get; set; }
 
     /// <summary>
+    /// true = tên chỉ tiêu đã sửa trên phiếu (admin / từ báo giá) → BM05 dùng IndicatorName/IndicatorFormattedName gửi lên thay vì tên danh mục
+    /// </summary>
+    public bool IsCustomName { get; set; }
+
+    /// <summary>
     /// Unit price
     /// </summary>
     public decimal UnitPrice { get; set; }

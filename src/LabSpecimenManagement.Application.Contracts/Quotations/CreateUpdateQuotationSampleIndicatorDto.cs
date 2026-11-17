@@ -33,6 +33,11 @@ public class CreateUpdateQuotationSampleIndicatorDto
     public string IndicatorName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) - chỉ admin được sửa; user khác BE giữ tên đang lưu / tên danh mục
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
     /// Tên phương pháp (snapshot)
     /// </summary>
     [Required]

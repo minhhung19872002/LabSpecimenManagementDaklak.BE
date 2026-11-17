@@ -31,6 +31,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
     private readonly IClock _clock;
 
     private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
+    private TestRequests.IndicatorNameEditor IndicatorNames => LazyServiceProvider.LazyGetRequiredService<TestRequests.IndicatorNameEditor>();
     private readonly IEmailService _emailService;
     private readonly IQuotationPdfGenerator _pdfGenerator;
 
@@ -227,6 +228,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     indicatorDto.SpecimenTypeName,
                     indicatorDto.Note);
                 ApplyFormattedNameSnapshot(indicator, snapshotIndicators, snapshotTestMethods);
+                await ApplyIndicatorNameAsync(indicator, quotation.Id, indicatorDto, snapshotIndicators, takeMasterName: true);
 
                 sample.Indicators.Add(indicator);
             }
@@ -327,7 +329,6 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             || existingIndicator.IndicatorFormattedName == null;
                         existingIndicator.IndicatorId = indicatorDto.IndicatorId;
                         existingIndicator.TestMethodId = indicatorDto.TestMethodId;
-                        existingIndicator.IndicatorName = indicatorDto.IndicatorName;
                         existingIndicator.TestMethodName = indicatorDto.TestMethodName;
                         existingIndicator.UnitPrice = indicatorDto.UnitPrice;
                         existingIndicator.SortOrder = indicatorDto.SortOrder;
@@ -338,6 +339,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         {
                             ApplyFormattedNameSnapshot(existingIndicator, snapshotIndicators, snapshotTestMethods);
                         }
+                        // Đổi chỉ tiêu → lấy tên danh mục; không đổi → giữ tên đang lưu (chỉ admin được sửa)
+                        await ApplyIndicatorNameAsync(existingIndicator, quotation.Id, indicatorDto, snapshotIndicators, takeMasterName: masterChanged);
                     }
                     else
                     {
@@ -355,6 +358,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             indicatorDto.SpecimenTypeName,
                             indicatorDto.Note);
                         ApplyFormattedNameSnapshot(newIndicator, snapshotIndicators, snapshotTestMethods);
+                        await ApplyIndicatorNameAsync(newIndicator, quotation.Id, indicatorDto, snapshotIndicators, takeMasterName: true);
 
                         existingSample.Indicators.Add(newIndicator);
                     }
@@ -389,6 +393,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         indicatorDto.SpecimenTypeName,
                         indicatorDto.Note);
                     ApplyFormattedNameSnapshot(indicator, snapshotIndicators, snapshotTestMethods);
+                    await ApplyIndicatorNameAsync(indicator, quotation.Id, indicatorDto, snapshotIndicators, takeMasterName: true);
 
                     newSample.Indicators.Add(indicator);
                 }
@@ -468,6 +473,32 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         target.TestMethodFormattedName = testMethods.GetValueOrDefault(target.TestMethodId)?.FormattedName;
     }
 
+    /// <summary>
+    /// Tên chỉ tiêu trên báo giá: mặc định theo danh mục (takeMasterName) hoặc giữ tên đang lưu;
+    /// admin gửi kèm IndicatorFormattedName → áp tên đã sửa (không đổi master, có ghi lịch sử).
+    /// </summary>
+    private async Task ApplyIndicatorNameAsync(
+        QuotationSampleIndicator target,
+        Guid quotationId,
+        CreateUpdateQuotationSampleIndicatorDto dto,
+        Dictionary<Guid, Indicator> indicators,
+        bool takeMasterName)
+    {
+        if (takeMasterName)
+        {
+            var master = indicators.GetValueOrDefault(target.IndicatorId);
+            if (!string.IsNullOrWhiteSpace(master?.Name))
+            {
+                target.IndicatorName = master.Name;
+            }
+        }
+
+        if (!string.IsNullOrWhiteSpace(dto.IndicatorFormattedName))
+        {
+            await IndicatorNames.ApplyAsync(target, quotationId, dto.IndicatorName, dto.IndicatorFormattedName);
+        }
+    }
+
     private QuotationDto MapToDto(Quotation quotation)
     {
         return new QuotationDto
@@ -507,6 +538,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     IndicatorId = indicator.IndicatorId,
                     TestMethodId = indicator.TestMethodId,
                     IndicatorName = indicator.IndicatorName,
+                    IndicatorFormattedName = indicator.IndicatorFormattedName,
                     TestMethodName = indicator.TestMethodName,
                     UnitPrice = indicator.UnitPrice,
                     SortOrder = indicator.SortOrder,

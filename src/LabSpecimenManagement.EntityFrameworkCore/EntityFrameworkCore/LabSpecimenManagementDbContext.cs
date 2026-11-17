@@ -135,6 +135,7 @@ public class LabSpecimenManagementDbContext :
     // Change History and Notifications
     public DbSet<TestRequestChangeHistory> TestRequestChangeHistories { get; set; }
     public DbSet<CostChangeHistory> CostChangeHistories { get; set; }
+    public DbSet<IndicatorNameChangeHistory> IndicatorNameChangeHistories { get; set; }
     public DbSet<TestRequestDeliveryHistory> TestRequestDeliveryHistories { get; set; }
     public DbSet<Notification> Notifications { get; set; }
 
@@ -1984,6 +1985,17 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.Notes).HasMaxLength(1000);
 
             b.HasIndex(x => x.ApprovalSnapshotId);
+        });
+
+        // ============ INDICATOR NAME CHANGE HISTORY (admin sửa tên chỉ tiêu trên chứng từ) ============
+
+        builder.Entity<IndicatorNameChangeHistory>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "IndicatorNameChangeHistories", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+
+            b.HasIndex(x => new { x.Source, x.DocumentId });
+            b.HasIndex(x => x.LineId);
         });
 
         // ============ TEMPORARY ACCESS GRANT CONFIGURATION ============
