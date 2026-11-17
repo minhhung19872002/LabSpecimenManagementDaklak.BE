@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.TestRequests;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -223,12 +224,10 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
             .Distinct()
             .ToList();
 
-        // Load all specimen types in one query
-        var specimenTypes = specimenTypeIds.Count > 0
-            ? await _specimenTypeRepository.GetListAsync(st => specimenTypeIds.Contains(st.Id))
-            : new List<SpecimenType>();
-
-        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id, st => st.Name);
+        // Load all specimen types in one query (bao gồm đã xóa mềm — chứng từ cũ không mất tên)
+        var specimenTypeDict = (await LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>()
+                .GetDictionaryIncludingDeletedAsync<SpecimenType>(specimenTypeIds))
+            .ToDictionary(x => x.Key, x => x.Value.Name);
 
         return new SampleStorageDetailDto
         {
@@ -245,9 +244,11 @@ public class SampleStorageAppService : ApplicationService, ISampleStorageAppServ
                     Id = s.Id,
                     SampleCode = s.SampleCode,
                     SampleName = s.SampleName,
-                    SpecimenTypeName = s.SpecimenTypeId.HasValue && specimenTypeDict.ContainsKey(s.SpecimenTypeId.Value)
-                        ? specimenTypeDict[s.SpecimenTypeId.Value]
-                        : null,
+                    SpecimenTypeName = MasterDataSnapshotService.Pick(
+                        s.SpecimenTypeName,
+                        s.SpecimenTypeId.HasValue && specimenTypeDict.ContainsKey(s.SpecimenTypeId.Value)
+                            ? specimenTypeDict[s.SpecimenTypeId.Value]
+                            : null),
                     StorageDate = testRequest.SampleSentDate,
                     SampleQuantity = s.SampleQuantity,
                     StatusText = s.StatusText,

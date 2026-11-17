@@ -70,6 +70,65 @@ public class TestRequestSampleIndicator : Entity<Guid>
     /// </summary>
     public bool IsSubcontract { get; set; }
 
+    #region Snapshot master data (giữ nguyên khi danh mục bị sửa/xóa)
+
+    /// <summary>
+    /// Snapshot mã chỉ tiêu
+    /// </summary>
+    public string? IndicatorCode { get; set; }
+
+    /// <summary>
+    /// Snapshot tên chỉ tiêu
+    /// </summary>
+    public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên chỉ tiêu có định dạng (HTML)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên nhóm chỉ tiêu
+    /// </summary>
+    public string? IndicatorGroupName { get; set; }
+
+    /// <summary>
+    /// Snapshot mã phương pháp thử
+    /// </summary>
+    public string? TestMethodCode { get; set; }
+
+    /// <summary>
+    /// Snapshot tên phương pháp thử
+    /// </summary>
+    public string? TestMethodName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên phương pháp thử có định dạng (HTML)
+    /// </summary>
+    public string? TestMethodFormattedName { get; set; }
+
+    /// <summary>
+    /// Snapshot đơn vị tính của phương pháp
+    /// </summary>
+    public string? TestMethodUnit { get; set; }
+
+    /// <summary>
+    /// Snapshot đơn vị tính có định dạng (HTML)
+    /// </summary>
+    public string? TestMethodFormattedUnit { get; set; }
+
+    /// <summary>
+    /// Snapshot tên khoa phòng thực hiện (tên phòng ban của Laboratory)
+    /// </summary>
+    public string? LaboratoryName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên loại mẫu của chỉ tiêu
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    #endregion
+
     /// <summary>
     /// Navigation property to TestRequestSample
     /// </summary>

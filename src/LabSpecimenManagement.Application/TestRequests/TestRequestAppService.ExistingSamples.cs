@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using System.Linq;
 using System.Linq.Dynamic.Core;
 using System.Threading.Tasks;
@@ -65,24 +67,10 @@ public partial class TestRequestAppService
             .Select(x => x.Sample.SpecimenTypeId!.Value).Distinct().ToList();
         var allSpecimenTypeIds = specimenTypeIds.Union(sampleSpecimenTypeIds).Distinct().ToList();
 
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        var indicatorList = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
-        );
-
-        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
-        var testMethodList = await AsyncExecuter.ToListAsync(
-            testMethodQuery.Where(m => testMethodIds.Contains(m.Id))
-        );
-
-        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
-        var specimenTypeList = await AsyncExecuter.ToListAsync(
-            specimenTypeQuery.Where(st => allSpecimenTypeIds.Contains(st.Id))
-        );
-
-        var indicatorLookup = indicatorList.ToDictionary(i => i.Id);
-        var testMethodLookup = testMethodList.ToDictionary(m => m.Id);
-        var specimenTypeLookup = specimenTypeList.ToDictionary(st => st.Id);
+        // Master kể cả đã xóa mềm (fallback khi snapshot trống)
+        var indicatorLookup = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(indicatorIds);
+        var testMethodLookup = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(testMethodIds);
+        var specimenTypeLookup = await Snapshot.GetDictionaryIncludingDeletedAsync<SpecimenType>(allSpecimenTypeIds);
 
         var result = items.Select(x =>
         {
@@ -95,8 +83,9 @@ public partial class TestRequestAppService
                 SampleName = x.Sample.SampleName,
                 SampleQuantity = x.Sample.SampleQuantity,
                 SpecimenTypeId = x.Sample.SpecimenTypeId,
-                SpecimenTypeName = x.Sample.SpecimenTypeId.HasValue && specimenTypeLookup.ContainsKey(x.Sample.SpecimenTypeId.Value)
-                    ? specimenTypeLookup[x.Sample.SpecimenTypeId.Value].Name : null,
+                SpecimenTypeName = MasterDataSnapshotService.Pick(x.Sample.SpecimenTypeName,
+                    x.Sample.SpecimenTypeId.HasValue && specimenTypeLookup.ContainsKey(x.Sample.SpecimenTypeId.Value)
+                    ? specimenTypeLookup[x.Sample.SpecimenTypeId.Value].Name : null),
                 Status = x.Sample.Status,
                 StatusText = x.Sample.StatusText,
                 ContractNumber = x.ContractNumber,
@@ -111,13 +100,13 @@ public partial class TestRequestAppService
                     return new ExistingSampleIndicatorDto
                     {
                         IndicatorId = ind.IndicatorId,
-                        IndicatorName = indicatorInfo?.Name,
-                        IndicatorFormattedName = indicatorInfo?.FormattedName,
+                        IndicatorName = MasterDataSnapshotService.Pick(ind.IndicatorName, indicatorInfo?.Name),
+                        IndicatorFormattedName = MasterDataSnapshotService.Pick(ind.IndicatorFormattedName, indicatorInfo?.FormattedName),
                         TestMethodId = ind.TestMethodId,
-                        TestMethodName = testMethodInfo?.Name,
-                        TestMethodFormattedName = testMethodInfo?.FormattedName,
+                        TestMethodName = MasterDataSnapshotService.Pick(ind.TestMethodName, testMethodInfo?.Name),
+                        TestMethodFormattedName = MasterDataSnapshotService.Pick(ind.TestMethodFormattedName, testMethodInfo?.FormattedName),
                         SpecimenTypeId = ind.SpecimenTypeId,
-                        SpecimenTypeName = specimenTypeInfo?.Name,
+                        SpecimenTypeName = MasterDataSnapshotService.Pick(ind.SpecimenTypeName, specimenTypeInfo?.Name),
                         UnitPrice = ind.UnitPrice,
                     };
                 }).ToList(),

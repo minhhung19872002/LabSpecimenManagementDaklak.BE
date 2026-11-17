@@ -30,10 +30,13 @@ public partial class LaboratoryTaskAppService
         }
 
         // Check if this is the microbiology lab (priority lab)
-        var laboratory = await _laboratoryRepository.GetAsync(task.LaboratoryId);
-        var labDept = await _departmentRepository.GetAsync(laboratory.DepartmentId);
-        var labName = labDept.Name;
-        var isMicrobiologyLab = laboratory.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
+        // Gồm cả lab/phòng ban đã xóa mềm; tên ưu tiên snapshot trên task
+        var laboratory = await Snapshot.FindIncludingDeletedAsync<LabSpecimenManagement.MasterData.Laboratory>(task.LaboratoryId);
+        var labDept = laboratory == null
+            ? null
+            : await Snapshot.FindIncludingDeletedAsync<LabSpecimenManagement.MasterData.Department>(laboratory.DepartmentId);
+        var labName = LabSpecimenManagement.MasterData.Snapshots.MasterDataSnapshotService.Pick(task.LaboratoryName, labDept?.Name) ?? string.Empty;
+        var isMicrobiologyLab = laboratory?.Code?.Equals("LVS", StringComparison.OrdinalIgnoreCase) == true ||
                                 labName.Contains("Vi sinh", StringComparison.OrdinalIgnoreCase) ||
                                 labName.Contains("Vi Sinh", StringComparison.OrdinalIgnoreCase);
 

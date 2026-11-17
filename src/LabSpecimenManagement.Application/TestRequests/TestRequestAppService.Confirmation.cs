@@ -169,8 +169,12 @@ public partial class TestRequestAppService
                     var latestHistory = await GetLatestMethodChangeHistoryAsync(indicator.Id);
                     if (latestHistory != null)
                     {
-                        // Cập nhật PP mới cho indicator
+                        // Cập nhật PP mới cho indicator (+ snapshot tên PP mới)
                         indicator.MethodId = latestHistory.NewMethodId;
+                        indicator.MethodCode = null;
+                        indicator.MethodName = null;
+                        indicator.MethodFormattedName = null;
+                        await Snapshot.SnapshotAsync(indicator);
 
                         // Cập nhật history
                         latestHistory.Approve(CurrentUser.Id!.Value, CurrentUser.Name ?? CurrentUser.UserName ?? "");
@@ -481,13 +485,15 @@ public partial class TestRequestAppService
         var sample = sampleIndicator != null
             ? await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId)
             : null;
-        var indicatorInfo = sampleIndicator != null
-            ? await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId)
+        // Snapshot trước, thiếu mới tra master (kể cả đã xóa mềm)
+        var indicatorInfo = sampleIndicator != null && string.IsNullOrWhiteSpace(sampleIndicator.IndicatorName)
+            ? await Snapshot.FindIncludingDeletedAsync<MasterData.Indicator>(sampleIndicator.IndicatorId)
             : null;
 
         // Get laboratory info
-        var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        var labDept = laboratory != null ? await _departmentRepository.FindAsync(laboratory.DepartmentId) : null;
+        var laboratoryName = !string.IsNullOrWhiteSpace(task.LaboratoryName)
+            ? task.LaboratoryName
+            : (await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(new[] { task.LaboratoryId })).GetValueOrDefault(task.LaboratoryId);
 
         // Get method change history if applicable
         string? oldMethodName = null;
@@ -524,10 +530,10 @@ public partial class TestRequestAppService
             Id = indicator.Id,
             SampleCode = sample?.SampleCode,
             SampleName = sample?.SampleName,
-            IndicatorCode = indicatorInfo?.Code,
-            IndicatorName = indicatorInfo?.Name,
-            IndicatorFormattedName = indicatorInfo?.FormattedName,
-            LaboratoryName = labDept?.Name,
+            IndicatorCode = MasterData.Snapshots.MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorCode, indicatorInfo?.Code),
+            IndicatorName = MasterData.Snapshots.MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, indicatorInfo?.Name),
+            IndicatorFormattedName = MasterData.Snapshots.MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorFormattedName, indicatorInfo?.FormattedName),
+            LaboratoryName = laboratoryName,
             ApprovalStatus = indicator.ApprovalStatus,
             TestingRejectionReason = indicator.TestingRejectionReason,
             OldMethodName = oldMethodName,

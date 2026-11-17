@@ -11,6 +11,7 @@ using ClosedXML.Excel;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.Extensions.Hosting;
@@ -40,6 +41,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
     private readonly IRepository<IdentityUser, Guid> _userRepository;
     private readonly IHostEnvironment _hostEnvironment;
     private readonly IDataFilter _dataFilter;
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
     public LabReportAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -182,13 +185,17 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                                      join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
                                      join trs in trsQuery on trsi.TestRequestSampleId equals trs.Id
                                      join tr in trQuery on trs.TestRequestId equals tr.Id
-                                     join ind in indQuery on trsi.IndicatorId equals ind.Id
+                                     join ind in indQuery on trsi.IndicatorId equals ind.Id into indJ
+                                     from ind in indJ.DefaultIfEmpty()
                                      where lt.LaboratoryId == labId
                                          && tr.CreationTime >= fromDate && tr.CreationTime < toDateExclusive
                                          && lti.ApprovalStatus != IndicatorApprovalStatus.Rejected
                                      select new
                                      {
-                                         IndicatorName = ind.Name,
+                                         // Snapshot tên chỉ tiêu trên phiếu, thiếu mới lấy master
+                                         IndicatorName = !string.IsNullOrEmpty(trsi.IndicatorName)
+                                             ? trsi.IndicatorName
+                                             : (ind != null ? ind.Name : ""),
                                          Month = tr.CreationTime.Month,
                                          Year = tr.CreationTime.Year,
                                          TrId = tr.Id
@@ -416,7 +423,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                        join trsi in trsiQuery on lti.TestRequestSampleIndicatorId equals trsi.Id
                        join trs in trsQuery on trsi.TestRequestSampleId equals trs.Id
                        join tr in trQuery on trs.TestRequestId equals tr.Id
-                       join ind in indQuery on trsi.IndicatorId equals ind.Id
+                       join ind in indQuery on trsi.IndicatorId equals ind.Id into indGroup
+                       from ind in indGroup.DefaultIfEmpty()
                        join tm in tmQuery on trsi.TestMethodId equals (Guid?)tm.Id into tmGroup
                        from tm in tmGroup.DefaultIfEmpty()
                        join st in stQuery on trsi.SpecimenTypeId equals (Guid?)st.Id into stGroup
@@ -428,6 +436,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            LtiId = lti.Id,
                            LtiResult = lti.Result,
                            LtiStandardId = lti.StandardId,
+                           LtiStandardName = lti.StandardName,
                            LtiMethodId = lti.MethodId,
                            LtiApprovalStatus = lti.ApprovalStatus,
                            LtiCustomerConfirmationDate = lti.CustomerConfirmationDate,
@@ -439,11 +448,18 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                            TrContractDate = tr.ContractDate,
                            TrsiUnitPrice = trsi.UnitPrice,
                            SpecimenTypeId = trsi.SpecimenTypeId,
-                           SpecimenTypeName = st != null ? st.Name : "",
+                           // Snapshot trên phiếu trước, thiếu mới lấy master
+                           SpecimenTypeName = !string.IsNullOrEmpty(trsi.SpecimenTypeName)
+                               ? trsi.SpecimenTypeName
+                               : (st != null ? st.Name : ""),
                            IndicatorId = trsi.IndicatorId,
-                           IndicatorName = ind.Name,
+                           IndicatorName = !string.IsNullOrEmpty(trsi.IndicatorName)
+                               ? trsi.IndicatorName
+                               : (ind != null ? ind.Name : ""),
                            TestMethodId = trsi.TestMethodId,
-                           TestMethodName = tm != null ? tm.Name : "",
+                           TestMethodName = !string.IsNullOrEmpty(trsi.TestMethodName)
+                               ? trsi.TestMethodName
+                               : (tm != null ? tm.Name : ""),
                        };
 
         var rawData = await AsyncExecuter.ToListAsync(rawQuery);
@@ -472,11 +488,17 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
             .Distinct()
             .ToList();
 
-        var standardNameById = standardIds.Any()
-            ? (await AsyncExecuter.ToListAsync(
-                    stdQuery.Where(s => standardIds.Contains(s.Id)).Select(s => new { s.Id, s.Name })))
-                .ToDictionary(s => s.Id, s => s.Name)
-            : new Dictionary<Guid, string>();
+        // Bao gồm tiêu chuẩn đã xóa mềm (phiếu cũ)
+        var standardNameById = (await Snapshot.GetDictionaryIncludingDeletedAsync<Standard>(standardIds))
+            .ToDictionary(s => s.Key, s => s.Value.Name);
+
+        // Tên tiêu chuẩn: snapshot trên LTI (khi lấy từ LTI.StandardId), thiếu mới lấy master
+        string ResolveStandardName(Guid? standardId, Guid? ltiStandardId, string? ltiStandardName) =>
+            !standardId.HasValue
+                ? ""
+                : (standardId == ltiStandardId
+                    ? MasterDataSnapshotService.Pick(ltiStandardName, standardNameById.GetValueOrDefault(standardId.Value))
+                    : standardNameById.GetValueOrDefault(standardId.Value)) ?? "";
 
         // StandardIndicator — dùng cho Giới hạn phát hiện (không dùng cho Nền mẫu)
         // Không filter IsActive vì báo cáo cần hiển thị giới hạn của phiếu cũ kể cả khi đã ngưng
@@ -573,7 +595,7 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                 // Gộp tên chỉ tiêu chỉ khác dạng Unicode / khoảng trắng (vd "Độ ẩm" dựng sẵn vs tổ hợp) thành 1 dòng pivot
                 TenChiTieu = NormalizeText(x.IndicatorName),
                 PhuongPhapThu = x.TestMethodName,
-                SoVoiTieuChuan = standardId.HasValue ? standardNameById.GetValueOrDefault(standardId.Value) ?? "" : "",
+                SoVoiTieuChuan = ResolveStandardName(standardId, x.LtiStandardId, x.LtiStandardName),
                 GioiHanPhatHien = limitStr,
                 KetQua = x.LtiResult ?? "",
                 TrangThai = GetResultStatus(x.LtiResult, si),
@@ -964,7 +986,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
         var query = from si in siQuery
                     join s  in sampleQ  on si.TestRequestSampleId          equals s.Id
                     join tr in trQuery  on s.TestRequestId                  equals tr.Id
-                    join mi in miQuery  on si.IndicatorId                   equals mi.Id
+                    join mi in miQuery  on si.IndicatorId                   equals mi.Id into miJ
+                    from mi in miJ.DefaultIfEmpty()
                     join li in liQuery  on si.Id equals li.TestRequestSampleIndicatorId into liJ
                     from li in liJ.DefaultIfEmpty()
                     join lt in ltQuery  on li.LaboratoryTaskId              equals lt.Id into ltJ
@@ -982,7 +1005,8 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                        && tr.Status    != TestRequestStatus.Cancelled
                        && tr.RequestDate >= fromDate
                        && tr.RequestDate <  toDateExclusive
-                    orderby tr.ContractDate descending, tr.ContractNumber, s.Id, mi.Name
+                    orderby tr.ContractDate descending, tr.ContractNumber, s.Id,
+                        (!string.IsNullOrEmpty(si.IndicatorName) ? si.IndicatorName : (mi != null ? mi.Name : null))
                     select new
                     {
                         TestRequestId          = tr.Id,
@@ -992,10 +1016,14 @@ public class LabReportAppService : ApplicationService, ILabReportAppService
                         SampleName             = s.SampleName,
                         RequestCompletionDate  = tr.ExpectedCompletionDate ?? (lt != null ? lt.RequestCompletionDate : null),
                         LaboratoryTaskId       = lt != null ? (Guid?)lt.Id : null,
-                        IndicatorName          = mi.Name,
+                        IndicatorName          = !string.IsNullOrEmpty(si.IndicatorName)
+                                                    ? si.IndicatorName
+                                                    : (mi != null ? mi.Name : null),
                         MethodName             = li != null && !string.IsNullOrWhiteSpace(li.SubContractMethodName)
                                                     ? li.SubContractMethodName
-                                                    : (tm != null ? tm.Name : null),
+                                                    : li != null
+                                                        ? (!string.IsNullOrEmpty(li.MethodName) ? li.MethodName : (tm != null ? tm.Name : null))
+                                                        : (!string.IsNullOrEmpty(si.TestMethodName) ? si.TestMethodName : (tm != null ? tm.Name : null)),
                         Unit                   = li != null ? li.Unit    : null,
                         TestDate               = li != null ? li.TestDate : null,
                         Result                 = li != null ? li.Result   : null,

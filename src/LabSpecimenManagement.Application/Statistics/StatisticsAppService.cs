@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Receipts;
 using LabSpecimenManagement.TestRequests;
 using MiniExcelLibs;
@@ -30,6 +31,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
     private readonly IIdentityRoleRepository _identityRoleRepository;
     private readonly IRepository<Receipt, Guid> _receiptRepository;
     private readonly IRepository<PaymentHistory, Guid> _paymentHistoryRepository;
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
     public StatisticsAppService(
         IRepository<TestRequest, Guid> testRequestRepository,
@@ -160,8 +163,6 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
 
         var testRequestQuery = await _testRequestRepository.GetQueryableAsync();
         var sampleQuery = await _sampleRepository.GetQueryableAsync();
-        var specimenTypes = await _specimenTypeRepository.GetListAsync();
-        var specimenTypeDict = specimenTypes.ToDictionary(st => st.Id, st => st.Name);
 
         // Get samples for filtered test requests
         var filteredRequestIds = testRequestQuery
@@ -171,14 +172,20 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var filteredSamples = await AsyncExecuter.ToListAsync(
             sampleQuery.Where(s => filteredRequestIds.Contains(s.TestRequestId)));
 
+        // Tên loại mẫu: master bao gồm đã xóa mềm, thiếu thì lấy snapshot trên mẫu
+        var specimenTypeDict = (await Snapshot.GetDictionaryIncludingDeletedAsync<SpecimenType>(filteredSamples.Select(s => s.SpecimenTypeId)))
+            .ToDictionary(x => x.Key, x => x.Value.Name);
+
         // Group by SpecimenType
         var grouped = filteredSamples
             .GroupBy(s => s.SpecimenTypeId)
             .Select(g => new SampleMatrixDto
             {
-                SpecimenType = g.Key.HasValue && specimenTypeDict.ContainsKey(g.Key.Value)
-                    ? specimenTypeDict[g.Key.Value]
-                    : "Không phân loại",
+                SpecimenType = !g.Key.HasValue
+                    ? "Không phân loại"
+                    : specimenTypeDict.ContainsKey(g.Key.Value)
+                        ? specimenTypeDict[g.Key.Value]
+                        : g.Select(s => s.SpecimenTypeName).FirstOrDefault(n => !string.IsNullOrWhiteSpace(n)) ?? "Không phân loại",
                 TotalCount = g.Count(),
                 ReceivedCount = g.Count(s => s.ProcessingStatus == "Đã nhận" || !string.IsNullOrEmpty(s.ProcessingStatus)),
                 TestingCount = g.Count(s => s.ProcessingStatus == "Đang thử nghiệm"),
@@ -196,14 +203,17 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var to = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
 
         var laboratoryTaskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
-        var laboratories = await _laboratoryRepository.GetListAsync();
-        var departments = await _departmentRepository.GetListAsync();
-        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
-        var labDict = laboratories.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
 
         // Get tasks within date range (based on CreationTime or TransferDate)
         var filteredTasks = await AsyncExecuter.ToListAsync(
             laboratoryTaskQuery.Where(t => t.CreationTime >= from && t.CreationTime < to));
+
+        // Tên khoa phòng: master bao gồm đã xóa mềm, thiếu thì lấy snapshot trên task
+        var labDict = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(filteredTasks.Select(t => t.LaboratoryId));
+        foreach (var task in filteredTasks.Where(t => !labDict.ContainsKey(t.LaboratoryId) && !string.IsNullOrWhiteSpace(t.LaboratoryName)))
+        {
+            labDict[task.LaboratoryId] = task.LaboratoryName!;
+        }
 
         // Group by Laboratory
         var grouped = filteredTasks
@@ -372,9 +382,10 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
         var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
 
-        var labs = await _laboratoryRepository.GetListAsync();
-        var departments = await _departmentRepository.GetListAsync();
-        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+        // Bao gồm khoa phòng đã xóa mềm (chỉ hiển thị nếu còn dữ liệu trong kỳ)
+        var labs = await Snapshot.GetListIncludingDeletedAsync<Laboratory>(l => true);
+        var deptDict = (await Snapshot.GetDictionaryIncludingDeletedAsync<Department>(labs.Select(l => (Guid?)l.DepartmentId)))
+            .ToDictionary(x => x.Key, x => x.Value.Name);
 
         var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
         var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
@@ -387,6 +398,7 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                             select new { ti.ApprovalStatus, ti.TestDate, t.LaboratoryId };
 
         var filtered = await AsyncExecuter.ToListAsync(labIndicators);
+        labs = labs.Where(l => !l.IsDeleted || filtered.Any(x => x.LaboratoryId == l.Id)).ToList();
 
         // Technician count per department
         var techRole = (await _identityRoleRepository.GetListAsync())
@@ -425,9 +437,10 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
         var dateFrom = fromDate?.Date ?? DateTime.Now.AddDays(-30).Date;
         var dateTo = (toDate?.Date ?? DateTime.Now.Date).AddDays(1);
 
-        var labs = await _laboratoryRepository.GetListAsync();
-        var departments = await _departmentRepository.GetListAsync();
-        var deptDict = departments.ToDictionary(d => d.Id, d => d.Name);
+        // Bao gồm khoa phòng đã xóa mềm (chỉ hiển thị nếu còn dữ liệu trong kỳ)
+        var labs = await Snapshot.GetListIncludingDeletedAsync<Laboratory>(l => true);
+        var deptDict = (await Snapshot.GetDictionaryIncludingDeletedAsync<Department>(labs.Select(l => (Guid?)l.DepartmentId)))
+            .ToDictionary(x => x.Key, x => x.Value.Name);
 
         var taskQuery = await _laboratoryTaskRepository.GetQueryableAsync();
         var indicatorQuery = await _laboratoryTaskIndicatorRepository.GetQueryableAsync();
@@ -445,6 +458,8 @@ public class StatisticsAppService : ApplicationService, IStatisticsAppService
                 ti.ApprovalStatus,
                 ti.TestDate
             });
+
+        labs = labs.Where(l => !l.IsDeleted || indicators.Any(x => x.LaboratoryId == l.Id)).ToList();
 
         var techIds = indicators
             .Where(x => x.TechnicianId.HasValue)

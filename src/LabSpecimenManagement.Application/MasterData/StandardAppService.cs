@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.Snapshots;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -23,6 +24,8 @@ public class StandardAppService : ApplicationService, IStandardAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IDataFilter _dataFilter;
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
     public StandardAppService(
         IRepository<Standard, Guid> standardRepository,
@@ -43,7 +46,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
     public async Task<PagedResultDto<StandardDto>> GetListAsync(PagedAndSortedResultRequestDto input)
     {
         var query = await _standardRepository.GetQueryableAsync();
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
 
         var totalCount = await AsyncExecuter.CountAsync(query);
 
@@ -68,7 +71,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
     public async Task<StandardDto> GetAsync(Guid id)
     {
         var entity = await _standardRepository.GetAsync(id);
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
 
         var dto = ObjectMapper.Map<Standard, StandardDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.StandardId == id);
@@ -105,7 +108,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
 
         await _standardRepository.UpdateAsync(entity);
 
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
         var dto = ObjectMapper.Map<Standard, StandardDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.StandardId == id);
 
@@ -115,7 +118,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
     public async Task DeleteAsync(Guid id)
     {
         // Check if there are any indicators linked
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
         var hasIndicators = indicatorQuery.Any(i => i.StandardId == id);
 
         if (hasIndicators)
@@ -131,7 +134,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
     public async Task<ListResultDto<StandardDto>> GetActiveAsync()
     {
         var query = await _standardRepository.GetQueryableAsync();
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
 
         var items = await AsyncExecuter.ToListAsync(
             query
@@ -155,20 +158,33 @@ public class StandardAppService : ApplicationService, IStandardAppService
         entity.IsActive = !entity.IsActive;
         await _standardRepository.UpdateAsync(entity);
 
-        var indicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveStandardIndicatorQueryAsync();
         var dto = ObjectMapper.Map<Standard, StandardDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.StandardId == id);
 
         return dto;
     }
 
-    public async Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync()
+    /// <summary>
+    /// Liên kết tiêu chuẩn–chỉ tiêu, bỏ các dòng trỏ tới chỉ tiêu đã bị xóa mềm
+    /// (xóa chỉ tiêu không xóa StandardIndicator để còn khôi phục được).
+    /// </summary>
+    private async Task<IQueryable<StandardIndicator>> GetLiveStandardIndicatorQueryAsync()
+    {
+        var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        return standardIndicatorQuery.Where(si => indicatorQuery.Any(i => i.Id == si.IndicatorId));
+    }
+
+    public async Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync(bool excludeDeletedIndicators = false)
     {
         var standards = await _standardRepository.GetListAsync();
         var standardIndicators = await _standardIndicatorRepository.GetListAsync();
-        var indicators = await _indicatorRepository.GetListAsync();
-        var testMethods = await _testMethodRepository.GetListAsync();
-        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+
+        // OrderBy ổn định → thứ tự trong từng tiêu chuẩn giống như sort riêng từng nhóm
+        var indicatorDtosByStandard = (await MapStandardIndicatorsAsync(
+                standardIndicators.OrderBy(si => si.SortOrder).ToList(), excludeDeletedIndicators))
+            .ToLookup(si => si.StandardId);
 
         var result = standards
             .OrderBy(x => x.SortOrder)
@@ -176,45 +192,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
             .Select(s =>
             {
                 var dto = ObjectMapper.Map<Standard, StandardWithIndicatorsDto>(s);
-
-                var sIndicators = standardIndicators
-                    .Where(si => si.StandardId == s.Id)
-                    .OrderBy(si => si.SortOrder)
-                    .Select(si =>
-                    {
-                        var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
-                        var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
-                        var specimenType = si.SpecimenTypeId.HasValue
-                            ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
-                            : null;
-
-                        return new StandardIndicatorDto
-                        {
-                            Id = si.Id,
-                            StandardId = si.StandardId,
-                            IndicatorId = si.IndicatorId,
-                            IndicatorCode = indicator?.Code ?? "",
-                            IndicatorName = indicator?.Name ?? "",
-                            IndicatorFormattedName = indicator?.FormattedName,
-                            ParentIndicatorId = indicator?.ParentIndicatorId,
-                            SpecimenTypeId = si.SpecimenTypeId,
-                            SpecimenTypeCode = specimenType?.Code,
-                            SpecimenTypeName = specimenType?.Name,
-                            TestMethodId = si.TestMethodId,
-                            TestMethodCode = testMethod?.Code ?? "",
-                            TestMethodName = testMethod?.Name ?? "",
-                            Unit = si.Unit,
-                            ComparisonOperator = si.ComparisonOperator,
-                            AllowedLimit = si.AllowedLimit,
-                            LowerOperator = si.LowerOperator,
-                            LowerLimit = si.LowerLimit,
-                            UpperOperator = si.UpperOperator,
-                            UpperLimit = si.UpperLimit,
-                            IsActive = si.IsActive,
-                            SortOrder = si.SortOrder
-                        };
-                    })
-                    .ToList();
+                var sIndicators = indicatorDtosByStandard[s.Id].ToList();
 
                 dto.Indicators = sIndicators;
                 dto.IndicatorCount = sIndicators.Count;
@@ -226,13 +204,10 @@ public class StandardAppService : ApplicationService, IStandardAppService
         return result;
     }
 
-    public async Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id)
+    public async Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id, bool excludeDeletedIndicators = false)
     {
         var standard = await _standardRepository.GetAsync(id);
         var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
-        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
         var dto = ObjectMapper.Map<Standard, StandardWithIndicatorsDto>(standard);
 
@@ -240,55 +215,7 @@ public class StandardAppService : ApplicationService, IStandardAppService
             standardIndicatorQuery.Where(si => si.StandardId == id).OrderBy(si => si.SortOrder)
         );
 
-        var indicatorIds = sIndicators.Select(si => si.IndicatorId).ToList();
-        var testMethodIds = sIndicators.Select(si => si.TestMethodId).ToList();
-        var specimenTypeIds = sIndicators.Where(si => si.SpecimenTypeId.HasValue).Select(si => si.SpecimenTypeId!.Value).Distinct().ToList();
-
-        var indicators = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
-        );
-        var testMethods = await AsyncExecuter.ToListAsync(
-            testMethodQuery.Where(tm => testMethodIds.Contains(tm.Id))
-        );
-        var specimenTypes = await AsyncExecuter.ToListAsync(
-            specimenTypeQuery.Where(st => specimenTypeIds.Contains(st.Id))
-        );
-
-        dto.Indicators = sIndicators.Select(si =>
-        {
-            var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
-            var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
-            var specimenType = si.SpecimenTypeId.HasValue
-                ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
-                : null;
-
-            return new StandardIndicatorDto
-            {
-                Id = si.Id,
-                StandardId = si.StandardId,
-                IndicatorId = si.IndicatorId,
-                IndicatorCode = indicator?.Code ?? "",
-                IndicatorName = indicator?.Name ?? "",
-                IndicatorFormattedName = indicator?.FormattedName,
-                ParentIndicatorId = indicator?.ParentIndicatorId,
-                SpecimenTypeId = si.SpecimenTypeId,
-                SpecimenTypeCode = specimenType?.Code,
-                SpecimenTypeName = specimenType?.Name,
-                TestMethodId = si.TestMethodId,
-                TestMethodCode = testMethod?.Code ?? "",
-                TestMethodName = testMethod?.Name ?? "",
-                Unit = si.Unit,
-                ComparisonOperator = si.ComparisonOperator,
-                AllowedLimit = si.AllowedLimit,
-                LowerOperator = si.LowerOperator,
-                LowerLimit = si.LowerLimit,
-                UpperOperator = si.UpperOperator,
-                UpperLimit = si.UpperLimit,
-                IsActive = si.IsActive,
-                SortOrder = si.SortOrder
-            };
-        }).ToList();
-
+        dto.Indicators = await MapStandardIndicatorsAsync(sIndicators, excludeDeletedIndicators);
         dto.IndicatorCount = dto.Indicators.Count;
 
         return dto;
@@ -297,62 +224,64 @@ public class StandardAppService : ApplicationService, IStandardAppService
     public async Task<List<StandardIndicatorDto>> GetIndicatorsAsync(Guid standardId)
     {
         var standardIndicatorQuery = await _standardIndicatorRepository.GetQueryableAsync();
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
-        var specimenTypeQuery = await _specimenTypeRepository.GetQueryableAsync();
 
         var sIndicators = await AsyncExecuter.ToListAsync(
             standardIndicatorQuery.Where(si => si.StandardId == standardId).OrderBy(si => si.SortOrder)
         );
 
-        var indicatorIds = sIndicators.Select(si => si.IndicatorId).ToList();
-        var testMethodIds = sIndicators.Select(si => si.TestMethodId).ToList();
-        var specimenTypeIds = sIndicators.Where(si => si.SpecimenTypeId.HasValue).Select(si => si.SpecimenTypeId!.Value).Distinct().ToList();
+        return await MapStandardIndicatorsAsync(sIndicators, excludeDeletedIndicators: false);
+    }
 
-        var indicators = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id))
-        );
-        var testMethods = await AsyncExecuter.ToListAsync(
-            testMethodQuery.Where(tm => testMethodIds.Contains(tm.Id))
-        );
-        var specimenTypes = await AsyncExecuter.ToListAsync(
-            specimenTypeQuery.Where(st => specimenTypeIds.Contains(st.Id))
-        );
+    /// <summary>
+    /// Map liên kết tiêu chuẩn–chỉ tiêu sang DTO. Tra cả chỉ tiêu/PP/nền mẫu đã xóa mềm để không ra dòng trống
+    /// (phiếu đang xử lý vẫn cần giới hạn của chỉ tiêu đã xóa). excludeDeletedIndicators = true (màn danh mục)
+    /// thì bỏ các dòng trỏ tới chỉ tiêu đã xóa — liên kết vẫn giữ trong DB để khôi phục chỉ tiêu.
+    /// </summary>
+    private async Task<List<StandardIndicatorDto>> MapStandardIndicatorsAsync(
+        List<StandardIndicator> sIndicators, bool excludeDeletedIndicators)
+    {
+        var indicators = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(sIndicators.Select(si => si.IndicatorId));
+        var testMethods = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(sIndicators.Select(si => si.TestMethodId));
+        var specimenTypes = await Snapshot.GetDictionaryIncludingDeletedAsync<SpecimenType>(sIndicators.Select(si => si.SpecimenTypeId));
 
-        return sIndicators.Select(si =>
-        {
-            var indicator = indicators.FirstOrDefault(i => i.Id == si.IndicatorId);
-            var testMethod = testMethods.FirstOrDefault(tm => tm.Id == si.TestMethodId);
-            var specimenType = si.SpecimenTypeId.HasValue
-                ? specimenTypes.FirstOrDefault(st => st.Id == si.SpecimenTypeId.Value)
-                : null;
-
-            return new StandardIndicatorDto
+        return sIndicators
+            .Where(si => !excludeDeletedIndicators
+                || (indicators.TryGetValue(si.IndicatorId, out var ind) && !ind.IsDeleted))
+            .Select(si =>
             {
-                Id = si.Id,
-                StandardId = si.StandardId,
-                IndicatorId = si.IndicatorId,
-                IndicatorCode = indicator?.Code ?? "",
-                IndicatorName = indicator?.Name ?? "",
-                IndicatorFormattedName = indicator?.FormattedName,
-                ParentIndicatorId = indicator?.ParentIndicatorId,
-                SpecimenTypeId = si.SpecimenTypeId,
-                SpecimenTypeCode = specimenType?.Code,
-                SpecimenTypeName = specimenType?.Name,
-                TestMethodId = si.TestMethodId,
-                TestMethodCode = testMethod?.Code ?? "",
-                TestMethodName = testMethod?.Name ?? "",
-                Unit = si.Unit,
-                ComparisonOperator = si.ComparisonOperator,
-                AllowedLimit = si.AllowedLimit,
-                LowerOperator = si.LowerOperator,
-                LowerLimit = si.LowerLimit,
-                UpperOperator = si.UpperOperator,
-                UpperLimit = si.UpperLimit,
-                IsActive = si.IsActive,
-                SortOrder = si.SortOrder
-            };
-        }).ToList();
+                var indicator = indicators.GetValueOrDefault(si.IndicatorId);
+                var testMethod = testMethods.GetValueOrDefault(si.TestMethodId);
+                var specimenType = si.SpecimenTypeId.HasValue
+                    ? specimenTypes.GetValueOrDefault(si.SpecimenTypeId.Value)
+                    : null;
+
+                return new StandardIndicatorDto
+                {
+                    Id = si.Id,
+                    StandardId = si.StandardId,
+                    IndicatorId = si.IndicatorId,
+                    IndicatorCode = indicator?.Code ?? "",
+                    IndicatorName = indicator?.Name ?? "",
+                    IndicatorFormattedName = indicator?.FormattedName,
+                    ParentIndicatorId = indicator?.ParentIndicatorId,
+                    SpecimenTypeId = si.SpecimenTypeId,
+                    SpecimenTypeCode = specimenType?.Code,
+                    SpecimenTypeName = specimenType?.Name,
+                    TestMethodId = si.TestMethodId,
+                    TestMethodCode = testMethod?.Code ?? "",
+                    TestMethodName = testMethod?.Name ?? "",
+                    Unit = si.Unit,
+                    ComparisonOperator = si.ComparisonOperator,
+                    AllowedLimit = si.AllowedLimit,
+                    LowerOperator = si.LowerOperator,
+                    LowerLimit = si.LowerLimit,
+                    UpperOperator = si.UpperOperator,
+                    UpperLimit = si.UpperLimit,
+                    IsActive = si.IsActive,
+                    SortOrder = si.SortOrder
+                };
+            })
+            .ToList();
     }
 
     public async Task AddIndicatorsAsync(Guid standardId, AddIndicatorsToStandardDto input)

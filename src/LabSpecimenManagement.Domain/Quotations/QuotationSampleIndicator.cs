@@ -35,6 +35,16 @@ public class QuotationSampleIndicator : Entity<Guid>
     public string TestMethodName { get; set; } = string.Empty;
 
     /// <summary>
+    /// Snapshot tên chỉ tiêu có định dạng (HTML) tại thời điểm báo giá
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên phương pháp có định dạng (HTML) tại thời điểm báo giá
+    /// </summary>
+    public string? TestMethodFormattedName { get; set; }
+
+    /// <summary>
     /// Đơn giá (từ TestMethodIndicator.UnitPrice, snapshot tại thời điểm tạo)
     /// </summary>
     public decimal UnitPrice { get; set; }

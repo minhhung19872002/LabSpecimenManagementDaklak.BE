@@ -186,6 +186,30 @@ public class LaboratoryTaskIndicator : Entity<Guid>
     /// </summary>
     public Guid? StandardId { get; set; }
 
+    #region Snapshot master data (giữ nguyên khi danh mục bị sửa/xóa)
+
+    /// <summary>
+    /// Snapshot mã phương pháp được gán (MethodId)
+    /// </summary>
+    public string? MethodCode { get; set; }
+
+    /// <summary>
+    /// Snapshot tên phương pháp được gán
+    /// </summary>
+    public string? MethodName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên phương pháp được gán có định dạng (HTML)
+    /// </summary>
+    public string? MethodFormattedName { get; set; }
+
+    /// <summary>
+    /// Snapshot tên tiêu chuẩn so sánh
+    /// </summary>
+    public string? StandardName { get; set; }
+
+    #endregion
+
     /// <summary>
     /// Ghi chú tự do (free text, HTML) - áp dụng cho tất cả chỉ tiêu trong sample
     /// </summary>

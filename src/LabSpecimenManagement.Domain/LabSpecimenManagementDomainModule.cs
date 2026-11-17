@@ -1,6 +1,9 @@
 ﻿using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MultiTenancy;
+using Volo.Abp;
+using Volo.Abp.Auditing;
 using Volo.Abp.AuditLogging;
 using Volo.Abp.BackgroundJobs;
 using Volo.Abp.Emailing;
@@ -59,6 +62,13 @@ public class LabSpecimenManagementDomainModule : AbpModule
         Configure<AbpMultiTenancyOptions>(options =>
         {
             options.IsEnabled = MultiTenancyConsts.IsEnabled;
+        });
+
+        // Ghi lịch sử tạo / sửa / ngừng hoạt động / xóa (mềm) của master data
+        Configure<AbpAuditingOptions>(options =>
+        {
+            options.EntityHistorySelectors.Add(
+                new NamedTypeSelector("MasterData", MasterDataHistoryTypes.IsTracked));
         });
 
 #if DEBUG

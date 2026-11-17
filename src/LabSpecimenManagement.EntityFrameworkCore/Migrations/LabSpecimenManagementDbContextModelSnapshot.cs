@@ -198,6 +198,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("LaboratoryId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("LaboratoryName")
+                        .HasColumnType("text");
+
                     b.Property<DateTime?>("LastModificationTime")
                         .HasColumnType("timestamp without time zone")
                         .HasColumnName("LastModificationTime");
@@ -318,8 +321,17 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)");
 
+                    b.Property<string>("MethodCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("MethodFormattedName")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("MethodId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("MethodName")
+                        .HasColumnType("text");
 
                     b.Property<string>("RejectionReason")
                         .HasMaxLength(1000)
@@ -331,6 +343,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid?>("StandardId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("StandardName")
+                        .HasColumnType("text");
 
                     b.Property<decimal?>("SubContractCost")
                         .HasPrecision(18, 2)
@@ -2590,6 +2605,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("IndicatorFormattedName")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
 
@@ -2614,6 +2632,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<string>("SpecimenTypeName")
                         .HasMaxLength(256)
                         .HasColumnType("character varying(256)");
+
+                    b.Property<string>("TestMethodFormattedName")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
@@ -4425,6 +4446,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("SpecimenTypeId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SpecimenTypeName")
+                        .HasColumnType("text");
+
                     b.Property<int>("Status")
                         .HasColumnType("integer");
 
@@ -4495,8 +4519,20 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid>("Id")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("IndicatorCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IndicatorFormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("IndicatorGroupName")
+                        .HasColumnType("text");
+
                     b.Property<Guid>("IndicatorId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("IndicatorName")
+                        .HasColumnType("text");
 
                     b.Property<bool>("IsSubcontract")
                         .ValueGeneratedOnAdd()
@@ -4505,6 +4541,9 @@ namespace LabSpecimenManagement.Migrations
 
                     b.Property<Guid?>("LaboratoryId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("LaboratoryName")
+                        .HasColumnType("text");
 
                     b.Property<string>("Notes")
                         .HasMaxLength(500)
@@ -4523,8 +4562,26 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("SpecimenTypeId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("SpecimenTypeName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestMethodCode")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestMethodFormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestMethodFormattedUnit")
+                        .HasColumnType("text");
+
                     b.Property<Guid?>("TestMethodId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("TestMethodName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("TestMethodUnit")
+                        .HasColumnType("text");
 
                     b.Property<Guid>("TestRequestSampleId")
                         .HasColumnType("uuid");

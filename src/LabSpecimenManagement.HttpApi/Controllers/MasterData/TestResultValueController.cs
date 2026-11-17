@@ -80,9 +80,9 @@ public class TestResultValueController : LabSpecimenManagementController
     /// Lấy danh sách kết quả kèm theo danh sách chỉ tiêu
     /// </summary>
     [HttpGet("with-indicators")]
-    public virtual Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync()
+    public virtual Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync([FromQuery] bool excludeDeletedIndicators = false)
     {
-        return _testResultValueAppService.GetWithIndicatorsAsync();
+        return _testResultValueAppService.GetWithIndicatorsAsync(excludeDeletedIndicators);
     }
 
     /// <summary>
