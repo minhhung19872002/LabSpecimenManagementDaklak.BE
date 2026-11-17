@@ -3,7 +3,11 @@ using LabSpecimenManagement.Sync.Handlers;
 using Microsoft.Extensions.DependencyInjection;
 using Volo.Abp.Account;
 using Volo.Abp.Authorization.Permissions;
+using System.Threading.Tasks;
+using LabSpecimenManagement.MasterData;
+using Volo.Abp;
 using Volo.Abp.AutoMapper;
+using Volo.Abp.BackgroundWorkers;
 using Volo.Abp.FeatureManagement;
 using Volo.Abp.Identity;
 using Volo.Abp.Modularity;
@@ -43,5 +47,11 @@ public class LabSpecimenManagementApplicationModule : AbpModule
 
         // TODO: Remove this in production - Bypass all permission checks for development
         context.Services.AddSingleton<IPermissionChecker, AlwaysAllowPermissionChecker>();
+    }
+
+    public override async Task OnApplicationInitializationAsync(ApplicationInitializationContext context)
+    {
+        // Áp giá dịch vụ đến ngày hiệu lực (L2 · Bảng giá theo phiên bản)
+        await context.AddBackgroundWorkerAsync<ServicePriceApplyWorker>();
     }
 }

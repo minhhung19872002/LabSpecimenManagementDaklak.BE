@@ -22,6 +22,16 @@ public class IndicatorConsumption : Entity<Guid>
     public string? BarcodeCode { get; set; }
     public Guid? WarehouseImportReceiptItemId { get; set; }
 
+    // Snapshot định mức tại thời điểm ghi tiêu hao (đối soát khi master data L3/L4 thay đổi)
+    /// <summary>Định mức theo mẻ (L3) đã dùng</summary>
+    public Guid? MethodBatchNormId { get; set; }
+    /// <summary>Tổng tiêu hao 1 mẻ tại thời điểm ghi</summary>
+    public decimal? NormBatchQuantity { get; set; }
+    /// <summary>Năm dự toán đã dùng (năm của ngày gửi kết quả)</summary>
+    public int? NormForecastYear { get; set; }
+    /// <summary>Số mẫu dự toán năm tại thời điểm ghi</summary>
+    public int? NormEstimatedSamples { get; set; }
+
     protected IndicatorConsumption() { }
 
     public IndicatorConsumption(

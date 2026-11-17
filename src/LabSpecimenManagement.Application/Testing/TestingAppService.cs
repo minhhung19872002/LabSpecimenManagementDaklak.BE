@@ -57,7 +57,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IIdentityUserRepository _identityUserRepository;
     private readonly IRepository<QualityManagementIndicator, Guid> _qualityIndicatorRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
-    private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
@@ -67,6 +66,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
     private readonly InventoryBarcodeStatusService _barcodeStatusService;
+
+    /// <summary>Định mức L3 ÷ dự toán L4 → tiêu hao / mẫu khi submit</summary>
+    private ConsumptionNormResolver NormResolver => LazyServiceProvider.LazyGetRequiredService<ConsumptionNormResolver>();
 
     /// <summary>Snapshot master data cho chứng từ (đọc tên ưu tiên snapshot, tra master gồm cả bản ghi đã xóa mềm)</summary>
     private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
@@ -97,7 +99,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         IIdentityUserRepository identityUserRepository,
         IRepository<QualityManagementIndicator, Guid> qualityIndicatorRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
-        IRepository<MaterialConsumptionItem, Guid> materialConsumptionRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<Equipment, Guid> equipmentRepository,
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
@@ -133,7 +134,6 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         _identityUserRepository = identityUserRepository;
         _qualityIndicatorRepository = qualityIndicatorRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
-        _materialConsumptionRepository = materialConsumptionRepository;
         _productRepository = productRepository;
         _equipmentRepository = equipmentRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
@@ -1817,11 +1817,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var sampleIndicatorMap = sampleIndicators.ToDictionary(si => si.Id);
 
         var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
 
-        var consumptionByTmi = new Dictionary<Guid, List<MaterialConsumptionItem>>();
-        var consumptionRecords = new List<(LaboratoryTaskIndicator Indicator, MaterialConsumptionItem Item)>();
-
+        var tmiByIndicator = new Dictionary<Guid, TestMethodIndicator>();
         foreach (var indicator in indicatorsWithMethod)
         {
             if (!sampleIndicatorMap.TryGetValue(indicator.TestRequestSampleIndicatorId, out var sampleIndicator))
@@ -1833,21 +1830,23 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     x.IndicatorId == sampleIndicator.IndicatorId &&
                     x.SpecimenTypeId == sampleIndicator.SpecimenTypeId));
 
-            if (tmi == null) continue;
+            if (tmi != null) tmiByIndicator[indicator.Id] = tmi;
+        }
 
-            if (!consumptionByTmi.TryGetValue(tmi.Id, out var consumptionItems))
-            {
-                consumptionItems = await AsyncExecuter.ToListAsync(
-                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-                consumptionByTmi[tmi.Id] = consumptionItems;
-            }
+        // Tiêu hao / mẫu = định mức theo mẻ (L3) ÷ dự toán mẫu năm (L4) của năm submit
+        var normLinesByTmi = await NormResolver.ResolveManyAsync(tmiByIndicator.Values, Clock.Now.Year);
 
-            foreach (var item in consumptionItems)
+        var consumptionRecords = new List<(LaboratoryTaskIndicator Indicator, ResolvedNormLine Item)>();
+        foreach (var indicator in indicatorsWithMethod)
+        {
+            if (!tmiByIndicator.TryGetValue(indicator.Id, out var tmi)) continue;
+            foreach (var item in normLinesByTmi.GetValueOrDefault(tmi.Id) ?? new List<ResolvedNormLine>())
             {
-                if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0) continue;
                 consumptionRecords.Add((indicator, item));
             }
         }
+
+        if (!consumptionRecords.Any()) return;
 
         var lotProductIds = consumptionRecords
             .Where(r => r.Item.ProductId.HasValue)
@@ -2022,13 +2021,11 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         foreach (var (indicator, item) in consumptionRecords)
         {
-            var consumeQty = item.AvgConsumptionPerSample!.Value;
+            var consumeQty = item.Quantity;
 
             if (!item.ProductId.HasValue)
             {
-                var c = new IndicatorConsumption(
-                    GuidGenerator.Create(), indicator.Id, null, item.EquipmentId,
-                    item.UnitId, consumeQty);
+                var c = item.NewConsumption(GuidGenerator.Create(), indicator.Id, consumeQty);
                 c.IsDeducted = true;
                 c.SubmitDate = Clock.Now;
                 c.ConsumptionDate = Clock.Now;
@@ -2082,9 +2079,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     {
                         var portionQty = split.TakeBase * ratio;
                         var stockBefore = stockBeforeByWarehouse.GetValueOrDefault((prodId, split.WarehouseId));
-                        var c = new IndicatorConsumption(
-                            GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
-                            item.UnitId, portionQty);
+                        var c = item.NewConsumption(GuidGenerator.Create(), indicator.Id, portionQty);
                         c.IsDeducted = true;
                         c.SubmitDate = now;
                         c.ConsumptionDate = now;
@@ -2101,9 +2096,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     var resolvedLot = lots.FirstOrDefault(l => l.Remaining > 0);
                     if (resolvedLot == default) resolvedLot = lots[^1];
                     var stockBefore = stockBeforeByWarehouse.GetValueOrDefault((prodId, resolvedLot.WarehouseId));
-                    var c = new IndicatorConsumption(
-                        GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
-                        item.UnitId, consumeQty);
+                    var c = item.NewConsumption(GuidGenerator.Create(), indicator.Id, consumeQty);
                     c.IsDeducted = true;
                     c.SubmitDate = now;
                     c.ConsumptionDate = now;
@@ -2117,9 +2110,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             }
             else
             {
-                var c = new IndicatorConsumption(
-                    GuidGenerator.Create(), indicator.Id, item.ProductId, item.EquipmentId,
-                    item.UnitId, consumeQty);
+                var c = item.NewConsumption(GuidGenerator.Create(), indicator.Id, consumeQty);
                 c.IsDeducted = true;
                 c.SubmitDate = now;
                 c.ConsumptionDate = now;
@@ -2127,32 +2118,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             }
         }
 
-        var allConsumptionItems = consumptionByTmi.Values.SelectMany(x => x).ToList();
-
-        if (!allConsumptionItems.Any()) return;
-
-        var indicatorCountPerItem = consumptionRecords
-            .GroupBy(r => r.Item.Id)
-            .ToDictionary(g => g.Key, g => g.Count());
-
-        var productItems = allConsumptionItems.Where(c => c.ProductId.HasValue).ToList();
-        var equipmentItems = allConsumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
-
-        if (equipmentItems.Any())
-        {
-            var usageByEquipment = equipmentItems
-                .GroupBy(c => c.EquipmentId!.Value)
-                .ToDictionary(g => g.Key, g => (int)g.Sum(c => c.Quantity));
-
-            var equipments = await _equipmentRepository.GetListAsync(e => usageByEquipment.Keys.Contains(e.Id));
-
-            foreach (var equipment in equipments)
-            {
-                equipment.UsageCount += usageByEquipment[equipment.Id];
-                await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
-            }
-        }
-
+        // Định mức theo mẻ không khai báo thiết bị → không còn cộng UsageCount thiết bị khi submit
         await CurrentUnitOfWork.SaveChangesAsync();
 
         var barcodeTargets = stockBeforeByWarehouse.Keys

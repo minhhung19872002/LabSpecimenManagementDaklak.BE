@@ -39,12 +39,14 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
-    private readonly IRepository<MaterialConsumptionItem, Guid> _materialConsumptionRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<ProductUnitConversion, Guid> _productUnitConversionRepository;
     private readonly IRepository<Equipment, Guid> _equipmentRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
+
+    /// <summary>Định mức L3 ÷ dự toán L4 → tiêu hao / mẫu</summary>
+    private ConsumptionNormResolver NormResolver => LazyServiceProvider.LazyGetRequiredService<ConsumptionNormResolver>();
     private readonly IRepository<PreparedSolutionBatch, Guid> _preparedSolutionBatchRepository;
     private readonly IRepository<WarehouseImportReceiptItem, Guid> _importReceiptItemRepository;
     private readonly IRepository<WarehouseImportReceipt, Guid> _importReceiptRepository;
@@ -72,7 +74,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository,
-        IRepository<MaterialConsumptionItem, Guid> materialConsumptionRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<ProductUnitConversion, Guid> productUnitConversionRepository,
         IRepository<Equipment, Guid> equipmentRepository,
@@ -104,7 +105,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         _testMethodRepository = testMethodRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _testMethodIndicatorRepository = testMethodIndicatorRepository;
-        _materialConsumptionRepository = materialConsumptionRepository;
         _productRepository = productRepository;
         _productUnitConversionRepository = productUnitConversionRepository;
         _equipmentRepository = equipmentRepository;
@@ -587,9 +587,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             return await MapToDetailDtoAsync(batch);
         }
 
-        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-        var consumptionItems = await AsyncExecuter.ToListAsync(
-            consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+        var consumptionItems = await NormResolver.ResolveAsync(tmi, Clock.Now.Year);
 
         var submittedItemCount = (await _testBatchItemRepository.GetListAsync(x => x.TestBatchId == batch.Id && x.IsSubmitted)).Count;
 
@@ -604,7 +602,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 GuidGenerator.Create(),
                 batch.Id,
                 consumptionItem.ProductId,
-                consumptionItem.EquipmentId,
+                null,
                 consumptionItem.UnitId,
                 consumptionItem.Quantity * submittedItemCount);
             if (consumptionItem.ProductId.HasValue)
@@ -707,16 +705,13 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
             if (tmi != null)
             {
-                var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-                var templates = await AsyncExecuter.ToListAsync(
-                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+                var templates = await NormResolver.ResolveAsync(tmi, Clock.Now.Year);
 
                 foreach (var template in templates)
                 {
                     lines.Add(new ConsumptionPreviewLineDto
                     {
                         ProductId = template.ProductId,
-                        EquipmentId = template.EquipmentId,
                         UnitId = template.UnitId,
                         RecommendedQuantity = template.Quantity,
                         ActualQuantity = template.Quantity,
@@ -1349,9 +1344,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         if (tmi == null) return;
 
-        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-        var consumptionItems = await AsyncExecuter.ToListAsync(
-            consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
+        // Tiêu hao / mẫu = định mức theo mẻ (L3) ÷ dự toán mẫu năm (L4) của năm submit
+        var consumptionItems = await NormResolver.ResolveAsync(tmi, Clock.Now.Year);
 
         if (consumptionItems.Count == 0) return;
 
@@ -1403,15 +1397,11 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         {
             foreach (var item in consumptionItems)
             {
-                if (item.AvgConsumptionPerSample is null or 0) continue;
+                if (item.Quantity <= 0) continue;
 
-                if (item.EquipmentId.HasValue || !item.ProductId.HasValue)
+                if (!item.ProductId.HasValue)
                 {
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        submittedItem.LaboratoryTaskIndicatorId,
-                        item.ProductId, item.EquipmentId, item.UnitId,
-                        item.AvgConsumptionPerSample.Value);
+                    var consumption = item.NewConsumption(GuidGenerator.Create(), submittedItem.LaboratoryTaskIndicatorId, item.Quantity);
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
                     await _indicatorConsumptionRepository.InsertAsync(consumption, autoSave: false);
@@ -1423,11 +1413,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 if (productLots == null || !productLots.Any()
                     || !productMap.TryGetValue(item.ProductId.Value, out var product))
                 {
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        submittedItem.LaboratoryTaskIndicatorId,
-                        item.ProductId, null, item.UnitId,
-                        item.AvgConsumptionPerSample.Value);
+                    var consumption = item.NewConsumption(GuidGenerator.Create(), submittedItem.LaboratoryTaskIndicatorId, item.Quantity);
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
                     consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(item.ProductId.Value);
@@ -1439,11 +1425,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 var unitsPerStorage = ResolveUnitsPerStorage(item.UnitId, product, skuByProduct, conversionMap);
                 if (unitsPerStorage == null || unitsPerStorage.Value == 0)
                 {
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        submittedItem.LaboratoryTaskIndicatorId,
-                        item.ProductId, null, item.UnitId,
-                        item.AvgConsumptionPerSample.Value);
+                    var consumption = item.NewConsumption(GuidGenerator.Create(), submittedItem.LaboratoryTaskIndicatorId, item.Quantity);
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
                     consumption.ConsumableStockBefore = consumableStocks.GetValueOrDefault(item.ProductId.Value);
@@ -1452,7 +1434,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     continue;
                 }
 
-                var remainingQty = item.AvgConsumptionPerSample.Value;
+                var remainingQty = item.Quantity;
                 bool isFirst = true;
                 foreach (var lot in productLots)
                 {
@@ -1466,11 +1448,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     var consumeFromLot = Math.Min(remainingQty, lotAvailableInConsumptionUnit);
                     var consumeFromLotBase = consumeFromLot / unitsPerStorage.Value;
 
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        submittedItem.LaboratoryTaskIndicatorId,
-                        item.ProductId, null, item.UnitId,
-                        isFirst ? item.AvgConsumptionPerSample.Value : 0);
+                    var consumption = item.NewConsumption(GuidGenerator.Create(), submittedItem.LaboratoryTaskIndicatorId, isFirst ? item.Quantity : 0);
                     consumption.ActualQuantity = consumeFromLot;
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
@@ -1490,10 +1468,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                 if (remainingQty > 0)
                 {
                     var lastLot = productLots.Last();
-                    var consumption = new IndicatorConsumption(
-                        GuidGenerator.Create(),
-                        submittedItem.LaboratoryTaskIndicatorId,
-                        item.ProductId, null, item.UnitId, 0);
+                    var consumption = item.NewConsumption(GuidGenerator.Create(), submittedItem.LaboratoryTaskIndicatorId, 0);
                     consumption.ActualQuantity = remainingQty;
                     consumption.IsDeducted = true;
                     consumption.SubmitDate = Clock.Now;
@@ -1515,13 +1490,9 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var submittedCount = submittedItems.Count;
         var productItems = consumptionItems.Where(c => c.ProductId.HasValue).ToList();
-        var equipmentItems = consumptionItems.Where(c => c.EquipmentId.HasValue).ToList();
 
         if (productItems.Count > 0)
             await DeductProductConsumptionsAsync(productItems, submittedCount, batch.Id, warehouseMap);
-
-        if (equipmentItems.Count > 0)
-            await IncrementEquipmentUsageAsync(equipmentItems, submittedCount);
 
         await CurrentUnitOfWork.SaveChangesAsync();
 
@@ -1533,7 +1504,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     }
 
     private async Task DeductProductConsumptionsAsync(
-        List<MaterialConsumptionItem> productItems, int submittedCount, Guid sourceId,
+        List<ResolvedNormLine> productItems, int submittedCount, Guid sourceId,
         Dictionary<Guid, Guid?> warehouseMap)
     {
         var productIds = productItems.Select(c => c.ProductId!.Value).Distinct().ToList();
@@ -1554,10 +1525,10 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             if (!productMap.TryGetValue(item.ProductId!.Value, out var product))
                 continue;
 
-            if (item.AvgConsumptionPerSample is null or 0)
+            if (item.Quantity <= 0)
                 continue;
 
-            var deductQty = item.AvgConsumptionPerSample.Value * submittedCount;
+            var deductQty = item.Quantity * submittedCount;
             var baseQty = await ResolveBaseQuantityAsync(
                 deductQty, item.UnitId, item.ProductId, product, skuByProduct);
 
@@ -1608,22 +1579,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         if (factor is null or 0) return null;
 
         return quantity / factor.Value;
-    }
-
-    private async Task IncrementEquipmentUsageAsync(
-        List<MaterialConsumptionItem> equipmentItems, int submittedCount)
-    {
-        var usageByEquipment = equipmentItems
-            .GroupBy(c => c.EquipmentId!.Value)
-            .ToDictionary(g => g.Key, g => (int)g.Sum(c => c.Quantity) * submittedCount);
-
-        var equipments = await _equipmentRepository.GetListAsync(e => usageByEquipment.Keys.Contains(e.Id));
-
-        foreach (var equipment in equipments)
-        {
-            equipment.UsageCount += usageByEquipment[equipment.Id];
-            await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
-        }
     }
 
     private async Task UpdatePreparedSolutionRemainingVolumeAsync(

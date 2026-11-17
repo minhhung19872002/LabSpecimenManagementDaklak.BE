@@ -53,10 +53,7 @@ public partial class TestingAppService
             .ToDictionary(g => g.Key, g => g.First().Id);
 
         var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-
-        var consumptionByTmi = new Dictionary<Guid, List<MaterialConsumptionItem>>();
-        var consumptionRecords = new List<(ExternalConsumptionIndicatorDto Input, MaterialConsumptionItem Item)>();
+        var tmiByInput = new List<(ExternalConsumptionIndicatorDto Input, TestMethodIndicator Tmi)>();
 
         foreach (var ind in input.Indicators)
         {
@@ -70,21 +67,14 @@ public partial class TestingAppService
                     x.IndicatorId == indicatorId &&
                     x.SpecimenTypeId == specimenTypeId));
 
-            if (tmi == null) continue;
-
-            if (!consumptionByTmi.TryGetValue(tmi.Id, out var consumptionItems))
-            {
-                consumptionItems = await AsyncExecuter.ToListAsync(
-                    consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-                consumptionByTmi[tmi.Id] = consumptionItems;
-            }
-
-            foreach (var item in consumptionItems)
-            {
-                if (item.AvgConsumptionPerSample == null || item.AvgConsumptionPerSample.Value == 0) continue;
-                consumptionRecords.Add((ind, item));
-            }
+            if (tmi != null) tmiByInput.Add((ind, tmi));
         }
+
+        var normLinesByTmi = await NormResolver.ResolveManyAsync(tmiByInput.Select(x => x.Tmi), Clock.Now.Year);
+        var consumptionRecords = tmiByInput
+            .SelectMany(x => (normLinesByTmi.GetValueOrDefault(x.Tmi.Id) ?? new List<ResolvedNormLine>())
+                .Select(item => (Input: x.Input, Item: item)))
+            .ToList();
 
         if (!consumptionRecords.Any()) return;
 
@@ -251,13 +241,11 @@ public partial class TestingAppService
 
         foreach (var (ind, item) in consumptionRecords)
         {
-            var consumeQty = item.AvgConsumptionPerSample!.Value;
+            var consumeQty = item.Quantity;
 
             if (!item.ProductId.HasValue)
             {
-                var c = new IndicatorConsumption(
-                    GuidGenerator.Create(), fakeIndicatorId, null, item.EquipmentId,
-                    item.UnitId, consumeQty);
+                var c = item.NewConsumption(GuidGenerator.Create(), fakeIndicatorId, consumeQty);
                 c.IsDeducted = true;
                 c.SubmitDate = now;
                 c.ConsumptionDate = now;
@@ -308,9 +296,7 @@ public partial class TestingAppService
                     {
                         var portionQty = split.TakeBase * ratio;
                         var stockBefore = stockBeforeByWarehouse.GetValueOrDefault((prodId, split.WarehouseId));
-                        var c = new IndicatorConsumption(
-                            GuidGenerator.Create(), fakeIndicatorId, item.ProductId, item.EquipmentId,
-                            item.UnitId, portionQty);
+                        var c = item.NewConsumption(GuidGenerator.Create(), fakeIndicatorId, portionQty);
                         c.IsDeducted = true;
                         c.SubmitDate = now;
                         c.ConsumptionDate = now;
@@ -328,9 +314,7 @@ public partial class TestingAppService
                     var resolvedLot = lots.FirstOrDefault(l => l.Remaining > 0);
                     if (resolvedLot == default) resolvedLot = lots[^1];
                     var stockBefore = stockBeforeByWarehouse.GetValueOrDefault((prodId, resolvedLot.WarehouseId));
-                    var c = new IndicatorConsumption(
-                        GuidGenerator.Create(), fakeIndicatorId, item.ProductId, item.EquipmentId,
-                        item.UnitId, consumeQty);
+                    var c = item.NewConsumption(GuidGenerator.Create(), fakeIndicatorId, consumeQty);
                     c.IsDeducted = true;
                     c.SubmitDate = now;
                     c.ConsumptionDate = now;
@@ -345,30 +329,12 @@ public partial class TestingAppService
             }
             else
             {
-                var c = new IndicatorConsumption(
-                    GuidGenerator.Create(), fakeIndicatorId, item.ProductId, item.EquipmentId,
-                    item.UnitId, consumeQty);
+                var c = item.NewConsumption(GuidGenerator.Create(), fakeIndicatorId, consumeQty);
                 c.IsDeducted = true;
                 c.SubmitDate = now;
                 c.ConsumptionDate = now;
                 c.TechnicianName = ind.TechnicianName;
                 await _indicatorConsumptionRepository.InsertAsync(c, autoSave: false);
-            }
-        }
-
-        var equipmentItems = consumptionByTmi.Values.SelectMany(x => x).Where(c => c.EquipmentId.HasValue).ToList();
-        if (equipmentItems.Any())
-        {
-            var usageByEquipment = equipmentItems
-                .GroupBy(c => c.EquipmentId!.Value)
-                .ToDictionary(g => g.Key, g => (int)g.Sum(c => c.Quantity));
-
-            var equipments = await _equipmentRepository.GetListAsync(e => usageByEquipment.Keys.Contains(e.Id));
-
-            foreach (var equipment in equipments)
-            {
-                equipment.UsageCount += usageByEquipment[equipment.Id];
-                await _equipmentRepository.UpdateAsync(equipment, autoSave: true);
             }
         }
 

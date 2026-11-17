@@ -92,16 +92,12 @@ public partial class TestingAppService
 
                 if (tmi != null)
                 {
-                    var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
-                    var templates = await AsyncExecuter.ToListAsync(
-                        consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-
+                    var templates = await NormResolver.ResolveAsync(tmi, Clock.Now.Year);
                     foreach (var template in templates)
                     {
                         lines.Add(new ConsumptionPreviewLineDto
                         {
                             ProductId = template.ProductId,
-                            EquipmentId = template.EquipmentId,
                             UnitId = template.UnitId,
                             RecommendedQuantity = template.Quantity,
                             ActualQuantity = template.Quantity,
@@ -377,10 +373,9 @@ public partial class TestingAppService
             x => indicatorIds.Contains(x.Id) && x.LaboratoryTaskId == laboratoryTaskId);
 
         var rawLines = new List<ConsumptionPreviewLineDto>();
-        var processedTmiIds = new HashSet<Guid>();
+        var tmis = new List<TestMethodIndicator>();
 
         var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var consumptionQuery = await _materialConsumptionRepository.GetQueryableAsync();
 
         foreach (var indicator in indicators.Where(i => i.MethodId.HasValue))
         {
@@ -393,17 +388,18 @@ public partial class TestingAppService
                     x.IndicatorId == sampleIndicator.IndicatorId &&
                     x.SpecimenTypeId == sampleIndicator.SpecimenTypeId));
 
-            if (tmi == null || !processedTmiIds.Add(tmi.Id)) continue;
+            if (tmi != null) tmis.Add(tmi);
+        }
 
-            var templates = await AsyncExecuter.ToListAsync(
-                consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id));
-
-            foreach (var template in templates)
+        // Mỗi phép thử tiêu hao (định mức mẻ ÷ dự toán năm) → cộng dồn theo vật tư
+        var normLinesByTmi = await NormResolver.ResolveManyAsync(tmis, Clock.Now.Year);
+        foreach (var tmi in tmis)
+        {
+            foreach (var template in normLinesByTmi.GetValueOrDefault(tmi.Id) ?? new List<ResolvedNormLine>())
             {
                 rawLines.Add(new ConsumptionPreviewLineDto
                 {
                     ProductId = template.ProductId,
-                    EquipmentId = template.EquipmentId,
                     UnitId = template.UnitId,
                     RecommendedQuantity = template.Quantity,
                     ActualQuantity = template.Quantity,

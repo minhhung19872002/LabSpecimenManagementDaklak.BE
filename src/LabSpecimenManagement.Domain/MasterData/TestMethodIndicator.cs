@@ -1,4 +1,5 @@
 using System;
+using Volo.Abp;
 using Volo.Abp.Domain.Entities;
 
 namespace LabSpecimenManagement.MasterData;
@@ -6,7 +7,7 @@ namespace LabSpecimenManagement.MasterData;
 /// <summary>
 /// Bảng trung gian liên kết Phương pháp thử và Chỉ tiêu (Many-to-Many)
 /// </summary>
-public class TestMethodIndicator : Entity<Guid>
+public class TestMethodIndicator : Entity<Guid>, ISoftDelete
 {
     /// <summary>
     /// ID Phương pháp thử
@@ -52,6 +53,21 @@ public class TestMethodIndicator : Entity<Guid>
     /// Cờ HĐ phụ (hợp đồng phụ / subcontract)
     /// </summary>
     public bool IsSubcontract { get; set; }
+
+    /// <summary>
+    /// Mã dịch vụ (DV0001...) — L2 Dịch vụ & Bảng giá. Sinh tự động bằng sequence DB.
+    /// </summary>
+    public string? ServiceCode { get; set; }
+
+    /// <summary>
+    /// Thời gian trả kết quả (ngày) của version giá đang áp dụng
+    /// </summary>
+    public int? TurnaroundDays { get; set; }
+
+    /// <summary>
+    /// Xóa mềm: phiếu đã dùng dịch vụ giữ snapshot, dịch vụ ẩn khỏi danh mục
+    /// </summary>
+    public bool IsDeleted { get; set; }
 
     protected TestMethodIndicator()
     {

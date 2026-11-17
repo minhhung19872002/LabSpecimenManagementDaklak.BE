@@ -76,9 +76,32 @@ public class MasterDataHistoryAppService : ApplicationService, IMasterDataHistor
         ["Notes"] = "Ghi chú",
         ["ProvinceCode"] = "Tỉnh/thành",
         ["WardCode"] = "Phường/xã",
+        // L2 Dịch vụ & Bảng giá
+        ["ServiceCode"] = "Mã dịch vụ",
+        ["TestMethodId"] = "Phương pháp",
+        ["IndicatorId"] = "Chỉ tiêu",
+        ["SpecimenTypeId"] = "Nền mẫu",
+        ["UnitPrice"] = "Đơn giá",
+        ["TurnaroundDays"] = "Thời gian trả KQ (ngày)",
+        ["IsSubcontract"] = "HĐ phụ",
+        ["EffectiveDate"] = "Ngày hiệu lực",
+        ["Note"] = "Ghi chú",
+        // L3 Định mức theo mẻ
+        ["ProductId"] = "Vật tư",
+        ["UnitId"] = "Đơn vị",
+        ["BatchQuantity"] = "Tổng tiêu hao / mẻ",
+        // L4 Dự toán mẫu năm
+        ["Year"] = "Năm",
+        ["EstimatedSamples"] = "Số mẫu dự toán",
+        ["TestMethodIndicatorId"] = "Dịch vụ",
     };
 
     private readonly IAuditLogRepository _auditLogRepository;
+    private readonly IRepository<TestMethod, Guid> _testMethodRepository;
+    private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<Unit, Guid> _unitRepository;
+    private readonly IRepository<Products.Product, Guid> _productRepository;
+    private readonly IRepository<TestMethodIndicator, Guid> _testMethodIndicatorRepository;
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<Department, Guid> _departmentRepository;
@@ -93,9 +116,19 @@ public class MasterDataHistoryAppService : ApplicationService, IMasterDataHistor
         IRepository<Department, Guid> departmentRepository,
         IRepository<Laboratory, Guid> laboratoryRepository,
         IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
-        IUserNameProvider userNameProvider)
+        IUserNameProvider userNameProvider,
+        IRepository<TestMethod, Guid> testMethodRepository,
+        IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<Unit, Guid> unitRepository,
+        IRepository<Products.Product, Guid> productRepository,
+        IRepository<TestMethodIndicator, Guid> testMethodIndicatorRepository)
     {
         _auditLogRepository = auditLogRepository;
+        _testMethodRepository = testMethodRepository;
+        _specimenTypeRepository = specimenTypeRepository;
+        _unitRepository = unitRepository;
+        _productRepository = productRepository;
+        _testMethodIndicatorRepository = testMethodIndicatorRepository;
         _indicatorGroupRepository = indicatorGroupRepository;
         _indicatorRepository = indicatorRepository;
         _departmentRepository = departmentRepository;
@@ -261,7 +294,42 @@ public class MasterDataHistoryAppService : ApplicationService, IMasterDataHistor
                     lookup[g.Id] = g.Name;
             }
 
-            var parentIds = Ids("ParentIndicatorId");
+            var methodIds = Ids("TestMethodId");
+            if (methodIds.Count > 0)
+            {
+                foreach (var m in await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id)))
+                    lookup[m.Id] = $"{m.Code} - {m.Name}";
+            }
+
+            var specimenTypeIds = Ids("SpecimenTypeId");
+            if (specimenTypeIds.Count > 0)
+            {
+                foreach (var s in await _specimenTypeRepository.GetListAsync(x => specimenTypeIds.Contains(x.Id)))
+                    lookup[s.Id] = s.Name;
+            }
+
+            var unitIds = Ids("UnitId");
+            if (unitIds.Count > 0)
+            {
+                foreach (var u in await _unitRepository.GetListAsync(x => unitIds.Contains(x.Id)))
+                    lookup[u.Id] = u.Name;
+            }
+
+            var productIds = Ids("ProductId");
+            if (productIds.Count > 0)
+            {
+                foreach (var p in await _productRepository.GetListAsync(x => productIds.Contains(x.Id)))
+                    lookup[p.Id] = $"{p.Code} - {p.Name}";
+            }
+
+            var serviceIds = Ids("TestMethodIndicatorId");
+            if (serviceIds.Count > 0)
+            {
+                foreach (var s in await _testMethodIndicatorRepository.GetListAsync(x => serviceIds.Contains(x.Id)))
+                    lookup[s.Id] = s.ServiceCode ?? s.Id.ToString();
+            }
+
+            var parentIds = Ids("ParentIndicatorId").Concat(Ids("IndicatorId")).Distinct().ToList();
             if (parentIds.Count > 0)
             {
                 foreach (var i in await _indicatorRepository.GetListAsync(x => parentIds.Contains(x.Id)))

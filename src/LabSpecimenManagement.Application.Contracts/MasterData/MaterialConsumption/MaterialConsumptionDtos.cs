@@ -65,5 +65,15 @@ public class ConsumptionStatusDto
     public Guid IndicatorId { get; set; }
     public Guid? SpecimenTypeId { get; set; }
     public Guid? TestMethodIndicatorId { get; set; }
+
+    /// <summary>Đủ dữ liệu tính tiêu hao khi submit = có định mức theo mẻ (L3) và dự toán năm (L4)</summary>
     public bool HasConsumption { get; set; }
+
+    /// <summary>Phương pháp có ít nhất 1 định mức hoàn chỉnh (vật tư + tổng tiêu hao) đang hoạt động</summary>
+    public bool HasNorm { get; set; }
+
+    /// <summary>Dịch vụ có dự toán số mẫu cho năm hiện tại</summary>
+    public bool HasForecast { get; set; }
+
+    public int ForecastYear { get; set; }
 }

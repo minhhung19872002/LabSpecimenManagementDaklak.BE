@@ -888,49 +888,56 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         }
     }
 
+    /// <summary>
+    /// Kiểm tra trước khi submit: tiêu hao / mẫu = định mức theo mẻ (L3) ÷ dự toán mẫu năm (L4).
+    /// Thiếu một trong hai → FE hiện popup "cần thiết lập".
+    /// </summary>
     public async Task<List<ConsumptionStatusDto>> CheckConsumptionStatusAsync(CheckConsumptionStatusInput input)
     {
-        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
-        var consumptionQuery = await _consumptionRepository.GetQueryableAsync();
+        var year = Clock.Now.Year;
+        var normRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<MethodBatchNorm, Guid>>();
+        var forecastRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<ServiceYearlyForecast, Guid>>();
 
-        var results = new List<ConsumptionStatusDto>();
+        var methodIds = input.Items.Select(i => i.TestMethodId).Distinct().ToList();
+        var indicatorIds = input.Items.Select(i => i.IndicatorId).Distinct().ToList();
 
-        foreach (var item in input.Items)
+        var services = await _testMethodIndicatorRepository.GetListAsync(x =>
+            methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId));
+
+        var methodsWithNorm = (await normRepository.GetListAsync(n =>
+                methodIds.Contains(n.TestMethodId) && n.IsActive && n.ProductId != null && n.BatchQuantity > 0))
+            .Select(n => n.TestMethodId)
+            .ToHashSet();
+
+        var serviceIds = services.Select(s => s.Id).ToList();
+        var servicesWithForecast = serviceIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await forecastRepository.GetListAsync(f =>
+                    serviceIds.Contains(f.TestMethodIndicatorId) && f.Year == year && f.EstimatedSamples > 0))
+                .Select(f => f.TestMethodIndicatorId)
+                .ToHashSet();
+
+        return input.Items.Select(item =>
         {
-            var tmi = await AsyncExecuter.FirstOrDefaultAsync(
-                tmiQuery.Where(x =>
-                    x.TestMethodId == item.TestMethodId &&
-                    x.IndicatorId == item.IndicatorId &&
-                    x.SpecimenTypeId == item.SpecimenTypeId)
-            );
+            var service = services.FirstOrDefault(x =>
+                x.TestMethodId == item.TestMethodId &&
+                x.IndicatorId == item.IndicatorId &&
+                x.SpecimenTypeId == item.SpecimenTypeId);
 
-            if (tmi == null)
-            {
-                results.Add(new ConsumptionStatusDto
-                {
-                    TestMethodId = item.TestMethodId,
-                    IndicatorId = item.IndicatorId,
-                    SpecimenTypeId = item.SpecimenTypeId,
-                    TestMethodIndicatorId = null,
-                    HasConsumption = false
-                });
-                continue;
-            }
+            var hasNorm = methodsWithNorm.Contains(item.TestMethodId);
+            var hasForecast = service != null && servicesWithForecast.Contains(service.Id);
 
-            var hasConsumption = await AsyncExecuter.AnyAsync(
-                consumptionQuery.Where(c => c.TestMethodIndicatorId == tmi.Id)
-            );
-
-            results.Add(new ConsumptionStatusDto
+            return new ConsumptionStatusDto
             {
                 TestMethodId = item.TestMethodId,
                 IndicatorId = item.IndicatorId,
                 SpecimenTypeId = item.SpecimenTypeId,
-                TestMethodIndicatorId = tmi.Id,
-                HasConsumption = hasConsumption
-            });
-        }
-
-        return results;
+                TestMethodIndicatorId = service?.Id,
+                HasNorm = hasNorm,
+                HasForecast = hasForecast,
+                HasConsumption = hasNorm && hasForecast,
+                ForecastYear = year,
+            };
+        }).ToList();
     }
 }

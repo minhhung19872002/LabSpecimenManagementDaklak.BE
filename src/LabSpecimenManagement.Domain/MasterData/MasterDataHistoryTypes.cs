@@ -26,6 +26,9 @@ public static class MasterDataHistoryTypes
         ["notes"] = typeof(Note),
         ["customers"] = typeof(Customer),
         ["organizations"] = typeof(Organization),
+        ["services"] = typeof(TestMethodIndicator),
+        ["batchNorms"] = typeof(MethodBatchNorm),
+        ["yearlyForecasts"] = typeof(ServiceYearlyForecast),
     };
 
     /// <summary>
@@ -35,8 +38,8 @@ public static class MasterDataHistoryTypes
     {
         typeof(StandardIndicator),
         typeof(SpecimenTypeIndicator),
-        typeof(TestMethodIndicator),
         typeof(TestResultValueIndicator),
+        typeof(ServicePriceVersion),
     };
 
     private static readonly HashSet<Type> TrackedTypes = ByKey.Values.Concat(LinkTypes).ToHashSet();

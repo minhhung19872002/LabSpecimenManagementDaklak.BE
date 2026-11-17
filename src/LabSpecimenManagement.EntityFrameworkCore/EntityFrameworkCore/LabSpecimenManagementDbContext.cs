@@ -91,6 +91,9 @@ public class LabSpecimenManagementDbContext :
     public DbSet<WarehouseImportReceiptItem> WarehouseImportReceiptItems { get; set; }
     public DbSet<Manufacturer> Manufacturers { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
+    public DbSet<ServicePriceVersion> ServicePriceVersions { get; set; }
+    public DbSet<MethodBatchNorm> MethodBatchNorms { get; set; }
+    public DbSet<ServiceYearlyForecast> ServiceYearlyForecasts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceipt> MaterialReceipts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceiptItem> MaterialReceiptItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
@@ -223,6 +226,10 @@ public class LabSpecimenManagementDbContext :
     protected override void OnModelCreating(ModelBuilder builder)
     {
         base.OnModelCreating(builder);
+
+        // Sequence sinh mã dịch vụ (DV0001) / mã định mức (DM0001)
+        builder.HasSequence<long>("AppServiceCodeSeq");
+        builder.HasSequence<long>("AppBatchNormCodeSeq");
 
         /* Include modules to your migration db context */
 
@@ -853,13 +860,62 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.FormattedUnit).HasMaxLength(500).IsRequired(false);
             b.Property(x => x.IsActive).HasDefaultValue(true);
             b.Property(x => x.IsSubcontract).HasDefaultValue(false);
+            b.Property(x => x.ServiceCode).HasMaxLength(20)
+                .HasDefaultValueSql("'DV' || app_pad_code(nextval('\"AppServiceCodeSeq\"'))");
 
             b.HasIndex(x => x.TestMethodId);
+            b.HasIndex(x => x.ServiceCode).IsUnique();
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.SpecimenTypeId);
-            // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId
+            // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId (chỉ dòng chưa xóa mềm)
             // Allows same indicator multiple times with different specimen types
-            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId }).IsUnique();
+            b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+        });
+
+        // L2 · Version giá dịch vụ
+        builder.Entity<ServicePriceVersion>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServicePriceVersions", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.UnitPrice).HasPrecision(18, 2);
+            b.Property(x => x.EffectiveDate).HasColumnType("date");
+            b.Property(x => x.Note).HasMaxLength(500);
+            b.HasIndex(x => x.TestMethodIndicatorId);
+            b.HasIndex(x => new { x.TestMethodIndicatorId, x.EffectiveDate })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+            b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // L3 · Định mức tiêu hao theo mẻ
+        builder.Entity<MethodBatchNorm>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MethodBatchNorms", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired()
+                .HasDefaultValueSql("'DM' || app_pad_code(nextval('\"AppBatchNormCodeSeq\"'))");
+            b.Property(x => x.BatchQuantity).HasColumnType("numeric");
+            b.Property(x => x.IsActive).HasDefaultValue(true);
+            b.Ignore(x => x.IsComplete);
+            b.HasIndex(x => x.TestMethodId);
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => new { x.TestMethodId, x.ProductId })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false AND \"ProductId\" IS NOT NULL");
+        });
+
+        // L4 · Dự toán số mẫu năm
+        builder.Entity<ServiceYearlyForecast>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceYearlyForecasts", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.HasIndex(x => x.Year);
+            b.HasIndex(x => new { x.TestMethodIndicatorId, x.Year })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+            b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // MaterialConsumptionItem configuration
@@ -1916,6 +1972,7 @@ public class LabSpecimenManagementDbContext :
             b.Property(x => x.RecommendedQuantity).HasColumnType("numeric");
             b.Property(x => x.ActualQuantity).HasColumnType("numeric");
             b.Property(x => x.ConsumableStockBefore).HasColumnType("numeric");
+            b.Property(x => x.NormBatchQuantity).HasColumnType("numeric");
 
             b.Property(x => x.LotNumber).HasMaxLength(200);
             b.Property(x => x.TechnicianName).HasMaxLength(256);
