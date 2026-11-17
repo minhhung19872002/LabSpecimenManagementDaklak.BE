@@ -11,9 +11,10 @@ namespace LabSpecimenManagement.Migrations
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
-            migrationBuilder.DropIndex(
-                name: "IX_AppTestMethodIndicators_TestMethodId_IndicatorId_SpecimenTy~",
-                table: "AppTestMethodIndicators");
+            // Index gốc (20260201100000) tạo bằng tên đầy đủ → Postgres cắt 63 ký tự thành "...SpecimenTyp",
+            // khác tên EF cắt "...SpecimenTy~" → drop cả 2 kiểu tên, IF EXISTS.
+            migrationBuilder.Sql("DROP INDEX IF EXISTS \"IX_AppTestMethodIndicators_TestMethodId_IndicatorId_SpecimenTyp\";");
+            migrationBuilder.Sql("DROP INDEX IF EXISTS \"IX_AppTestMethodIndicators_TestMethodId_IndicatorId_SpecimenTy~\";");
 
             migrationBuilder.CreateSequence(
                 name: "AppBatchNormCodeSeq");
