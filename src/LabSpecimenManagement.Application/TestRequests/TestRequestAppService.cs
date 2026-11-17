@@ -158,6 +158,47 @@ public partial class TestRequestAppService :
     /// <summary>Snapshot master data cho chứng từ (lazy, không đổi constructor)</summary>
     private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
+    /// <summary>Admin sửa tên chỉ tiêu trên phiếu (lazy, không đổi constructor)</summary>
+    private IndicatorNameEditor IndicatorNames => LazyServiceProvider.LazyGetRequiredService<IndicatorNameEditor>();
+
+    /// <summary>
+    /// Điều kiện được ghi tên chỉ tiêu FE gửi lên (indicatorId, name, formattedName) → bool:
+    /// - Admin: luôn được.
+    /// - User khác: chỉ khi tên trùng tên đã sửa trên báo giá nguồn của phiếu (tạo phiếu từ báo giá).
+    /// </summary>
+    private async Task<Func<Guid, string?, string?, bool>> GetIndicatorNameGuardAsync(Guid? quotationId)
+    {
+        if (IndicatorNames.CanEdit)
+        {
+            return (_, _, _) => true;
+        }
+        if (!quotationId.HasValue)
+        {
+            return (_, _, _) => false;
+        }
+
+        var quotationSampleRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<Quotations.QuotationSample, Guid>>();
+        var quotationIndicatorRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<Quotations.QuotationSampleIndicator, Guid>>();
+        var sampleIds = (await quotationSampleRepository.GetQueryableAsync())
+            .Where(s => s.QuotationId == quotationId.Value)
+            .Select(s => s.Id);
+        var quotationNames = await AsyncExecuter.ToListAsync((await quotationIndicatorRepository.GetQueryableAsync())
+            .Where(i => sampleIds.Contains(i.QuotationSampleId))
+            .Select(i => new { i.IndicatorId, i.IndicatorName, i.IndicatorFormattedName }));
+        var allowed = quotationNames
+            .Select(x => (x.IndicatorId, Normalized: IndicatorNameEditor.Normalize(x.IndicatorName, x.IndicatorFormattedName)))
+            .Where(x => x.Normalized != null)
+            .Select(x => (x.IndicatorId, x.Normalized!.Value.FormattedName.Normalize()))
+            .ToHashSet();
+
+        return (indicatorId, name, formattedName) =>
+        {
+            var normalized = IndicatorNameEditor.Normalize(name, formattedName);
+            return normalized != null && allowed.Contains((indicatorId, normalized.Value.FormattedName.Normalize()));
+        };
+    }
+
+    /// <summary>
     /// Cập nhật snapshot cho chỉ tiêu mẫu đã tồn tại: chỉ làm mới phần có FK vừa đổi
     /// (khoa phòng / phương pháp / loại mẫu), giữ nguyên snapshot tên chỉ tiêu.
     /// </summary>
@@ -750,6 +791,8 @@ public partial class TestRequestAppService :
             throw new TestRequestValidationException("contractNumber", "Số hợp đồng đã tồn tại trong hệ thống");
         }
 
+        var canSetIndicatorName = await GetIndicatorNameGuardAsync(input.QuotationId);
+
         // Create samples
         if (input.Samples != null && input.Samples.Any())
         {
@@ -799,6 +842,9 @@ public partial class TestRequestAppService :
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
                         await Snapshot.SnapshotAsync(sampleIndicator);
+                        await IndicatorNames.ApplyAsync(sampleIndicator, entity.Id,
+                            indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName,
+                            canSetIndicatorName(indicatorDto.IndicatorId, indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName));
 
                         await _sampleIndicatorRepository.InsertAsync(sampleIndicator, autoSave: true);
                         sampleIndicatorCost += indicatorDto.UnitPrice;
@@ -1095,6 +1141,7 @@ public partial class TestRequestAppService :
             }
 
             decimal totalCost = 0;
+            var canSetIndicatorName = await GetIndicatorNameGuardAsync(entity.QuotationId);
 
             // Update or create samples
             foreach (var sampleDto in input.Samples)
@@ -1206,6 +1253,9 @@ public partial class TestRequestAppService :
                             indicator.RequestDate = indicatorDto.RequestDate;
                             // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             await SnapshotSampleIndicatorAsync(indicator, oldLaboratoryId, oldTestMethodId, oldIndicatorSpecimenTypeId);
+                            await IndicatorNames.ApplyAsync(indicator, id,
+                                indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName,
+                                canSetIndicatorName(indicator.IndicatorId, indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName));
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
 
                             // Move LaboratoryTaskIndicator when lab changes and status is Pending
@@ -1267,6 +1317,9 @@ public partial class TestRequestAppService :
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.IsSubcontract = indicatorDto.IsSubcontract;
                             await Snapshot.SnapshotAsync(indicator);
+                            await IndicatorNames.ApplyAsync(indicator, id,
+                                indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName,
+                                canSetIndicatorName(indicatorDto.IndicatorId, indicatorDto.IndicatorName, indicatorDto.IndicatorFormattedName));
 
                             await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
                         }

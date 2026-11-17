@@ -281,4 +281,14 @@ public class UpdateTestRequestSampleIndicatorDto
     /// Hợp đồng phụ (snapshot từ TestMethodIndicator)
     /// </summary>
     public bool IsSubcontract { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu trên phiếu (admin sửa; không đổi master). Null = giữ tên đang lưu / tên danh mục.
+    /// </summary>
+    public string? IndicatorName { get; set; }
+
+    /// <summary>
+    /// Tên chỉ tiêu có định dạng (HTML) trên phiếu (admin sửa)
+    /// </summary>
+    public string? IndicatorFormattedName { get; set; }
 }

@@ -3559,6 +3559,52 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppCostChangeHistories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.TestRequests.IndicatorNameChangeHistory", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("IndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("LineId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("NewFormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("NewName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OldFormattedName")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OldName")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("LineId");
+
+                    b.HasIndex("Source", "DocumentId");
+
+                    b.ToTable("AppIndicatorNameChangeHistories", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.TestRequests.SampleIndicatorNote", b =>
                 {
                     b.Property<Guid>("Id")

@@ -1785,7 +1785,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 var sample = await _sampleRepository.FindAsync(sampleIndicator.TestRequestSampleId);
                 var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
                 sampleName = sample?.SampleName;
-                indicatorName = indicator?.Name;
+                indicatorName = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorName, indicator?.Name);
             }
             if (taskIndicator.MethodId.HasValue)
             {

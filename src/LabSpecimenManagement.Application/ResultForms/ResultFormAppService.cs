@@ -2884,6 +2884,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         string MakeKey(Guid indicatorId, Guid? testMethodId, Guid? specimenTypeId) =>
             $"{indicatorId}_{testMethodId?.ToString() ?? "null"}_{specimenTypeId?.ToString() ?? "null"}";
 
+        // Tên đã sửa trên phiếu (IsCustomName) ưu tiên hơn tên danh mục
+        string PlainName(PreviewSampleIndicatorDto pi, Indicator ind) =>
+            pi.IsCustomName && !string.IsNullOrWhiteSpace(pi.IndicatorName) ? pi.IndicatorName : ind.Name;
+        string? FormattedName(PreviewSampleIndicatorDto pi, Indicator ind) =>
+            pi.IsCustomName && !string.IsNullOrWhiteSpace(pi.IndicatorName) ? pi.IndicatorFormattedName : ind.FormattedName;
+
         // Track which indicator+method+specimen combinations have been processed
         var processedKeys = new HashSet<string>();
 
@@ -2938,22 +2944,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var namePlainBuilder = new StringBuilder();
                 var nameFormattedBuilder = new StringBuilder();
                 decimal totalPrice = previewInd.UnitPrice;
-                bool hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+                var parentFormatted = FormattedName(previewInd, indicator);
+                bool hasAnyFormattedName = !string.IsNullOrEmpty(parentFormatted);
 
-                namePlainBuilder.Append(indicator.Name);
-                nameFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+                namePlainBuilder.Append(PlainName(previewInd, indicator));
+                nameFormattedBuilder.Append(parentFormatted ?? PlainName(previewInd, indicator));
 
                 foreach (var childPreview in childrenInSample)
                 {
                     var childInd = indicatorDict[childPreview.IndicatorId];
-                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                    var childFormatted = FormattedName(childPreview, childInd);
+                    if (!string.IsNullOrEmpty(childFormatted))
                         hasAnyFormattedName = true;
 
                     namePlainBuilder.Append("\n- ");
-                    namePlainBuilder.Append(childInd.Name);
+                    namePlainBuilder.Append(PlainName(childPreview, childInd));
 
                     nameFormattedBuilder.Append("\n- ");
-                    nameFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                    nameFormattedBuilder.Append(childFormatted ?? PlainName(childPreview, childInd));
 
                     totalPrice += childPreview.UnitPrice;
                     var childKey = MakeKey(childPreview.IndicatorId, childPreview.TestMethodId, childPreview.SpecimenTypeId);
@@ -2975,8 +2983,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
-                    IndicatorName = indicator.Name ?? previewInd.IndicatorName,
-                    IndicatorFormattedName = indicator.FormattedName ?? previewInd.IndicatorFormattedName,
+                    IndicatorName = PlainName(previewInd, indicator) ?? previewInd.IndicatorName,
+                    IndicatorFormattedName = FormattedName(previewInd, indicator) ?? previewInd.IndicatorFormattedName,
                     UnitPrice = previewInd.UnitPrice.ToString("N0")
                 }, previewInd.TestMethodId, methodDict));
             }
