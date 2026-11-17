@@ -20,8 +20,8 @@ public interface IStandardAppService : IApplicationService
     Task<StandardDto> ToggleActiveAsync(Guid id);
 
     // Standards with indicators
-    Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync();
-    Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id);
+    Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync(bool excludeDeletedIndicators = false);
+    Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id, bool excludeDeletedIndicators = false);
 
     // Indicator management
     Task<List<StandardIndicatorDto>> GetIndicatorsAsync(Guid standardId);

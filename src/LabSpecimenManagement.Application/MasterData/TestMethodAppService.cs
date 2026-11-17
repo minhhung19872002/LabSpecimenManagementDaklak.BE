@@ -81,7 +81,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task<TestMethodDto> GetAsync(Guid id)
     {
         var entity = await _testMethodRepository.GetAsync(id);
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveTestMethodIndicatorQueryAsync();
 
         var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == id);
@@ -122,7 +122,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         await _testMethodRepository.UpdateAsync(entity);
 
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveTestMethodIndicatorQueryAsync();
         var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == id);
 
@@ -132,7 +132,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task DeleteAsync(Guid id)
     {
         // Check if there are any indicators linked
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveTestMethodIndicatorQueryAsync();
         var hasIndicators = indicatorQuery.Any(i => i.TestMethodId == id);
 
         if (hasIndicators)
@@ -191,13 +191,24 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     // 1 câu GroupBy thay cho N câu COUNT chạy đồng bộ trong vòng lặp map DTO
     private async Task<Dictionary<Guid, int>> GetIndicatorCountByMethodAsync()
     {
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveTestMethodIndicatorQueryAsync();
         var counts = await AsyncExecuter.ToListAsync(
             indicatorQuery
                 .GroupBy(i => i.TestMethodId)
                 .Select(g => new { g.Key, Count = g.Count() })
         );
         return counts.ToDictionary(x => x.Key, x => x.Count);
+    }
+
+    /// <summary>
+    /// Liên kết PP–chỉ tiêu, bỏ các dòng trỏ tới chỉ tiêu đã bị xóa mềm
+    /// (xóa chỉ tiêu không xóa TestMethodIndicator để còn khôi phục được).
+    /// </summary>
+    private async Task<IQueryable<TestMethodIndicator>> GetLiveTestMethodIndicatorQueryAsync()
+    {
+        var tmiQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        return tmiQuery.Where(tmi => indicatorQuery.Any(i => i.Id == tmi.IndicatorId));
     }
 
     public async Task<List<TestMethodWithIndicatorsDto>> GetAllWithIndicatorsAsync()
@@ -225,7 +236,9 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
                 var tmIndicatorList = new List<TestMethodIndicatorDto>();
 
+                // Bỏ liên kết tới chỉ tiêu đã xóa mềm (tránh dòng trống tên)
                 var parentIndicators = tmIndicatorsByMethod[tm.Id]
+                    .Where(tmi => indicatorById.ContainsKey(tmi.IndicatorId))
                     .OrderBy(tmi => tmi.SortOrder)
                     .ToList();
 
@@ -312,6 +325,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         // Get all indicators including potential sub-indicators
         var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
+        var liveIndicatorIds = allIndicators.Select(i => i.Id).ToHashSet();
+        tmIndicators = tmIndicators.Where(tmi => liveIndicatorIds.Contains(tmi.IndicatorId)).ToList();
 
         // Get specimen types for enrichment
         var specimenTypes = await _specimenTypeRepository.GetListAsync();
@@ -395,6 +410,8 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
 
         // Get all indicators including potential sub-indicators
         var allIndicators = await AsyncExecuter.ToListAsync(indicatorQuery);
+        var liveIndicatorIds = allIndicators.Select(i => i.Id).ToHashSet();
+        tmIndicators = tmIndicators.Where(tmi => liveIndicatorIds.Contains(tmi.IndicatorId)).ToList();
 
         // Get specimen types for enrichment
         var specimenTypes = await _specimenTypeRepository.GetListAsync();
@@ -684,7 +701,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         entity.IsActive = !entity.IsActive;
         await _testMethodRepository.UpdateAsync(entity);
 
-        var indicatorQuery = await _testMethodIndicatorRepository.GetQueryableAsync();
+        var indicatorQuery = await GetLiveTestMethodIndicatorQueryAsync();
         var dto = ObjectMapper.Map<TestMethod, TestMethodDto>(entity);
         dto.IndicatorCount = indicatorQuery.Count(i => i.TestMethodId == id);
 

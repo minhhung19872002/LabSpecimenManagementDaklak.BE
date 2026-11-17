@@ -257,7 +257,9 @@ public class SpecimenTypeAppService :
                     dto.SampleTypeCategoryName = categoryName;
                 }
 
+                // Bỏ liên kết tới chỉ tiêu đã xóa mềm (indicatorById chỉ chứa chỉ tiêu còn sống)
                 var stIndicators = stiBySpecimenType[st.Id]
+                    .Where(sti => indicatorById.ContainsKey(sti.IndicatorId))
                     .OrderBy(sti => sti.SortOrder)
                     .Select(sti =>
                     {
@@ -315,7 +317,8 @@ public class SpecimenTypeAppService :
         var indicatorGroups = indicatorGroupQuery.Where(g => groupIds.Contains(g.Id)).ToList();
 
         // Build indicators list
-        dto.Indicators = stIndicators.Select(sti =>
+        // Bỏ liên kết tới chỉ tiêu đã xóa mềm
+        dto.Indicators = stIndicators.Where(sti => indicators.Any(i => i.Id == sti.IndicatorId)).Select(sti =>
         {
             var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
             var indicatorGroup = indicator != null
@@ -358,7 +361,8 @@ public class SpecimenTypeAppService :
         var groupIds = indicators.Select(i => i.IndicatorGroupId).Distinct().ToList();
         var indicatorGroups = indicatorGroupQuery.Where(g => groupIds.Contains(g.Id)).ToList();
 
-        return stIndicators.Select(sti =>
+        // Bỏ liên kết tới chỉ tiêu đã xóa mềm
+        return stIndicators.Where(sti => indicators.Any(i => i.Id == sti.IndicatorId)).Select(sti =>
         {
             var indicator = indicators.FirstOrDefault(i => i.Id == sti.IndicatorId);
             var indicatorGroup = indicator != null

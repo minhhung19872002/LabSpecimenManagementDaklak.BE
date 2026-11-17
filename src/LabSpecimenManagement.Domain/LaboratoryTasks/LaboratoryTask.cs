@@ -23,6 +23,11 @@ public class LaboratoryTask : FullAuditedAggregateRoot<Guid>
     public Guid LaboratoryId { get; set; }
 
     /// <summary>
+    /// Snapshot tên khoa phòng (tên phòng ban của Laboratory, giữ nguyên khi danh mục bị sửa/xóa)
+    /// </summary>
+    public string? LaboratoryName { get; set; }
+
+    /// <summary>
     /// Số hợp đồng - Contract Number (copied from TestRequest)
     /// </summary>
     public string? ContractNumber { get; set; }

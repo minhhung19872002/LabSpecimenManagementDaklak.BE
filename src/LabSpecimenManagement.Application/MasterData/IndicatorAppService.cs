@@ -298,18 +298,11 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             .Select(s => s.Id!.Value)
             .ToHashSet();
 
-        // 4. Delete removed sub-indicators (check usage first)
-        var testRequestQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
+        // 4. Delete removed sub-indicators (xóa mềm — phiếu cũ giữ nguyên nhờ snapshot)
         foreach (var existingSub in existingSubs)
         {
             if (!incomingIds.Contains(existingSub.Id))
             {
-                var isUsed = testRequestQuery.Any(x => x.IndicatorId == existingSub.Id);
-                if (isUsed)
-                {
-                    throw new UserFriendlyException(
-                        $"Không thể xóa chỉ tiêu phụ '{existingSub.Name}' vì đã được sử dụng trong phiếu yêu cầu.");
-                }
                 await _indicatorRepository.DeleteAsync(existingSub.Id);
             }
         }
@@ -359,31 +352,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var indicator = await _indicatorRepository.GetAsync(id);
 
-        // Check if can delete
-        var canDelete = await CanDeleteAsync(id);
-        if (!canDelete)
-        {
-            throw new Common.Exceptions.InvalidOperationException(
-                "Không thể xóa chỉ tiêu này vì đã được sử dụng trong phiếu yêu cầu.",
-                "id");
-        }
-
+        // Xóa mềm: phiếu đã dùng chỉ tiêu vẫn hiển thị đúng nhờ snapshot (TestRequestSampleIndicator.Indicator*)
         // If this is a parent, delete all sub-indicators first
         if (indicator.ParentIndicatorId == null)
         {
             var query = await _indicatorRepository.GetQueryableAsync();
             var subIndicators = query.Where(x => x.ParentIndicatorId == id).ToList();
-
-            // Check if any sub-indicator is used
-            foreach (var sub in subIndicators)
-            {
-                var canDeleteSub = await CanDeleteAsync(sub.Id);
-                if (!canDeleteSub)
-                {
-                    throw new UserFriendlyException(
-                        $"Không thể xóa vì chỉ tiêu phụ '{sub.Name}' đã được sử dụng trong phiếu yêu cầu.");
-                }
-            }
 
             // Delete all sub-indicators
             foreach (var sub in subIndicators)
@@ -396,10 +370,12 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         await _indicatorRepository.DeleteAsync(id);
     }
 
-    public async Task<bool> CanDeleteAsync(Guid id)
+    /// <summary>
+    /// Luôn cho phép xóa: chỉ tiêu bị xóa mềm, phiếu cũ dùng giá trị snapshot nên không bị ảnh hưởng.
+    /// </summary>
+    public Task<bool> CanDeleteAsync(Guid id)
     {
-        var query = await _testRequestIndicatorRepository.GetQueryableAsync();
-        return !query.Any(x => x.IndicatorId == id);
+        return Task.FromResult(true);
     }
 
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
@@ -738,22 +714,13 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         // Resolve laboratory names
         var labNames = await GetLaboratoryNamesAsync(entities.Select(x => x.LaboratoryId).Distinct().ToList());
 
-        // Check which indicators can be deleted
-        var indicatorIds = entities.Select(x => x.Id).ToList();
-        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
-        var usedIndicatorIds = testRequestIndicatorQuery
-            .Where(x => indicatorIds.Contains(x.IndicatorId))
-            .Select(x => x.IndicatorId)
-            .Distinct()
-            .ToList();
-
         var dtos = new List<IndicatorDto>();
         foreach (var entity in entities)
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(entity);
             dto.IndicatorGroupName = groups.GetValueOrDefault(entity.IndicatorGroupId, "");
             dto.LaboratoryName = labNames.GetValueOrDefault(entity.LaboratoryId, "");
-            dto.CanDelete = !usedIndicatorIds.Contains(entity.Id);
+            dto.CanDelete = true;
             dtos.Add(dto);
         }
 
@@ -791,15 +758,6 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             .Distinct().ToList();
         var labNames = await GetLaboratoryNamesAsync(allLabIds);
 
-        // Check deletability for all indicators (parents + subs)
-        var allIndicatorIds = parentIds.Concat(allSubIndicators.Select(x => x.Id)).ToList();
-        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
-        var usedIndicatorIds = testRequestIndicatorQuery
-            .Where(x => allIndicatorIds.Contains(x.IndicatorId))
-            .Select(x => x.IndicatorId)
-            .Distinct()
-            .ToList();
-
         var dtos = new List<IndicatorDto>();
 
         foreach (var parent in parentIndicators)
@@ -807,7 +765,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(parent);
             dto.IndicatorGroupName = groups.GetValueOrDefault(parent.IndicatorGroupId, "");
             dto.LaboratoryName = labNames.GetValueOrDefault(parent.LaboratoryId, "");
-            dto.CanDelete = !usedIndicatorIds.Contains(parent.Id);
+            dto.CanDelete = true;
             dto.HasSubIndicators = subIndicatorsByParent.ContainsKey(parent.Id);
 
             // Map sub-indicators
@@ -818,7 +776,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                     var subDto = ObjectMapper.Map<Indicator, IndicatorDto>(sub);
                     subDto.IndicatorGroupName = groups.GetValueOrDefault(sub.IndicatorGroupId, "");
                     subDto.LaboratoryName = labNames.GetValueOrDefault(sub.LaboratoryId, "");
-                    subDto.CanDelete = !usedIndicatorIds.Contains(sub.Id);
+                    subDto.CanDelete = true;
                     subDto.ParentIndicatorCode = parent.Code;
                     return subDto;
                 }).ToList();
@@ -842,31 +800,11 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         var query = await _indicatorRepository.GetQueryableAsync();
         var indicators = query.Where(x => input.Ids.Contains(x.Id)).ToList();
 
-        // Check which indicators are used in test requests
-        var testRequestIndicatorQuery = await _testRequestIndicatorRepository.GetQueryableAsync();
-        var usedIndicatorIds = testRequestIndicatorQuery
-            .Where(x => input.Ids.Contains(x.IndicatorId))
-            .Select(x => x.IndicatorId)
-            .Distinct()
-            .ToList();
-
+        // Xóa mềm — phiếu đã dùng giữ nguyên nhờ snapshot
         foreach (var indicator in indicators)
         {
-            if (usedIndicatorIds.Contains(indicator.Id))
-            {
-                result.FailedCount++;
-                result.Errors.Add(new BatchOperationErrorDto
-                {
-                    Id = indicator.Id,
-                    Name = indicator.Name,
-                    ErrorMessage = "Không thể xóa vì đã được sử dụng trong phiếu yêu cầu"
-                });
-            }
-            else
-            {
-                await _indicatorRepository.DeleteAsync(indicator.Id);
-                result.SuccessCount++;
-            }
+            await _indicatorRepository.DeleteAsync(indicator.Id);
+            result.SuccessCount++;
         }
 
         return result;

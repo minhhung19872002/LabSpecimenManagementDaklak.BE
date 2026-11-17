@@ -95,6 +95,11 @@ public class TestRequestSample : FullAuditedEntity<Guid>
     public Guid? SpecimenTypeId { get; set; }
 
     /// <summary>
+    /// Snapshot tên loại mẫu (giữ nguyên khi danh mục bị sửa/xóa)
+    /// </summary>
+    public string? SpecimenTypeName { get; set; }
+
+    /// <summary>
     /// Đánh dấu mẫu cần hủy (tự động set bởi cronjob khi HĐ hoàn thành + 5 ngày)
     /// </summary>
     public bool NeedDisposal { get; set; }

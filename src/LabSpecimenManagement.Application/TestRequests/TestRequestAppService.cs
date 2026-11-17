@@ -12,6 +12,7 @@ using LabSpecimenManagement.Receipts;
 using Microsoft.Extensions.Logging;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.PublishedReports;
 using LabSpecimenManagement.QualityManagement;
@@ -154,6 +155,47 @@ public partial class TestRequestAppService :
         _dataFilter = dataFilter;
     }
 
+    /// <summary>Snapshot master data cho chứng từ (lazy, không đổi constructor)</summary>
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
+
+    /// Cập nhật snapshot cho chỉ tiêu mẫu đã tồn tại: chỉ làm mới phần có FK vừa đổi
+    /// (khoa phòng / phương pháp / loại mẫu), giữ nguyên snapshot tên chỉ tiêu.
+    /// </summary>
+    private async Task SnapshotSampleIndicatorAsync(
+        TestRequestSampleIndicator indicator, Guid? oldLaboratoryId, Guid? oldTestMethodId, Guid? oldSpecimenTypeId)
+    {
+        if (oldLaboratoryId != indicator.LaboratoryId)
+        {
+            indicator.LaboratoryName = null;
+        }
+        if (oldTestMethodId != indicator.TestMethodId)
+        {
+            indicator.TestMethodCode = null;
+            indicator.TestMethodName = null;
+            indicator.TestMethodFormattedName = null;
+            indicator.TestMethodUnit = null;
+            indicator.TestMethodFormattedUnit = null;
+        }
+        if (oldSpecimenTypeId != indicator.SpecimenTypeId)
+        {
+            indicator.SpecimenTypeName = null;
+        }
+
+        // overwrite = false: chỉ điền phần đang trống (vừa xóa ở trên hoặc dữ liệu cũ chưa có snapshot)
+        await Snapshot.SnapshotAsync(indicator);
+    }
+
+    /// <summary>Cập nhật snapshot loại mẫu cho mẫu đã tồn tại khi đổi loại mẫu</summary>
+    private async Task SnapshotSampleAsync(TestRequestSample sample, Guid? oldSpecimenTypeId)
+    {
+        if (oldSpecimenTypeId != sample.SpecimenTypeId)
+        {
+            sample.SpecimenTypeName = null;
+        }
+
+        await Snapshot.SnapshotAsync(sample);
+    }
+
     public override async Task<TestRequestDto> GetAsync(Guid id)
     {
         var entity = await Repository.GetAsync(id);
@@ -192,25 +234,22 @@ public partial class TestRequestAppService :
         var indicatorsBySample = allSampleIndicators.ToLookup(i => i.TestRequestSampleId);
 
         var detailIndicatorIds = allSampleIndicators.Select(i => i.IndicatorId).Distinct().ToList();
-        var indicatorEntityById = (await _indicatorRepository.GetListAsync(i => detailIndicatorIds.Contains(i.Id))).ToDictionary(i => i.Id);
+        // Master tra cứu BAO GỒM bản ghi đã xóa mềm — phiếu cũ không lỗi/mất dòng khi danh mục bị xóa
+        var indicatorEntityById = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(detailIndicatorIds);
 
         var detailGroupIds = indicatorEntityById.Values
             .Where(i => i.IndicatorGroupId != Guid.Empty)
             .Select(i => i.IndicatorGroupId).Distinct().ToList();
-        var groupById = (await _indicatorGroupRepository.GetListAsync(g => detailGroupIds.Contains(g.Id))).ToDictionary(g => g.Id);
+        var groupById = await Snapshot.GetDictionaryIncludingDeletedAsync<IndicatorGroup>(detailGroupIds);
 
-        var detailLabIds = allSampleIndicators.Where(i => i.LaboratoryId.HasValue).Select(i => i.LaboratoryId!.Value).Distinct().ToList();
-        var labById = (await _laboratoryRepository.GetListAsync(l => detailLabIds.Contains(l.Id))).ToDictionary(l => l.Id);
-        var detailDeptIds = labById.Values.Select(l => l.DepartmentId).Distinct().ToList();
-        var deptById = (await _departmentRepository.GetListAsync(d => detailDeptIds.Contains(d.Id))).ToDictionary(d => d.Id);
+        var labNameById = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(allSampleIndicators.Select(i => i.LaboratoryId));
 
-        var detailMethodIds = allSampleIndicators.Where(i => i.TestMethodId.HasValue).Select(i => i.TestMethodId!.Value).Distinct().ToList();
-        var methodById = (await _testMethodRepository.GetListAsync(m => detailMethodIds.Contains(m.Id))).ToDictionary(m => m.Id);
+        var methodById = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(allSampleIndicators.Select(i => i.TestMethodId));
 
         var detailSpecimenTypeIds = samples.Where(s => s.SpecimenTypeId.HasValue).Select(s => s.SpecimenTypeId!.Value)
             .Concat(allSampleIndicators.Where(i => i.SpecimenTypeId.HasValue).Select(i => i.SpecimenTypeId!.Value))
             .Distinct().ToList();
-        var specimenTypeById = (await _specimenTypeRepository.GetListAsync(st => detailSpecimenTypeIds.Contains(st.Id))).ToDictionary(st => st.Id);
+        var specimenTypeById = await Snapshot.GetDictionaryIncludingDeletedAsync<SpecimenType>(detailSpecimenTypeIds);
 
         var sampleIndicatorIdList = allSampleIndicators.Select(i => i.Id).ToList();
         var allLabTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(
@@ -233,7 +272,8 @@ public partial class TestRequestAppService :
             // Load specimen type name if assigned
             if (sample.SpecimenTypeId.HasValue)
             {
-                sampleDto.SpecimenTypeName = specimenTypeById.GetValueOrDefault(sample.SpecimenTypeId.Value)?.Name;
+                sampleDto.SpecimenTypeName = MasterDataSnapshotService.Pick(
+                    sample.SpecimenTypeName, specimenTypeById.GetValueOrDefault(sample.SpecimenTypeId.Value)?.Name);
             }
 
             // Load indicators for this sample
@@ -243,12 +283,12 @@ public partial class TestRequestAppService :
             decimal sampleIndicatorCost = 0;
             foreach (var indicator in indicators)
             {
-                var indicatorEntity = indicatorEntityById.GetValueOrDefault(indicator.IndicatorId)
-                    ?? throw new AbpEntityNotFoundException(typeof(Indicator), indicator.IndicatorId);
+                // Snapshot trước, master (kể cả đã xóa mềm) làm fallback — không throw khi chỉ tiêu đã bị xóa
+                var indicatorEntity = indicatorEntityById.GetValueOrDefault(indicator.IndicatorId);
 
                 // Get indicator group name
                 string? indicatorGroupName = null;
-                if (indicatorEntity.IndicatorGroupId != Guid.Empty)
+                if (indicatorEntity != null && indicatorEntity.IndicatorGroupId != Guid.Empty)
                 {
                     var indicatorGroup = groupById.GetValueOrDefault(indicatorEntity.IndicatorGroupId);
                     if (indicatorGroup != null)
@@ -256,16 +296,14 @@ public partial class TestRequestAppService :
                         indicatorGroupName = indicatorGroup.Name;
                     }
                 }
+                indicatorGroupName = MasterDataSnapshotService.Pick(indicator.IndicatorGroupName, indicatorGroupName);
 
                 // Get laboratory name if assigned
                 string? laboratoryName = null;
                 if (indicator.LaboratoryId.HasValue)
                 {
-                    var laboratory = labById.GetValueOrDefault(indicator.LaboratoryId.Value);
-                    if (laboratory != null)
-                    {
-                        laboratoryName = deptById.GetValueOrDefault(laboratory.DepartmentId)?.Name;
-                    }
+                    laboratoryName = MasterDataSnapshotService.Pick(
+                        indicator.LaboratoryName, labNameById.GetValueOrDefault(indicator.LaboratoryId.Value));
                 }
 
                 // Get test method info if assigned
@@ -275,16 +313,17 @@ public partial class TestRequestAppService :
                 if (indicator.TestMethodId.HasValue)
                 {
                     var testMethod = methodById.GetValueOrDefault(indicator.TestMethodId.Value);
-                    testMethodCode = testMethod?.Code;
-                    testMethodName = testMethod?.Name;
-                    testMethodFormattedName = testMethod?.FormattedName;
+                    testMethodCode = MasterDataSnapshotService.Pick(indicator.TestMethodCode, testMethod?.Code);
+                    testMethodName = MasterDataSnapshotService.Pick(indicator.TestMethodName, testMethod?.Name);
+                    testMethodFormattedName = MasterDataSnapshotService.Pick(indicator.TestMethodFormattedName, testMethod?.FormattedName);
                 }
 
                 // Get specimen type name if assigned (for indicator-level specimen type)
                 string? indicatorSpecimenTypeName = null;
                 if (indicator.SpecimenTypeId.HasValue)
                 {
-                    indicatorSpecimenTypeName = specimenTypeById.GetValueOrDefault(indicator.SpecimenTypeId.Value)?.Name;
+                    indicatorSpecimenTypeName = MasterDataSnapshotService.Pick(
+                        indicator.SpecimenTypeName, specimenTypeById.GetValueOrDefault(indicator.SpecimenTypeId.Value)?.Name);
                 }
 
                 // Get approval status and test date from LaboratoryTaskIndicator if exists
@@ -322,9 +361,9 @@ public partial class TestRequestAppService :
                     Id = indicator.Id,
                     TestRequestSampleId = indicator.TestRequestSampleId,
                     IndicatorId = indicator.IndicatorId,
-                    IndicatorCode = indicatorEntity.Code,
-                    IndicatorName = indicatorEntity.Name,
-                    IndicatorFormattedName = indicatorEntity.FormattedName,
+                    IndicatorCode = MasterDataSnapshotService.Pick(indicator.IndicatorCode, indicatorEntity?.Code),
+                    IndicatorName = MasterDataSnapshotService.Pick(indicator.IndicatorName, indicatorEntity?.Name),
+                    IndicatorFormattedName = MasterDataSnapshotService.Pick(indicator.IndicatorFormattedName, indicatorEntity?.FormattedName),
                     IndicatorGroupName = indicatorGroupName,
                     IndicatorDefaultLaboratoryId = indicatorEntity.LaboratoryId,
                     TestMethodId = indicator.TestMethodId,
@@ -344,7 +383,7 @@ public partial class TestRequestAppService :
                     SentToDepartment = labTaskIndicator != null,
                     ApprovalStatus = approvalStatus,
                     TestDate = testDate,
-                    ParentIndicatorId = indicatorEntity.ParentIndicatorId,
+                    ParentIndicatorId = indicatorEntity?.ParentIndicatorId,
                     Images = indicatorImages,
                     IsSentToQLKT = labTaskIndicator != null,
                     IsSubcontract = indicator.IsSubcontract
@@ -690,44 +729,13 @@ public partial class TestRequestAppService :
         // Validate indicator and test method IDs before inserting
         if (input.Samples != null && input.Samples.Any())
         {
-            var allIndicatorIds = input.Samples
+            var createIndicators = input.Samples
                 .Where(s => s.Indicators != null)
                 .SelectMany(s => s.Indicators)
-                .Select(i => i.IndicatorId)
-                .Distinct()
                 .ToList();
-
-            if (allIndicatorIds.Any())
-            {
-                var existingIndicators = await _indicatorRepository.GetListAsync(i => allIndicatorIds.Contains(i.Id));
-                var existingIndicatorIds = existingIndicators.Select(i => i.Id).ToHashSet();
-                var missingIds = allIndicatorIds.Where(id => !existingIndicatorIds.Contains(id)).ToList();
-                if (missingIds.Any())
-                {
-                    throw new Volo.Abp.BusinessException(
-                        message: $"Chỉ tiêu không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
-                }
-            }
-
-            var allTestMethodIds = input.Samples
-                .Where(s => s.Indicators != null)
-                .SelectMany(s => s.Indicators)
-                .Where(i => i.TestMethodId.HasValue)
-                .Select(i => i.TestMethodId!.Value)
-                .Distinct()
-                .ToList();
-
-            if (allTestMethodIds.Any())
-            {
-                var existingMethods = await _testMethodRepository.GetListAsync(m => allTestMethodIds.Contains(m.Id));
-                var existingMethodIds = existingMethods.Select(m => m.Id).ToHashSet();
-                var missingIds = allTestMethodIds.Where(id => !existingMethodIds.Contains(id)).ToList();
-                if (missingIds.Any())
-                {
-                    throw new Volo.Abp.BusinessException(
-                        message: $"Phương pháp thử không tồn tại trong hệ thống: {string.Join(", ", missingIds)}. Vui lòng tải lại trang và thử lại.");
-                }
-            }
+            await EnsureIndicatorsAndMethodsUsableAsync(
+                createIndicators.Select(i => i.IndicatorId),
+                createIndicators.Where(i => i.TestMethodId.HasValue).Select(i => i.TestMethodId!.Value));
         }
 
         var entity = await MapToEntityAsync(input);
@@ -763,6 +771,7 @@ public partial class TestRequestAppService :
                 sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
+                await Snapshot.SnapshotAsync(sample);
 
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
 
@@ -787,6 +796,7 @@ public partial class TestRequestAppService :
                         // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                         sampleIndicator.LaboratoryId = indicatorDto.LaboratoryId;
                         sampleIndicator.IsSubcontract = indicatorDto.IsSubcontract;
+                        await Snapshot.SnapshotAsync(sampleIndicator);
 
                         await _sampleIndicatorRepository.InsertAsync(sampleIndicator, autoSave: true);
                         sampleIndicatorCost += indicatorDto.UnitPrice;
@@ -838,6 +848,76 @@ public partial class TestRequestAppService :
         return await GetAsync(entity.Id);
     }
 
+    /// <summary>
+    /// Chặn dùng chỉ tiêu / phương pháp đã bị xóa (soft delete) hoặc không tồn tại cho các dòng MỚI.
+    /// Dòng cũ đã lưu snapshot thì không đi qua hàm này nên vẫn sửa/lưu bình thường.
+    /// </summary>
+    private async Task EnsureIndicatorsAndMethodsUsableAsync(IEnumerable<Guid> indicatorIds, IEnumerable<Guid> testMethodIds)
+    {
+        var allIndicatorIds = indicatorIds.Distinct().ToList();
+        if (allIndicatorIds.Any())
+        {
+            var existingIndicatorIds = (await _indicatorRepository.GetListAsync(i => allIndicatorIds.Contains(i.Id)))
+                .Select(i => i.Id).ToHashSet();
+            var missingIds = allIndicatorIds.Where(id => !existingIndicatorIds.Contains(id)).ToList();
+            if (missingIds.Any())
+            {
+                var deleted = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(missingIds);
+                var labels = missingIds.Select(id => deleted.TryGetValue(id, out var ind)
+                    ? $"{ind.Code} - {ind.Name}"
+                    : id.ToString());
+                throw new Volo.Abp.BusinessException(
+                    message: $"Chỉ tiêu đã bị xóa hoặc không tồn tại trong danh mục: {string.Join(", ", labels)}. Vui lòng bỏ chỉ tiêu này khỏi phiếu hoặc chọn chỉ tiêu khác.");
+            }
+        }
+
+        var allTestMethodIds = testMethodIds.Distinct().ToList();
+        if (allTestMethodIds.Any())
+        {
+            var existingMethodIds = (await _testMethodRepository.GetListAsync(m => allTestMethodIds.Contains(m.Id)))
+                .Select(m => m.Id).ToHashSet();
+            var missingIds = allTestMethodIds.Where(id => !existingMethodIds.Contains(id)).ToList();
+            if (missingIds.Any())
+            {
+                var deleted = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(missingIds);
+                var labels = missingIds.Select(id => deleted.TryGetValue(id, out var tm)
+                    ? $"{tm.Code} - {tm.Name}"
+                    : id.ToString());
+                throw new Volo.Abp.BusinessException(
+                    message: $"Phương pháp thử đã bị xóa hoặc không tồn tại trong danh mục: {string.Join(", ", labels)}. Vui lòng chọn phương pháp khác.");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Khi sửa phiếu: chỉ kiểm tra dòng chỉ tiêu mới thêm, hoặc dòng cũ bị đổi sang phương pháp khác.
+    /// Dòng cũ giữ nguyên chỉ tiêu/phương pháp (kể cả đã bị xóa khỏi danh mục) vẫn cho lưu — tên lấy từ snapshot.
+    /// </summary>
+    private async Task EnsureUpdatedIndicatorsUsableAsync(UpdateTestRequestDto input)
+    {
+        var inputIndicators = (input.Samples ?? new List<UpdateTestRequestSampleDto>())
+            .Where(s => s.Indicators != null)
+            .SelectMany(s => s.Indicators)
+            .ToList();
+        if (!inputIndicators.Any()) return;
+
+        var existingIds = inputIndicators.Where(i => i.Id.HasValue).Select(i => i.Id!.Value).Distinct().ToList();
+        var existingMethodById = existingIds.Any()
+            ? (await _sampleIndicatorRepository.GetListAsync(i => existingIds.Contains(i.Id)))
+                .ToDictionary(i => i.Id, i => i.TestMethodId)
+            : new Dictionary<Guid, Guid?>();
+
+        var newIndicators = inputIndicators.Where(i => !i.Id.HasValue || !existingMethodById.ContainsKey(i.Id.Value)).ToList();
+        var changedMethodIds = inputIndicators
+            .Where(i => i.TestMethodId.HasValue)
+            .Where(i => !i.Id.HasValue
+                || !existingMethodById.TryGetValue(i.Id.Value, out var oldMethodId)
+                || oldMethodId != i.TestMethodId)
+            .Select(i => i.TestMethodId!.Value);
+
+        await EnsureIndicatorsAndMethodsUsableAsync(newIndicators.Select(i => i.IndicatorId), changedMethodIds);
+    }
+
     public override async Task<TestRequestDto> UpdateAsync(Guid id, UpdateTestRequestDto input)
     {
         var entity = await Repository.GetAsync(id);
@@ -862,6 +942,8 @@ public partial class TestRequestAppService :
         {
             throw new Common.Exceptions.InvalidOperationException($"Không thể chỉnh sửa phiếu yêu cầu khi trạng thái là '{GetStatusLabel(entity.Status)}'", "status");
         }
+
+        await EnsureUpdatedIndicatorsUsableAsync(input);
 
         // [TEMPORARY] Tạm tắt validate locked fields - cho phép edit tất cả fields
         // [OLD LOGIC] Validate limited update - check locked fields
@@ -1032,7 +1114,9 @@ public partial class TestRequestAppService :
                     sample.StorageLocation = sampleDto.StorageLocation;
                     sample.IsSharedSample = sampleDto.IsSharedSample;
                     // Resolve SpecimenTypeName to ID (create new if not exists)
+                    var oldSpecimenTypeId = sample.SpecimenTypeId;
                     sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
+                    await SnapshotSampleAsync(sample, oldSpecimenTypeId);
                 }
                 else
                 {
@@ -1054,6 +1138,7 @@ public partial class TestRequestAppService :
                     sample.IsSharedSample = sampleDto.IsSharedSample;
                     // Resolve SpecimenTypeName to ID (create new if not exists)
                     sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
+                    await Snapshot.SnapshotAsync(sample);
                     await _sampleRepository.InsertAsync(sample, autoSave: true);
                 }
 
@@ -1107,6 +1192,8 @@ public partial class TestRequestAppService :
                             // Update existing indicator
                             var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
                             var oldLaboratoryId = indicator.LaboratoryId;
+                            var oldTestMethodId = indicator.TestMethodId;
+                            var oldIndicatorSpecimenTypeId = indicator.SpecimenTypeId;
                             indicator.UnitPrice = indicatorDto.UnitPrice;
                             indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                             indicator.Notes = indicatorDto.Notes;
@@ -1116,6 +1203,7 @@ public partial class TestRequestAppService :
                             indicator.TransferDate = indicatorDto.TransferDate;
                             indicator.RequestDate = indicatorDto.RequestDate;
                             // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
+                            await SnapshotSampleIndicatorAsync(indicator, oldLaboratoryId, oldTestMethodId, oldIndicatorSpecimenTypeId);
                             await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
 
                             // Move LaboratoryTaskIndicator when lab changes and status is Pending
@@ -1148,6 +1236,7 @@ public partial class TestRequestAppService :
                                             indicator.RequestDate
                                         );
                                         newLabTask.SampleSentDate = entity.SampleSentDate;
+                                        await Snapshot.SnapshotAsync(newLabTask);
                                         await _laboratoryTaskRepository.InsertAsync(newLabTask, autoSave: true);
                                     }
 
@@ -1175,6 +1264,7 @@ public partial class TestRequestAppService :
                             // SentToDepartment không nhận từ FE - khi đọc DTO derive từ LaboratoryTaskIndicator
                             indicator.LaboratoryId = indicatorDto.LaboratoryId;
                             indicator.IsSubcontract = indicatorDto.IsSubcontract;
+                            await Snapshot.SnapshotAsync(indicator);
 
                             await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
                         }
@@ -1278,6 +1368,7 @@ public partial class TestRequestAppService :
                         si.RequestDate
                     );
                     targetTask.SampleSentDate = entity.SampleSentDate;
+                    await Snapshot.SnapshotAsync(targetTask);
                     await _laboratoryTaskRepository.InsertAsync(targetTask, autoSave: true);
                     allLabTasks.Add(targetTask);
                 }
@@ -1769,6 +1860,7 @@ public partial class TestRequestAppService :
 
                 // Set SampleSentDate from TestRequest so task page can display the send date
                 task.SampleSentDate = testRequest.SampleSentDate;
+                await Snapshot.SnapshotAsync(task);
 
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
@@ -1811,6 +1903,7 @@ public partial class TestRequestAppService :
                     taskIndicator.StandardId = standardIndicator.StandardId;
                 }
 
+                await Snapshot.SnapshotAsync(taskIndicator);
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
@@ -2754,7 +2847,9 @@ public partial class TestRequestAppService :
                 sample.StorageLocation = sampleDto.StorageLocation;
                 sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
+                var oldSpecimenTypeId = sample.SpecimenTypeId;
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
+                await SnapshotSampleAsync(sample, oldSpecimenTypeId);
             }
             else
             {
@@ -2775,6 +2870,7 @@ public partial class TestRequestAppService :
                 sample.IsSharedSample = sampleDto.IsSharedSample;
                 // Resolve SpecimenTypeName to ID (create new if not exists)
                 sample.SpecimenTypeId = await ResolveSpecimenTypeIdAsync(sampleDto.SpecimenTypeName, sampleDto.SpecimenTypeId);
+                await Snapshot.SnapshotAsync(sample);
                 await _sampleRepository.InsertAsync(sample, autoSave: true);
 
                 // Track for notification (Case 8.1)
@@ -2825,12 +2921,16 @@ public partial class TestRequestAppService :
                     {
                         // Update existing indicator
                         var indicator = await _sampleIndicatorRepository.GetAsync(indicatorDto.Id.Value);
+                        var oldLaboratoryId = indicator.LaboratoryId;
+                        var oldTestMethodId = indicator.TestMethodId;
+                        var oldIndicatorSpecimenTypeId = indicator.SpecimenTypeId;
                         indicator.UnitPrice = indicatorDto.UnitPrice;
                         indicator.OriginalUnitPrice = indicatorDto.OriginalUnitPrice;
                         indicator.Notes = indicatorDto.Notes;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.TestMethodId = indicatorDto.TestMethodId;
                         indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
+                        await SnapshotSampleIndicatorAsync(indicator, oldLaboratoryId, oldTestMethodId, oldIndicatorSpecimenTypeId);
                         await _sampleIndicatorRepository.UpdateAsync(indicator, autoSave: true);
                     }
                     else
@@ -2848,6 +2948,7 @@ public partial class TestRequestAppService :
                         indicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         indicator.LaboratoryId = indicatorDto.LaboratoryId;
                         indicator.IsSubcontract = indicatorDto.IsSubcontract;
+                        await Snapshot.SnapshotAsync(indicator);
 
                         await _sampleIndicatorRepository.InsertAsync(indicator, autoSave: true);
 
@@ -3062,6 +3163,7 @@ public partial class TestRequestAppService :
                 // Task từ QLCL phê duyệt cũng cần QLKT gán KTV, nên status = NotAssignedTechnician (mặc định)
                 // Set SampleSentDate from TestRequest so task page can display the send date
                 task.SampleSentDate = testRequest.SampleSentDate;
+                await Snapshot.SnapshotAsync(task);
 
                 await _laboratoryTaskRepository.InsertAsync(task, autoSave: true);
             }
@@ -3089,6 +3191,7 @@ public partial class TestRequestAppService :
                     }
                 }
 
+                await Snapshot.SnapshotAsync(taskIndicator);
                 await _laboratoryTaskIndicatorRepository.InsertAsync(taskIndicator, autoSave: true);
             }
         }
@@ -3487,23 +3590,20 @@ public partial class TestRequestAppService :
         var allIndicators = sampleIds.Count > 0
             ? await _sampleIndicatorRepository.GetListAsync(i => sampleIds.Contains(i.TestRequestSampleId))
             : new List<TestRequestSampleIndicator>();
-        var labIds = allIndicators
-            .Where(i => i.LaboratoryId.HasValue)
-            .Select(i => i.LaboratoryId!.Value)
-            .Distinct()
-            .ToList();
-        var labs = labIds.Count > 0
-            ? await _laboratoryRepository.GetListAsync(l => labIds.Contains(l.Id))
-            : new List<Laboratory>();
-        var deptIds = labs.Select(l => l.DepartmentId).Distinct().ToList();
-        var depts = deptIds.Count > 0
-            ? await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id))
-            : new List<Department>();
+        // Tên khoa phòng: snapshot trên chỉ tiêu trước, thiếu mới tra master (kể cả đã xóa mềm)
+        var masterLabNames = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(allIndicators.Select(i => i.LaboratoryId));
+        var snapshotLabNames = allIndicators
+            .Where(i => i.LaboratoryId.HasValue && !string.IsNullOrWhiteSpace(i.LaboratoryName))
+            .GroupBy(i => i.LaboratoryId!.Value)
+            .ToDictionary(g => g.Key, g => g.First().LaboratoryName);
+        // Giữ thứ tự khoa phòng như cũ (thứ tự master), khoa phòng không còn trong master xếp cuối
+        var orderedLabIds = masterLabNames.Keys
+            .Concat(snapshotLabNames.Keys.Where(labId => !masterLabNames.ContainsKey(labId)));
         var laboratories = new List<string>();
-        foreach (var lab in labs)
+        foreach (var labId in orderedLabIds)
         {
-            var dept = depts.FirstOrDefault(d => d.Id == lab.DepartmentId);
-            var labName = dept?.Name ?? "";
+            var labName = MasterDataSnapshotService.Pick(
+                snapshotLabNames.GetValueOrDefault(labId), masterLabNames.GetValueOrDefault(labId)) ?? "";
             if (!string.IsNullOrEmpty(labName) && !laboratories.Contains(labName))
             {
                 laboratories.Add(labName);
@@ -3822,19 +3922,23 @@ public partial class TestRequestAppService :
             var labIndicator = await _laboratoryTaskIndicatorRepository.GetAsync(indicator.LaboratoryTaskIndicatorId);
             var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labIndicator.TestRequestSampleIndicatorId);
             var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
-            var masterIndicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+            // Snapshot trước, master (kể cả đã xóa mềm) làm fallback — không throw khi danh mục đã bị xóa
+            var masterIndicator = await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId);
 
             // Get lab info through LaboratoryTask
             var labTask = await _laboratoryTaskRepository.GetAsync(labIndicator.LaboratoryTaskId);
-            var laboratory = await _laboratoryRepository.GetAsync(labTask.LaboratoryId);
-            var labDept = await _departmentRepository.GetAsync(laboratory.DepartmentId);
+            var laboratoryName = MasterDataSnapshotService.Pick(
+                labTask.LaboratoryName,
+                (await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(new[] { labTask.LaboratoryId })).GetValueOrDefault(labTask.LaboratoryId));
 
             // Get specimen type name if exists
             string? specimenTypeName = null;
             if (sample.SpecimenTypeId.HasValue)
             {
-                var specimenType = await _specimenTypeRepository.FindAsync(sample.SpecimenTypeId.Value);
-                specimenTypeName = specimenType?.Name;
+                var specimenType = string.IsNullOrWhiteSpace(sample.SpecimenTypeName)
+                    ? await Snapshot.FindIncludingDeletedAsync<SpecimenType>(sample.SpecimenTypeId)
+                    : null;
+                specimenTypeName = MasterDataSnapshotService.Pick(sample.SpecimenTypeName, specimenType?.Name);
             }
 
             // Get method info
@@ -3842,25 +3946,25 @@ public partial class TestRequestAppService :
             string? methodFormattedName = null;
             if (labIndicator.MethodId.HasValue)
             {
-                var method = await _testMethodRepository.FindAsync(labIndicator.MethodId.Value);
-                methodName = method?.Name;
-                methodFormattedName = method?.FormattedName;
+                var method = await Snapshot.FindIncludingDeletedAsync<TestMethod>(labIndicator.MethodId);
+                methodName = MasterDataSnapshotService.Pick(labIndicator.MethodName, method?.Name);
+                methodFormattedName = MasterDataSnapshotService.Pick(labIndicator.MethodFormattedName, method?.FormattedName);
             }
 
             result.Add(new QualityManagementIndicatorDto
             {
                 Id = indicator.Id,
                 LaboratoryTaskIndicatorId = indicator.LaboratoryTaskIndicatorId,
-                LaboratoryId = laboratory.Id,
-                LaboratoryName = labDept.Name,
+                LaboratoryId = labTask.LaboratoryId,
+                LaboratoryName = laboratoryName,
                 SampleId = sample.Id,
                 SampleCode = sample.SampleCode,
                 SampleName = sample.SampleName,
                 SpecimenTypeName = specimenTypeName,
-                IndicatorId = masterIndicator.Id,
-                IndicatorCode = masterIndicator.Code,
-                IndicatorName = masterIndicator.Name,
-                IndicatorFormattedName = masterIndicator.FormattedName,
+                IndicatorId = sampleIndicator.IndicatorId,
+                IndicatorCode = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorCode, masterIndicator?.Code),
+                IndicatorName = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorName, masterIndicator?.Name),
+                IndicatorFormattedName = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorFormattedName, masterIndicator?.FormattedName),
                 MethodId = labIndicator.MethodId,
                 MethodName = methodName,
                 MethodFormattedName = methodFormattedName,
@@ -4240,12 +4344,14 @@ public partial class TestRequestAppService :
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Get laboratory names
+        // Snapshot tên khoa phòng trên LaboratoryTask trước, thiếu mới tra master (kể cả đã xóa mềm)
         var labIds = indicatorsByLabSample.Keys.Select(k => k.LabId).Distinct().ToList();
-        var laboratories = await _laboratoryRepository.GetListAsync(x => labIds.Contains(x.Id));
-        var deptIds = laboratories.Select(l => l.DepartmentId).Distinct().ToList();
-        var depts = await _departmentRepository.GetListAsync(d => deptIds.Contains(d.Id));
-        var deptDict = depts.ToDictionary(d => d.Id, d => d.Name);
-        var labDict = laboratories.ToDictionary(l => l.Id, l => deptDict.TryGetValue(l.DepartmentId, out var name) ? name : "");
+        var masterLabNames = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(labIds);
+        var labDict = labIds.ToDictionary(
+            labId => labId,
+            labId => MasterDataSnapshotService.Pick(
+                labTasks.FirstOrDefault(lt => lt.LaboratoryId == labId && !string.IsNullOrWhiteSpace(lt.LaboratoryName))?.LaboratoryName,
+                masterLabNames.GetValueOrDefault(labId)) ?? "");
 
         var results = new List<PrintResultItemDto>();
 
@@ -4512,6 +4618,7 @@ public partial class TestRequestAppService :
             }
 
             // Update LaboratoryId
+            var oldLaboratoryId = sampleIndicator.LaboratoryId;
             sampleIndicator.LaboratoryId = indicatorInput.LaboratoryId;
 
             // Update RequestDate nếu có
@@ -4520,6 +4627,7 @@ public partial class TestRequestAppService :
                 sampleIndicator.RequestDate = indicatorInput.RequestDate.Value;
             }
 
+            await SnapshotSampleIndicatorAsync(sampleIndicator, oldLaboratoryId, sampleIndicator.TestMethodId, sampleIndicator.SpecimenTypeId);
             await _sampleIndicatorRepository.UpdateAsync(sampleIndicator, autoSave: true);
         }
 
@@ -4759,10 +4867,15 @@ public partial class TestRequestAppService :
                         var sampleIndicator = await _sampleIndicatorRepository.FindAsync(labIndicator.TestRequestSampleIndicatorId);
                         if (sampleIndicator != null)
                         {
-                            var masterIndicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
-                            if (masterIndicator != null)
+                            // Snapshot trước, thiếu mới tra master (kể cả đã xóa mềm)
+                            var indicatorName = sampleIndicator.IndicatorName;
+                            if (string.IsNullOrWhiteSpace(indicatorName))
                             {
-                                indicatorNames.Add(masterIndicator.Name);
+                                indicatorName = (await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId))?.Name;
+                            }
+                            if (!string.IsNullOrWhiteSpace(indicatorName))
+                            {
+                                indicatorNames.Add(indicatorName);
                             }
                         }
                     }

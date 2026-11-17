@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common.Exceptions;
+using LabSpecimenManagement.MasterData;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.AspNetCore.Authorization;
@@ -29,18 +31,18 @@ public partial class LaboratoryTaskAppService
 
         // Get sample indicator to find indicator info
         var sampleIndicator = await _sampleIndicatorRepository.GetAsync(taskIndicator.TestRequestSampleIndicatorId);
-        var indicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+        // Gồm cả chỉ tiêu master đã xóa mềm — phiếu cũ vẫn đánh giá được
+        var indicator = await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId);
 
         // Find sub-indicators if this is a parent indicator
         var subTaskIndicators = new List<LaboratoryTaskIndicator>();
-        if (indicator.ParentIndicatorId == null)
+        if (indicator != null && indicator.ParentIndicatorId == null)
         {
             // This is a parent indicator - find all sub-indicators in master data
-            var subIndicatorIds = await AsyncExecuter.ToListAsync(
-                (await _indicatorRepository.GetQueryableAsync())
-                    .Where(i => i.ParentIndicatorId == indicator.Id)
-                    .Select(i => i.Id)
-            );
+            var subIndicatorIds = (await Snapshot.GetListIncludingDeletedAsync<Indicator>(
+                    i => i.ParentIndicatorId == indicator.Id))
+                .Select(i => i.Id)
+                .ToList();
 
             if (subIndicatorIds.Any())
             {
@@ -409,7 +411,7 @@ public partial class LaboratoryTaskAppService
         var sampleIndicatorIds = pendingIndicators.Select(ti => ti.TestRequestSampleIndicatorId).Distinct().ToList();
         var sampleIndicators = await _sampleIndicatorRepository.GetListAsync(si => sampleIndicatorIds.Contains(si.Id));
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
-        var indicators = await _indicatorRepository.GetListAsync(i => indicatorIds.Contains(i.Id));
+        var indicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(i => indicatorIds.Contains(i.Id));
 
         // Filter to get only parent indicators (not sub-indicators)
         var parentPendingIndicators = new List<LaboratoryTaskIndicator>();
@@ -503,8 +505,8 @@ public partial class LaboratoryTaskAppService
         string? oldMethodName = null;
         if (indicator.MethodId.HasValue)
         {
-            var oldMethod = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
-            oldMethodName = oldMethod?.Name;
+            var oldMethod = await Snapshot.FindIncludingDeletedAsync<TestMethod>(indicator.MethodId.Value);
+            oldMethodName = MasterDataSnapshotService.Pick(indicator.MethodName, oldMethod?.Name);
         }
 
         // Get new method name

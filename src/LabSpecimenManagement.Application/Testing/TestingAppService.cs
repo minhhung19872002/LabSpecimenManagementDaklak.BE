@@ -8,6 +8,7 @@ using LabSpecimenManagement.Common.Exceptions;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.Permissions;
 using LabSpecimenManagement.Equipments;
@@ -66,6 +67,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
     private readonly IRepository<ProductSku, Guid> _productSkuRepository;
     private readonly IFifoStockDeductionService _fifoStockService;
     private readonly InventoryBarcodeStatusService _barcodeStatusService;
+
+    /// <summary>Snapshot master data cho chứng từ (đọc tên ưu tiên snapshot, tra master gồm cả bản ghi đã xóa mềm)</summary>
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
     public TestingAppService(
         IRepository<LaboratoryTask, Guid> laboratoryTaskRepository,
@@ -533,7 +537,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var shouldAutoFillUnit = IsBlankUnit(indicator.Unit);
         if (!shouldAutoFillUnit && indicator.MethodId.HasValue)
         {
-            var oldMethod = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
+            var oldMethod = await Snapshot.FindIncludingDeletedAsync<TestMethod>(indicator.MethodId.Value);
             var oldDefaultUnit = oldMethod?.FormattedUnit ?? oldMethod?.Unit;
             shouldAutoFillUnit = !string.IsNullOrEmpty(oldDefaultUnit) && indicator.Unit == oldDefaultUnit;
         }
@@ -543,6 +547,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         {
             indicator.Unit = selectedMethod?.FormattedUnit ?? selectedMethod?.Unit;
         }
+
+        // Snapshot phương pháp mới vào chứng từ
+        await Snapshot.SnapshotAsync(indicator, overwrite: true);
 
         await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
 
@@ -616,7 +623,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var shouldAutoFillUnit = IsBlankUnit(indicator.Unit);
             if (!shouldAutoFillUnit && indicator.MethodId.HasValue)
             {
-                var oldMethod = await _testMethodRepository.FindAsync(indicator.MethodId.Value);
+                var oldMethod = await Snapshot.FindIncludingDeletedAsync<TestMethod>(indicator.MethodId.Value);
                 var oldDefaultUnit = oldMethod?.FormattedUnit ?? oldMethod?.Unit;
                 shouldAutoFillUnit = !string.IsNullOrEmpty(oldDefaultUnit) && indicator.Unit == oldDefaultUnit;
             }
@@ -626,6 +633,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             {
                 indicator.Unit = selectedMethod?.FormattedUnit ?? selectedMethod?.Unit;
             }
+
+            // Snapshot phương pháp mới vào chứng từ
+            await Snapshot.SnapshotAsync(indicator, overwrite: true);
 
             await _laboratoryTaskIndicatorRepository.UpdateAsync(indicator);
             updatedDtos.Add(await MapSingleIndicatorAsync(indicator, task));
@@ -1079,13 +1089,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             IsUrgent = isUrgent
         };
 
-        // Get laboratory name
-        var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        if (laboratory != null)
-        {
-            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
-            dto.LaboratoryName = labDept?.Name;
-        }
+        // Get laboratory name — ưu tiên snapshot trên chứng từ, fallback master (gồm cả đã xóa mềm)
+        dto.LaboratoryName = await ResolveTaskLaboratoryNameAsync(task);
 
         // Get customer name from test request
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -1147,6 +1152,20 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         return dto;
     }
 
+    /// <summary>
+    /// Tên phòng thí nghiệm của task: snapshot LaboratoryTask.LaboratoryName, fallback master (gồm cả đã xóa mềm).
+    /// </summary>
+    private async Task<string?> ResolveTaskLaboratoryNameAsync(LaboratoryTask task)
+    {
+        if (!string.IsNullOrWhiteSpace(task.LaboratoryName))
+        {
+            return task.LaboratoryName;
+        }
+
+        var masterNames = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(new[] { task.LaboratoryId });
+        return masterNames.GetValueOrDefault(task.LaboratoryId);
+    }
+
     private async Task<TestingDetailDto> MapToDetailDtoAsync(LaboratoryTask task, TestingTabType? viewMode = null)
     {
         var allTaskIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == task.Id);
@@ -1204,13 +1223,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             TechnicalManagerId = task.TechnicalManagerId
         };
 
-        // Get laboratory name
-        var laboratory = await _laboratoryRepository.FindAsync(task.LaboratoryId);
-        if (laboratory != null)
-        {
-            var labDept = await _departmentRepository.FindAsync(laboratory.DepartmentId);
-            dto.LaboratoryName = labDept?.Name;
-        }
+        // Get laboratory name — ưu tiên snapshot trên chứng từ, fallback master (gồm cả đã xóa mềm)
+        dto.LaboratoryName = await ResolveTaskLaboratoryNameAsync(task);
 
         // Get test request info (includes SampleSentDate - ngày BPGN gửi mẫu)
         var testRequest = await _testRequestRepository.FindAsync(task.TestRequestId);
@@ -1360,7 +1374,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         LaboratoryTask task,
         Dictionary<Guid, string> userNames)
     {
-        var indicator = await _indicatorRepository.FindAsync(sampleIndicator.IndicatorId);
+        // Master gồm cả đã xóa mềm; tên hiển thị ưu tiên snapshot trên chứng từ
+        var indicator = await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId);
         string? methodName = null;
         string? methodFormattedName = null;
         string? technicianName = null;
@@ -1368,9 +1383,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (taskIndicator.MethodId.HasValue)
         {
-            var method = await _testMethodRepository.FindAsync(taskIndicator.MethodId.Value);
-            methodName = method?.Name;
-            methodFormattedName = method?.FormattedName;
+            var method = await Snapshot.FindIncludingDeletedAsync<TestMethod>(taskIndicator.MethodId.Value);
+            methodName = MasterDataSnapshotService.Pick(taskIndicator.MethodName, method?.Name);
+            methodFormattedName = MasterDataSnapshotService.Pick(taskIndicator.MethodFormattedName, method?.FormattedName);
             // Fallback to TestMethod.Unit if LaboratoryTaskIndicator.Unit is not set
             if (string.IsNullOrEmpty(unit) && method != null)
             {
@@ -1413,10 +1428,10 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         string? upperLimit = null;
         if (taskIndicator.StandardId.HasValue)
         {
-            var standard = await _standardRepository.FindAsync(taskIndicator.StandardId.Value);
+            var standard = await Snapshot.FindIncludingDeletedAsync<Standard>(taskIndicator.StandardId.Value);
+            standardName = MasterDataSnapshotService.Pick(taskIndicator.StandardName, standard?.Name);
             if (standard != null)
             {
-                standardName = standard.Name;
                 limitDescription = standard.LimitDescription;
 
                 // Get StandardIndicator for ComparisonOperator and AllowedLimit
@@ -1479,8 +1494,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
             IndicatorId = sampleIndicator.IndicatorId,
             SpecimenTypeId = sampleIndicator.SpecimenTypeId,
-            IndicatorName = indicator?.Name,
-            IndicatorFormattedName = indicator?.FormattedName,
+            IndicatorName = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorName, indicator?.Name),
+            IndicatorFormattedName = MasterDataSnapshotService.Pick(sampleIndicator.IndicatorFormattedName, indicator?.FormattedName),
             MethodId = taskIndicator.MethodId,
             MethodName = methodName,
             MethodFormattedName = methodFormattedName,
@@ -2361,9 +2376,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         // Bước 3: Lấy tất cả IndicatorIds
         var indicatorIds = sampleIndicatorMap.Values.Distinct().ToList();
 
-        // Bước 4: Query tất cả Indicators một lần
-        var indicators = await _indicatorRepository.GetListAsync(ind => indicatorIds.Contains(ind.Id));
-        var indicatorMap = indicators.ToDictionary(ind => ind.Id, ind => ind);
+        // Bước 4: Query tất cả Indicators một lần (gồm cả đã xóa mềm — giữ cấu trúc combo của phiếu cũ)
+        var indicatorMap = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(indicatorIds);
 
         // Bước 5: Xây dựng mapping taskIndicatorId -> indicatorId
         var taskIndicatorToIndicatorId = new Dictionary<Guid, Guid>();
@@ -2962,15 +2976,20 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var sampleIndicator = await _sampleIndicatorRepository.FirstOrDefaultAsync(x =>
             x.Id == taskIndicator.TestRequestSampleIndicatorId);
 
+        // Master gồm cả đã xóa mềm; tên hiển thị ưu tiên snapshot trên chứng từ
         var indicator = sampleIndicator != null
-            ? await _indicatorRepository.FirstOrDefaultAsync(x => x.Id == sampleIndicator.IndicatorId)
+            ? await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId)
             : null;
 
         var method = taskIndicator.MethodId.HasValue
-            ? await _testMethodRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.MethodId.Value)
+            ? await Snapshot.FindIncludingDeletedAsync<TestMethod>(taskIndicator.MethodId.Value)
             : null;
-        var methodName = method?.Name;
-        var methodFormattedName = method?.FormattedName;
+        var methodName = taskIndicator.MethodId.HasValue
+            ? MasterDataSnapshotService.Pick(taskIndicator.MethodName, method?.Name)
+            : null;
+        var methodFormattedName = taskIndicator.MethodId.HasValue
+            ? MasterDataSnapshotService.Pick(taskIndicator.MethodFormattedName, method?.FormattedName)
+            : null;
 
         if (!string.IsNullOrWhiteSpace(taskIndicator.SubContractMethodName))
         {
@@ -3002,8 +3021,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
 
         if (taskIndicator.StandardId.HasValue && sampleIndicator != null)
         {
-            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == taskIndicator.StandardId.Value);
-            standardName = standard?.Name;
+            var standard = await Snapshot.FindIncludingDeletedAsync<Standard>(taskIndicator.StandardId.Value);
+            standardName = MasterDataSnapshotService.Pick(taskIndicator.StandardName, standard?.Name);
 
             var standardIndicator = await _standardIndicatorRepository.FirstOrDefaultAsync(x =>
                 x.StandardId == taskIndicator.StandardId.Value && x.IndicatorId == sampleIndicator.IndicatorId);
@@ -3041,8 +3060,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             Id = taskIndicator.Id,
             TestRequestSampleIndicatorId = taskIndicator.TestRequestSampleIndicatorId,
             IndicatorId = sampleIndicator?.IndicatorId ?? Guid.Empty,
-            IndicatorName = indicator?.Name,
-            IndicatorFormattedName = indicator?.FormattedName,
+            IndicatorName = MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorName, indicator?.Name),
+            IndicatorFormattedName = MasterDataSnapshotService.Pick(sampleIndicator?.IndicatorFormattedName, indicator?.FormattedName),
             MethodId = taskIndicator.MethodId,
             MethodName = methodName,
             MethodFormattedName = methodFormattedName,
@@ -3116,7 +3135,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
                     join s in sampleQuery on si.TestRequestSampleId equals s.Id
                     join tr in testRequestQuery on lt.TestRequestId equals tr.Id
-                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    // LEFT JOIN master chỉ tiêu — master bị xóa mềm thì dòng vẫn hiển thị, tên lấy từ snapshot
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id into miJoin
+                    from mi in miJoin.DefaultIfEmpty()
                     join tm in testMethodQuery on li.MethodId equals tm.Id into tmJoin
                     from tm in tmJoin.DefaultIfEmpty()
                     join qi in qualityIndicatorQuery on li.Id equals qi.LaboratoryTaskIndicatorId into qiJoin
@@ -3143,15 +3164,24 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         TestRequestSampleIndicatorId = si.Id,
                         LaboratoryTaskIndicatorId = li.Id,
                         IndicatorId = si.IndicatorId,
-                        IndicatorName = mi.Name,
-                        IndicatorFormattedName = mi.FormattedName,
+                        // Ưu tiên snapshot trên chứng từ, fallback master
+                        IndicatorName = si.IndicatorName != null && si.IndicatorName != ""
+                            ? si.IndicatorName
+                            : (mi != null ? mi.Name : null),
+                        IndicatorFormattedName = si.IndicatorFormattedName != null && si.IndicatorFormattedName != ""
+                            ? si.IndicatorFormattedName
+                            : (mi != null ? mi.FormattedName : null),
                         MethodId = li.MethodId,
                         MethodName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
                             ? li.SubContractMethodName
-                            : (tm != null ? tm.Name : null),
+                            : (li.MethodName != null && li.MethodName != ""
+                                ? li.MethodName
+                                : (tm != null ? tm.Name : null)),
                         MethodFormattedName = !string.IsNullOrWhiteSpace(li.SubContractMethodName)
                             ? null
-                            : (tm != null ? tm.FormattedName : null),
+                            : (li.MethodFormattedName != null && li.MethodFormattedName != ""
+                                ? li.MethodFormattedName
+                                : (tm != null ? tm.FormattedName : null)),
                         Unit = li.Unit,
                         // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
                         TransferDate = tr.FormPrintedDate,
@@ -3387,7 +3417,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     join si in sampleIndicatorQuery on li.TestRequestSampleIndicatorId equals si.Id
                     join s in sampleQuery on si.TestRequestSampleId equals s.Id
                     join tr in testRequestQuery on lt.TestRequestId equals tr.Id
-                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id
+                    // LEFT JOIN master chỉ tiêu — master bị xóa mềm thì dòng vẫn được tính, tên lấy từ snapshot
+                    join mi in masterIndicatorQuery on si.IndicatorId equals mi.Id into miJoin
+                    from mi in miJoin.DefaultIfEmpty()
                     where li.Result != null && li.Result != ""
                     select new
                     {
@@ -3397,7 +3429,9 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                         ContractNumber = tr.ContractNumber,
                         SampleCode = s.SampleCode,
                         SampleName = s.SampleName,
-                        IndicatorName = mi.Name,
+                        IndicatorName = si.IndicatorName != null && si.IndicatorName != ""
+                            ? si.IndicatorName
+                            : (mi != null ? mi.Name : null),
                         // Ngày nhận mẫu = ngày in phiếu thử nghiệm (BM05)
                         TransferDate = tr.FormPrintedDate,
                         TestRequestSampleIndicatorId = si.Id,

@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Email;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Permissions;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
@@ -28,6 +29,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IIdentityUserRepository _userRepository;
     private readonly IClock _clock;
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
     private readonly IEmailService _emailService;
     private readonly IQuotationPdfGenerator _pdfGenerator;
 
@@ -164,16 +167,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         var indicatorIds = samples.SelectMany(s => s.Indicators.Select(i => i.IndicatorId)).Distinct().ToList();
         var testMethodIds = samples.SelectMany(s => s.Indicators.Select(i => i.TestMethodId)).Distinct().ToList();
 
-        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
-        var testMethodQuery = await _testMethodRepository.GetQueryableAsync();
-
-        var indicators = await AsyncExecuter.ToListAsync(
-            indicatorQuery.Where(i => indicatorIds.Contains(i.Id)));
-        var testMethods = await AsyncExecuter.ToListAsync(
-            testMethodQuery.Where(t => testMethodIds.Contains(t.Id)));
-
-        var indicatorDict = indicators.ToDictionary(i => i.Id);
-        var testMethodDict = testMethods.ToDictionary(t => t.Id);
+        // Bao gồm bản ghi đã xóa mềm — chỉ dùng làm fallback khi báo giá cũ chưa có snapshot
+        var indicatorDict = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(indicatorIds);
+        var testMethodDict = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(testMethodIds);
 
         return MapToDto(quotation, samples, indicatorDict, testMethodDict);
     }
@@ -200,6 +196,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
             Notes = input.Notes,
             Status = input.Status
         };
+
+        var (snapshotIndicators, snapshotTestMethods) = await LoadSnapshotMastersAsync(input);
 
         // Add samples
         foreach (var sampleDto in input.Samples)
@@ -228,6 +226,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     indicatorDto.SpecimenTypeId,
                     indicatorDto.SpecimenTypeName,
                     indicatorDto.Note);
+                ApplyFormattedNameSnapshot(indicator, snapshotIndicators, snapshotTestMethods);
 
                 sample.Indicators.Add(indicator);
             }
@@ -273,6 +272,8 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
         quotation.Phone = input.Phone;
         quotation.Notes = input.Notes;
         quotation.Status = input.Status;
+
+        var (snapshotIndicators, snapshotTestMethods) = await LoadSnapshotMastersAsync(input);
 
         // Get existing sample ids
         var existingSampleIds = existingSamples.Select(x => x.Id).ToList();
@@ -321,6 +322,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                     {
                         // Update existing indicator
                         var existingIndicator = existingSample.Indicators.First(i => i.Id == indicatorDto.Id.Value);
+                        var masterChanged = existingIndicator.IndicatorId != indicatorDto.IndicatorId
+                            || existingIndicator.TestMethodId != indicatorDto.TestMethodId
+                            || existingIndicator.IndicatorFormattedName == null;
                         existingIndicator.IndicatorId = indicatorDto.IndicatorId;
                         existingIndicator.TestMethodId = indicatorDto.TestMethodId;
                         existingIndicator.IndicatorName = indicatorDto.IndicatorName;
@@ -330,6 +334,10 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         existingIndicator.SpecimenTypeId = indicatorDto.SpecimenTypeId;
                         existingIndicator.SpecimenTypeName = indicatorDto.SpecimenTypeName;
                         existingIndicator.Note = indicatorDto.Note;
+                        if (masterChanged)
+                        {
+                            ApplyFormattedNameSnapshot(existingIndicator, snapshotIndicators, snapshotTestMethods);
+                        }
                     }
                     else
                     {
@@ -346,6 +354,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             indicatorDto.SpecimenTypeId,
                             indicatorDto.SpecimenTypeName,
                             indicatorDto.Note);
+                        ApplyFormattedNameSnapshot(newIndicator, snapshotIndicators, snapshotTestMethods);
 
                         existingSample.Indicators.Add(newIndicator);
                     }
@@ -379,6 +388,7 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                         indicatorDto.SpecimenTypeId,
                         indicatorDto.SpecimenTypeName,
                         indicatorDto.Note);
+                    ApplyFormattedNameSnapshot(indicator, snapshotIndicators, snapshotTestMethods);
 
                     newSample.Indicators.Add(indicator);
                 }
@@ -435,6 +445,27 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
 
             return $"{prefix}{nextNumber:D4}";
         }
+    }
+
+    /// <summary>
+    /// Nạp master chỉ tiêu/phương pháp (kể cả đã xóa mềm) để chụp snapshot tên định dạng khi lưu báo giá
+    /// </summary>
+    private async Task<(Dictionary<Guid, Indicator> Indicators, Dictionary<Guid, TestMethod> TestMethods)> LoadSnapshotMastersAsync(
+        CreateUpdateQuotationDto input)
+    {
+        var indicatorDtos = input.Samples.SelectMany(s => s.Indicators).ToList();
+        var indicators = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(indicatorDtos.Select(i => i.IndicatorId));
+        var testMethods = await Snapshot.GetDictionaryIncludingDeletedAsync<TestMethod>(indicatorDtos.Select(i => i.TestMethodId));
+        return (indicators, testMethods);
+    }
+
+    private static void ApplyFormattedNameSnapshot(
+        QuotationSampleIndicator target,
+        Dictionary<Guid, Indicator> indicators,
+        Dictionary<Guid, TestMethod> testMethods)
+    {
+        target.IndicatorFormattedName = indicators.GetValueOrDefault(target.IndicatorId)?.FormattedName;
+        target.TestMethodFormattedName = testMethods.GetValueOrDefault(target.TestMethodId)?.FormattedName;
     }
 
     private QuotationDto MapToDto(Quotation quotation)
@@ -540,9 +571,9 @@ public class QuotationAppService : ApplicationService, IQuotationAppService
                             IndicatorId = indicator.IndicatorId,
                             TestMethodId = indicator.TestMethodId,
                             IndicatorName = indicator.IndicatorName,
-                            IndicatorFormattedName = ind?.FormattedName,
+                            IndicatorFormattedName = MasterDataSnapshotService.Pick(indicator.IndicatorFormattedName, ind?.FormattedName),
                             TestMethodName = indicator.TestMethodName,
-                            TestMethodFormattedName = testMethod?.FormattedName,
+                            TestMethodFormattedName = MasterDataSnapshotService.Pick(indicator.TestMethodFormattedName, testMethod?.FormattedName),
                             UnitPrice = indicator.UnitPrice,
                             SortOrder = indicator.SortOrder,
                             SpecimenTypeId = indicator.SpecimenTypeId,

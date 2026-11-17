@@ -13,6 +13,7 @@ using LabSpecimenManagement.Common;
 using LabSpecimenManagement.LaboratoryTasks;
 using LabSpecimenManagement.MasterData;
 using LabSpecimenManagement.MasterData.Indicators;
+using LabSpecimenManagement.MasterData.Snapshots;
 using LabSpecimenManagement.Notifications;
 using LabSpecimenManagement.QualityManagement;
 using LabSpecimenManagement.TestRequests;
@@ -102,6 +103,36 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         _laboratoryRepository = laboratoryRepository;
     }
 
+    #region Snapshot master data (chứng từ cũ không đổi theo danh mục)
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
+
+    /// <summary>Tên chỉ tiêu: snapshot trên phiếu, thiếu mới lấy master</summary>
+    private static string SnapIndicatorName(TestRequestSampleIndicator? si, Indicator? indicator)
+        => MasterDataSnapshotService.Pick(si?.IndicatorName, indicator?.Name) ?? "";
+
+    /// <summary>Tên định dạng chỉ tiêu: theo snapshot nếu phiếu đã có snapshot, ngược lại lấy master</summary>
+    private static string? SnapIndicatorFormattedName(TestRequestSampleIndicator? si, Indicator? indicator)
+        => !string.IsNullOrWhiteSpace(si?.IndicatorName) ? si!.IndicatorFormattedName : indicator?.FormattedName;
+
+    /// <summary>Tên phương pháp được gán (LTI.MethodId): snapshot trên LTI, thiếu mới lấy master</summary>
+    private static string SnapMethodName(LaboratoryTaskIndicator? ti, TestMethod? method)
+        => MasterDataSnapshotService.Pick(ti?.MethodName, method?.Name) ?? "";
+
+    /// <summary>Tên định dạng phương pháp được gán (LTI.MethodId)</summary>
+    private static string? SnapMethodFormattedName(LaboratoryTaskIndicator? ti, TestMethod? method)
+        => !string.IsNullOrWhiteSpace(ti?.MethodName) ? ti!.MethodFormattedName : method?.FormattedName;
+
+    /// <summary>Tên phương pháp trên phiếu (TRSI.TestMethodId): snapshot, thiếu mới lấy master</summary>
+    private static string SnapRequestMethodName(TestRequestSampleIndicator? si, TestMethod? method)
+        => MasterDataSnapshotService.Pick(si?.TestMethodName, method?.Name) ?? "";
+
+    /// <summary>Tên định dạng phương pháp trên phiếu (TRSI.TestMethodId)</summary>
+    private static string? SnapRequestMethodFormattedName(TestRequestSampleIndicator? si, TestMethod? method)
+        => !string.IsNullOrWhiteSpace(si?.TestMethodName) ? si!.TestMethodFormattedName : method?.FormattedName;
+
+    #endregion
+
     /// <summary>
     /// Lookup ngày in đầu tiên từ QualityManagementIndicator cho toàn bộ test request.
     /// Trả về PrintedDate sớm nhất nếu có, null nếu chưa từng in.
@@ -156,12 +187,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Get indicator and method details
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
-        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => indicatorIds.Contains(x.Id));
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
         var methodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
         var methods = methodIds.Any()
-            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<TestMethod>(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
@@ -350,7 +381,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         List<LaboratoryTaskIndicator> labTaskIndicators)
     {
         var distinctLabIds = labTasks.Select(lt => lt.LaboratoryId).Distinct().ToList();
-        var labs = await _laboratoryRepository.GetListAsync(x => distinctLabIds.Contains(x.Id));
+        var labs = await Snapshot.GetListIncludingDeletedAsync<Laboratory>(x => distinctLabIds.Contains(x.Id));
         var labsSorted = labs.OrderBy(l => l.SortOrder).ToList();
 
         var allUsers = (await _userRepository.GetListAsync()).ToList();
@@ -437,7 +468,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 return (ti.SubContractMethodName!, null);
             }
 
-            return (method?.Name ?? string.Empty, method?.FormattedName);
+            // Snapshot phương pháp trên LTI, thiếu mới lấy master
+            return (SnapMethodName(ti, method), SnapMethodFormattedName(ti, method));
         }
 
         // Get parent indicator IDs that are referenced but might not be in our list
@@ -450,7 +482,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Fetch parent indicators if needed
         if (parentIdsToFetch.Any())
         {
-            var parentIndicators = await _indicatorRepository.GetListAsync(x => parentIdsToFetch.Contains(x.Id));
+            var parentIndicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => parentIdsToFetch.Contains(x.Id));
             foreach (var parent in parentIndicators)
             {
                 indicatorDict[parent.Id] = parent;
@@ -471,11 +503,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Separate indicators into: standalone (no parent), children (has parent)
+        // Chỉ tiêu không còn trong master (không tra được) vẫn in như chỉ tiêu độc lập theo snapshot — không bỏ dòng
         var childIndicators = filteredSampleIndicators
             .Where(si => indicatorDict.TryGetValue(si.IndicatorId, out var ind) && ind.ParentIndicatorId.HasValue)
             .ToList();
         var standaloneIndicators = filteredSampleIndicators
-            .Where(si => indicatorDict.TryGetValue(si.IndicatorId, out var ind) && !ind.ParentIndicatorId.HasValue)
+            .Where(si => !indicatorDict.TryGetValue(si.IndicatorId, out var ind) || !ind.ParentIndicatorId.HasValue)
             .ToList();
 
         // Group children by parent
@@ -486,40 +519,42 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Process standalone indicators (that are parents with children in this sample, or truly standalone)
         var processedParentIds = new HashSet<Guid>();
 
-        foreach (var sampleIndicator in standaloneIndicators.OrderBy(si => indicatorDict[si.IndicatorId].SortOrder))
+        foreach (var sampleIndicator in standaloneIndicators.OrderBy(si => indicatorDict.GetValueOrDefault(si.IndicatorId)?.SortOrder ?? 0))
         {
-            var indicator = indicatorDict[sampleIndicator.IndicatorId];
+            var indicator = indicatorDict.GetValueOrDefault(sampleIndicator.IndicatorId);
             var taskIndicator = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == sampleIndicator.Id);
 
             // Check if this standalone indicator has children in this sample
-            if (childrenByParent.TryGetValue(indicator.Id, out var children) && children.Any())
+            if (childrenByParent.TryGetValue(sampleIndicator.IndicatorId, out var children) && children.Any())
             {
                 // This is a parent with children - combine them
-                processedParentIds.Add(indicator.Id);
+                processedParentIds.Add(sampleIndicator.IndicatorId);
 
                 var parametersPlainBuilder = new StringBuilder();  // Plain text (Name)
                 var parametersFormattedBuilder = new StringBuilder();  // HTML formatted (FormattedName)
                 var resultBuilder = new StringBuilder();
-                var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+                var parentFormattedName = SnapIndicatorFormattedName(sampleIndicator, indicator);
+                var hasAnyFormattedName = !string.IsNullOrEmpty(parentFormattedName);
 
                 // Add parent name first
-                parametersPlainBuilder.Append(indicator.Name);
-                parametersFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+                parametersPlainBuilder.Append(SnapIndicatorName(sampleIndicator, indicator));
+                parametersFormattedBuilder.Append(parentFormattedName ?? SnapIndicatorName(sampleIndicator, indicator));
 
                 // Add children
                 foreach (var childSi in children.OrderBy(c => indicatorDict[c.IndicatorId].SortOrder))
                 {
                     var childInd = indicatorDict[childSi.IndicatorId];
                     var childTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == childSi.Id);
+                    var childFormattedName = SnapIndicatorFormattedName(childSi, childInd);
 
-                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                    if (!string.IsNullOrEmpty(childFormattedName))
                         hasAnyFormattedName = true;
 
                     parametersPlainBuilder.Append("\n- ");
-                    parametersPlainBuilder.Append(childInd.Name);
+                    parametersPlainBuilder.Append(SnapIndicatorName(childSi, childInd));
 
                     parametersFormattedBuilder.Append("\n- ");
-                    parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                    parametersFormattedBuilder.Append(childFormattedName ?? SnapIndicatorName(childSi, childInd));
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
@@ -562,8 +597,8 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 tableData.Add(new ResultFormTableRow
                 {
                     No = rowIndex++,
-                    Parameters = indicator.Name ?? "",
-                    ParametersFormattedName = indicator.FormattedName,
+                    Parameters = SnapIndicatorName(sampleIndicator, indicator),
+                    ParametersFormattedName = SnapIndicatorFormattedName(sampleIndicator, indicator),
                     Unit = GetUnit(taskIndicator),
                     TestMethod = displayMethod.Name,
                     TestMethodFormattedName = displayMethod.FormattedName,
@@ -601,17 +636,18 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             {
                 var childInd = indicatorDict[childSi.IndicatorId];
                 var childTi = taskIndicators.FirstOrDefault(ti => ti.TestRequestSampleIndicatorId == childSi.Id);
+                var childFormattedName = SnapIndicatorFormattedName(childSi, childInd);
 
-                if (!string.IsNullOrEmpty(childInd.FormattedName))
+                if (!string.IsNullOrEmpty(childFormattedName))
                     hasAnyFormattedName = true;
 
                 if (parametersPlainBuilder.Length > 0) parametersPlainBuilder.Append('\n');
                 parametersPlainBuilder.Append("- ");
-                parametersPlainBuilder.Append(childInd.Name);
+                parametersPlainBuilder.Append(SnapIndicatorName(childSi, childInd));
 
                 if (parametersFormattedBuilder.Length > 0) parametersFormattedBuilder.Append('\n');
                 parametersFormattedBuilder.Append("- ");
-                parametersFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                parametersFormattedBuilder.Append(childFormattedName ?? SnapIndicatorName(childSi, childInd));
 
                 if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                 resultBuilder.Append(ConvertToSuperscriptDisplay(childTi?.Result));
@@ -2378,12 +2414,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Get indicator and method details
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
-        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => indicatorIds.Contains(x.Id));
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
         var methodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
         var methods = methodIds.Any()
-            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<TestMethod>(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
@@ -2797,7 +2833,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Fetch indicators from DB to get parent-child relationships
         var indicators = allIndicatorIds.Any()
-            ? await _indicatorRepository.GetListAsync(x => allIndicatorIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => allIndicatorIds.Contains(x.Id))
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
@@ -2984,7 +3020,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // Get indicator details
         var indicatorIds = allSampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
         var indicators = indicatorIds.Any()
-            ? await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => indicatorIds.Contains(x.Id))
             : new List<Indicator>();
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
@@ -3002,7 +3038,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
             // Format indicators as list with - prefix and newline (for fallback/old template)
             var indicatorNames = sampleIndicatorList
-                .Select(si => indicatorDict.GetValueOrDefault(si.IndicatorId)?.Name ?? "")
+                .Select(si => SnapIndicatorName(si, indicatorDict.GetValueOrDefault(si.IndicatorId)))
                 .Where(name => !string.IsNullOrEmpty(name))
                 .ToList();
             var indicatorsText = indicatorNames.Count > 0
@@ -3045,14 +3081,13 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var processedKeys = new HashSet<string>();
 
         // Create a map from composite key to sample indicator
+        // Chỉ tiêu không tra được master vẫn giữ dòng (in theo snapshot)
         var indicatorMap = sampleIndicators
-            .Where(si => indicatorDict.ContainsKey(si.IndicatorId))
             .ToDictionary(si => MakeKey(si.IndicatorId, si.TestMethodId, si.SpecimenTypeId));
 
         // Sort sample indicators by indicator sort order
         var sortedSampleIndicators = sampleIndicators
-            .Where(si => indicatorDict.ContainsKey(si.IndicatorId))
-            .OrderBy(si => indicatorDict[si.IndicatorId].SortOrder)
+            .OrderBy(si => indicatorDict.GetValueOrDefault(si.IndicatorId)?.SortOrder ?? 0)
             .ThenBy(si => si.TestMethodId)
             .ThenBy(si => si.SpecimenTypeId)
             .ToList();
@@ -3063,10 +3098,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             if (processedKeys.Contains(currentKey))
                 continue;
 
-            var indicator = indicatorDict[si.IndicatorId];
+            var indicator = indicatorDict.GetValueOrDefault(si.IndicatorId);
 
             // Check if this indicator is a child (has parent)
-            if (indicator.ParentIndicatorId.HasValue)
+            if (indicator?.ParentIndicatorId != null)
             {
                 // Check if parent with same testMethodId and specimenTypeId is in the sample
                 var parentKey = MakeKey(indicator.ParentIndicatorId.Value, si.TestMethodId, si.SpecimenTypeId);
@@ -3082,7 +3117,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         return false;
                     var childInd = indicatorDict[csi.IndicatorId];
                     // Child must have same parent, testMethodId and specimenTypeId
-                    return childInd.ParentIndicatorId == indicator.Id
+                    return childInd.ParentIndicatorId == si.IndicatorId
                         && csi.TestMethodId == si.TestMethodId
                         && csi.SpecimenTypeId == si.SpecimenTypeId;
                 })
@@ -3095,22 +3130,24 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var namePlainBuilder = new StringBuilder();
                 var nameFormattedBuilder = new StringBuilder();
                 decimal totalPrice = si.UnitPrice;
-                bool hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+                var parentFormattedName = SnapIndicatorFormattedName(si, indicator);
+                bool hasAnyFormattedName = !string.IsNullOrEmpty(parentFormattedName);
 
-                namePlainBuilder.Append(indicator.Name);
-                nameFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+                namePlainBuilder.Append(SnapIndicatorName(si, indicator));
+                nameFormattedBuilder.Append(parentFormattedName ?? SnapIndicatorName(si, indicator));
 
                 foreach (var childSi in childrenInSample)
                 {
                     var childInd = indicatorDict[childSi.IndicatorId];
-                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                    var childFormattedName = SnapIndicatorFormattedName(childSi, childInd);
+                    if (!string.IsNullOrEmpty(childFormattedName))
                         hasAnyFormattedName = true;
 
                     namePlainBuilder.Append("\n- ");
-                    namePlainBuilder.Append(childInd.Name);
+                    namePlainBuilder.Append(SnapIndicatorName(childSi, childInd));
 
                     nameFormattedBuilder.Append("\n- ");
-                    nameFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                    nameFormattedBuilder.Append(childFormattedName ?? SnapIndicatorName(childSi, childInd));
 
                     totalPrice += childSi.UnitPrice;
                     var childKey = MakeKey(childSi.IndicatorId, childSi.TestMethodId, childSi.SpecimenTypeId);
@@ -3123,7 +3160,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     IndicatorName = namePlainBuilder.ToString(),
                     IndicatorFormattedName = hasAnyFormattedName ? nameFormattedBuilder.ToString() : null,
                     UnitPrice = totalPrice.ToString("N0")
-                }, si.TestMethodId, methodDict));
+                }, si.TestMethodId, methodDict, si));
             }
             else
             {
@@ -3131,10 +3168,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 indicatorDetails.Add(WithTestMethod(new IndicatorSubTableRow
                 {
                     No = subRowIndex++,
-                    IndicatorName = indicator.Name ?? "",
-                    IndicatorFormattedName = indicator.FormattedName,
+                    IndicatorName = SnapIndicatorName(si, indicator),
+                    IndicatorFormattedName = SnapIndicatorFormattedName(si, indicator),
                     UnitPrice = si.UnitPrice.ToString("N0")
-                }, si.TestMethodId, methodDict));
+                }, si.TestMethodId, methodDict, si));
             }
 
             processedKeys.Add(currentKey);
@@ -3155,7 +3192,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             .ToList();
         if (!ids.Any()) return new Dictionary<Guid, TestMethod>();
 
-        var methods = await _testMethodRepository.GetListAsync(x => ids.Contains(x.Id));
+        var methods = await Snapshot.GetListIncludingDeletedAsync<TestMethod>(x => ids.Contains(x.Id));
         return methods.ToDictionary(m => m.Id);
     }
 
@@ -3164,12 +3201,17 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
     /// Missing/pending method → empty.
     /// </summary>
     private static IndicatorSubTableRow WithTestMethod(
-        IndicatorSubTableRow row, Guid? testMethodId, Dictionary<Guid, TestMethod> methodDict)
+        IndicatorSubTableRow row, Guid? testMethodId, Dictionary<Guid, TestMethod> methodDict,
+        TestRequestSampleIndicator? sampleIndicator = null)
     {
-        if (testMethodId.HasValue && methodDict.TryGetValue(testMethodId.Value, out var method))
+        if (!testMethodId.HasValue) return row;
+
+        // Snapshot phương pháp trên phiếu trước, thiếu mới lấy master
+        var method = methodDict.GetValueOrDefault(testMethodId.Value);
+        if (method != null || !string.IsNullOrWhiteSpace(sampleIndicator?.TestMethodName))
         {
-            row.TestMethodName = method.Name ?? "";
-            row.TestMethodFormattedName = method.FormattedName;
+            row.TestMethodName = SnapRequestMethodName(sampleIndicator, method);
+            row.TestMethodFormattedName = SnapRequestMethodFormattedName(sampleIndicator, method);
         }
         return row;
     }
@@ -4907,12 +4949,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var sampleIndicator = await _sampleIndicatorRepository.GetAsync(labTaskIndicator.TestRequestSampleIndicatorId);
         var sample = await _sampleRepository.GetAsync(sampleIndicator.TestRequestSampleId);
 
-        // Get indicator and method details
-        var indicator = await _indicatorRepository.GetAsync(sampleIndicator.IndicatorId);
+        // Get indicator and method details (bao gồm đã xóa mềm; tên hiển thị ưu tiên snapshot)
+        var indicator = await Snapshot.FindIncludingDeletedAsync<Indicator>(sampleIndicator.IndicatorId);
         TestMethod? method = null;
         if (labTaskIndicator.MethodId.HasValue)
         {
-            method = await _testMethodRepository.GetAsync(labTaskIndicator.MethodId.Value);
+            method = await Snapshot.FindIncludingDeletedAsync<TestMethod>(labTaskIndicator.MethodId.Value);
         }
 
         // Calculate TimeOfTesting: Use selected indicator's TestDate and SubmitDate
@@ -4973,8 +5015,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         // For BM05-QLNN: Get standard info and add {{Standard}} placeholder
         if (isBM05QLNN && qualityIndicator.StandardId.HasValue)
         {
-            var standard = await _standardRepository.FirstOrDefaultAsync(x => x.Id == qualityIndicator.StandardId.Value);
-            placeholders.Add("{{Standard}}", standard?.Name ?? "So với QCVN…/ TCVN…./ QĐ…");
+            var standard = await Snapshot.FindIncludingDeletedAsync<Standard>(qualityIndicator.StandardId.Value);
+            var standardName = qualityIndicator.StandardId == labTaskIndicator.StandardId
+                ? MasterDataSnapshotService.Pick(labTaskIndicator.StandardName, standard?.Name)
+                : standard?.Name;
+            placeholders.Add("{{Standard}}", standardName ?? "So với QCVN…/ TCVN…./ QĐ…");
         }
         else if (isBM05QLNN)
         {
@@ -5014,15 +5059,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             new ResultFormTableRow
             {
                 No = 1,
-                Parameters = indicator.Name ?? "",
-                ParametersFormattedName = indicator.FormattedName,
+                Parameters = SnapIndicatorName(sampleIndicator, indicator),
+                ParametersFormattedName = SnapIndicatorFormattedName(sampleIndicator, indicator),
                 Unit = string.IsNullOrWhiteSpace(resolvedUnit) ? "-" : resolvedUnit,
                 TestMethod = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
                     ? labTaskIndicator.SubContractMethodName
-                    : method?.Name ?? "",
+                    : SnapMethodName(labTaskIndicator, method),
                 TestMethodFormattedName = !string.IsNullOrWhiteSpace(labTaskIndicator.SubContractMethodName)
                     ? null
-                    : method?.FormattedName,
+                    : SnapMethodFormattedName(labTaskIndicator, method),
                 Result = ConvertToSuperscriptDisplay(labTaskIndicator.Result),
                 Standards = compareWithStandard, // {{Standards}} = properly formatted limit
                 CompareWithStandard = compareWithStandard, // Single indicator = no footnote needed
@@ -5134,7 +5179,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Lab SortOrder per LaboratoryTask, used to keep indicators of the same lab together within a sample
         var labsForSort = distinctLabIds.Any()
-            ? await _laboratoryRepository.GetListAsync(x => distinctLabIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<Laboratory>(x => distinctLabIds.Contains(x.Id))
             : new List<Laboratory>();
         var labSortOrderByTaskId = labTasks.ToDictionary(
             lt => lt.Id,
@@ -5150,7 +5195,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         var firstSample = samples.FirstOrDefault();
 
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
-        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => indicatorIds.Contains(x.Id));
 
         // Also load parent indicators for sub-indicators (to display parent name in grouped rows)
         var parentIndicatorIds = indicators
@@ -5161,7 +5206,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             .ToList();
         if (parentIndicatorIds.Any())
         {
-            var parentIndicators = await _indicatorRepository.GetListAsync(x => parentIndicatorIds.Contains(x.Id));
+            var parentIndicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => parentIndicatorIds.Contains(x.Id));
             indicators = indicators.Concat(parentIndicators).ToList();
         }
 
@@ -5169,7 +5214,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         var methodIds = labTaskIndicators.Where(lti => lti.MethodId.HasValue).Select(lti => lti.MethodId!.Value).Distinct().ToList();
         var methods = methodIds.Any()
-            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<TestMethod>(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
@@ -5445,11 +5490,11 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var paramFormattedBuilder = new StringBuilder();
                     var resultBuilder = new StringBuilder();
                     var limitBuilder = new StringBuilder();
-                    var hasAnyFormattedName = !string.IsNullOrEmpty(indicator.FormattedName);
+                    var hasAnyFormattedName = !string.IsNullOrEmpty(SnapIndicatorFormattedName(item.SampleIndicator, indicator));
 
                     // Add parent name
-                    paramPlainBuilder.Append(indicator.Name);
-                    paramFormattedBuilder.Append(indicator.FormattedName ?? indicator.Name);
+                    paramPlainBuilder.Append(SnapIndicatorName(item.SampleIndicator, indicator));
+                    paramFormattedBuilder.Append(SnapIndicatorFormattedName(item.SampleIndicator, indicator) ?? SnapIndicatorName(item.SampleIndicator, indicator));
 
                     // Add children
                     foreach (var childData in children.OrderBy(c => c.Indicator!.SortOrder))
@@ -5457,14 +5502,14 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         var childInd = childData.Indicator!;
                         var childItem = childData.Item;
 
-                        if (!string.IsNullOrEmpty(childInd.FormattedName))
+                        if (!string.IsNullOrEmpty(SnapIndicatorFormattedName(childItem.SampleIndicator, childInd)))
                             hasAnyFormattedName = true;
 
                         paramPlainBuilder.Append("\n- ");
-                        paramPlainBuilder.Append(childInd.Name);
+                        paramPlainBuilder.Append(SnapIndicatorName(childItem.SampleIndicator, childInd));
 
                         paramFormattedBuilder.Append("\n- ");
-                        paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                        paramFormattedBuilder.Append(SnapIndicatorFormattedName(childItem.SampleIndicator, childInd) ?? SnapIndicatorName(childItem.SampleIndicator, childInd));
 
                         if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                         resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
@@ -5508,10 +5553,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                         Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
                         TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                             ? firstChild.Item.LabTaskIndicator.SubContractMethodName
-                            : method?.Name ?? "",
+                            : SnapMethodName(firstChild.Item.LabTaskIndicator, method),
                         TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                             ? null
-                            : method?.FormattedName,
+                            : SnapMethodFormattedName(firstChild.Item.LabTaskIndicator, method),
                         Result = resultBuilder.ToString(),
                         ReferenceLimit = "",
                         StandardId = null,
@@ -5564,15 +5609,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     sampleRow.Indicators.Add(new MixedResultIndicatorRow
                     {
                         LabSortOrder = LabSortOrderOf(item.LabTaskIndicator),
-                        Parameter = indicator.Name ?? "",
-                        ParameterFormattedName = indicator.FormattedName,
+                        Parameter = SnapIndicatorName(item.SampleIndicator, indicator),
+                        ParameterFormattedName = SnapIndicatorFormattedName(item.SampleIndicator, indicator),
                         Unit = ResolveUnitQm(item.LabTaskIndicator),
                         TestMethod = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
                             ? item.LabTaskIndicator.SubContractMethodName
-                            : method?.Name ?? "",
+                            : SnapMethodName(item.LabTaskIndicator, method),
                         TestMethodFormattedName = !string.IsNullOrWhiteSpace(item.LabTaskIndicator.SubContractMethodName)
                             ? null
-                            : method?.FormattedName,
+                            : SnapMethodFormattedName(item.LabTaskIndicator, method),
                         Result = resultText,
                         ReferenceLimit = item.QualityIndicator.ReferenceLimit ?? "",
                         StandardId = effectiveStandardId,
@@ -5617,16 +5662,16 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     var childInd = childData.Indicator!;
                     var childItem = childData.Item;
 
-                    if (!string.IsNullOrEmpty(childInd.FormattedName))
+                    if (!string.IsNullOrEmpty(SnapIndicatorFormattedName(childItem.SampleIndicator, childInd)))
                         hasAnyFormattedName = true;
 
                     if (paramPlainBuilder.Length > 0) paramPlainBuilder.Append('\n');
                     paramPlainBuilder.Append("- ");
-                    paramPlainBuilder.Append(childInd.Name);
+                    paramPlainBuilder.Append(SnapIndicatorName(childItem.SampleIndicator, childInd));
 
                     if (paramFormattedBuilder.Length > 0) paramFormattedBuilder.Append('\n');
                     paramFormattedBuilder.Append("- ");
-                    paramFormattedBuilder.Append(childInd.FormattedName ?? childInd.Name);
+                    paramFormattedBuilder.Append(SnapIndicatorFormattedName(childItem.SampleIndicator, childInd) ?? SnapIndicatorName(childItem.SampleIndicator, childInd));
 
                     if (resultBuilder.Length > 0) resultBuilder.Append('\n');
                     resultBuilder.Append(ConvertToSuperscriptDisplay(childItem.LabTaskIndicator.Result));
@@ -5670,10 +5715,10 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                     Unit = ResolveUnitQm(firstChild.Item.LabTaskIndicator),
                     TestMethod = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                         ? firstChild.Item.LabTaskIndicator.SubContractMethodName
-                        : method?.Name ?? "",
+                        : SnapMethodName(firstChild.Item.LabTaskIndicator, method),
                     TestMethodFormattedName = !string.IsNullOrWhiteSpace(firstChild.Item.LabTaskIndicator.SubContractMethodName)
                         ? null
-                        : method?.FormattedName,
+                        : SnapMethodFormattedName(firstChild.Item.LabTaskIndicator, method),
                     Result = resultBuilder.ToString(),
                     ReferenceLimit = "",
                     StandardId = null,
@@ -5876,12 +5921,12 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
 
         // Get indicator and method details
         var indicatorIds = sampleIndicators.Select(si => si.IndicatorId).Distinct().ToList();
-        var indicators = await _indicatorRepository.GetListAsync(x => indicatorIds.Contains(x.Id));
+        var indicators = await Snapshot.GetListIncludingDeletedAsync<Indicator>(x => indicatorIds.Contains(x.Id));
         var indicatorDict = indicators.ToDictionary(i => i.Id);
 
         var methodIds = taskIndicators.Where(ti => ti.MethodId.HasValue).Select(ti => ti.MethodId!.Value).Distinct().ToList();
         var methods = methodIds.Any()
-            ? await _testMethodRepository.GetListAsync(x => methodIds.Contains(x.Id))
+            ? await Snapshot.GetListIncludingDeletedAsync<TestMethod>(x => methodIds.Contains(x.Id))
             : new List<TestMethod>();
         var methodDict = methods.ToDictionary(m => m.Id);
 
@@ -5967,15 +6012,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             tableData.Add(new ResultFormTableRow
             {
                 No = rowIndex++,
-                Parameters = indicator?.Name ?? "",
-                ParametersFormattedName = indicator?.FormattedName,
+                Parameters = SnapIndicatorName(sampleIndicator, indicator),
+                ParametersFormattedName = SnapIndicatorFormattedName(sampleIndicator, indicator),
                 Unit = string.IsNullOrWhiteSpace(resolvedUnit) ? "-" : resolvedUnit,
                 TestMethod = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
                     ? taskIndicator?.SubContractMethodName ?? ""
-                    : method?.Name ?? "",
+                    : SnapMethodName(taskIndicator, method),
                 TestMethodFormattedName = !string.IsNullOrWhiteSpace(taskIndicator?.SubContractMethodName)
                     ? null
-                    : method?.FormattedName,
+                    : SnapMethodFormattedName(taskIndicator, method),
                 Result = ConvertToSuperscriptDisplay(taskIndicator?.Result),
                 Standards = "",
                 Uncertainty = "",
@@ -6301,7 +6346,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
                 var noteIds = ParseNoteIds(labTaskIndicator.MasterDataNoteIds);
                 if (noteIds.Any())
                 {
-                    var masterNotes = await _noteRepository.GetListAsync(x => noteIds.Contains(x.Id));
+                    var masterNotes = await Snapshot.GetListIncludingDeletedAsync<MasterData.Note>(x => noteIds.Contains(x.Id));
                     foreach (var note in masterNotes.OrderBy(x => x.SortOrder))
                     {
                         labNote.Add(note.Content?.Trim() ?? "");
@@ -6376,7 +6421,7 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
             // Fetch and add master data notes (distinct)
             if (allMasterNoteIds.Any())
             {
-                var masterNotes = await _noteRepository.GetListAsync(x => allMasterNoteIds.Contains(x.Id));
+                var masterNotes = await Snapshot.GetListIncludingDeletedAsync<MasterData.Note>(x => allMasterNoteIds.Contains(x.Id));
                 var masterNoteLines = masterNotes
                     .OrderBy(x => x.SortOrder)
                     .Select(x => x.Content?.Trim() ?? "")
@@ -6488,15 +6533,21 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Lấy thông tin các Standard từ database
-        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        var standards = await Snapshot.GetListIncludingDeletedAsync<Standard>(x => standardIds.Contains(x.Id));
         result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        // Snapshot tên tiêu chuẩn trên LTI ưu tiên hơn master
+        foreach (var lti in labTaskIndicators?.Where(x => x.StandardId.HasValue && !string.IsNullOrWhiteSpace(x.StandardName))
+                     ?? Enumerable.Empty<LaboratoryTaskIndicator>())
+        {
+            result.StandardNames[lti.StandardId!.Value] = lti.StandardName!;
+        }
 
         if (standardIds.Count == 1)
         {
             // Tất cả chỉ tiêu dùng cùng 1 tiêu chuẩn
             result.IsSingleStandard = true;
-            var standard = standards.FirstOrDefault();
-            result.StandardText = standard?.Name ?? "";
+            result.StandardText = result.StandardNames.GetValueOrDefault(standardIds[0]) ?? "";
         }
         else
         {
@@ -6681,8 +6732,15 @@ public partial class ResultFormAppService : ApplicationService, IResultFormAppSe
         }
 
         // Lấy thông tin các Standard từ database
-        var standards = await _standardRepository.GetListAsync(x => standardIds.Contains(x.Id));
+        var standards = await Snapshot.GetListIncludingDeletedAsync<Standard>(x => standardIds.Contains(x.Id));
         result.StandardNames = standards.ToDictionary(s => s.Id, s => s.Name);
+
+        // Snapshot tên tiêu chuẩn trên LTI ưu tiên hơn master
+        foreach (var lti in labTaskIndicators?.Where(x => x.StandardId.HasValue && !string.IsNullOrWhiteSpace(x.StandardName))
+                     ?? Enumerable.Empty<LaboratoryTaskIndicator>())
+        {
+            result.StandardNames[lti.StandardId!.Value] = lti.StandardName!;
+        }
 
         // BM04: Luôn tạo footnote map (kể cả single standard)
         result.IsSingleStandard = standardIds.Count == 1;

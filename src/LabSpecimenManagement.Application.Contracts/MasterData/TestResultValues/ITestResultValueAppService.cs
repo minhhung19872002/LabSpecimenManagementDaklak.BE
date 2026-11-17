@@ -36,7 +36,7 @@ public interface ITestResultValueAppService : IApplicationService
     /// <summary>
     /// Lấy danh sách kết quả kèm theo danh sách chỉ tiêu
     /// </summary>
-    Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync();
+    Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync(bool excludeDeletedIndicators = false);
 
     /// <summary>
     /// Thêm chỉ tiêu vào kết quả thử nghiệm

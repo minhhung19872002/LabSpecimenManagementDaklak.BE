@@ -76,15 +76,15 @@ public class StandardController : LabSpecimenManagementController
     }
 
     [HttpGet("with-indicators")]
-    public virtual Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync()
+    public virtual Task<List<StandardWithIndicatorsDto>> GetAllWithIndicatorsAsync([FromQuery] bool excludeDeletedIndicators = false)
     {
-        return _standardAppService.GetAllWithIndicatorsAsync();
+        return _standardAppService.GetAllWithIndicatorsAsync(excludeDeletedIndicators);
     }
 
     [HttpGet("{id}/with-indicators")]
-    public virtual Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id)
+    public virtual Task<StandardWithIndicatorsDto> GetWithIndicatorsAsync(Guid id, [FromQuery] bool excludeDeletedIndicators = false)
     {
-        return _standardAppService.GetWithIndicatorsAsync(id);
+        return _standardAppService.GetWithIndicatorsAsync(id, excludeDeletedIndicators);
     }
 
     [HttpGet("{id}/indicators")]

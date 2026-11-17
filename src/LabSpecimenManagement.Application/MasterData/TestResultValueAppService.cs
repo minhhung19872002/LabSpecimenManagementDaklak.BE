@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
+using LabSpecimenManagement.MasterData.Snapshots;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -19,6 +20,8 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IDataFilter _dataFilter;
+
+    private MasterDataSnapshotService Snapshot => LazyServiceProvider.LazyGetRequiredService<MasterDataSnapshotService>();
 
     public TestResultValueAppService(
         IRepository<TestResultValue, Guid> repository,
@@ -50,7 +53,7 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
         var dtos = ObjectMapper.Map<List<TestResultValue>, List<TestResultValueDto>>(items);
 
         // Load indicator counts from junction table
-        var junctionQuery = await _junctionRepository.GetQueryableAsync();
+        var junctionQuery = await GetLiveJunctionQueryAsync();
         var resultValueIds = items.Select(x => x.Id).ToList();
         var indicatorCounts = junctionQuery
             .Where(j => resultValueIds.Contains(j.TestResultValueId))
@@ -72,7 +75,7 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
         var dto = ObjectMapper.Map<TestResultValue, TestResultValueDto>(entity);
 
         // Load indicator count
-        var junctionQuery = await _junctionRepository.GetQueryableAsync();
+        var junctionQuery = await GetLiveJunctionQueryAsync();
         dto.IndicatorCount = junctionQuery.Count(j => j.TestResultValueId == id);
 
         return dto;
@@ -119,7 +122,7 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
         var dto = ObjectMapper.Map<TestResultValue, TestResultValueDto>(entity);
 
         // Load indicator count
-        var junctionQuery = await _junctionRepository.GetQueryableAsync();
+        var junctionQuery = await GetLiveJunctionQueryAsync();
         dto.IndicatorCount = junctionQuery.Count(j => j.TestResultValueId == id);
 
         return dto;
@@ -166,7 +169,7 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
         var dtos = ObjectMapper.Map<List<TestResultValue>, List<TestResultValueDto>>(items);
 
         // Load indicator counts
-        var junctionQuery = await _junctionRepository.GetQueryableAsync();
+        var junctionQuery = await GetLiveJunctionQueryAsync();
         var resultValueIds = items.Select(x => x.Id).ToList();
         var indicatorCounts = junctionQuery
             .Where(j => resultValueIds.Contains(j.TestResultValueId))
@@ -348,12 +351,33 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
 
     #region Indicator Management
 
-    public async Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync()
+    /// <summary>
+    /// Liên kết kết quả–chỉ tiêu, bỏ các dòng trỏ tới chỉ tiêu đã bị xóa mềm
+    /// (xóa chỉ tiêu không xóa TestResultValueIndicator để còn khôi phục được).
+    /// </summary>
+    private async Task<IQueryable<TestResultValueIndicator>> GetLiveJunctionQueryAsync()
+    {
+        var junctionQuery = await _junctionRepository.GetQueryableAsync();
+        var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
+        return junctionQuery.Where(j => indicatorQuery.Any(i => i.Id == j.IndicatorId));
+    }
+
+    /// <param name="excludeDeletedIndicators">
+    /// true: màn danh mục — ẩn chỉ tiêu đã xóa. false (mặc định): màn nghiệp vụ — vẫn trả về
+    /// (kèm mã/tên lúc xóa) để phiếu đang làm dở với chỉ tiêu đó vẫn chọn được kết quả.
+    /// </param>
+    public async Task<ListResultDto<TestResultValueDto>> GetWithIndicatorsAsync(bool excludeDeletedIndicators = false)
     {
         var resultValues = await _repository.GetListAsync();
         var junctions = await _junctionRepository.GetListAsync();
-        var indicators = await _indicatorRepository.GetListAsync();
-        var specimenTypes = await _specimenTypeRepository.GetListAsync();
+        var indicators = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(junctions.Select(j => j.IndicatorId));
+        var specimenTypes = await Snapshot.GetDictionaryIncludingDeletedAsync<SpecimenType>(junctions.Select(j => j.SpecimenTypeId));
+
+        var junctionsByResultValue = junctions
+            .Where(j => !excludeDeletedIndicators
+                || (indicators.TryGetValue(j.IndicatorId, out var ind) && !ind.IsDeleted))
+            .OrderBy(j => j.SortOrder)
+            .ToLookup(j => j.TestResultValueId);
 
         var result = resultValues
             .OrderByDescending(x => x.CreationTime)
@@ -361,13 +385,11 @@ public class TestResultValueAppService : ApplicationService, ITestResultValueApp
             {
                 var dto = ObjectMapper.Map<TestResultValue, TestResultValueDto>(rv);
 
-                var rvIndicators = junctions
-                    .Where(j => j.TestResultValueId == rv.Id)
-                    .OrderBy(j => j.SortOrder)
+                var rvIndicators = junctionsByResultValue[rv.Id]
                     .Select(j =>
                     {
-                        var indicator = indicators.FirstOrDefault(i => i.Id == j.IndicatorId);
-                        var specimenType = specimenTypes.FirstOrDefault(st => st.Id == j.SpecimenTypeId);
+                        var indicator = indicators.GetValueOrDefault(j.IndicatorId);
+                        var specimenType = specimenTypes.GetValueOrDefault(j.SpecimenTypeId);
 
                         return new TestResultValueIndicatorDto
                         {
