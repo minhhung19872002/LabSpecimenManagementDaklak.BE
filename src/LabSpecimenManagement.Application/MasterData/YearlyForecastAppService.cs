@@ -19,6 +19,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
 {
     private readonly IRepository<ServiceYearlyForecast, Guid> _forecastRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _serviceRepository;
+    private readonly IRepository<ServiceBatchNorm, Guid> _serviceNormRepository;
     private readonly IRepository<MethodBatchNorm, Guid> _normRepository;
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
@@ -29,6 +30,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
     public YearlyForecastAppService(
         IRepository<ServiceYearlyForecast, Guid> forecastRepository,
         IRepository<TestMethodIndicator, Guid> serviceRepository,
+        IRepository<ServiceBatchNorm, Guid> serviceNormRepository,
         IRepository<MethodBatchNorm, Guid> normRepository,
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Indicator, Guid> indicatorRepository,
@@ -38,6 +40,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
     {
         _forecastRepository = forecastRepository;
         _serviceRepository = serviceRepository;
+        _serviceNormRepository = serviceNormRepository;
         _normRepository = normRepository;
         _testMethodRepository = testMethodRepository;
         _indicatorRepository = indicatorRepository;
@@ -53,17 +56,22 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
         var year = input.Year;
         var isLocked = year < CurrentYear;
 
-        var norms = await _normRepository.GetListAsync(n => n.IsActive);
-        var normMethodIds = norms.Select(n => n.TestMethodId).Distinct().ToList();
+        // Định mức gắn theo dịch vụ (nền mẫu × chỉ tiêu × PP), chỉ lấy định mức đang sử dụng
+        var headers = (await _serviceNormRepository.GetListAsync(h => h.IsActive)).ToDictionary(h => h.Id, h => h.TestMethodIndicatorId);
+        var normServiceIds = headers.Values.Distinct().ToList();
+        var headerIds = headers.Keys.ToList();
+        var norms = headerIds.Count == 0
+            ? new List<MethodBatchNorm>()
+            : await _normRepository.GetListAsync(n => n.IsActive && n.ServiceBatchNormId != null && headerIds.Contains(n.ServiceBatchNormId.Value));
 
         var forecasts = await _forecastRepository.GetListAsync(f => f.Year == year || f.Year == year - 1);
         var current = forecasts.Where(f => f.Year == year).ToDictionary(f => f.TestMethodIndicatorId);
         var previous = forecasts.Where(f => f.Year == year - 1).ToDictionary(f => f.TestMethodIndicatorId);
 
-        // Dịch vụ thuộc phương pháp có định mức + dịch vụ đã có dự toán năm này (giữ lịch sử khi định mức bị ngừng)
+        // Dịch vụ có định mức + dịch vụ đã có dự toán năm này (giữ lịch sử khi định mức bị ngừng)
         var forecastServiceIds = current.Keys.ToList();
         var services = await _serviceRepository.GetListAsync(s =>
-            (s.IsActive && normMethodIds.Contains(s.TestMethodId)) || forecastServiceIds.Contains(s.Id));
+            (s.IsActive && normServiceIds.Contains(s.Id)) || forecastServiceIds.Contains(s.Id));
 
         var methodIds = services.Select(s => s.TestMethodId).Distinct().ToList();
         var indicatorIds = services.Select(s => s.IndicatorId).Distinct().ToList();
@@ -84,7 +92,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
         var units = unitIds.Count == 0
             ? new Dictionary<Guid, Unit>()
             : (await _unitRepository.GetListAsync(u => unitIds.Contains(u.Id))).ToDictionary(u => u.Id);
-        var normsByMethod = completeNorms.GroupBy(n => n.TestMethodId).ToDictionary(g => g.Key, g => g.ToList());
+        var normsByService = completeNorms.GroupBy(n => headers[n.ServiceBatchNormId!.Value]).ToDictionary(g => g.Key, g => g.ToList());
 
         var rows = new List<YearlyForecastRowDto>();
         foreach (var service in services)
@@ -113,7 +121,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
                 SpecimenTypeName = specimenType?.Name,
                 EstimatedSamples = estimated,
                 PreviousYearSamples = previous.GetValueOrDefault(service.Id)?.EstimatedSamples,
-                NormLines = (normsByMethod.GetValueOrDefault(method.Id) ?? new List<MethodBatchNorm>())
+                NormLines = (normsByService.GetValueOrDefault(service.Id) ?? new List<MethodBatchNorm>())
                     .Select(n =>
                     {
                         var product = products.GetValueOrDefault(n.ProductId!.Value);

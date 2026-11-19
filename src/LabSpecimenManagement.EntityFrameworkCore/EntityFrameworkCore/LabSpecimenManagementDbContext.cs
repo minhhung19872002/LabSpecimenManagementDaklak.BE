@@ -92,6 +92,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<Manufacturer> Manufacturers { get; set; }
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<ServicePriceVersion> ServicePriceVersions { get; set; }
+    public DbSet<ServiceBatchNorm> ServiceBatchNorms { get; set; }
     public DbSet<MethodBatchNorm> MethodBatchNorms { get; set; }
     public DbSet<ServiceGroup> ServiceGroups { get; set; }
     public DbSet<ServiceYearlyForecast> ServiceYearlyForecasts { get; set; }
@@ -908,7 +909,18 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.Name).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
-        // L3 · Định mức tiêu hao theo mẻ
+        // L3 · Định mức theo mẻ của dịch vụ (nền mẫu × chỉ tiêu × PP)
+        builder.Entity<ServiceBatchNorm>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceBatchNorms", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.IsActive).HasDefaultValue(true);
+            b.HasIndex(x => x.TestMethodIndicatorId)
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+            b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
+        });
+
         builder.Entity<MethodBatchNorm>(b =>
         {
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "MethodBatchNorms", LabSpecimenManagementConsts.DbSchema);
@@ -920,9 +932,11 @@ public class LabSpecimenManagementDbContext :
             b.Ignore(x => x.IsComplete);
             b.HasIndex(x => x.TestMethodId);
             b.HasIndex(x => x.Code).IsUnique();
-            b.HasIndex(x => new { x.TestMethodId, x.ProductId })
+            b.HasIndex(x => x.ServiceBatchNormId);
+            b.HasIndex(x => new { x.ServiceBatchNormId, x.ProductId })
                 .IsUnique()
                 .HasFilter("\"IsDeleted\" = false AND \"ProductId\" IS NOT NULL");
+            b.HasOne<ServiceBatchNorm>().WithMany().HasForeignKey(x => x.ServiceBatchNormId).OnDelete(DeleteBehavior.Cascade);
         });
 
         // L4 · Dự toán số mẫu năm

@@ -895,6 +895,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
     public async Task<List<ConsumptionStatusDto>> CheckConsumptionStatusAsync(CheckConsumptionStatusInput input)
     {
         var year = Clock.Now.Year;
+        var serviceNormRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<ServiceBatchNorm, Guid>>();
         var normRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<MethodBatchNorm, Guid>>();
         var forecastRepository = LazyServiceProvider.LazyGetRequiredService<IRepository<ServiceYearlyForecast, Guid>>();
 
@@ -904,12 +905,22 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
         var services = await _testMethodIndicatorRepository.GetListAsync(x =>
             methodIds.Contains(x.TestMethodId) && indicatorIds.Contains(x.IndicatorId));
 
-        var methodsWithNorm = (await normRepository.GetListAsync(n =>
-                methodIds.Contains(n.TestMethodId) && n.IsActive && n.ProductId != null && n.BatchQuantity > 0))
-            .Select(n => n.TestMethodId)
-            .ToHashSet();
-
         var serviceIds = services.Select(s => s.Id).ToList();
+
+        // Định mức theo dịch vụ: đang sử dụng + có ít nhất 1 vật tư đủ tổng tiêu hao
+        var headers = serviceIds.Count == 0
+            ? new Dictionary<Guid, Guid>()
+            : (await serviceNormRepository.GetListAsync(h => serviceIds.Contains(h.TestMethodIndicatorId) && h.IsActive))
+                .ToDictionary(h => h.Id, h => h.TestMethodIndicatorId);
+        var headerIds = headers.Keys.ToList();
+        var servicesWithNorm = headerIds.Count == 0
+            ? new HashSet<Guid>()
+            : (await normRepository.GetListAsync(n =>
+                    n.ServiceBatchNormId != null && headerIds.Contains(n.ServiceBatchNormId.Value)
+                    && n.IsActive && n.ProductId != null && n.BatchQuantity > 0))
+                .Select(n => headers[n.ServiceBatchNormId!.Value])
+                .ToHashSet();
+
         var servicesWithForecast = serviceIds.Count == 0
             ? new HashSet<Guid>()
             : (await forecastRepository.GetListAsync(f =>
@@ -924,7 +935,7 @@ public class TestMethodAppService : ApplicationService, ITestMethodAppService
                 x.IndicatorId == item.IndicatorId &&
                 x.SpecimenTypeId == item.SpecimenTypeId);
 
-            var hasNorm = methodsWithNorm.Contains(item.TestMethodId);
+            var hasNorm = service != null && servicesWithNorm.Contains(service.Id);
             var hasForecast = service != null && servicesWithForecast.Contains(service.Id);
 
             return new ConsumptionStatusDto

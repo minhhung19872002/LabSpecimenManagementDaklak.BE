@@ -2067,6 +2067,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("ProductId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ServiceBatchNormId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
 
@@ -2078,9 +2081,11 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("Code")
                         .IsUnique();
 
+                    b.HasIndex("ServiceBatchNormId");
+
                     b.HasIndex("TestMethodId");
 
-                    b.HasIndex("TestMethodId", "ProductId")
+                    b.HasIndex("ServiceBatchNormId", "ProductId")
                         .IsUnique()
                         .HasFilter("\"IsDeleted\" = false AND \"ProductId\" IS NOT NULL");
 
@@ -2385,6 +2390,70 @@ namespace LabSpecimenManagement.Migrations
                     b.HasIndex("IsActive");
 
                     b.ToTable("AppSampleTypeCategories", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceBatchNorm", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<Guid>("TestMethodIndicatorId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TestMethodIndicatorId")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("AppServiceBatchNorms", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceGroup", b =>
@@ -9800,6 +9869,23 @@ namespace LabSpecimenManagement.Migrations
                         .IsRequired();
 
                     b.Navigation("LaboratoryTask");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.MethodBatchNorm", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.ServiceBatchNorm", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceBatchNormId")
+                        .OnDelete(DeleteBehavior.Cascade);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceBatchNorm", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.TestMethodIndicator", null)
+                        .WithMany()
+                        .HasForeignKey("TestMethodIndicatorId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.ServicePriceVersion", b =>

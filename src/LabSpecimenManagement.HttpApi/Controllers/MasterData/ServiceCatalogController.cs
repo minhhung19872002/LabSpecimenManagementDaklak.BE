@@ -116,13 +116,33 @@ public class MethodBatchNormController : LabSpecimenManagementController
         _appService = appService;
     }
 
-    [HttpGet("methods")]
-    public virtual Task<ListResultDto<BatchNormMethodDto>> GetMethodsAsync([FromQuery] GetBatchNormMethodsInput input)
-        => _appService.GetMethodsAsync(input);
+    [HttpGet("overview")]
+    public virtual Task<BatchNormOverviewDto> GetOverviewAsync()
+        => _appService.GetOverviewAsync();
 
-    [HttpGet("by-method/{testMethodId}")]
-    public virtual Task<ListResultDto<MethodBatchNormDto>> GetByMethodAsync(Guid testMethodId)
-        => _appService.GetByMethodAsync(testMethodId);
+    [HttpPost("services")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    public virtual Task<ListResultDto<ServiceBatchNormDto>> AddServicesAsync([FromBody] AddServiceBatchNormsInput input)
+        => _appService.AddServicesAsync(input);
+
+    [HttpPost("services/{id}/toggle-active")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<ServiceBatchNormDto> ToggleServiceActiveAsync(Guid id)
+        => _appService.ToggleServiceActiveAsync(id);
+
+    [HttpDelete("services/{id}")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
+    public virtual Task DeleteServiceAsync(Guid id)
+        => _appService.DeleteServiceAsync(id);
+
+    [HttpPost("services/{id}/restore")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
+    public virtual Task<ServiceBatchNormDto> RestoreServiceAsync(Guid id)
+        => _appService.RestoreServiceAsync(id);
+
+    [HttpGet("by-service/{testMethodIndicatorId}")]
+    public virtual Task<ListResultDto<MethodBatchNormDto>> GetByServiceAsync(Guid testMethodIndicatorId)
+        => _appService.GetByServiceAsync(testMethodIndicatorId);
 
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]

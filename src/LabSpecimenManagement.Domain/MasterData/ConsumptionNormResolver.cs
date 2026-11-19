@@ -51,13 +51,16 @@ public class ConsumptionNormResolver : DomainService
 {
     public const int Decimals = 4;
 
+    private readonly IRepository<ServiceBatchNorm, Guid> _serviceNormRepository;
     private readonly IRepository<MethodBatchNorm, Guid> _normRepository;
     private readonly IRepository<ServiceYearlyForecast, Guid> _forecastRepository;
 
     public ConsumptionNormResolver(
+        IRepository<ServiceBatchNorm, Guid> serviceNormRepository,
         IRepository<MethodBatchNorm, Guid> normRepository,
         IRepository<ServiceYearlyForecast, Guid> forecastRepository)
     {
+        _serviceNormRepository = serviceNormRepository;
         _normRepository = normRepository;
         _forecastRepository = forecastRepository;
     }
@@ -90,11 +93,20 @@ public class ConsumptionNormResolver : DomainService
             return result;
         }
 
-        var methodIds = serviceList.Select(s => s.TestMethodId).Distinct().ToList();
         var serviceIds = serviceList.Select(s => s.Id).ToList();
 
+        // Định mức gắn theo dịch vụ (nền mẫu × chỉ tiêu × PP); ngừng sử dụng → không trừ tiêu hao
+        var headers = (await _serviceNormRepository.GetListAsync(h => serviceIds.Contains(h.TestMethodIndicatorId) && h.IsActive))
+            .ToDictionary(h => h.Id, h => h.TestMethodIndicatorId);
+        if (headers.Count == 0)
+        {
+            return result;
+        }
+
+        var headerIds = headers.Keys.ToList();
         var norms = await _normRepository.GetListAsync(n =>
-            methodIds.Contains(n.TestMethodId) && n.IsActive && n.ProductId != null && n.BatchQuantity > 0);
+            n.ServiceBatchNormId != null && headerIds.Contains(n.ServiceBatchNormId.Value)
+            && n.IsActive && n.ProductId != null && n.BatchQuantity > 0);
         if (norms.Count == 0)
         {
             return result;
@@ -104,17 +116,17 @@ public class ConsumptionNormResolver : DomainService
                 serviceIds.Contains(f.TestMethodIndicatorId) && f.Year == year && f.EstimatedSamples > 0))
             .ToDictionary(f => f.TestMethodIndicatorId, f => f.EstimatedSamples!.Value);
 
-        var normsByMethod = norms.GroupBy(n => n.TestMethodId).ToDictionary(g => g.Key, g => g.ToList());
+        var normsByService = norms.GroupBy(n => headers[n.ServiceBatchNormId!.Value]).ToDictionary(g => g.Key, g => g.ToList());
 
         foreach (var service in serviceList)
         {
             if (!forecasts.TryGetValue(service.Id, out var estimated)
-                || !normsByMethod.TryGetValue(service.TestMethodId, out var methodNorms))
+                || !normsByService.TryGetValue(service.Id, out var serviceNorms))
             {
                 continue;
             }
 
-            foreach (var norm in methodNorms)
+            foreach (var norm in serviceNorms)
             {
                 var perSample = ComputePerSample(norm.BatchQuantity, estimated);
                 if (perSample is not > 0)
