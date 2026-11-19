@@ -1739,17 +1739,8 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
     #region Private Helper Methods
 
     /// <summary>
-    /// Tự động cập nhật trạng thái task dựa trên trạng thái các indicators
-    /// Logic: Ưu tiên trạng thái THẤP NHẤT (phải hoàn thành TẤT CẢ mới lên status cao hơn)
-    /// Ngoại trừ PendingApproval - ưu tiên hiển thị khi có chỉ tiêu chờ duyệt (cần action từ QLKT)
-    ///
-    /// Thứ tự kiểm tra:
-    /// 1. Chờ duyệt kết quả (3): Có ≥1 chỉ tiêu Entered → hiển thị ngay (cần QLKT action)
-    /// 2. Đã gửi QLCL (5): TẤT CẢ chỉ tiêu đã gửi QLCL
-    /// 3. Đã duyệt (4): TẤT CẢ chỉ tiêu đã được Approved
-    /// 4. Đang thử nghiệm (2): TẤT CẢ đã giao việc + có ≥1 đang test
-    /// 5. Đã giao việc (1): TẤT CẢ chỉ tiêu đã có method + KTV
-    /// 6. Chưa giao việc (0): Còn chỉ tiêu chưa được giao việc
+    /// Tự động cập nhật trạng thái task dựa trên trạng thái các indicators.
+    /// Thứ tự ưu tiên BA: xem LaboratoryTaskStatusCalculator.Calculate (dùng chung với TestingAppService).
     /// </summary>
     private async Task UpdateTaskStatusAsync(LaboratoryTask task)
     {
@@ -1760,122 +1751,18 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             return;
         }
 
-        // Filter out CustomerCancelled and TestingRejected (with customer confirmation) indicators
-        // - CustomerCancelled: KH đã hủy chỉ tiêu
-        // - TestingRejected with CustomerConfirmationDate: QLKT từ chối TN và KH đã xác nhận đồng ý
-        // These should not affect task status calculation (considered as "completed/finalized")
-        var filteredIndicators = taskIndicators
-            .Where(ti => ti.ApprovalStatus != IndicatorApprovalStatus.CustomerCancelled &&
-                        !(ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected && ti.CustomerConfirmationDate.HasValue))
-            .ToList();
-
-        // Filter out parent indicators with children (they are display-only, not for processing)
-        // Only count sub-indicators and standalone indicators for status calculation
+        // Loại CustomerCancelled + TestingRejected đã được KH xác nhận, rồi loại chỉ tiêu cha có con (chỉ để hiển thị)
+        var filteredIndicators = LaboratoryTaskStatusCalculator.ExcludeFinalized(taskIndicators);
         var activeIndicators = await FilterIndicatorsForStatusCalculationAsync(filteredIndicators);
 
-        // If all indicators are cancelled/rejected or are parents, keep current status or set to a default
-        if (!activeIndicators.Any())
+        // Logic ưu tiên BA dùng chung với TestingAppService → 2 trang luôn đồng bộ
+        var calculated = LaboratoryTaskStatusCalculator.Calculate(activeIndicators);
+        if (!calculated.HasValue)
         {
             return;
         }
 
-        // Ưu tiên trạng thái theo yêu cầu BA: hiển thị trạng thái "cần xử lý nhất"
-        // Nếu có BẤT KỲ chỉ tiêu nào ở trạng thái ưu tiên cao → hiển thị trạng thái đó
-
-        // Priority 1: Đánh giá TN - có chỉ tiêu cần QLKT đánh giá
-        var anyNeedEvaluation = activeIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.CannotTest ||
-            ti.ApprovalStatus == IndicatorApprovalStatus.SupplementaryRequested ||
-            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending && !ti.MethodId.HasValue && !ti.TestDate.HasValue));
-
-        // Priority 2: Cần phân công - đã chấp nhận TN nhưng chưa giao KTV
-        var anyNeedAssignment = activeIndicators.Any(ti =>
-            (ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged) &&
-            (!ti.MethodId.HasValue || !ti.TechnicianId.HasValue));
-
-        // Priority 3: Chờ KH phản hồi
-        var anyWaitingCustomer = activeIndicators.Any(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.MethodChangeRequested);
-
-        // Priority 4: Đã phân công - đã giao KTV nhưng chưa bắt đầu TN
-        var anyAssignedNotTesting = activeIndicators.Any(ti =>
-            ti.MethodId.HasValue && ti.TechnicianId.HasValue && !ti.TestDate.HasValue &&
-            (ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.Pending));
-
-        // Priority 5: Chờ duyệt KQ - KTV đã nhập kết quả
-        var anyEntered = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Entered);
-
-        // Priority 6: Từ chối KQ - QLKT từ chối, KTV cần nhập lại
-        var anyRejected = activeIndicators.Any(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Rejected);
-
-        // Priority 7: Đang TN - KTV đang thử nghiệm
-        var anyTesting = activeIndicators.Any(ti =>
-            ti.TestDate.HasValue &&
-            (ti.ApprovalStatus == IndicatorApprovalStatus.Pending ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.AcceptedForTesting ||
-             ti.ApprovalStatus == IndicatorApprovalStatus.MethodChanged));
-
-        // Priority 8: Đã gửi QLCL - tất cả đã gửi
-        var allSentToQuality = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.Approved && ti.IsSentToQuality);
-
-        // Priority 9: Từ chối TN - tất cả bị từ chối
-        var allTestingRejected = activeIndicators.All(ti =>
-            ti.ApprovalStatus == IndicatorApprovalStatus.TestingRejected);
-
-        // Fallback: Đã duyệt (tất cả approved nhưng chưa gửi QLCL)
-        var allApproved = activeIndicators.All(ti => ti.ApprovalStatus == IndicatorApprovalStatus.Approved);
-
-        LaboratoryTaskStatus newStatus;
-
-        if (anyNeedEvaluation)
-        {
-            newStatus = LaboratoryTaskStatus.UnderEvaluation;
-        }
-        else if (anyNeedAssignment)
-        {
-            newStatus = LaboratoryTaskStatus.FullyAccepted;
-        }
-        else if (anyWaitingCustomer)
-        {
-            newStatus = LaboratoryTaskStatus.WaitingCustomerResponse;
-        }
-        else if (anyAssignedNotTesting)
-        {
-            newStatus = LaboratoryTaskStatus.Assigned;
-        }
-        else if (anyEntered)
-        {
-            newStatus = LaboratoryTaskStatus.WaitingApproval;
-        }
-        else if (anyRejected)
-        {
-            newStatus = LaboratoryTaskStatus.Rejected;
-        }
-        else if (anyTesting)
-        {
-            newStatus = LaboratoryTaskStatus.InProgress;
-        }
-        else if (allSentToQuality)
-        {
-            newStatus = LaboratoryTaskStatus.SentToQuality;
-        }
-        else if (allTestingRejected)
-        {
-            newStatus = LaboratoryTaskStatus.TestingRejected;
-        }
-        else if (allApproved)
-        {
-            newStatus = LaboratoryTaskStatus.Approved;
-        }
-        else
-        {
-            newStatus = LaboratoryTaskStatus.UnderEvaluation;
-        }
-
+        var newStatus = calculated.Value;
         if (task.Status != newStatus)
         {
             var oldStatus = task.Status;

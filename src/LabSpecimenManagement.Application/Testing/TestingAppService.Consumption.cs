@@ -305,10 +305,10 @@ public partial class TestingAppService
 
         // Update task status
         var allIndicators = await _laboratoryTaskIndicatorRepository.GetListAsync(x => x.LaboratoryTaskId == laboratoryTaskId);
-        var newTaskStatus = CalculateTaskStatusFromIndicators(allIndicators);
-        if (task.Status != newTaskStatus)
+        var newTaskStatus = await CalculateTaskStatusFromIndicatorsAsync(allIndicators);
+        if (newTaskStatus.HasValue && task.Status != newTaskStatus.Value)
         {
-            task.Status = newTaskStatus;
+            task.Status = newTaskStatus.Value;
             await _laboratoryTaskRepository.UpdateAsync(task, autoSave: false);
         }
 
@@ -648,10 +648,10 @@ public partial class TestingAppService
 
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
 
-        var newTaskStatus = CalculateTaskStatusFromIndicators(allTaskIndicators);
-        if (task.Status != newTaskStatus)
+        var newTaskStatus = await CalculateTaskStatusFromIndicatorsAsync(allTaskIndicators);
+        if (newTaskStatus.HasValue && task.Status != newTaskStatus.Value)
         {
-            task.Status = newTaskStatus;
+            task.Status = newTaskStatus.Value;
             await _laboratoryTaskRepository.UpdateAsync(task, autoSave: false);
         }
 
