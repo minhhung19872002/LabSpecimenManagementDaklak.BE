@@ -17,7 +17,7 @@ namespace LabSpecimenManagement.MasterData;
 /// (<see cref="ServiceBatchNorm"/>) gồm danh sách vật tư + tổng tiêu hao cho 1 mẻ chuẩn (<see cref="MethodBatchNorm"/>).
 /// </summary>
 [RemoteService(IsEnabled = false)]
-public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormAppService
+public partial class MethodBatchNormAppService : ApplicationService, IMethodBatchNormAppService
 {
     private const string NoMethodName = "-";
 
@@ -32,6 +32,8 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
     private readonly IRepository<IndicatorConsumption, Guid> _consumptionRepository;
+    private readonly IRepository<ServiceBatchNormEquipment, Guid> _equipmentRepository;
+    private readonly IRepository<ProductUnitConversion, Guid> _unitConversionRepository;
 
     public MethodBatchNormAppService(
         IRepository<ServiceBatchNorm, Guid> serviceNormRepository,
@@ -44,7 +46,9 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
         IRepository<ServiceGroup, Guid> serviceGroupRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<Unit, Guid> unitRepository,
-        IRepository<IndicatorConsumption, Guid> consumptionRepository)
+        IRepository<IndicatorConsumption, Guid> consumptionRepository,
+        IRepository<ServiceBatchNormEquipment, Guid> equipmentRepository,
+        IRepository<ProductUnitConversion, Guid> unitConversionRepository)
     {
         _serviceNormRepository = serviceNormRepository;
         _normRepository = normRepository;
@@ -57,6 +61,8 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
         _productRepository = productRepository;
         _unitRepository = unitRepository;
         _consumptionRepository = consumptionRepository;
+        _equipmentRepository = equipmentRepository;
+        _unitConversionRepository = unitConversionRepository;
     }
 
     // ───────────────────────── Định mức theo dịch vụ ─────────────────────────
@@ -122,8 +128,10 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
             throw new UserFriendlyException("Có phương pháp đã có trong định mức. Vui lòng tải lại danh sách.");
         }
 
-        var headers = ids.Select(id => new ServiceBatchNorm(GuidGenerator.Create(), id)).ToList();
-        await _serviceNormRepository.InsertManyAsync(headers, autoSave: true);
+        var nextCode = await CreateCodeGeneratorAsync();
+        var headers = ids.Select(id => new ServiceBatchNorm(GuidGenerator.Create(), nextCode(), id)).ToList();
+        await _serviceNormRepository.InsertManyAsync(headers);
+        await SaveNormsAsync();
         return new ListResultDto<ServiceBatchNormDto>(await MapServiceNormsAsync(headers));
     }
 
@@ -200,8 +208,10 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
         var header = await _serviceNormRepository.FirstOrDefaultAsync(h => h.TestMethodIndicatorId == service.Id);
         if (header == null)
         {
-            header = new ServiceBatchNorm(GuidGenerator.Create(), service.Id);
-            await _serviceNormRepository.InsertAsync(header, autoSave: true);
+            var nextCode = await CreateCodeGeneratorAsync();
+            header = new ServiceBatchNorm(GuidGenerator.Create(), nextCode(), service.Id);
+            await _serviceNormRepository.InsertAsync(header);
+            await SaveNormsAsync();
         }
 
         var unitId = await ValidateAsync(null, header.Id, input);
@@ -359,6 +369,13 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
             usedHeaderIds = lines.Where(l => usedLineIds.Contains(l.Id)).Select(l => l.ServiceBatchNormId!.Value).ToHashSet();
         }
 
+        var equipmentQuery = await _equipmentRepository.GetQueryableAsync();
+        var equipmentCounts = (await AsyncExecuter.ToListAsync(equipmentQuery
+                .Where(e => headerIds.Contains(e.ServiceBatchNormId))
+                .GroupBy(e => e.ServiceBatchNormId)
+                .Select(g => new { g.Key, Count = g.Count() })))
+            .ToDictionary(x => x.Key, x => x.Count);
+
         var result = new List<ServiceBatchNormDto>();
         foreach (var h in headers)
         {
@@ -374,6 +391,7 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
             result.Add(new ServiceBatchNormDto
             {
                 Id = h.Id,
+                Code = h.Code,
                 TestMethodIndicatorId = s.Id,
                 ServiceCode = s.ServiceCode,
                 ServiceGroupName = s.ServiceGroupId.HasValue ? ctx.Groups.GetValueOrDefault(s.ServiceGroupId.Value)?.Name : null,
@@ -392,7 +410,7 @@ public class MethodBatchNormAppService : ApplicationService, IMethodBatchNormApp
                 SampleTypeCategoryName = category?.Name,
                 IsActive = h.IsActive,
                 MaterialCount = materialCounts.GetValueOrDefault(h.Id),
-                EquipmentCount = 0,
+                EquipmentCount = equipmentCounts.GetValueOrDefault(h.Id),
                 IsUsed = usedHeaderIds.Contains(h.Id),
                 CreationTime = h.CreationTime,
             });

@@ -144,6 +144,22 @@ public class MethodBatchNormController : LabSpecimenManagementController
     public virtual Task<ListResultDto<MethodBatchNormDto>> GetByServiceAsync(Guid testMethodIndicatorId)
         => _appService.GetByServiceAsync(testMethodIndicatorId);
 
+    [HttpGet("by-service/{testMethodIndicatorId}/equipments")]
+    public virtual Task<ListResultDto<ServiceBatchNormEquipmentDto>> GetEquipmentsByServiceAsync(Guid testMethodIndicatorId)
+        => _appService.GetEquipmentsByServiceAsync(testMethodIndicatorId);
+
+    /// <summary>Dữ liệu cho Phiếu khai báo định mức theo mẻ</summary>
+    [HttpGet("create-options")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    public virtual Task<BatchNormCreateOptionsDto> GetCreateOptionsAsync([FromQuery] GetBatchNormCreateOptionsInput input)
+        => _appService.GetCreateOptionsAsync(input);
+
+    /// <summary>Tạo nhiều định mức cùng lúc (dùng chung vật tư + thiết bị)</summary>
+    [HttpPost("bulk-create")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    public virtual Task<ListResultDto<ServiceBatchNormDto>> BulkCreateAsync([FromBody] BulkCreateBatchNormsInput input)
+        => _appService.BulkCreateAsync(input);
+
     [HttpPost]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<MethodBatchNormDto> CreateAsync([FromBody] CreateUpdateMethodBatchNormInput input)

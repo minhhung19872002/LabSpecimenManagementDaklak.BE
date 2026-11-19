@@ -94,6 +94,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<ServicePriceVersion> ServicePriceVersions { get; set; }
     public DbSet<ServiceBatchNorm> ServiceBatchNorms { get; set; }
     public DbSet<MethodBatchNorm> MethodBatchNorms { get; set; }
+    public DbSet<ServiceBatchNormEquipment> ServiceBatchNormEquipments { get; set; }
     public DbSet<ServiceGroup> ServiceGroups { get; set; }
     public DbSet<ServiceYearlyForecast> ServiceYearlyForecasts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceipt> MaterialReceipts { get; set; }
@@ -914,11 +915,26 @@ public class LabSpecimenManagementDbContext :
         {
             b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceBatchNorms", LabSpecimenManagementConsts.DbSchema);
             b.ConfigureByConvention();
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired();
             b.Property(x => x.IsActive).HasDefaultValue(true);
+            b.HasIndex(x => x.Code).IsUnique();
             b.HasIndex(x => x.TestMethodIndicatorId)
                 .IsUnique()
                 .HasFilter("\"IsDeleted\" = false");
             b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        builder.Entity<ServiceBatchNormEquipment>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceBatchNormEquipments", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Capacity).HasColumnType("numeric");
+            b.Property(x => x.CapacityUnit).HasMaxLength(50).IsRequired();
+            b.HasIndex(x => new { x.ServiceBatchNormId, x.ProductId })
+                .IsUnique()
+                .HasFilter("\"IsDeleted\" = false");
+            b.HasOne<ServiceBatchNorm>().WithMany().HasForeignKey(x => x.ServiceBatchNormId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
         builder.Entity<MethodBatchNorm>(b =>

@@ -11,6 +11,9 @@ namespace LabSpecimenManagement.MasterData;
 /// </summary>
 public class ServiceBatchNorm : FullAuditedAggregateRoot<Guid>, IHasActive
 {
+    /// <summary>Mã định mức DM-{năm}-{0001}, tăng dần theo năm tạo</summary>
+    public string Code { get; set; } = "";
+
     public Guid TestMethodIndicatorId { get; set; }
 
     public bool IsActive { get; set; } = true;
@@ -19,9 +22,10 @@ public class ServiceBatchNorm : FullAuditedAggregateRoot<Guid>, IHasActive
     {
     }
 
-    public ServiceBatchNorm(Guid id, Guid testMethodIndicatorId)
+    public ServiceBatchNorm(Guid id, string code, Guid testMethodIndicatorId)
         : base(id)
     {
+        Code = code;
         TestMethodIndicatorId = testMethodIndicatorId;
         IsActive = true;
     }
