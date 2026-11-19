@@ -867,6 +867,7 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.ServiceCode).IsUnique();
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.SpecimenTypeId);
+            b.HasIndex(x => x.SubcontractorId);
             // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId (chỉ dòng chưa xóa mềm)
             // Allows same indicator multiple times with different specimen types
             b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId })

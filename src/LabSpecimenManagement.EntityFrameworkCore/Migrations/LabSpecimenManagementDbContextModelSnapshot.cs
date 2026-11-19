@@ -2990,6 +2990,9 @@ namespace LabSpecimenManagement.Migrations
                     b.Property<Guid?>("SpecimenTypeId")
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("SubcontractorId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TestMethodId")
                         .HasColumnType("uuid");
 
@@ -3000,7 +3003,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(100)
                         .HasColumnType("character varying(100)");
 
-                    b.Property<decimal>("UnitPrice")
+                    b.Property<decimal?>("UnitPrice")
                         .HasPrecision(18, 2)
                         .HasColumnType("numeric(18,2)");
 
@@ -3012,6 +3015,8 @@ namespace LabSpecimenManagement.Migrations
                         .IsUnique();
 
                     b.HasIndex("SpecimenTypeId");
+
+                    b.HasIndex("SubcontractorId");
 
                     b.HasIndex("TestMethodId");
 

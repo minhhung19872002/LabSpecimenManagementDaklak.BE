@@ -33,13 +33,15 @@ public class ServiceCatalogItemDto
     public string? FormattedUnit { get; set; }
     public bool IsActive { get; set; }
     public bool IsSubcontract { get; set; }
+    public Guid? SubcontractorId { get; set; }
+    public string? SubcontractorName { get; set; }
 
-    /// <summary>Giá đang áp dụng hôm nay (đơn giá dùng khi lập phiếu / báo giá)</summary>
-    public decimal UnitPrice { get; set; }
+    /// <summary>Giá đang áp dụng hôm nay (đơn giá dùng khi lập phiếu / báo giá). null = Chờ định giá</summary>
+    public decimal? UnitPrice { get; set; }
     public int? TurnaroundDays { get; set; }
 
-    /// <summary>Giá / TAT tại ngày đang xem (bộ lọc "Giá tại ngày")</summary>
-    public decimal PriceAtDate { get; set; }
+    /// <summary>Giá / TAT tại ngày đang xem (bộ lọc "Giá tại ngày"). null = Chờ định giá</summary>
+    public decimal? PriceAtDate { get; set; }
     public int? TurnaroundDaysAtDate { get; set; }
     public DateTime? EffectiveDateAtDate { get; set; }
 
@@ -88,34 +90,35 @@ public class ServicePriceVersionDto
     public string? CreatorName { get; set; }
 }
 
-public class BulkCreateServiceRowInput
+/// <summary>1 ô của Phiếu khai báo dịch vụ = 1 dịch vụ (chỉ tiêu × nền mẫu)</summary>
+public class BulkCreateServiceItemInput
 {
     [Required]
     public Guid IndicatorId { get; set; }
 
-    /// <summary>Mỗi nền mẫu = 1 dịch vụ</summary>
-    [Required]
-    public List<Guid> SpecimenTypeIds { get; set; } = new();
+    /// <summary>null = Mọi nền mẫu</summary>
+    public Guid? SpecimenTypeId { get; set; }
+
+    /// <summary>null = Chờ định giá</summary>
+    [Range(0, double.MaxValue)]
+    public decimal? UnitPrice { get; set; }
+
+    public bool IsSubcontract { get; set; }
+
+    /// <summary>Đơn vị nhận thầu — không bắt buộc, chỉ lưu khi IsSubcontract</summary>
+    public Guid? SubcontractorId { get; set; }
 }
 
+/// <summary>
+/// Phiếu khai báo dịch vụ: giá có hiệu lực ngay (hôm nay), không có TAT — sửa sau trên Ma trận giá.
+/// </summary>
 public class BulkCreateServicesInput
 {
     [Required]
     public Guid TestMethodId { get; set; }
 
     [Required]
-    public List<BulkCreateServiceRowInput> Rows { get; set; } = new();
-
-    [Range(0, double.MaxValue)]
-    public decimal UnitPrice { get; set; }
-
-    [Range(0, 3650)]
-    public int TurnaroundDays { get; set; }
-
-    [Required]
-    public DateTime EffectiveDate { get; set; }
-
-    public bool IsSubcontract { get; set; }
+    public List<BulkCreateServiceItemInput> Items { get; set; } = new();
 }
 
 public class BulkCreateServicesResultDto
@@ -146,6 +149,9 @@ public class UpdateServiceInput
     public string? Unit { get; set; }
     public string? FormattedUnit { get; set; }
     public bool IsSubcontract { get; set; }
+
+    /// <summary>Đơn vị nhận thầu — bị xóa khi bỏ tích HĐ phụ</summary>
+    public Guid? SubcontractorId { get; set; }
 }
 
 public enum BulkPriceAdjustMode

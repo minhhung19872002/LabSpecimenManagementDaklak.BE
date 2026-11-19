@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.MasterData.ServiceCatalog;
+using LabSpecimenManagement.Subcontractors;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
 using Volo.Abp.Application.Services;
@@ -23,6 +24,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
     private readonly IRepository<IndicatorGroup, Guid> _indicatorGroupRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<ServicePriceVersion, Guid> _versionRepository;
+    private readonly IRepository<Subcontractor, Guid> _subcontractorRepository;
     private readonly ServicePriceManager _priceManager;
     private readonly IUserNameProvider _userNameProvider;
 
@@ -33,6 +35,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         IRepository<IndicatorGroup, Guid> indicatorGroupRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<ServicePriceVersion, Guid> versionRepository,
+        IRepository<Subcontractor, Guid> subcontractorRepository,
         ServicePriceManager priceManager,
         IUserNameProvider userNameProvider)
     {
@@ -42,6 +45,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         _indicatorGroupRepository = indicatorGroupRepository;
         _specimenTypeRepository = specimenTypeRepository;
         _versionRepository = versionRepository;
+        _subcontractorRepository = subcontractorRepository;
         _priceManager = priceManager;
         _userNameProvider = userNameProvider;
     }
@@ -87,12 +91,12 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
     public async Task<BulkCreateServicesResultDto> BulkCreateAsync(BulkCreateServicesInput input)
     {
         var testMethod = await _testMethodRepository.GetAsync(input.TestMethodId);
-        if (input.Rows.Count == 0)
+        if (input.Items.Count == 0)
         {
             throw new UserFriendlyException("Chưa chọn chỉ tiêu");
         }
 
-        var indicatorIds = input.Rows.Select(r => r.IndicatorId).Distinct().ToList();
+        var indicatorIds = input.Items.Select(r => r.IndicatorId).Distinct().ToList();
         var existingIndicators = (await _indicatorRepository.GetListAsync(i => indicatorIds.Contains(i.Id)))
             .ToDictionary(i => i.Id);
         var missingIndicator = indicatorIds.FirstOrDefault(id => !existingIndicators.ContainsKey(id));
@@ -104,42 +108,46 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         var existing = await _serviceRepository.GetListAsync(s => s.TestMethodId == input.TestMethodId);
         var existingKeys = existing.Select(s => (s.IndicatorId, s.SpecimenTypeId)).ToHashSet();
         var sortOrder = existing.Count > 0 ? existing.Max(s => s.SortOrder) : 0;
-        var effectiveDate = input.EffectiveDate.Date;
+
+        var subcontractorIds = input.Items
+            .Where(i => i.IsSubcontract && i.SubcontractorId.HasValue)
+            .Select(i => i.SubcontractorId!.Value)
+            .Distinct()
+            .ToList();
+        if (subcontractorIds.Count > 0)
+        {
+            var found = await _subcontractorRepository.CountAsync(s => subcontractorIds.Contains(s.Id));
+            if (found != subcontractorIds.Count)
+            {
+                throw new UserFriendlyException("Đơn vị nhận thầu không tồn tại hoặc đã bị xóa");
+            }
+        }
 
         var created = new List<TestMethodIndicator>();
         var skipped = 0;
 
-        foreach (var row in input.Rows)
+        foreach (var item in input.Items)
         {
-            // Không chọn nền mẫu → dịch vụ áp dụng mọi nền mẫu (SpecimenTypeId null)
-            var specimenTypeIds = row.SpecimenTypeIds.Count > 0
-                ? row.SpecimenTypeIds.Distinct().Select(id => (Guid?)id).ToList()
-                : new List<Guid?> { null };
-
-            foreach (var specimenTypeId in specimenTypeIds)
+            // SpecimenTypeId null → dịch vụ áp dụng mọi nền mẫu
+            if (!existingKeys.Add((item.IndicatorId, item.SpecimenTypeId)))
             {
-                var key = (row.IndicatorId, specimenTypeId);
-                if (!existingKeys.Add(key))
-                {
-                    skipped++;
-                    continue;
-                }
-
-                var service = new TestMethodIndicator(
-                    GuidGenerator.Create(),
-                    input.TestMethodId,
-                    row.IndicatorId,
-                    input.UnitPrice,
-                    specimenTypeId,
-                    testMethod.Unit,
-                    testMethod.FormattedUnit)
-                {
-                    SortOrder = ++sortOrder,
-                    IsSubcontract = input.IsSubcontract,
-                    TurnaroundDays = input.TurnaroundDays,
-                };
-                created.Add(service);
+                skipped++;
+                continue;
             }
+
+            created.Add(new TestMethodIndicator(
+                GuidGenerator.Create(),
+                input.TestMethodId,
+                item.IndicatorId,
+                item.UnitPrice,
+                item.SpecimenTypeId,
+                testMethod.Unit,
+                testMethod.FormattedUnit)
+            {
+                SortOrder = ++sortOrder,
+                IsSubcontract = item.IsSubcontract,
+                SubcontractorId = item.IsSubcontract ? item.SubcontractorId : null,
+            });
         }
 
         if (created.Count == 0)
@@ -148,8 +156,13 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         }
 
         await _serviceRepository.InsertManyAsync(created, autoSave: true);
-        await _versionRepository.InsertManyAsync(created.Select(s => new ServicePriceVersion(
-            GuidGenerator.Create(), s.Id, input.UnitPrice, input.TurnaroundDays, effectiveDate, "Tạo dịch vụ")), autoSave: true);
+
+        // Giá có hiệu lực ngay (BA: không có ngày áp dụng / TAT trên phiếu khai báo) — vẫn ghi log phiên bản giá.
+        // Ô để trống = Chờ định giá → chưa có phiên bản, đặt giá lần đầu trên Ma trận sẽ tạo.
+        var today = _priceManager.Today;
+        await _versionRepository.InsertManyAsync(created
+            .Where(s => s.UnitPrice.HasValue)
+            .Select(s => new ServicePriceVersion(GuidGenerator.Create(), s.Id, s.UnitPrice!.Value, null, today, "Tạo dịch vụ")), autoSave: true);
 
         // Chỉ tiêu đã có phương pháp → bỏ cờ "cần thiết lập phương pháp"
         if (testMethod.Name != "-")
@@ -171,6 +184,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         service.Unit = input.Unit;
         service.FormattedUnit = input.FormattedUnit;
         service.IsSubcontract = input.IsSubcontract;
+        service.SubcontractorId = input.IsSubcontract ? input.SubcontractorId : null;
         await _serviceRepository.UpdateAsync(service, autoSave: true);
 
         return (await BuildDtosAsync(new List<TestMethodIndicator> { service }, Clock.Now)).First();
@@ -255,18 +269,25 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             ? $"Cập nhật hàng loạt {(input.Increase ? "+" : "-")}{input.Value:0.##}%"
             : $"Cập nhật hàng loạt {(input.Increase ? "+" : "-")}{input.Value:#,0} đ";
 
+        var updated = 0;
         foreach (var service in services)
         {
             var versions = versionsByService.GetValueOrDefault(service.Id) ?? new List<ServicePriceVersion>();
             var basis = ServicePriceManager.ResolveAt(versions, date);
             var oldPrice = basis?.UnitPrice ?? service.UnitPrice;
-            var newPrice = ComputeAdjustedPrice(oldPrice, input.Mode, input.Increase, input.Value);
+            // Chờ định giá: chưa có giá gốc để tăng/giảm → bỏ qua (không biến thành 0 đ)
+            if (oldPrice == null)
+            {
+                continue;
+            }
+            var newPrice = ComputeAdjustedPrice(oldPrice.Value, input.Mode, input.Increase, input.Value);
             var turnaroundDays = input.TurnaroundDays ?? basis?.TurnaroundDays ?? service.TurnaroundDays;
 
             await _priceManager.SetPriceAsync(service, newPrice, turnaroundDays, date, note, versions);
+            updated++;
         }
 
-        return new BulkUpdatePriceResultDto { UpdatedCount = services.Count };
+        return new BulkUpdatePriceResultDto { UpdatedCount = updated };
     }
 
     public static decimal ComputeAdjustedPrice(decimal oldPrice, BulkPriceAdjustMode mode, bool increase, decimal value)
@@ -406,6 +427,10 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             ? new Dictionary<Guid, SpecimenType>()
             : (await _specimenTypeRepository.GetListAsync(st => specimenTypeIds.Contains(st.Id))).ToDictionary(st => st.Id);
         var versionsByService = await _priceManager.GetVersionsAsync(services.Select(s => s.Id).ToList());
+        var subcontractorIds = services.Where(s => s.SubcontractorId.HasValue).Select(s => s.SubcontractorId!.Value).Distinct().ToList();
+        var subcontractorNames = subcontractorIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : (await _subcontractorRepository.GetListAsync(s => subcontractorIds.Contains(s.Id))).ToDictionary(s => s.Id, s => s.Name);
 
         var result = new List<ServiceCatalogItemDto>();
         foreach (var service in services)
@@ -444,6 +469,8 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
                 FormattedUnit = service.FormattedUnit,
                 IsActive = service.IsActive,
                 IsSubcontract = service.IsSubcontract,
+                SubcontractorId = service.SubcontractorId,
+                SubcontractorName = service.SubcontractorId.HasValue ? subcontractorNames.GetValueOrDefault(service.SubcontractorId.Value) : null,
                 UnitPrice = service.UnitPrice,
                 TurnaroundDays = service.TurnaroundDays,
                 PriceAtDate = atDate?.UnitPrice ?? service.UnitPrice,

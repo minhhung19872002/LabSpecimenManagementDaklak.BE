@@ -20,9 +20,10 @@ public class TestMethodIndicator : Entity<Guid>, ISoftDelete
     public Guid IndicatorId { get; set; }
 
     /// <summary>
-    /// Đơn giá riêng cho chỉ tiêu trong phương pháp này
+    /// Đơn giá riêng cho chỉ tiêu trong phương pháp này.
+    /// null = "Chờ định giá" (khai báo dịch vụ chưa nhập giá) — luồng phiếu / báo giá coi như 0.
     /// </summary>
-    public decimal UnitPrice { get; set; }
+    public decimal? UnitPrice { get; set; }
 
     /// <summary>
     /// Nền mẫu (Loại mẫu) - cho phép cùng indicator thêm nhiều lần với nền mẫu khác nhau
@@ -55,6 +56,11 @@ public class TestMethodIndicator : Entity<Guid>, ISoftDelete
     public bool IsSubcontract { get; set; }
 
     /// <summary>
+    /// Đơn vị nhận thầu (danh mục Nhà thầu phụ) khi là HĐ phụ — không bắt buộc
+    /// </summary>
+    public Guid? SubcontractorId { get; set; }
+
+    /// <summary>
     /// Mã dịch vụ (DV0001...) — L2 Dịch vụ & Bảng giá. Sinh tự động bằng sequence DB.
     /// </summary>
     public string? ServiceCode { get; set; }
@@ -73,7 +79,7 @@ public class TestMethodIndicator : Entity<Guid>, ISoftDelete
     {
     }
 
-    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal unitPrice, Guid? specimenTypeId = null, string? unit = null, string? formattedUnit = null, bool isActive = true) : base(id)
+    public TestMethodIndicator(Guid id, Guid testMethodId, Guid indicatorId, decimal? unitPrice, Guid? specimenTypeId = null, string? unit = null, string? formattedUnit = null, bool isActive = true) : base(id)
     {
         TestMethodId = testMethodId;
         IndicatorId = indicatorId;

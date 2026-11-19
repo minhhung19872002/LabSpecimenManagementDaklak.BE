@@ -929,7 +929,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                         TestMethodCode = testMethod.Code,
                         TestMethodName = testMethod.Name,
                         TestMethodFormattedName = testMethod.FormattedName,
-                        UnitPrice = methodIndicator.UnitPrice,
+                        UnitPrice = methodIndicator.UnitPrice ?? 0,
                         IsActive = methodIndicator.IsActive,
                         SortOrder = methodIndicator.SortOrder,
                         SpecimenTypeId = methodIndicator.SpecimenTypeId,
