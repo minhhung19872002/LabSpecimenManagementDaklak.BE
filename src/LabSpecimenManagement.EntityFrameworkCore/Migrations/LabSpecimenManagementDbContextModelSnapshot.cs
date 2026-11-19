@@ -28,6 +28,8 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.HasSequence("AppServiceCodeSeq");
 
+            modelBuilder.HasSequence("AppServiceGroupCodeSeq");
+
             modelBuilder.Entity("LabSpecimenManagement.ApprovalProcesses.ApprovalProcess", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2385,6 +2387,82 @@ namespace LabSpecimenManagement.Migrations
                     b.ToTable("AppSampleTypeCategories", (string)null);
                 });
 
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceGroup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Code")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValueSql("'NDV' || app_pad_code(nextval('\"AppServiceGroupCodeSeq\"'))");
+
+                    b.Property<string>("ConcurrencyStamp")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .HasMaxLength(40)
+                        .HasColumnType("character varying(40)")
+                        .HasColumnName("ConcurrencyStamp");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid?>("DeleterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("DeleterId");
+
+                    b.Property<DateTime?>("DeletionTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("DeletionTime");
+
+                    b.Property<string>("ExtraProperties")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("ExtraProperties");
+
+                    b.Property<bool>("IsActive")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(true);
+
+                    b.Property<bool>("IsDeleted")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("IsDeleted");
+
+                    b.Property<DateTime?>("LastModificationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("LastModificationTime");
+
+                    b.Property<Guid?>("LastModifierId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("LastModifierId");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Code")
+                        .IsUnique();
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasFilter("\"IsDeleted\" = false");
+
+                    b.ToTable("AppServiceGroups", (string)null);
+                });
+
             modelBuilder.Entity("LabSpecimenManagement.MasterData.ServicePriceVersion", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2984,6 +3062,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("character varying(20)")
                         .HasDefaultValueSql("'DV' || app_pad_code(nextval('\"AppServiceCodeSeq\"'))");
 
+                    b.Property<Guid?>("ServiceGroupId")
+                        .HasColumnType("uuid");
+
                     b.Property<int>("SortOrder")
                         .HasColumnType("integer");
 
@@ -3013,6 +3094,8 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasIndex("ServiceCode")
                         .IsUnique();
+
+                    b.HasIndex("ServiceGroupId");
 
                     b.HasIndex("SpecimenTypeId");
 
@@ -9742,6 +9825,14 @@ namespace LabSpecimenManagement.Migrations
                     b.HasOne("LabSpecimenManagement.MasterData.SampleTypeCategory", null)
                         .WithMany()
                         .HasForeignKey("SampleTypeCategoryId");
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.TestMethodIndicator", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.ServiceGroup", null)
+                        .WithMany()
+                        .HasForeignKey("ServiceGroupId")
+                        .OnDelete(DeleteBehavior.SetNull);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.Warehouse", b =>

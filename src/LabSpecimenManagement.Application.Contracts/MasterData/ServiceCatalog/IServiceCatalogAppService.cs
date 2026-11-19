@@ -15,6 +15,18 @@ public interface IServiceCatalogAppService : IApplicationService
 
     Task<BulkCreateServicesResultDto> BulkCreateAsync(BulkCreateServicesInput input);
 
+    Task<ListResultDto<ServiceGroupDto>> GetServiceGroupsAsync();
+
+    Task<ServiceGroupDto> CreateServiceGroupAsync(CreateServiceGroupInput input);
+
+    Task<ServiceGroupDto> UpdateServiceGroupAsync(Guid id, CreateServiceGroupInput input);
+
+    /// <summary>Xóa tên dịch vụ — các dòng đang thuộc nhóm chuyển về "Chưa thuộc dịch vụ". Trả về số dòng bị chuyển.</summary>
+    Task<int> DeleteServiceGroupAsync(Guid id);
+
+    /// <summary>Chuyển nhóm dịch vụ / đổi HĐ phụ cho nhiều dòng. Trả về số dòng thay đổi.</summary>
+    Task<int> AssignServicesAsync(AssignServicesInput input);
+
     Task<ServiceCatalogItemDto> UpdateAsync(Guid id, UpdateServiceInput input);
 
     Task<ListResultDto<ServicePriceVersionDto>> GetPriceVersionsAsync(Guid id);

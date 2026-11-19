@@ -25,6 +25,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
     private readonly IRepository<ServicePriceVersion, Guid> _versionRepository;
     private readonly IRepository<Subcontractor, Guid> _subcontractorRepository;
+    private readonly IRepository<ServiceGroup, Guid> _serviceGroupRepository;
     private readonly ServicePriceManager _priceManager;
     private readonly IUserNameProvider _userNameProvider;
 
@@ -36,9 +37,11 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         IRepository<SpecimenType, Guid> specimenTypeRepository,
         IRepository<ServicePriceVersion, Guid> versionRepository,
         IRepository<Subcontractor, Guid> subcontractorRepository,
+        IRepository<ServiceGroup, Guid> serviceGroupRepository,
         ServicePriceManager priceManager,
         IUserNameProvider userNameProvider)
     {
+        _serviceGroupRepository = serviceGroupRepository;
         _serviceRepository = serviceRepository;
         _testMethodRepository = testMethodRepository;
         _indicatorRepository = indicatorRepository;
@@ -79,6 +82,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             var keyword = input.Keyword.Trim();
             dtos = dtos.Where(d =>
                     Contains(d.ServiceCode, keyword)
+                    || Contains(d.ServiceGroupCode, keyword) || Contains(d.ServiceGroupName, keyword)
                     || Contains(d.IndicatorCode, keyword) || Contains(d.IndicatorName, keyword)
                     || Contains(d.TestMethodCode, keyword) || Contains(d.TestMethodName, keyword)
                     || Contains(d.SpecimenTypeName, keyword))
@@ -123,37 +127,52 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             }
         }
 
-        var created = new List<TestMethodIndicator>();
+        var newItems = new List<BulkCreateServiceItemInput>();
         var skipped = 0;
-
         foreach (var item in input.Items)
         {
-            // SpecimenTypeId null → dịch vụ áp dụng mọi nền mẫu
+            // SpecimenTypeId null → dịch vụ áp dụng mọi nền mẫu.
+            // BA: 1 dịch vụ = chỉ tiêu × nền mẫu × phương pháp → tổ hợp đã có (dù thuộc dịch vụ nào) thì bỏ qua
             if (!existingKeys.Add((item.IndicatorId, item.SpecimenTypeId)))
             {
                 skipped++;
                 continue;
             }
+            if (string.IsNullOrWhiteSpace(item.Unit) && string.IsNullOrWhiteSpace(testMethod.Unit))
+            {
+                throw new UserFriendlyException("Chưa nhập ĐVT (tiêu hao) cho chỉ tiêu "
+                                                + existingIndicators[item.IndicatorId].Name);
+            }
+            newItems.Add(item);
+        }
 
-            created.Add(new TestMethodIndicator(
+        if (newItems.Count == 0)
+        {
+            return new BulkCreateServicesResultDto { SkippedCount = skipped };
+        }
+
+        var serviceGroup = await ResolveServiceGroupAsync(input.ServiceGroupId, input.ServiceGroupName);
+
+        var created = newItems.Select(item =>
+        {
+            var unit = string.IsNullOrWhiteSpace(item.Unit) ? testMethod.Unit : item.Unit.Trim();
+            // ĐVT giữ như phương pháp → dùng bản có định dạng của phương pháp; sửa tay → text thường
+            var formattedUnit = unit == testMethod.Unit ? testMethod.FormattedUnit : System.Net.WebUtility.HtmlEncode(unit);
+            return new TestMethodIndicator(
                 GuidGenerator.Create(),
                 input.TestMethodId,
                 item.IndicatorId,
                 item.UnitPrice,
                 item.SpecimenTypeId,
-                testMethod.Unit,
-                testMethod.FormattedUnit)
+                unit,
+                formattedUnit)
             {
                 SortOrder = ++sortOrder,
+                ServiceGroupId = serviceGroup.Id,
                 IsSubcontract = item.IsSubcontract,
                 SubcontractorId = item.IsSubcontract ? item.SubcontractorId : null,
-            });
-        }
-
-        if (created.Count == 0)
-        {
-            return new BulkCreateServicesResultDto { SkippedCount = skipped };
-        }
+            };
+        }).ToList();
 
         await _serviceRepository.InsertManyAsync(created, autoSave: true);
 
@@ -175,8 +194,144 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             }
         }
 
-        return new BulkCreateServicesResultDto { CreatedCount = created.Count, SkippedCount = skipped };
+        return new BulkCreateServicesResultDto
+        {
+            ServiceGroupId = serviceGroup.Id,
+            CreatedCount = created.Count,
+            SkippedCount = skipped,
+        };
     }
+
+    public async Task<ListResultDto<ServiceGroupDto>> GetServiceGroupsAsync()
+    {
+        var groups = await _serviceGroupRepository.GetListAsync();
+        return new ListResultDto<ServiceGroupDto>(groups
+            .OrderBy(g => g.Name)
+            .Select(MapServiceGroup)
+            .ToList());
+    }
+
+    public async Task<ServiceGroupDto> CreateServiceGroupAsync(CreateServiceGroupInput input)
+    {
+        var name = input.Name?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            throw new UserFriendlyException("Chưa nhập tên dịch vụ");
+        }
+        if (await FindServiceGroupByNameAsync(name) != null)
+        {
+            throw new UserFriendlyException($"Dịch vụ \"{name}\" đã tồn tại");
+        }
+
+        var group = await _serviceGroupRepository.InsertAsync(new ServiceGroup(GuidGenerator.Create(), null, name), autoSave: true);
+        return MapServiceGroup(group);
+    }
+
+    public async Task<ServiceGroupDto> UpdateServiceGroupAsync(Guid id, CreateServiceGroupInput input)
+    {
+        var group = await _serviceGroupRepository.GetAsync(id);
+        var name = input.Name?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            throw new UserFriendlyException("Chưa nhập tên dịch vụ");
+        }
+        var existing = await FindServiceGroupByNameAsync(name);
+        if (existing != null && existing.Id != id)
+        {
+            throw new UserFriendlyException($"Dịch vụ \"{name}\" đã tồn tại");
+        }
+
+        group.Name = name;
+        await _serviceGroupRepository.UpdateAsync(group, autoSave: true);
+        return MapServiceGroup(group);
+    }
+
+    public async Task<int> DeleteServiceGroupAsync(Guid id)
+    {
+        var group = await _serviceGroupRepository.GetAsync(id);
+        // Xóa mềm nhóm → FK SetNull không chạy, phải tự gỡ nhóm khỏi các dòng
+        var services = await _serviceRepository.GetListAsync(s => s.ServiceGroupId == id);
+        foreach (var service in services)
+        {
+            service.ServiceGroupId = null;
+        }
+        await _serviceRepository.UpdateManyAsync(services);
+        await _serviceGroupRepository.DeleteAsync(group, autoSave: true);
+        return services.Count;
+    }
+
+    public async Task<int> AssignServicesAsync(AssignServicesInput input)
+    {
+        var ids = input.ServiceIds.Distinct().ToList();
+        if (ids.Count == 0)
+        {
+            throw new UserFriendlyException("Chưa chọn dịch vụ");
+        }
+        if (input.ChangeServiceGroup && input.ServiceGroupId.HasValue
+            && !await _serviceGroupRepository.AnyAsync(g => g.Id == input.ServiceGroupId.Value))
+        {
+            throw new UserFriendlyException("Tên dịch vụ không tồn tại hoặc đã bị xóa");
+        }
+
+        var services = await _serviceRepository.GetListAsync(s => ids.Contains(s.Id));
+        var changed = 0;
+        foreach (var service in services)
+        {
+            var dirty = false;
+            if (input.ChangeServiceGroup && service.ServiceGroupId != input.ServiceGroupId)
+            {
+                service.ServiceGroupId = input.ServiceGroupId;
+                dirty = true;
+            }
+            if (input.IsSubcontract.HasValue && service.IsSubcontract != input.IsSubcontract.Value)
+            {
+                service.IsSubcontract = input.IsSubcontract.Value;
+                if (!service.IsSubcontract)
+                {
+                    service.SubcontractorId = null;
+                }
+                dirty = true;
+            }
+            if (dirty)
+            {
+                changed++;
+            }
+        }
+        await _serviceRepository.UpdateManyAsync(services, autoSave: true);
+        return changed;
+    }
+
+    /// <summary>Dịch vụ có sẵn theo Id, hoặc theo tên (trùng tên → dùng lại, chưa có → tạo mới, DB sinh mã NDV)</summary>
+    private async Task<ServiceGroup> ResolveServiceGroupAsync(Guid? serviceGroupId, string? serviceGroupName)
+    {
+        if (serviceGroupId.HasValue)
+        {
+            return await _serviceGroupRepository.GetAsync(serviceGroupId.Value);
+        }
+
+        var name = serviceGroupName?.Trim();
+        if (string.IsNullOrEmpty(name))
+        {
+            throw new UserFriendlyException("Chưa nhập tên dịch vụ");
+        }
+
+        return await FindServiceGroupByNameAsync(name)
+               ?? await _serviceGroupRepository.InsertAsync(new ServiceGroup(GuidGenerator.Create(), null, name), autoSave: true);
+    }
+
+    private async Task<ServiceGroup?> FindServiceGroupByNameAsync(string name)
+    {
+        var lower = name.ToLower();
+        return await _serviceGroupRepository.FirstOrDefaultAsync(g => g.Name.ToLower() == lower);
+    }
+
+    private static ServiceGroupDto MapServiceGroup(ServiceGroup g) => new()
+    {
+        Id = g.Id,
+        Code = g.Code,
+        Name = g.Name,
+        IsActive = g.IsActive,
+    };
 
     public async Task<ServiceCatalogItemDto> UpdateAsync(Guid id, UpdateServiceInput input)
     {
@@ -431,6 +586,10 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
         var subcontractorNames = subcontractorIds.Count == 0
             ? new Dictionary<Guid, string>()
             : (await _subcontractorRepository.GetListAsync(s => subcontractorIds.Contains(s.Id))).ToDictionary(s => s.Id, s => s.Name);
+        var serviceGroupIds = services.Where(s => s.ServiceGroupId.HasValue).Select(s => s.ServiceGroupId!.Value).Distinct().ToList();
+        var serviceGroups = serviceGroupIds.Count == 0
+            ? new Dictionary<Guid, ServiceGroup>()
+            : (await _serviceGroupRepository.GetListAsync(g => serviceGroupIds.Contains(g.Id))).ToDictionary(g => g.Id);
 
         var result = new List<ServiceCatalogItemDto>();
         foreach (var service in services)
@@ -446,6 +605,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
             var versions = versionsByService.GetValueOrDefault(service.Id) ?? new List<ServicePriceVersion>();
             var atDate = ServicePriceManager.ResolveAt(versions, priceDate);
             var upcoming = ServicePriceManager.NextAfter(versions, priceDate);
+            var serviceGroup = service.ServiceGroupId.HasValue ? serviceGroups.GetValueOrDefault(service.ServiceGroupId.Value) : null;
 
             result.Add(new ServiceCatalogItemDto
             {
@@ -462,6 +622,10 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
                 ParentIndicatorId = indicator.ParentIndicatorId,
                 IndicatorGroupId = indicator.IndicatorGroupId,
                 IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId)?.Name,
+                // Dịch vụ đã xóa mềm → coi như chưa thuộc dịch vụ
+                ServiceGroupId = serviceGroup?.Id,
+                ServiceGroupCode = serviceGroup?.Code,
+                ServiceGroupName = serviceGroup?.Name,
                 SpecimenTypeId = service.SpecimenTypeId,
                 SpecimenTypeCode = specimenType?.Code,
                 SpecimenTypeName = specimenType?.Name,

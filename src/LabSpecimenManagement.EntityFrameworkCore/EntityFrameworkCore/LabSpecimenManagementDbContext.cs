@@ -93,6 +93,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<MaterialConsumptionItem> MaterialConsumptionItems { get; set; }
     public DbSet<ServicePriceVersion> ServicePriceVersions { get; set; }
     public DbSet<MethodBatchNorm> MethodBatchNorms { get; set; }
+    public DbSet<ServiceGroup> ServiceGroups { get; set; }
     public DbSet<ServiceYearlyForecast> ServiceYearlyForecasts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceipt> MaterialReceipts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceiptItem> MaterialReceiptItems { get; set; }
@@ -230,6 +231,8 @@ public class LabSpecimenManagementDbContext :
         // Sequence sinh mã dịch vụ (DV0001) / mã định mức (DM0001)
         builder.HasSequence<long>("AppServiceCodeSeq");
         builder.HasSequence<long>("AppBatchNormCodeSeq");
+        // Mã dịch vụ cấp 1 (NDV0001) — tiền tố khác "DV" vì DV đã dùng cho mã từng dòng dịch vụ
+        builder.HasSequence<long>("AppServiceGroupCodeSeq");
 
         /* Include modules to your migration db context */
 
@@ -868,6 +871,8 @@ public class LabSpecimenManagementDbContext :
             b.HasIndex(x => x.IndicatorId);
             b.HasIndex(x => x.SpecimenTypeId);
             b.HasIndex(x => x.SubcontractorId);
+            b.HasIndex(x => x.ServiceGroupId);
+            b.HasOne<ServiceGroup>().WithMany().HasForeignKey(x => x.ServiceGroupId).OnDelete(DeleteBehavior.SetNull);
             // Unique constraint: TestMethodId + IndicatorId + SpecimenTypeId (chỉ dòng chưa xóa mềm)
             // Allows same indicator multiple times with different specimen types
             b.HasIndex(x => new { x.TestMethodId, x.IndicatorId, x.SpecimenTypeId })
@@ -888,6 +893,19 @@ public class LabSpecimenManagementDbContext :
                 .IsUnique()
                 .HasFilter("\"IsDeleted\" = false");
             b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // L2 · Dịch vụ (cấp 1, gom nhiều dòng phương pháp × chỉ tiêu × nền mẫu)
+        builder.Entity<ServiceGroup>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceGroups", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Code).HasMaxLength(20).IsRequired()
+                .HasDefaultValueSql("'NDV' || app_pad_code(nextval('\"AppServiceGroupCodeSeq\"'))");
+            b.Property(x => x.Name).HasMaxLength(256).IsRequired();
+            b.Property(x => x.IsActive).HasDefaultValue(true);
+            b.HasIndex(x => x.Code).IsUnique();
+            b.HasIndex(x => x.Name).IsUnique().HasFilter("\"IsDeleted\" = false");
         });
 
         // L3 · Định mức tiêu hao theo mẻ

@@ -25,6 +25,11 @@ public class ServiceCatalogItemDto
     public Guid? IndicatorGroupId { get; set; }
     public string? IndicatorGroupName { get; set; }
 
+    /// <summary>Dịch vụ cấp 1. null = dịch vụ cũ "Chưa thuộc dịch vụ"</summary>
+    public Guid? ServiceGroupId { get; set; }
+    public string? ServiceGroupCode { get; set; }
+    public string? ServiceGroupName { get; set; }
+
     public Guid? SpecimenTypeId { get; set; }
     public string? SpecimenTypeCode { get; set; }
     public string? SpecimenTypeName { get; set; }
@@ -103,6 +108,10 @@ public class BulkCreateServiceItemInput
     [Range(0, double.MaxValue)]
     public decimal? UnitPrice { get; set; }
 
+    /// <summary>ĐVT (tiêu hao) — trống = theo đơn vị của phương pháp</summary>
+    [StringLength(100)]
+    public string? Unit { get; set; }
+
     public bool IsSubcontract { get; set; }
 
     /// <summary>Đơn vị nhận thầu — không bắt buộc, chỉ lưu khi IsSubcontract</summary>
@@ -117,12 +126,54 @@ public class BulkCreateServicesInput
     [Required]
     public Guid TestMethodId { get; set; }
 
+    /// <summary>Dịch vụ có sẵn. Bỏ trống thì phải nhập ServiceGroupName</summary>
+    public Guid? ServiceGroupId { get; set; }
+
+    /// <summary>Tên dịch vụ mới — tạo dịch vụ mới (trùng tên dịch vụ có sẵn thì dùng lại dịch vụ đó)</summary>
+    [StringLength(256)]
+    public string? ServiceGroupName { get; set; }
+
     [Required]
     public List<BulkCreateServiceItemInput> Items { get; set; } = new();
 }
 
+/// <summary>Dịch vụ cấp 1 (vd "Kiểm nghiệm thực phẩm")</summary>
+public class ServiceGroupDto
+{
+    public Guid Id { get; set; }
+    public string Code { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool IsActive { get; set; }
+}
+
+public class CreateServiceGroupInput
+{
+    [Required]
+    [StringLength(256)]
+    public string Name { get; set; } = "";
+}
+
+/// <summary>Chuyển dịch vụ (dòng PP × chỉ tiêu × nền mẫu) sang tên dịch vụ khác và/hoặc đổi HĐ phụ</summary>
+public class AssignServicesInput
+{
+    [Required]
+    [MinLength(1)]
+    public List<Guid> ServiceIds { get; set; } = new();
+
+    /// <summary>null = "Chưa thuộc dịch vụ"</summary>
+    public Guid? ServiceGroupId { get; set; }
+
+    /// <summary>Đổi nhóm dịch vụ (false = giữ nguyên nhóm, chỉ đổi HĐ phụ)</summary>
+    public bool ChangeServiceGroup { get; set; } = true;
+
+    /// <summary>null = giữ nguyên HĐ phụ</summary>
+    public bool? IsSubcontract { get; set; }
+}
+
 public class BulkCreateServicesResultDto
 {
+    public Guid? ServiceGroupId { get; set; }
+
     public int CreatedCount { get; set; }
 
     /// <summary>Tổ hợp đã có dịch vụ → bỏ qua</summary>

@@ -66,6 +66,11 @@ public class TestMethodIndicator : Entity<Guid>, ISoftDelete
     public string? ServiceCode { get; set; }
 
     /// <summary>
+    /// Dịch vụ cấp 1 (ServiceGroup) chứa dòng này. null = dịch vụ cũ, chưa thuộc dịch vụ nào.
+    /// </summary>
+    public Guid? ServiceGroupId { get; set; }
+
+    /// <summary>
     /// Thời gian trả kết quả (ngày) của version giá đang áp dụng
     /// </summary>
     public int? TurnaroundDays { get; set; }

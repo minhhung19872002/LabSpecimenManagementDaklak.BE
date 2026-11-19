@@ -34,6 +34,30 @@ public class ServiceCatalogController : LabSpecimenManagementController
     public virtual Task<BulkCreateServicesResultDto> BulkCreateAsync([FromBody] BulkCreateServicesInput input)
         => _appService.BulkCreateAsync(input);
 
+    [HttpGet("service-groups")]
+    public virtual Task<ListResultDto<ServiceGroupDto>> GetServiceGroupsAsync()
+        => _appService.GetServiceGroupsAsync();
+
+    [HttpPost("service-groups")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    public virtual Task<ServiceGroupDto> CreateServiceGroupAsync([FromBody] CreateServiceGroupInput input)
+        => _appService.CreateServiceGroupAsync(input);
+
+    [HttpPut("service-groups/{id}")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<ServiceGroupDto> UpdateServiceGroupAsync(Guid id, [FromBody] CreateServiceGroupInput input)
+        => _appService.UpdateServiceGroupAsync(id, input);
+
+    [HttpDelete("service-groups/{id}")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Delete)]
+    public virtual Task<int> DeleteServiceGroupAsync(Guid id)
+        => _appService.DeleteServiceGroupAsync(id);
+
+    [HttpPost("assign")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<int> AssignServicesAsync([FromBody] AssignServicesInput input)
+        => _appService.AssignServicesAsync(input);
+
     [HttpPut("{id}")]
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<ServiceCatalogItemDto> UpdateAsync(Guid id, [FromBody] UpdateServiceInput input)
