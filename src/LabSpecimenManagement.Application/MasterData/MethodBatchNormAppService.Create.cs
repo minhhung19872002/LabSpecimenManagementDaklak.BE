@@ -30,24 +30,20 @@ public partial class MethodBatchNormAppService
         var normCodes = (await _serviceNormRepository.GetListAsync())
             .ToDictionary(h => h.TestMethodIndicatorId, h => h.Code);
 
-        var result = new BatchNormCreateOptionsDto
+        // Không truyền tên dịch vụ → trả về tất cả bộ (lọc theo dịch vụ là không bắt buộc)
+        var comboServices = input.ServiceGroupId.HasValue || input.Ungrouped
+            ? services.Where(s => input.Ungrouped ? s.ServiceGroupId == null : s.ServiceGroupId == input.ServiceGroupId).ToList()
+            : services;
+
+        return new BatchNormCreateOptionsDto
         {
             ServiceGroups = await BuildServiceGroupOptionsAsync(services, normCodes),
+            Combos = await MapCombosAsync(comboServices, normCodes),
             NextCode = (await CreateCodeGeneratorAsync())(),
             Materials = await LoadProductOptionsAsync(MaterialTypes),
             Equipments = await LoadProductOptionsAsync(new[] { ProductType.Equipment }),
             CapacityUnits = CapacityUnits.ToList(),
         };
-
-        if (input.ServiceGroupId.HasValue || input.Ungrouped)
-        {
-            var groupServices = services
-                .Where(s => input.Ungrouped ? s.ServiceGroupId == null : s.ServiceGroupId == input.ServiceGroupId)
-                .ToList();
-            result.Combos = await MapCombosAsync(groupServices, normCodes);
-        }
-
-        return result;
     }
 
     public async Task<ListResultDto<ServiceBatchNormDto>> BulkCreateAsync(BulkCreateBatchNormsInput input)
@@ -192,10 +188,13 @@ public partial class MethodBatchNormAppService
 
     // ───────────────────────── Dữ liệu chọn ─────────────────────────
 
-    /// <summary>Dịch vụ đang hoạt động có phương pháp thật (bỏ PP "-") và chỉ tiêu chưa xóa</summary>
+    /// <summary>
+    /// Dịch vụ đang hoạt động, không phải thầu phụ (gửi ngoài, phòng không tiêu hao),
+    /// có phương pháp thật (bỏ PP "-") và chỉ tiêu chưa xóa
+    /// </summary>
     private async Task<List<TestMethodIndicator>> GetSelectableServicesAsync()
     {
-        var services = await _serviceRepository.GetListAsync(s => s.IsActive);
+        var services = await _serviceRepository.GetListAsync(s => s.IsActive && !s.IsSubcontract);
         var methodIds = services.Select(s => s.TestMethodId).Distinct().ToList();
         var indicatorIds = services.Select(s => s.IndicatorId).Distinct().ToList();
 
@@ -242,6 +241,7 @@ public partial class MethodBatchNormAppService
     private async Task<List<BatchNormComboDto>> MapCombosAsync(List<TestMethodIndicator> services, Dictionary<Guid, string> normCodes)
     {
         var ctx = await LoadServiceContextAsync(services);
+        var counts = await LoadNormCountsAsync(services.Where(s => normCodes.ContainsKey(s.Id)).Select(s => s.Id).ToList());
         return services
             .Where(s => ctx.Methods.ContainsKey(s.TestMethodId) && ctx.Indicators.ContainsKey(s.IndicatorId))
             .Select(s =>
@@ -266,10 +266,45 @@ public partial class MethodBatchNormAppService
                     TestMethodId = method.Id,
                     TestMethodCode = method.Code,
                     TestMethodName = method.Name,
+                    ServiceGroupId = s.ServiceGroupId,
+                    ServiceGroupName = s.ServiceGroupId.HasValue ? ctx.Groups.GetValueOrDefault(s.ServiceGroupId.Value)?.Name : null,
                     ExistingNormCode = normCodes.GetValueOrDefault(s.Id),
+                    MaterialCount = counts.GetValueOrDefault(s.Id).Materials,
+                    EquipmentCount = counts.GetValueOrDefault(s.Id).Equipments,
                 };
             })
             .ToList();
+    }
+
+    /// <summary>Số vật tư (dòng đang dùng, có vật tư) + số thiết bị của định mức theo từng bộ</summary>
+    private async Task<Dictionary<Guid, (int Materials, int Equipments)>> LoadNormCountsAsync(List<Guid> serviceIds)
+    {
+        if (serviceIds.Count == 0)
+        {
+            return new();
+        }
+
+        var headers = (await _serviceNormRepository.GetListAsync(h => serviceIds.Contains(h.TestMethodIndicatorId)))
+            .ToDictionary(h => h.Id, h => h.TestMethodIndicatorId);
+        var headerIds = headers.Keys.ToList();
+
+        var lineQuery = await _normRepository.GetQueryableAsync();
+        var materialCounts = (await AsyncExecuter.ToListAsync(lineQuery
+                .Where(l => l.ServiceBatchNormId != null && headerIds.Contains(l.ServiceBatchNormId.Value)
+                            && l.IsActive && l.ProductId != null)
+                .GroupBy(l => l.ServiceBatchNormId!.Value)
+                .Select(g => new { g.Key, Count = g.Count() })))
+            .ToDictionary(x => x.Key, x => x.Count);
+        var equipmentQuery = await _equipmentRepository.GetQueryableAsync();
+        var equipmentCounts = (await AsyncExecuter.ToListAsync(equipmentQuery
+                .Where(e => headerIds.Contains(e.ServiceBatchNormId))
+                .GroupBy(e => e.ServiceBatchNormId)
+                .Select(g => new { g.Key, Count = g.Count() })))
+            .ToDictionary(x => x.Key, x => x.Count);
+
+        return headers.ToDictionary(
+            h => h.Value,
+            h => (materialCounts.GetValueOrDefault(h.Key), equipmentCounts.GetValueOrDefault(h.Key)));
     }
 
     private NormProductOptionProvider ProductOptions => LazyServiceProvider.LazyGetRequiredService<NormProductOptionProvider>();

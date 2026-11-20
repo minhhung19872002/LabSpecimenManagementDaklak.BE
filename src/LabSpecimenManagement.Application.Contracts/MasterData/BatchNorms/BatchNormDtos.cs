@@ -152,6 +152,11 @@ public interface IMethodBatchNormAppService : IApplicationService
     Task<ListResultDto<ServiceBatchNormDto>> BulkCreateAsync(BulkCreateBatchNormsInput input);
 
     Task<ListResultDto<ServiceBatchNormEquipmentDto>> GetEquipmentsByServiceAsync(Guid testMethodIndicatorId);
+
+    // Sửa định mức
+    Task<BatchNormDetailDto> GetDetailAsync(Guid testMethodIndicatorId);
+
+    Task<ListResultDto<ServiceBatchNormDto>> UpdateNormAsync(Guid testMethodIndicatorId, UpdateBatchNormInput input);
 }
 
 // ───────────────────────── Phiếu khai báo định mức theo mẻ (tạo nhiều) ─────────────────────────
@@ -186,8 +191,38 @@ public class BatchNormComboDto
     public string? TestMethodCode { get; set; }
     public string? TestMethodName { get; set; }
 
+    public Guid? ServiceGroupId { get; set; }
+    public string? ServiceGroupName { get; set; }
+
     /// <summary>Mã định mức đã có (null = chưa có định mức)</summary>
     public string? ExistingNormCode { get; set; }
+
+    /// <summary>Số vật tư / thiết bị của định mức đã có (modal "Sao chép định mức")</summary>
+    public int MaterialCount { get; set; }
+    public int EquipmentCount { get; set; }
+}
+
+/// <summary>Định mức của 1 bộ để sửa / sao chép</summary>
+public class BatchNormDetailDto
+{
+    public BatchNormComboDto Combo { get; set; } = new();
+    public List<BulkCreateBatchNormMaterialInput> Materials { get; set; } = new();
+    public List<BulkCreateBatchNormEquipmentInput> Equipments { get; set; } = new();
+}
+
+/// <summary>
+/// Sửa định mức của 1 bộ và (tùy chọn) áp dụng cùng danh sách vật tư / thiết bị cho các bộ khác:
+/// bộ chưa có định mức → tạo mới, bộ đã có → ghi đè toàn bộ.
+/// </summary>
+public class UpdateBatchNormInput
+{
+    [Required]
+    [MinLength(1)]
+    public List<BulkCreateBatchNormMaterialInput> Materials { get; set; } = new();
+
+    public List<BulkCreateBatchNormEquipmentInput> Equipments { get; set; } = new();
+
+    public List<Guid> ApplyToTestMethodIndicatorIds { get; set; } = new();
 }
 
 public class BatchNormUnitOptionDto
@@ -223,7 +258,7 @@ public class BatchNormCreateOptionsDto
 {
     public List<BatchNormServiceGroupOptionDto> ServiceGroups { get; set; } = new();
 
-    /// <summary>Các bộ của tên dịch vụ đang chọn (rỗng nếu chưa chọn)</summary>
+    /// <summary>Các bộ chọn được (lọc theo tên dịch vụ nếu truyền ServiceGroupId / Ungrouped, không thì tất cả)</summary>
     public List<BatchNormComboDto> Combos { get; set; } = new();
 
     /// <summary>Mã định mức kế tiếp (xem trước), vd DM-2026-0007</summary>

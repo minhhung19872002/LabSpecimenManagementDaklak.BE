@@ -149,11 +149,21 @@ public class MethodBatchNormController : LabSpecimenManagementController
     public virtual Task<ListResultDto<ServiceBatchNormEquipmentDto>> GetEquipmentsByServiceAsync(Guid testMethodIndicatorId)
         => _appService.GetEquipmentsByServiceAsync(testMethodIndicatorId);
 
-    /// <summary>Dữ liệu cho Phiếu khai báo định mức theo mẻ</summary>
+    /// <summary>Dữ liệu cho Phiếu khai báo / sửa định mức theo mẻ</summary>
     [HttpGet("create-options")]
-    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public virtual Task<BatchNormCreateOptionsDto> GetCreateOptionsAsync([FromQuery] GetBatchNormCreateOptionsInput input)
         => _appService.GetCreateOptionsAsync(input);
+
+    /// <summary>Định mức (vật tư + thiết bị) của 1 bộ — để sửa / sao chép</summary>
+    [HttpGet("by-service/{testMethodIndicatorId}/detail")]
+    public virtual Task<BatchNormDetailDto> GetDetailAsync(Guid testMethodIndicatorId)
+        => _appService.GetDetailAsync(testMethodIndicatorId);
+
+    /// <summary>Sửa định mức của 1 bộ + áp dụng (ghi đè) cho các bộ khác</summary>
+    [HttpPut("by-service/{testMethodIndicatorId}")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<ListResultDto<ServiceBatchNormDto>> UpdateNormAsync(Guid testMethodIndicatorId, [FromBody] UpdateBatchNormInput input)
+        => _appService.UpdateNormAsync(testMethodIndicatorId, input);
 
     /// <summary>Tạo nhiều định mức cùng lúc (dùng chung vật tư + thiết bị)</summary>
     [HttpPost("bulk-create")]
