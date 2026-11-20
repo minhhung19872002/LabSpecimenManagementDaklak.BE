@@ -24,6 +24,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
     private readonly IRepository<TestMethod, Guid> _testMethodRepository;
     private readonly IRepository<Indicator, Guid> _indicatorRepository;
     private readonly IRepository<SpecimenType, Guid> _specimenTypeRepository;
+    private readonly IRepository<SampleTypeCategory, Guid> _sampleTypeCategoryRepository;
     private readonly IRepository<Product, Guid> _productRepository;
     private readonly IRepository<Unit, Guid> _unitRepository;
 
@@ -35,6 +36,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
         IRepository<TestMethod, Guid> testMethodRepository,
         IRepository<Indicator, Guid> indicatorRepository,
         IRepository<SpecimenType, Guid> specimenTypeRepository,
+        IRepository<SampleTypeCategory, Guid> sampleTypeCategoryRepository,
         IRepository<Product, Guid> productRepository,
         IRepository<Unit, Guid> unitRepository)
     {
@@ -45,6 +47,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
         _testMethodRepository = testMethodRepository;
         _indicatorRepository = indicatorRepository;
         _specimenTypeRepository = specimenTypeRepository;
+        _sampleTypeCategoryRepository = sampleTypeCategoryRepository;
         _productRepository = productRepository;
         _unitRepository = unitRepository;
     }
@@ -82,6 +85,14 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
         var specimenTypes = specimenTypeIds.Count == 0
             ? new Dictionary<Guid, SpecimenType>()
             : (await _specimenTypeRepository.GetListAsync(st => specimenTypeIds.Contains(st.Id))).ToDictionary(st => st.Id);
+        var categoryIds = specimenTypes.Values
+            .Where(st => st.SampleTypeCategoryId.HasValue)
+            .Select(st => st.SampleTypeCategoryId!.Value)
+            .Distinct()
+            .ToList();
+        var categories = categoryIds.Count == 0
+            ? new Dictionary<Guid, SampleTypeCategory>()
+            : (await _sampleTypeCategoryRepository.GetListAsync(c => categoryIds.Contains(c.Id))).ToDictionary(c => c.Id);
 
         var completeNorms = norms.Where(n => n.IsComplete).ToList();
         var productIds = completeNorms.Select(n => n.ProductId!.Value).Distinct().ToList();
@@ -105,6 +116,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
 
             var estimated = current.GetValueOrDefault(service.Id)?.EstimatedSamples;
             var specimenType = service.SpecimenTypeId.HasValue ? specimenTypes.GetValueOrDefault(service.SpecimenTypeId.Value) : null;
+            var category = specimenType?.SampleTypeCategoryId is { } categoryId ? categories.GetValueOrDefault(categoryId) : null;
 
             rows.Add(new YearlyForecastRowDto
             {
@@ -119,6 +131,9 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
                 IndicatorFormattedName = indicator.FormattedName,
                 SpecimenTypeId = service.SpecimenTypeId,
                 SpecimenTypeName = specimenType?.Name,
+                SpecimenTypeSortOrder = specimenType?.SortOrder ?? 0,
+                SampleTypeCategoryId = category?.Id,
+                SampleTypeCategoryName = category?.Name,
                 EstimatedSamples = estimated,
                 PreviousYearSamples = previous.GetValueOrDefault(service.Id)?.EstimatedSamples,
                 NormLines = (normsByService.GetValueOrDefault(service.Id) ?? new List<MethodBatchNorm>())
@@ -152,6 +167,7 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
             CanClone = !isLocked && previous.Values.Any(f => f.EstimatedSamples > 0),
             TotalCount = rows.Count,
             MissingCount = rows.Count(r => r.EstimatedSamples is not > 0),
+            PreviousYearTotal = previous.Values.Sum(f => f.EstimatedSamples is > 0 ? f.EstimatedSamples.Value : 0),
         };
 
         IEnumerable<YearlyForecastRowDto> filtered = rows;

@@ -49,6 +49,11 @@ public class YearlyForecastRowDto
 
     public Guid? SpecimenTypeId { get; set; }
     public string? SpecimenTypeName { get; set; }
+    public int SpecimenTypeSortOrder { get; set; }
+
+    /// <summary>Nhóm nền mẫu (thẻ cấp 1 trên L4)</summary>
+    public Guid? SampleTypeCategoryId { get; set; }
+    public string? SampleTypeCategoryName { get; set; }
 
     public int? PreviousYearSamples { get; set; }
     public int? EstimatedSamples { get; set; }
@@ -68,6 +73,9 @@ public class YearlyForecastListDto
 
     public int TotalCount { get; set; }
     public int MissingCount { get; set; }
+
+    /// <summary>Tổng số mẫu dự toán năm trước (mọi dịch vụ) — KPI "So với năm trước"</summary>
+    public int PreviousYearTotal { get; set; }
 
     public List<YearlyForecastRowDto> Items { get; set; } = new();
 }
