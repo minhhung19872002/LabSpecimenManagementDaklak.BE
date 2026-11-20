@@ -118,4 +118,10 @@ public interface IYearlyForecastAppService : IApplicationService
     Task<int> SaveAsync(SaveYearlyForecastsInput input);
 
     Task<CloneYearlyForecastResultDto> CloneFromPreviousYearAsync(CloneYearlyForecastInput input);
+
+    /// <summary>Phiếu tạo / sửa dự toán: bộ chọn được + định mức + cấu hình đã lưu + danh mục vật tư, thiết bị</summary>
+    Task<ForecastCreateOptionsDto> GetCreateOptionsAsync(GetForecastCreateOptionsInput input);
+
+    /// <summary>Lưu phiếu tạo / sửa dự toán (số mẫu + vật tư, thiết bị bổ sung / bỏ + áp dụng tiêu hao)</summary>
+    Task<SaveForecastDetailsResultDto> SaveDetailsAsync(SaveForecastDetailsInput input);
 }

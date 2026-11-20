@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -207,4 +208,37 @@ public class YearlyForecastController : LabSpecimenManagementController
     [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
     public virtual Task<CloneYearlyForecastResultDto> CloneFromPreviousYearAsync([FromBody] CloneYearlyForecastInput input)
         => _appService.CloneFromPreviousYearAsync(input);
+
+    /// <summary>Phiếu tạo / sửa dự toán: bộ chọn được, định mức, cấu hình đã lưu, danh mục vật tư / thiết bị</summary>
+    [HttpGet("create-options")]
+    public virtual Task<ForecastCreateOptionsDto> GetCreateOptionsAsync([FromQuery] GetForecastCreateOptionsInput input)
+        => _appService.GetCreateOptionsAsync(input);
+
+    /// <summary>Phiếu tạo dự toán (chặn bộ đã có dự toán năm này)</summary>
+    [HttpPost("details")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
+    public virtual Task<SaveForecastDetailsResultDto> CreateDetailsAsync([FromBody] SaveForecastDetailsInput input)
+    {
+        input.IsCreate = true;
+        return _appService.SaveDetailsAsync(input);
+    }
+
+    /// <summary>Sửa dự toán (số mẫu + vật tư / thiết bị + áp dụng tiêu hao)</summary>
+    [HttpPut("details")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Edit)]
+    public virtual Task<SaveForecastDetailsResultDto> UpdateDetailsAsync([FromBody] SaveForecastDetailsInput input)
+    {
+        input.IsCreate = false;
+        return _appService.SaveDetailsAsync(input);
+    }
+
+    /// <summary>Nhập Excel: ghi số mẫu dự toán (giữ nguyên cấu hình vật tư / thiết bị)</summary>
+    [HttpPut("import")]
+    [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
+    public virtual Task<int> ImportAsync([FromBody] SaveYearlyForecastsInput input)
+    {
+        // Nhập chỉ ghi số mẫu > 0 — không dùng đường này để xóa dự toán
+        input.Items = input.Items.Where(i => i.EstimatedSamples > 0).ToList();
+        return _appService.SaveAsync(input);
+    }
 }

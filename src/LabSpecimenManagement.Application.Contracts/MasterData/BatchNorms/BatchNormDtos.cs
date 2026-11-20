@@ -211,6 +211,12 @@ public class BatchNormProductOptionDto
     /// <summary>Đơn vị tiêu hao chọn được: đơn vị thể tích, đơn vị cơ bản, đơn vị quy đổi</summary>
     public List<BatchNormUnitOptionDto> Units { get; set; } = new();
     public Guid? DefaultUnitId { get; set; }
+
+    /// <summary>Quy cách: 1 {BaseUnitName} = {VolumePerUnit} {VolumeUnitName} (null = chưa khai báo)</summary>
+    public int? VolumePerUnit { get; set; }
+    public Guid? VolumeUnitId { get; set; }
+    public string? VolumeUnitName { get; set; }
+    public string? BaseUnitName { get; set; }
 }
 
 public class BatchNormCreateOptionsDto

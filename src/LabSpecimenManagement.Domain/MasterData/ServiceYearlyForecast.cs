@@ -16,6 +16,12 @@ public class ServiceYearlyForecast : FullAuditedAggregateRoot<Guid>
     /// <summary>Số mẫu dự toán trong năm. Null = chưa thiết lập.</summary>
     public int? EstimatedSamples { get; set; }
 
+    /// <summary>
+    /// "Áp dụng tiêu hao" theo dự toán khác cùng năm: dùng danh sách vật tư / thiết bị của nguồn
+    /// (chỉ 1 cấp — nguồn không được tự áp dụng theo bộ khác). Số mẫu vẫn nhập riêng.
+    /// </summary>
+    public Guid? SourceForecastId { get; set; }
+
     protected ServiceYearlyForecast()
     {
     }

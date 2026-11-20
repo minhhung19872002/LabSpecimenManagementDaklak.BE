@@ -22,11 +22,7 @@ public partial class MethodBatchNormAppService
     public static readonly IReadOnlyList<string> CapacityUnits =
         new[] { "phút/mẫu", "giờ/mẫu", "lần chạy/mẫu", "kWh/mẫu", "% công suất" };
 
-    private static readonly ProductType[] MaterialTypes =
-    {
-        ProductType.Chemical, ProductType.Biological, ProductType.Supply, ProductType.Standard, ProductType.Solvent,
-        ProductType.PreparedSolution,
-    };
+    private static readonly ProductType[] MaterialTypes = NormProductOptionProvider.MaterialTypes;
 
     public async Task<BatchNormCreateOptionsDto> GetCreateOptionsAsync(GetBatchNormCreateOptionsInput input)
     {
@@ -276,66 +272,13 @@ public partial class MethodBatchNormAppService
             .ToList();
     }
 
-    private async Task<List<BatchNormProductOptionDto>> LoadProductOptionsAsync(ProductType[] types)
-    {
-        var products = await _productRepository.GetListAsync(p => types.Contains(p.ProductType) && p.IsActive && !p.IsDraft);
-        if (products.Count == 0)
-        {
-            return new List<BatchNormProductOptionDto>();
-        }
+    private NormProductOptionProvider ProductOptions => LazyServiceProvider.LazyGetRequiredService<NormProductOptionProvider>();
 
-        var allowed = await LoadAllowedUnitsAsync(products);
-        var unitIds = allowed.Values.SelectMany(u => u).Distinct().ToList();
-        var units = unitIds.Count == 0
-            ? new Dictionary<Guid, Unit>()
-            : (await _unitRepository.GetListAsync(u => unitIds.Contains(u.Id))).ToDictionary(u => u.Id);
+    private Task<List<BatchNormProductOptionDto>> LoadProductOptionsAsync(ProductType[] types)
+        => ProductOptions.LoadProductOptionsAsync(types);
 
-        return products
-            .Select(p =>
-            {
-                var options = allowed[p.Id]
-                    .Where(units.ContainsKey)
-                    .Select(id => new BatchNormUnitOptionDto { Id = id, Name = units[id].Name })
-                    .ToList();
-                return new BatchNormProductOptionDto
-                {
-                    Id = p.Id,
-                    Code = p.Code,
-                    Name = p.Name,
-                    FormattedName = p.FormattedName,
-                    ProductType = p.ProductType,
-                    Categories = p.Categories,
-                    Units = options,
-                    DefaultUnitId = options.FirstOrDefault()?.Id,
-                };
-            })
-            .OrderBy(p => p.ProductType)
-            .ThenBy(p => p.Name)
-            .ToList();
-    }
-
-    /// <summary>
-    /// Đơn vị tiêu hao hợp lệ của vật tư — thứ tự: thể tích, cơ bản, đơn vị quy đổi
-    /// (đều là đơn vị mà bước quy đổi trừ kho hiểu được).
-    /// </summary>
-    private async Task<Dictionary<Guid, List<Guid>>> LoadAllowedUnitsAsync(List<Product> products)
-    {
-        var productIds = products.Select(p => p.Id).ToList();
-        var conversions = await _unitConversionRepository.GetListAsync(c => productIds.Contains(c.ProductId));
-        var conversionsByProduct = conversions.ToLookup(c => c.ProductId);
-
-        return products.ToDictionary(p => p.Id, p =>
-        {
-            var ids = new List<Guid?> { p.VolumeUnitId, p.BaseUnitId };
-            foreach (var c in conversionsByProduct[p.Id])
-            {
-                ids.Add(c.ConvertedUnitId);
-                ids.Add(c.BaseUnitId);
-            }
-
-            return ids.Where(id => id.HasValue).Select(id => id!.Value).Distinct().ToList();
-        });
-    }
+    private Task<Dictionary<Guid, List<Guid>>> LoadAllowedUnitsAsync(List<Product> products)
+        => ProductOptions.LoadAllowedUnitsAsync(products);
 
     private async Task<List<BulkCreateBatchNormMaterialInput>> ValidateMaterialsAsync(List<BulkCreateBatchNormMaterialInput>? materials)
     {

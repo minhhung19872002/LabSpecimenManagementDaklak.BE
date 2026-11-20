@@ -97,6 +97,7 @@ public class LabSpecimenManagementDbContext :
     public DbSet<ServiceBatchNormEquipment> ServiceBatchNormEquipments { get; set; }
     public DbSet<ServiceGroup> ServiceGroups { get; set; }
     public DbSet<ServiceYearlyForecast> ServiceYearlyForecasts { get; set; }
+    public DbSet<ServiceYearlyForecastItem> ServiceYearlyForecastItems { get; set; }
     public DbSet<MaterialReceipts.MaterialReceipt> MaterialReceipts { get; set; }
     public DbSet<MaterialReceipts.MaterialReceiptItem> MaterialReceiptItems { get; set; }
     public DbSet<StockAdjustment> StockAdjustments { get; set; }
@@ -965,6 +966,18 @@ public class LabSpecimenManagementDbContext :
                 .IsUnique()
                 .HasFilter("\"IsDeleted\" = false");
             b.HasOne<TestMethodIndicator>().WithMany().HasForeignKey(x => x.TestMethodIndicatorId).OnDelete(DeleteBehavior.Cascade);
+            b.HasIndex(x => x.SourceForecastId);
+            b.HasOne<ServiceYearlyForecast>().WithMany().HasForeignKey(x => x.SourceForecastId).OnDelete(DeleteBehavior.SetNull);
+        });
+
+        builder.Entity<ServiceYearlyForecastItem>(b =>
+        {
+            b.ToTable(LabSpecimenManagementConsts.DbTablePrefix + "ServiceYearlyForecastItems", LabSpecimenManagementConsts.DbSchema);
+            b.ConfigureByConvention();
+            b.Property(x => x.Quantity).HasColumnType("numeric");
+            b.HasIndex(x => new { x.ForecastId, x.Kind, x.ProductId }).IsUnique();
+            b.HasOne<ServiceYearlyForecast>().WithMany().HasForeignKey(x => x.ForecastId).OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<Product>().WithMany().HasForeignKey(x => x.ProductId).OnDelete(DeleteBehavior.Restrict);
         });
 
         // MaterialConsumptionItem configuration

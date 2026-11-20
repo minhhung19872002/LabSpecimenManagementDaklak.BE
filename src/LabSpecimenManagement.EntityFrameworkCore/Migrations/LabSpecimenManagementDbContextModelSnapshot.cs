@@ -2713,6 +2713,9 @@ namespace LabSpecimenManagement.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("LastModifierId");
 
+                    b.Property<Guid?>("SourceForecastId")
+                        .HasColumnType("uuid");
+
                     b.Property<Guid>("TestMethodIndicatorId")
                         .HasColumnType("uuid");
 
@@ -2721,6 +2724,8 @@ namespace LabSpecimenManagement.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("SourceForecastId");
+
                     b.HasIndex("Year");
 
                     b.HasIndex("TestMethodIndicatorId", "Year")
@@ -2728,6 +2733,50 @@ namespace LabSpecimenManagement.Migrations
                         .HasFilter("\"IsDeleted\" = false");
 
                     b.ToTable("AppServiceYearlyForecasts", (string)null);
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceYearlyForecastItem", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreationTime")
+                        .HasColumnType("timestamp without time zone")
+                        .HasColumnName("CreationTime");
+
+                    b.Property<Guid?>("CreatorId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("CreatorId");
+
+                    b.Property<Guid>("ForecastId")
+                        .HasColumnType("uuid");
+
+                    b.Property<bool>("IsHidden")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("Mode")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProductId")
+                        .HasColumnType("uuid");
+
+                    b.Property<decimal?>("Quantity")
+                        .HasColumnType("numeric");
+
+                    b.Property<Guid?>("UnitId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProductId");
+
+                    b.HasIndex("ForecastId", "Kind", "ProductId")
+                        .IsUnique();
+
+                    b.ToTable("AppServiceYearlyForecastItems", (string)null);
                 });
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.SpecimenType", b =>
@@ -9982,10 +10031,30 @@ namespace LabSpecimenManagement.Migrations
 
             modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceYearlyForecast", b =>
                 {
+                    b.HasOne("LabSpecimenManagement.MasterData.ServiceYearlyForecast", null)
+                        .WithMany()
+                        .HasForeignKey("SourceForecastId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("LabSpecimenManagement.MasterData.TestMethodIndicator", null)
                         .WithMany()
                         .HasForeignKey("TestMethodIndicatorId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("LabSpecimenManagement.MasterData.ServiceYearlyForecastItem", b =>
+                {
+                    b.HasOne("LabSpecimenManagement.MasterData.ServiceYearlyForecast", null)
+                        .WithMany()
+                        .HasForeignKey("ForecastId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("LabSpecimenManagement.Products.Product", null)
+                        .WithMany()
+                        .HasForeignKey("ProductId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 

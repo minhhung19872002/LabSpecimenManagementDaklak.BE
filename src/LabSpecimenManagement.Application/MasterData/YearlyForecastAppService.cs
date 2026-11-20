@@ -15,7 +15,7 @@ namespace LabSpecimenManagement.MasterData;
 /// Tiêu hao / mẫu = Tổng tiêu hao 1 mẻ (L3) ÷ Số mẫu dự toán năm (L4).
 /// </summary>
 [RemoteService(IsEnabled = false)]
-public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppService
+public partial class YearlyForecastAppService : ApplicationService, IYearlyForecastAppService
 {
     private readonly IRepository<ServiceYearlyForecast, Guid> _forecastRepository;
     private readonly IRepository<TestMethodIndicator, Guid> _serviceRepository;
@@ -221,6 +221,41 @@ public class YearlyForecastAppService : ApplicationService, IYearlyForecastAppSe
             changed += await UpsertAsync(forecasts.GetValueOrDefault(item.TestMethodIndicatorId), item.TestMethodIndicatorId, input.Year, value)
                 ? 1
                 : 0;
+        }
+
+        // Xóa dự toán đang là nguồn "áp dụng tiêu hao" → các bộ áp dụng theo nó quay về định mức của chính mình
+        var removedIds = items
+            .Where(i => i.EstimatedSamples is not > 0)
+            .Select(i => forecasts.GetValueOrDefault(i.TestMethodIndicatorId)?.Id)
+            .Where(id => id.HasValue)
+            .Select(id => id!.Value)
+            .ToList();
+        if (removedIds.Count > 0)
+        {
+            // Dự toán bị xóa bỏ luôn cấu hình (vật tư/thiết bị bổ sung, ẩn, liên kết nguồn) → nhập lại số mẫu không hồi sinh cấu hình cũ
+            var unlinked = forecasts.Values.Where(f => removedIds.Contains(f.Id) && f.SourceForecastId != null).ToList();
+            foreach (var forecast in unlinked)
+            {
+                forecast.SourceForecastId = null;
+            }
+
+            if (unlinked.Count > 0)
+            {
+                await _forecastRepository.UpdateManyAsync(unlinked);
+            }
+
+            await ItemRepository.DeleteAsync(i => removedIds.Contains(i.ForecastId));
+
+            var targets = await _forecastRepository.GetListAsync(f => f.SourceForecastId != null && removedIds.Contains(f.SourceForecastId.Value));
+            foreach (var target in targets)
+            {
+                target.SourceForecastId = null;
+            }
+
+            if (targets.Count > 0)
+            {
+                await _forecastRepository.UpdateManyAsync(targets);
+            }
         }
 
         return changed;
