@@ -71,10 +71,10 @@ public partial class YearlyForecastAppService : ApplicationService, IYearlyForec
         var current = forecasts.Where(f => f.Year == year).ToDictionary(f => f.TestMethodIndicatorId);
         var previous = forecasts.Where(f => f.Year == year - 1).ToDictionary(f => f.TestMethodIndicatorId);
 
-        // Dịch vụ có định mức + dịch vụ đã có dự toán năm này (giữ lịch sử khi định mức bị ngừng)
+        // Dịch vụ có định mức (bỏ thầu phụ) + dịch vụ đã có dự toán năm này (giữ lịch sử khi định mức bị ngừng)
         var forecastServiceIds = current.Keys.ToList();
         var services = await _serviceRepository.GetListAsync(s =>
-            (s.IsActive && normServiceIds.Contains(s.Id)) || forecastServiceIds.Contains(s.Id));
+            (s.IsActive && !s.IsSubcontract && normServiceIds.Contains(s.Id)) || forecastServiceIds.Contains(s.Id));
 
         var methodIds = services.Select(s => s.TestMethodId).Distinct().ToList();
         var indicatorIds = services.Select(s => s.IndicatorId).Distinct().ToList();

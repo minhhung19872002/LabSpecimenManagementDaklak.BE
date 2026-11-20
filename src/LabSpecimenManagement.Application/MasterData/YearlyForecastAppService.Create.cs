@@ -412,12 +412,12 @@ public partial class YearlyForecastAppService
     }
 
     /// <summary>
-    /// Dịch vụ đang hoạt động có phương pháp thật (bỏ PP "-") và chỉ tiêu chưa xóa,
+    /// Dịch vụ đang hoạt động, không thầu phụ, có phương pháp thật (bỏ PP "-") và chỉ tiêu chưa xóa,
     /// cộng các dịch vụ đã có dự toán năm này (để vẫn sửa được khi dịch vụ đã ngừng).
     /// </summary>
     private async Task<List<TestMethodIndicator>> GetSelectableServicesAsync(List<Guid> forecastServiceIds)
     {
-        var services = await _serviceRepository.GetListAsync(s => s.IsActive || forecastServiceIds.Contains(s.Id));
+        var services = await _serviceRepository.GetListAsync(s => (s.IsActive && !s.IsSubcontract) || forecastServiceIds.Contains(s.Id));
         var methodIds = services.Select(s => s.TestMethodId).Distinct().ToList();
         var indicatorIds = services.Select(s => s.IndicatorId).Distinct().ToList();
 
