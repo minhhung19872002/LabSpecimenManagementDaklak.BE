@@ -33,7 +33,15 @@ public class DefaultWarehouseDataSeedContributor : IDataSeedContributor, ITransi
         if (legacy != null)
             await _warehouseRepository.DeleteAsync(legacy);
 
-        var target = query.FirstOrDefault(x => x.Name == DefaultWarehouseName);
+        // Tìm kho mặc định theo IsDefault trước (kho TT có thể đã bị đổi tên) để không sinh kho mặc định thứ 2;
+        // chỉ khi chưa có kho mặc định nào mới tìm theo tên.
+        var legacyId = legacy?.Id;
+        var target = query
+                         .Where(x => x.IsDefault && x.Id != legacyId)
+                         .OrderByDescending(x => x.Name == DefaultWarehouseName)
+                         .ThenBy(x => x.CreationTime)
+                         .FirstOrDefault()
+                     ?? query.FirstOrDefault(x => x.Name == DefaultWarehouseName && x.Id != legacyId);
         if (target != null)
         {
             if (!target.IsDefault || target.ParentWarehouseId != null)

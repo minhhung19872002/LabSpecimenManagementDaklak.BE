@@ -97,7 +97,8 @@ public class EquipmentAppService : ApplicationService, IEquipmentAppService
             query = query.Where(x =>
                 x.Code.ToLower().Contains(search) ||
                 x.Name.ToLower().Contains(search) ||
-                x.SerialNumber.ToLower().Contains(search));
+                (x.SerialNumber != null && x.SerialNumber.ToLower().Contains(search)) ||
+                (x.AssetCode != null && x.AssetCode.ToLower().Contains(search)));
         }
 
         var totalCount = query.Count();

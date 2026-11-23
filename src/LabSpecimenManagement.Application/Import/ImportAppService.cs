@@ -6240,6 +6240,29 @@ public class ImportAppService : ApplicationService, IImportAppService
         var warehouseByCode = existingWarehouses
             .GroupBy(x => x.Code.Trim().ToLowerInvariant())
             .ToDictionary(g => g.Key, g => g.First());
+        var codeById = existingWarehouses.ToDictionary(x => x.Id, x => x.Code.Trim().ToLowerInvariant());
+
+        // Kho khai báo trong cùng file (lần xuất hiện đầu) → kho cha trong file được nhận.
+        var fileParentByCode = new Dictionary<string, string?>();
+        foreach (var r in rows)
+        {
+            if (string.IsNullOrWhiteSpace(r.Code)) continue;
+            var key = r.Code.Trim().ToLowerInvariant();
+            if (!fileParentByCode.ContainsKey(key))
+                fileParentByCode[key] = string.IsNullOrWhiteSpace(r.ParentWarehouseCode)
+                    ? null
+                    : r.ParentWarehouseCode.Trim().ToLowerInvariant();
+        }
+
+        // Kho cha sau khi import: dòng trong file ghi đè dữ liệu đang có.
+        string? EffectiveParentOf(string codeLower)
+        {
+            if (fileParentByCode.TryGetValue(codeLower, out var fileParent)) return fileParent;
+            if (warehouseByCode.TryGetValue(codeLower, out var wh) && wh.ParentWarehouseId.HasValue
+                && codeById.TryGetValue(wh.ParentWarehouseId.Value, out var parentCode))
+                return parentCode;
+            return null;
+        }
 
         var result = new WarehouseImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
@@ -6326,7 +6349,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                     });
                     AddRowError(rowErrors, rowNumber, error);
                 }
-                else if (!warehouseByCode.ContainsKey(parentCodeLower))
+                else if (!warehouseByCode.ContainsKey(parentCodeLower) && !fileParentByCode.ContainsKey(parentCodeLower))
                 {
                     item.IsValid = false;
                     var error = $"Mã kho cha '{parentCodeTrimmed}' không tồn tại trong hệ thống";
@@ -6341,47 +6364,45 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
                 else if (!string.IsNullOrWhiteSpace(row.Code))
                 {
+                    // Dò chuỗi kho cha (gồm cả quan hệ khai báo trong file) để chặn vòng lặp.
                     var codeLower = row.Code.Trim().ToLowerInvariant();
-                    if (warehouseByCode.TryGetValue(codeLower, out var selfWarehouse))
+                    var visited = new HashSet<string>();
+                    var current = (string?)parentCodeLower;
+                    while (current != null && visited.Add(current))
                     {
-                        var parentWarehouse = warehouseByCode[parentCodeLower];
-                        var currentId = (Guid?)parentWarehouse.ParentWarehouseId;
-                        var allWarehouses = existingWarehouses;
-                        while (currentId != null)
+                        if (current == codeLower)
                         {
-                            if (currentId == selfWarehouse.Id)
+                            item.IsValid = false;
+                            var error = $"Không thể chọn kho con của chính kho này làm kho cha (vòng lặp)";
+                            rowErrorMessages.Add(error);
+                            validationResult.Errors.Add(new ImportRowError
                             {
-                                item.IsValid = false;
-                                var error = $"Không thể chọn kho con của chính kho này làm kho cha (vòng lặp)";
-                                rowErrorMessages.Add(error);
-                                validationResult.Errors.Add(new ImportRowError
-                                {
-                                    RowNumber = rowNumber,
-                                    ColumnName = "Kho cha",
-                                    ErrorMessage = error
-                                });
-                                AddRowError(rowErrors, rowNumber, error);
-                                break;
-                            }
-                            currentId = allWarehouses.FirstOrDefault(x => x.Id == currentId)?.ParentWarehouseId;
+                                RowNumber = rowNumber,
+                                ColumnName = "Kho cha",
+                                ErrorMessage = error
+                            });
+                            AddRowError(rowErrors, rowNumber, error);
+                            break;
                         }
+                        current = EffectiveParentOf(current);
                     }
                 }
             }
 
-            if (item.IsValid && !string.IsNullOrWhiteSpace(row.Code))
+            // Gắn Mới/Cập nhật theo mã kho cho cả dòng lỗi (tag xem trước), chỉ dòng hợp lệ mới được đếm.
+            if (!string.IsNullOrWhiteSpace(row.Code))
             {
                 var codeKey = row.Code.Trim().ToLowerInvariant();
                 if (warehouseByCode.TryGetValue(codeKey, out var existingWarehouse))
                 {
                     item.IsNew = false;
                     item.ExistingId = existingWarehouse.Id;
-                    updateCodes.Add(codeKey);
+                    if (item.IsValid) updateCodes.Add(codeKey);
                 }
                 else
                 {
                     item.IsNew = true;
-                    newCodes.Add(codeKey);
+                    if (item.IsValid) newCodes.Add(codeKey);
                 }
             }
 
@@ -6526,7 +6547,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
-            var validItems = preview.Items.Where(i => i.IsValid).ToList();
+            var validItems = OrderWarehouseItemsParentFirst(preview.Items.Where(i => i.IsValid).ToList());
 
             var labNameToId = new Dictionary<string, Guid>(StringComparer.OrdinalIgnoreCase);
             var labQuery = await _laboratoryRepository.GetQueryableAsync();
@@ -6622,6 +6643,37 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Message = $"Lỗi khi import: {ex.Message}"
             };
         }
+    }
+
+    /// <summary>
+    /// Sắp xếp để kho cha khai báo trong cùng file được tạo/cập nhật trước kho con
+    /// (preview đã chặn vòng lặp nên vòng while luôn kết thúc).
+    /// </summary>
+    private static List<WarehouseImportPreviewItem> OrderWarehouseItemsParentFirst(List<WarehouseImportPreviewItem> items)
+    {
+        var fileCodes = new HashSet<string>(items.Select(i => i.Code.Trim()), StringComparer.OrdinalIgnoreCase);
+        var done = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var ordered = new List<WarehouseImportPreviewItem>(items.Count);
+        var pending = items;
+        while (pending.Count > 0)
+        {
+            var ready = pending.Where(i =>
+                string.IsNullOrWhiteSpace(i.ParentWarehouseCode)
+                || !fileCodes.Contains(i.ParentWarehouseCode.Trim())
+                || done.Contains(i.ParentWarehouseCode.Trim())).ToList();
+            if (ready.Count == 0)
+            {
+                ordered.AddRange(pending);
+                break;
+            }
+            foreach (var i in ready)
+            {
+                ordered.Add(i);
+                done.Add(i.Code.Trim());
+            }
+            pending = pending.Except(ready).ToList();
+        }
+        return ordered;
     }
 
     private byte[] GenerateWarehouseErrorFile(MemoryStream originalStream, Dictionary<int, List<string>> rowErrors)

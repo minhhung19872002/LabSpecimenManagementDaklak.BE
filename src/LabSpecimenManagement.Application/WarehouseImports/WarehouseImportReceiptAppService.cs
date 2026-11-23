@@ -120,10 +120,13 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
                 .Select(x => x.Key)
                 .ToList();
 
+            // NCC: ưu tiên NCC chọn trên phiếu nhập; phiếu không có NCC riêng thì theo NCC của phiếu mua.
             query = query.Where(x =>
                 x.Code.ToLower().Contains(search) ||
                 (x.GoodsReceiptCode != null && x.GoodsReceiptCode.ToLower().Contains(search)) ||
-                (x.GoodsReceiptId.HasValue && matchingGoodsReceiptIds.Contains(x.GoodsReceiptId.Value)));
+                (x.SupplierName != null && x.SupplierName != "" && x.SupplierName.ToLower().Contains(search)) ||
+                ((x.SupplierName == null || x.SupplierName == "") &&
+                 x.GoodsReceiptId.HasValue && matchingGoodsReceiptIds.Contains(x.GoodsReceiptId.Value)));
         }
 
         if (input.DisplayStatus.HasValue && input.DisplayStatus.Value != WarehouseImportReceiptDisplayStatusFilter.All)
@@ -158,8 +161,11 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
         {
             if (dto.GoodsReceiptId.HasValue && goodsReceiptInfoById.TryGetValue(dto.GoodsReceiptId.Value, out var grInfo))
             {
-                dto.SupplierName = grInfo.SupplierName;
-                dto.ContactPersonName = grInfo.SupplierRepresentativeName;
+                // Không ghi đè NCC đã chọn trên phiếu nhập bằng NCC (có thể trống) của phiếu mua.
+                if (string.IsNullOrWhiteSpace(dto.SupplierName))
+                    dto.SupplierName = grInfo.SupplierName;
+                if (string.Equals(dto.SupplierName, grInfo.SupplierName, StringComparison.Ordinal))
+                    dto.ContactPersonName = grInfo.SupplierRepresentativeName;
             }
         }
         await EnrichListDtosAsync(items, dtos);
@@ -238,6 +244,8 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
 
         if (receipt.Items.Count == 0)
             throw new UserFriendlyException("Phiếu nhập kho chưa có vật tư nào.");
+
+        await ValidateEquipmentSerialsAsync(receipt);
 
         var goodsReceipt = await _goodsReceiptRepository.GetAsync(receipt.GoodsReceiptId!.Value);
         var poLines = (await _goodsReceiptItemRepository.GetQueryableAsync())
@@ -1062,9 +1070,30 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             .Distinct()
             .ToList();
 
+        // Phiếu nhập mới lưu kho theo từng dòng (StorageWarehouseName), header WarehouseName trống
+        // → ghép tên các kho của dòng đã nhập để cột "Kho" không hiện "-".
+        var missingWarehouseIds = dtos
+            .Where(x => string.IsNullOrWhiteSpace(x.WarehouseName))
+            .Select(x => x.Id)
+            .ToList();
+        var lineWarehouseNames = missingWarehouseIds.Count == 0
+            ? new Dictionary<Guid, string>()
+            : itemsQuery
+                .Where(x => missingWarehouseIds.Contains(x.WarehouseImportReceiptId)
+                            && x.Status == WarehouseImportLineStatus.Checked
+                            && x.StorageWarehouseName != null && x.StorageWarehouseName != "")
+                .Select(x => new { x.WarehouseImportReceiptId, x.StorageWarehouseName })
+                .Distinct()
+                .ToList()
+                .GroupBy(x => x.WarehouseImportReceiptId)
+                .ToDictionary(g => g.Key, g => string.Join(", ", g.Select(x => x.StorageWarehouseName).OrderBy(x => x)));
+
         foreach (var dto in dtos)
         {
             dto.HasDefectiveItem = defectiveReceiptIds.Contains(dto.Id);
+            if (string.IsNullOrWhiteSpace(dto.WarehouseName) &&
+                lineWarehouseNames.TryGetValue(dto.Id, out var names))
+                dto.WarehouseName = names;
         }
     }
 
@@ -1273,6 +1302,33 @@ public class WarehouseImportReceiptAppService : ApplicationService, IWarehouseIm
             return (quantity / sku.VolumePerUnit!.Value) / sku.PackagingQuantity!.Value;
 
         return quantity;
+    }
+
+    /// <summary>
+    /// Kiểm tra Số Serial NSX của các dòng thiết bị "Đã nhận" trước khi tạo hồ sơ thiết bị
+    /// (unique index IX_AppEquipments_SerialNumber) — báo tiếng Việt thay vì lỗi lưu EF.
+    /// </summary>
+    private async Task ValidateEquipmentSerialsAsync(WarehouseImportReceipt receipt)
+    {
+        var serials = receipt.Items
+            .Where(x => x.IsEquipment && x.EquipmentReceiveStatus == EquipmentReceiveStatus.Received)
+            .Select(x => (x.SerialNumber ?? "").Trim())
+            .Where(x => x.Length > 0)
+            .ToList();
+        if (serials.Count == 0) return;
+
+        var duplicateInReceipt = serials
+            .GroupBy(x => x)
+            .FirstOrDefault(g => g.Count() > 1);
+        if (duplicateInReceipt != null)
+            throw new UserFriendlyException(
+                $"Serial number \"{duplicateInReceipt.Key}\" bị trùng trên phiếu nhập kho.");
+
+        var equipmentQuery = await _equipmentRepository.GetQueryableAsync();
+        var existing = await AsyncExecuter.FirstOrDefaultAsync(
+            equipmentQuery.Where(x => serials.Contains(x.SerialNumber)).Select(x => x.SerialNumber));
+        if (existing != null)
+            throw new UserFriendlyException($"Serial number \"{existing}\" đã tồn tại.");
     }
 
     private async Task<string> GenerateEquipmentCodeAsync()

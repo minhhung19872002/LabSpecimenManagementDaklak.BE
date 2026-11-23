@@ -219,11 +219,6 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 itemDto.ProductType = (int)product.ProductType;
             }
 
-            if (centralWarehouse != null)
-            {
-                itemDto.NearestExpiryDate = await GetNearestExpiryDateAsync(item.ProductId, centralWarehouse.Id);
-            }
-
             if (skusByProduct.TryGetValue(item.ProductId, out var productSkus))
             {
                 itemDto.AvailableUnits = BuildAvailableUnits(productSkus, unitMap);
@@ -237,6 +232,12 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                 itemDto.LotNumber = firstLot.LotNumber;
                 itemDto.ManufacturerName = firstLot.ManufacturerName;
             }
+
+            // HSD: dòng có lô → HSD của chính lô đó; không có lô → HSD gần nhất của vật tư ở KTT.
+            if (!string.IsNullOrWhiteSpace(itemDto.LotNumber))
+                itemDto.NearestExpiryDate = await GetLotExpiryDateAsync(item.ProductId, itemDto.LotNumber!, itemDto.ManufacturerName);
+            if (itemDto.NearestExpiryDate == null && centralWarehouse != null)
+                itemDto.NearestExpiryDate = await GetNearestExpiryDateAsync(item.ProductId, centralWarehouse.Id);
 
             dto.Items.Add(itemDto);
         }
@@ -268,32 +269,74 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         return await GetAsync(receipt.Id);
     }
 
-    [SerializableUnitOfWork]
+    [UnitOfWork(IsDisabled = true)]
     [Authorize(LabSpecimenManagementPermissions.MaterialReceipts.Create)]
     public async Task<MaterialReceiptDto> CreateAndConfirmAsync(CreateUpdateMaterialReceiptDto input)
     {
         await AuthorizationService.CheckAsync(
             LabSpecimenManagementPermissions.MaterialReceipts.Confirm);
 
-        await ValidateInputAsync(input);
-        await ValidateCodeUniqueAsync(input.Code);
-
-        var currentUserName = await GetCurrentUserNameAsync();
-        var receipt = new MaterialReceipt(
-            _guidGenerator.Create(),
-            input.Code,
-            currentUserName,
-            CurrentUser.Id,
-            input.ReceiptDate)
-        {
-            Notes = input.Notes
-        };
-
-        await _receiptRepository.InsertAsync(receipt, autoSave: true);
-        await MapItemsAsync(receipt, input.Items);
-
         // Any confirmation error rolls back the new receipt and all of its items.
-        return await ConfirmAsync(receipt.Id);
+        return await RunInSerializableUowAsync(async () =>
+        {
+            await ValidateInputAsync(input);
+            await ValidateCodeUniqueAsync(input.Code);
+
+            var currentUserName = await GetCurrentUserNameAsync();
+            var receipt = new MaterialReceipt(
+                _guidGenerator.Create(),
+                input.Code,
+                currentUserName,
+                CurrentUser.Id,
+                input.ReceiptDate)
+            {
+                Notes = input.Notes
+            };
+
+            await _receiptRepository.InsertAsync(receipt, autoSave: true);
+            await MapItemsAsync(receipt, input.Items);
+
+            return await ConfirmCoreAsync(receipt.Id);
+        });
+    }
+
+    /// <summary>
+    /// Chạy xác nhận trong transaction Serializable riêng và commit ngay trong method,
+    /// để lỗi xung đột đồng thời (2 người xác nhận cùng lúc) — kể cả lỗi lúc commit —
+    /// được đổi thành thông báo tiếng Việt thay vì lỗi kỹ thuật EF Core.
+    /// </summary>
+    private async Task<MaterialReceiptDto> RunInSerializableUowAsync(Func<Task<MaterialReceiptDto>> action)
+    {
+        try
+        {
+            using var uow = UnitOfWorkManager.Begin(
+                requiresNew: true,
+                isTransactional: true,
+                isolationLevel: System.Data.IsolationLevel.Serializable);
+            var result = await action();
+            await uow.CompleteAsync();
+            return result;
+        }
+        catch (Exception ex) when (IsConcurrencyConflict(ex))
+        {
+            throw new UserFriendlyException(
+                "Tồn kho vật tư vừa được thay đổi bởi một phiếu khác xác nhận cùng lúc. " +
+                "Vui lòng tải lại phiếu và thử xác nhận lại.");
+        }
+    }
+
+    private static bool IsConcurrencyConflict(Exception? ex)
+    {
+        for (; ex != null; ex = ex.InnerException)
+        {
+            if (ex is AbpDbConcurrencyException || ex.GetType().Name == "DbUpdateConcurrencyException")
+                return true;
+            // PostgreSQL: 40001 serialization_failure, 40P01 deadlock_detected
+            if (ex.GetType().Name == "PostgresException" &&
+                (ex.Message.StartsWith("40001") || ex.Message.StartsWith("40P01")))
+                return true;
+        }
+        return false;
     }
 
     [Authorize(LabSpecimenManagementPermissions.MaterialReceipts.Create)]
@@ -328,9 +371,12 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
         return await GetAsync(receipt.Id);
     }
 
-    [SerializableUnitOfWork]
+    [UnitOfWork(IsDisabled = true)]
     [Authorize(LabSpecimenManagementPermissions.MaterialReceipts.Confirm)]
-    public async Task<MaterialReceiptDto> ConfirmAsync(Guid id)
+    public Task<MaterialReceiptDto> ConfirmAsync(Guid id)
+        => RunInSerializableUowAsync(() => ConfirmCoreAsync(id));
+
+    private async Task<MaterialReceiptDto> ConfirmCoreAsync(Guid id)
     {
         var receipt = await _receiptRepository.GetAsync(id);
 
@@ -390,11 +436,26 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
                     product, item.UnitId, item.Quantity, item.ProductName);
             }
 
+            var storageUnitName = await ResolveStorageUnitNameAsync(product, item.SkuId);
+            string FormatStock(decimal qty) =>
+                string.IsNullOrWhiteSpace(storageUnitName) ? FormatViNumber(qty) : $"{FormatViNumber(qty)} {storageUnitName}";
+
             var centralStock = await GetWarehouseStockAsync(item.ProductId, centralWarehouse.Id);
             if (baseQty > centralStock)
                 throw new UserFriendlyException(
-                    $"Số lượng nhận của vật tư \"{item.ProductName}\" không được vượt tồn kho tại Kho Trung tâm kiểm nghiệm. " +
-                    $"Tồn kho: {centralStock:N2}, số lượng yêu cầu sau quy đổi: {baseQty:N2}.");
+                    $"Số lượng nhận của vật tư \"{item.ProductName}\" không được vượt tồn kho tại {centralWarehouse.Name}. " +
+                    $"Tồn kho: {FormatStock(centralStock)}, số lượng yêu cầu sau quy đổi: {FormatStock(baseQty)}.");
+
+            // Dòng chọn lô cụ thể: so với tồn của LÔ đó (tổng vật tư còn đủ nhưng lô không đủ).
+            if (!string.IsNullOrWhiteSpace(item.LotNumber))
+            {
+                var lotStock = await GetWarehouseStockAsync(
+                    item.ProductId, centralWarehouse.Id, item.LotNumber, item.ManufacturerName);
+                if (baseQty > lotStock)
+                    throw new UserFriendlyException(
+                        $"Số lượng nhận của vật tư \"{item.ProductName}\" (lô {item.LotNumber}) không được vượt tồn kho tại {centralWarehouse.Name}. " +
+                        $"Tồn kho: {FormatStock(lotStock)}, số lượng yêu cầu sau quy đổi: {FormatStock(baseQty)}.");
+            }
 
             var lotDeductions = await _fifoStockService.DeductAsync(
                 product, baseQty, StockMovementType.MaterialTransfer,
@@ -791,10 +852,17 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
             warehouseQuery.Where(w => w.IsDefault && w.IsActive));
     }
 
-    private async Task<decimal> GetWarehouseStockAsync(Guid productId, Guid warehouseId)
+    private async Task<decimal> GetWarehouseStockAsync(
+        Guid productId, Guid warehouseId, string? lotNumber = null, string? manufacturerName = null)
     {
         var importItemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
         var importReceiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
+
+        // Lọc lô/hãng giống FifoStockDeductionService.DeductAsync để số tồn báo ra khớp số trừ được.
+        if (!string.IsNullOrWhiteSpace(lotNumber))
+            importItemQuery = importItemQuery.Where(x => x.LotNumber == lotNumber);
+        if (!string.IsNullOrWhiteSpace(manufacturerName))
+            importItemQuery = importItemQuery.Where(x => x.ManufacturerName == manufacturerName);
 
         var query = from item in importItemQuery
                     join receipt in importReceiptQuery on item.WarehouseImportReceiptId equals receipt.Id
@@ -808,6 +876,32 @@ public class MaterialReceiptAppService : ApplicationService, IMaterialReceiptApp
 
         var remainings = await _asyncExecuter.ToListAsync(query);
         return remainings.Sum();
+    }
+
+    /// <summary>Tên đơn vị lưu kho (đơn vị của BaseQuantity): SKU.PackagingUnit, không có SKU thì theo vật tư.</summary>
+    private async Task<string?> ResolveStorageUnitNameAsync(Product product, Guid? skuId)
+    {
+        Guid? unitId = null;
+        if (skuId.HasValue)
+            unitId = (await _productSkuRepository.FindAsync(skuId.Value))?.PackagingUnitId;
+        unitId ??= product.PackagingUnitId ?? product.BaseUnitId;
+        if (!unitId.HasValue) return null;
+        return (await _unitRepository.FindAsync(unitId.Value))?.Name;
+    }
+
+    private static string FormatViNumber(decimal value)
+        => value.ToString("#,##0.###", System.Globalization.CultureInfo.GetCultureInfo("vi-VN"));
+
+    /// <summary>HSD của chính lô (theo mã lô + hãng), không phụ thuộc lô còn tồn hay ở kho nào.</summary>
+    private async Task<DateTime?> GetLotExpiryDateAsync(Guid productId, string lotNumber, string? manufacturerName)
+    {
+        var importItemQuery = await _warehouseImportItemRepository.GetQueryableAsync();
+        var query = importItemQuery.Where(x =>
+            x.ProductId == productId && x.LotNumber == lotNumber && x.LotExpiryDate.HasValue);
+        if (!string.IsNullOrWhiteSpace(manufacturerName))
+            query = query.Where(x => x.ManufacturerName == manufacturerName);
+        return await _asyncExecuter.FirstOrDefaultAsync(
+            query.OrderBy(x => x.LotExpiryDate).Select(x => x.LotExpiryDate));
     }
 
     private async Task<List<StockByUnitDto>> ComputeStockByUnitsAsync(
