@@ -491,7 +491,10 @@ public class ProductAppService : ApplicationService, IProductAppService
         var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
         // Only count consumption of the active FEFO lot per warehouse (TestBatchConsumption has no LotNumber so is excluded)
         var whTheoreticalByProductWh = (from ic in icQuery
-                                        join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                        join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id into ltiJoin
+                                        from lti in ltiJoin.DefaultIfEmpty()
+                                        // Tiêu hao pha chế (PreparedSolutionBatchId) không gắn chỉ tiêu — vẫn tính (K87); dòng KTV có chỉ tiêu đã xóa thì bỏ
+                                        where lti != null || ic.PreparedSolutionBatchId != null
                                         where ic.ProductId.HasValue
                                               && pagedProductIds.Contains(ic.ProductId!.Value)
                                               && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
@@ -1231,7 +1234,10 @@ public class ProductAppService : ApplicationService, IProductAppService
             var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
             var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
             var icItems = (from ic in icQuery
-                           join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                           join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id into ltiJoin
+                           from lti in ltiJoin.DefaultIfEmpty()
+                           // Tiêu hao pha chế (PreparedSolutionBatchId) không gắn chỉ tiêu — vẫn tính (K87); dòng KTV có chỉ tiêu đã xóa thì bỏ
+                           where lti != null || ic.PreparedSolutionBatchId != null
                            where ic.ProductId == id && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
                            where !warehouseId.HasValue
                                  || (ic.WarehouseId.HasValue && ic.WarehouseId == warehouseId.Value)
@@ -2052,7 +2058,10 @@ public class ProductAppService : ApplicationService, IProductAppService
         var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
         // Only count consumption of the active FEFO lot (TestBatchConsumption has no LotNumber so is excluded)
         var theoreticalByProduct = (from ic in icQuery
-                                    join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                    join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id into ltiJoin
+                                    from lti in ltiJoin.DefaultIfEmpty()
+                                    // Tiêu hao pha chế (PreparedSolutionBatchId) không gắn chỉ tiêu — vẫn tính (K87); dòng KTV có chỉ tiêu đã xóa thì bỏ
+                                    where lti != null || ic.PreparedSolutionBatchId != null
                                     where ic.ProductId.HasValue
                                           && productIds.Contains(ic.ProductId!.Value)
                                           && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)
@@ -3114,7 +3123,10 @@ public class ProductAppService : ApplicationService, IProductAppService
             var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
             var ltiQueryForTC = await _ltiRepository.GetQueryableAsync();
             var whTheoreticalFromIC = (from ic in icQuery
-                                       join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id
+                                       join lti in ltiQueryForTC on ic.LaboratoryTaskIndicatorId equals lti.Id into ltiJoin
+                                       from lti in ltiJoin.DefaultIfEmpty()
+                                       // Tiêu hao pha chế (PreparedSolutionBatchId) không gắn chỉ tiêu — vẫn tính (K87); dòng KTV có chỉ tiêu đã xóa thì bỏ
+                                       where lti != null || ic.PreparedSolutionBatchId != null
                                        where ic.ProductId.HasValue
                                              && allProductIds.Contains(ic.ProductId!.Value)
                                              && (ic.IsDeducted || ic.PreparedSolutionBatchId != null)

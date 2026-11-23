@@ -70,8 +70,6 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
     public async Task<PagedResultDto<PreparedSolutionBatchDto>> GetListAsync(GetPreparedSolutionBatchesInput input)
     {
-        var now = DateTime.UtcNow;
-
         var query = await _repository.GetQueryableAsync();
         var ingredientQuery = await _ingredientRepository.GetQueryableAsync();
 
@@ -86,8 +84,9 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         var batches = query.OrderByDescending(x => x.CreationTime).ToList();
 
-        // Compute status in memory (status depends on DateTime.UtcNow — EF translation varies)
-        var dtoList = batches.Select(b => MapToDto(b, now)).ToList();
+        // Còn lại + trạng thái tính trong bộ nhớ (phụ thuộc tồn dự kiến của lô và ngày hôm nay theo giờ VN)
+        var remainingMap = await ComputeRemainingVolumesAsync(batches);
+        var dtoList = batches.Select(b => MapToDto(b, remainingMap[b.Id])).ToList();
 
         // Status filter
         if (input.IsHetOrHetHan == true)
@@ -123,7 +122,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
     {
         var batch = await _repository.GetAsync(id);
         var ingredients = await _ingredientRepository.GetListAsync(i => i.PreparedSolutionBatchId == id);
-        var dto = MapToDto(batch, DateTime.UtcNow);
+        var remainingMap = await ComputeRemainingVolumesAsync(new[] { batch });
+        var dto = MapToDto(batch, remainingMap[batch.Id]);
         dto.Ingredients = ingredients.Select(MapIngredientToDto).ToList();
         if (batch.PreparedSolutionReceiptId.HasValue)
         {
@@ -149,6 +149,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
         if (!input.StorageWarehouseId.HasValue)
             throw new UserFriendlyException("Vui lòng chọn vị trí lưu kho.");
+
+        await EnsureLotCodeUniqueAsync(input.SolutionProductId, input.LotCode, null);
 
         var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
         var solutionProduct = productQuery.First(p => p.Id == input.SolutionProductId);
@@ -243,8 +245,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (batch.IsProcessed)
             throw new UserFriendlyException("Không thể chỉnh sửa phiếu pha đã xử lý.");
 
-        if ((DateTime.UtcNow - batch.PreparationDate).TotalDays > 1)
+        // PreparationDate lưu theo giờ server (Clock Local) — so với Clock.Now, không dùng UtcNow
+        if ((Clock.Now - batch.PreparationDate).TotalDays > 1)
             throw new UserFriendlyException("Phiếu pha đã qua 1 ngày, không thể chỉnh sửa.");
+
+        await EnsureLotCodeUniqueAsync(input.SolutionProductId, input.LotCode, id);
 
         // Delete old synthetic receipt
         await DeleteSyntheticReceiptAsync(batch);
@@ -310,7 +315,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         batch.ExpiryDate = input.ExpiryDate;
         var usedVolume = batch.TotalVolume - batch.RemainingVolume;
         batch.TotalVolume = input.TotalVolume;
-        batch.RemainingVolume = input.TotalVolume - usedVolume;
+        // Chỉ là số lưu tạm — "Còn lại" hiển thị tính theo tồn dự kiến của lô (ComputeRemainingVolumesAsync)
+        batch.RemainingVolume = Math.Max(0m, input.TotalVolume - usedVolume);
         batch.VolumeUnitId = solutionProduct.VolumeUnitId;
         batch.VolumeUnitName = solutionProduct.VolumeUnitId.HasValue
             ? (await _unitRepository.FindAsync(solutionProduct.VolumeUnitId.Value))?.Name
@@ -358,8 +364,11 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (batch.IsProcessed)
             throw new UserFriendlyException("Phiếu pha này đã được xử lý trước đó.");
 
+        // Chốt "Còn lại" tại thời điểm xử lý (sau đó phiếu không tính lại theo lô nữa)
+        var remainingMap = await ComputeRemainingVolumesAsync(new[] { batch });
+        batch.RemainingVolume = remainingMap[batch.Id];
         batch.IsProcessed = true;
-        batch.ProcessedAt = DateTime.UtcNow;
+        batch.ProcessedAt = Clock.Now;
         batch.ProcessingNote = input.Note;
         batch.ProcessingImages = JsonSerializer.Serialize(input.ImageUrls ?? new List<string>());
 
@@ -369,9 +378,9 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
     public async Task<List<PreparedSolutionBatchDto>> GetWarningItemsAsync()
     {
-        var now = DateTime.UtcNow;
         var batches = await _repository.GetListAsync(b => !b.IsProcessed);
-        var dtoList = batches.Select(b => MapToDto(b, now))
+        var remainingMap = await ComputeRemainingVolumesAsync(batches);
+        var dtoList = batches.Select(b => MapToDto(b, remainingMap[b.Id]))
             .Where(d => d.ComputedStatus != PreparedSolutionStatus.Active &&
                         d.ComputedStatus != PreparedSolutionStatus.Processed)
             .ToList();
@@ -393,25 +402,9 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
 
     public async Task<List<PreparedSolutionWarehouseProductDto>> GetWarehouseProductsAsync(Guid warehouseId, int? productType)
     {
-        // BFS to collect all warehouse IDs in the subtree of warehouseId
-        var allWarehouses = (await _warehouseRepository.GetQueryableAsync())
-            .Select(w => new { w.Id, w.ParentWarehouseId })
-            .ToList();
+        // Danh sách vật tư: mọi dòng nhập trong cây kho nguồn
+        var subtreeIds = await CollectWarehouseSubtreeAsync(warehouseId);
 
-        var warehouseIds = new HashSet<Guid> { warehouseId };
-        var queue = new Queue<Guid>();
-        queue.Enqueue(warehouseId);
-        while (queue.Count > 0)
-        {
-            var parentId = queue.Dequeue();
-            foreach (var child in allWarehouses.Where(w => w.ParentWarehouseId == parentId))
-            {
-                if (warehouseIds.Add(child.Id))
-                    queue.Enqueue(child.Id);
-            }
-        }
-
-        // Find receipt items imported into those warehouses with per-item stock data
         var importReceiptQuery = await _importReceiptRepository.GetQueryableAsync();
         var importItemQuery = await _importReceiptItemRepository.GetQueryableAsync();
 
@@ -420,8 +413,8 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                           where receipt.Status == WarehouseImportReceiptStatus.Completed
                                 && item.Status == WarehouseImportLineStatus.Checked
                                 && (
-                                    (item.StorageWarehouseId.HasValue && warehouseIds.Contains(item.StorageWarehouseId.Value))
-                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && warehouseIds.Contains(receipt.WarehouseId.Value))
+                                    (item.StorageWarehouseId.HasValue && subtreeIds.Contains(item.StorageWarehouseId.Value))
+                                    || (!item.StorageWarehouseId.HasValue && receipt.WarehouseId.HasValue && subtreeIds.Contains(receipt.WarehouseId.Value))
                                 )
                           select new
                           {
@@ -444,12 +437,12 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         if (productType.HasValue)
             products = products.Where(p => (int)p.ProductType == productType.Value).ToList();
 
-        // Build lookups for per-item volume calculation
         var skuMap = products.SelectMany(p => p.Skus).ToDictionary(s => s.Id);
         var productLookup = products.ToDictionary(p => p.Id);
 
-        var availableVolumeByProduct = stockItems
-            .Where(x => productLookup.ContainsKey(x.ProductId))
+        // Thiết bị không trừ tiêu hao — giữ sổ sách như cũ
+        var equipmentVolumeByProduct = stockItems
+            .Where(x => productLookup.TryGetValue(x.ProductId, out var p) && p.ProductType == ProductType.Equipment)
             .GroupBy(x => x.ProductId)
             .ToDictionary(
                 g => g.Key,
@@ -460,11 +453,19 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                         && sku.VolumePerUnit > 0
                             ? sku.VolumePerUnit
                             : ResolveVolumePerUnit(productLookup[g.Key]);
-                    return vpu.HasValue && vpu.Value > 0
-                        ? item.NetBase * vpu.Value
-                        : item.NetBase;
-                })
-            );
+                    return ToDisplayQty(vpu, item.NetBase);
+                }));
+
+        // Nguyên liệu tiêu hao (K86): đúng tập lô mà FEFO sẽ lấy khi pha — bỏ kho cấp 0 / mặc định,
+        // bỏ lô hết hạn / lô dung dịch đã xử lý, trừ tiêu hao chưa kiểm kê
+        var consumableIds = products.Where(p => p.ProductType != ProductType.Equipment).Select(p => p.Id).ToList();
+        var ingredientWarehouseIds = await ResolveIngredientWarehouseIdsAsync(warehouseId);
+        var snapshot = await LoadLotStocksAsync(consumableIds, ingredientWarehouseIds, productLookup);
+        var processedLots = await GetProcessedSolutionLotsAsync(consumableIds);
+        var expectedVolumeByProduct = snapshot.Lots
+            .GroupBy(l => l.ProductId)
+            .ToDictionary(g => g.Key, g => FilterUsableLots(g, processedLots)
+                .Sum(l => Math.Max(0m, l.RemainingDisplay)));
 
         // Batch-load unit names
         var unitIds = products
@@ -492,12 +493,28 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                     : p.BaseUnitId.HasValue && unitMap.ContainsKey(p.BaseUnitId.Value)
                         ? unitMap[p.BaseUnitId.Value]
                         : null,
-                AvailableQuantity = availableVolumeByProduct.GetValueOrDefault(p.Id, 0m),
+                AvailableQuantity = p.ProductType == ProductType.Equipment
+                    ? equipmentVolumeByProduct.GetValueOrDefault(p.Id, 0m)
+                    : expectedVolumeByProduct.GetValueOrDefault(p.Id, 0m),
             };
         }).OrderBy(p => p.ProductName).ToList();
     }
 
     #region Private Methods
+
+    /// <summary>
+    /// "Còn lại" của phiếu pha tính theo lô (dung dịch + số lô) nên 2 phiếu không được trùng số lô cùng dung dịch.
+    /// </summary>
+    private async Task EnsureLotCodeUniqueAsync(Guid solutionProductId, string lotCode, Guid? excludeBatchId)
+    {
+        var normalized = (lotCode ?? string.Empty).Trim();
+        var exists = await _repository.AnyAsync(b =>
+            b.SolutionProductId == solutionProductId
+            && b.LotCode.Trim() == normalized
+            && (!excludeBatchId.HasValue || b.Id != excludeBatchId.Value));
+        if (exists)
+            throw new UserFriendlyException($"Số lô {normalized} đã tồn tại cho dung dịch này.");
+    }
 
     private async Task CreateSyntheticReceiptAsync(
         PreparedSolutionBatch batch,
@@ -633,115 +650,31 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         List<CreateIngredientDto> inputIngredients,
         Guid? sourceWarehouseId)
     {
-        // Exclude kho Level=0 và IsDefault — giống logic ResolveWarehouseForProductsAsync trong TestingAppService
-        var warehouseQuery2 = await _warehouseRepository.GetQueryableAsync();
-        var excludedWarehouseIds = warehouseQuery2
-            .Where(w => w.Level == 0 || w.IsDefault)
-            .Select(w => w.Id)
-            .ToHashSet();
-
-        HashSet<Guid>? sourceWarehouseIds = null;
-        if (sourceWarehouseId.HasValue)
-        {
-            var subtree = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
-            sourceWarehouseIds = subtree.Where(id => !excludedWarehouseIds.Contains(id)).ToHashSet();
-        }
-        else
-        {
-            var nonRootWarehouses = (await _warehouseRepository.GetQueryableAsync())
-                .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
-                .Select(w => w.Id)
-                .ToHashSet();
-            sourceWarehouseIds = nonRootWarehouses;
-        }
+        // Kho lấy nguyên liệu: cây con của kho nguồn, bỏ kho cấp 0 / kho mặc định
+        // (giống logic ResolveWarehouseForProductsAsync trong TestingAppService)
+        var sourceWarehouseIds = await ResolveIngredientWarehouseIdsAsync(sourceWarehouseId);
 
         var productIds = inputIngredients.Select(i => i.ProductId).Distinct().ToList();
         var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
         var products = productQuery.Where(p => productIds.Contains(p.Id)).ToList();
         var productMap = products.ToDictionary(p => p.Id);
 
-        // Resolve available lots per product (FEFO order) for usage log split
-        var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
-        var receiptQuery = await _importReceiptRepository.GetQueryableAsync();
-        var rawLots = (
-            from item in itemQuery
-            join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
-            where productIds.Contains(item.ProductId)
-                  && receipt.Status == WarehouseImportReceiptStatus.Completed
-                  && item.Status == WarehouseImportLineStatus.Checked
-                  && (item.StorageWarehouseId.HasValue
-                        ? sourceWarehouseIds.Contains(item.StorageWarehouseId.Value)
-                        : receipt.WarehouseId.HasValue && sourceWarehouseIds.Contains(receipt.WarehouseId.Value))
-            orderby item.LotExpiryDate == null ? 1 : 0, item.LotExpiryDate, receipt.ActualImportDate
-            select new
-            {
-                item.ProductId,
-                item.LotNumber,
-                WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
-                ReceivedBaseQuantity = item.ReceivedBaseQuantity,
-                ConsumedBaseQuantity = item.ConsumedBaseQuantity,
-                item.LotExpiryDate,
-            })
-            .ToList();
-
-        // Trừ thêm PSB consumption đã ghi trước đó cho từng lô (hệ thống không trừ thật ConsumedBaseQuantity)
-        // Chỉ tính PSB consumption SAU lần kiểm kê kho gần nhất (giống cách ProductAppService lọc tiêu hao)
-        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
-        var lastInventoryMap = pwiQuery
-            .Where(pwi => productIds.Contains(pwi.ProductId))
-            .Select(pwi => new { pwi.ProductId, pwi.WarehouseId, pwi.LastInventoryDate })
-            .ToList()
-            .GroupBy(x => x.ProductId)
-            .ToDictionary(g => g.Key, g => g.ToDictionary(x => x.WarehouseId, x => x.LastInventoryDate));
-
-        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
-        var allConsumedByLot = icQuery
-            .Where(c => productIds.Contains(c.ProductId ?? Guid.Empty)
-                && c.LotNumber != null)
-            .Select(c => new { c.ProductId, c.LotNumber, c.ActualQuantity, c.UnitId, c.WarehouseId, c.ConsumptionDate, c.PreparedSolutionBatchId })
-            .ToList()
-            .Where(c =>
-            {
-                // Filter: chỉ tính consumption sau lastInventoryDate của (product, warehouse) tương ứng
-                if (c.ProductId == null || c.WarehouseId == null) return true;
-                if (!lastInventoryMap.TryGetValue(c.ProductId.Value, out var wMap)) return true;
-                if (!wMap.TryGetValue(c.WarehouseId.Value, out var lastDate)) return true;
-                return c.ConsumptionDate.HasValue && c.ConsumptionDate.Value > lastDate;
-            })
-            .ToList();
-
-        var lotsByProduct = rawLots
-            .GroupBy(x => x.ProductId)
-            .ToDictionary(g => g.Key, g =>
-            {
-                return g.Select(item =>
+        // Tồn dự kiến từng lô (đã gộp dòng nhập cùng lô/kho, đã trừ tiêu hao KTV + pha chế sau kiểm kê gần nhất),
+        // bỏ lô hết hạn và lô dung dịch của phiếu đã xử lý (K91), thứ tự FEFO
+        var snapshot = await LoadLotStocksAsync(productIds, sourceWarehouseIds, productMap);
+        var processedLots = await GetProcessedSolutionLotsAsync(productIds);
+        var lotsByProduct = snapshot.Lots
+            .GroupBy(l => l.ProductId)
+            .ToDictionary(g => g.Key, g => FilterUsableLots(g, processedLots)
+                .Select(l => new
                 {
-                    var product2 = productMap.TryGetValue(item.ProductId, out var p) ? p : null;
-                    var vpu2 = product2 != null ? ResolveVolumePerUnit(product2) : null;
-                    // Trừ cả PSB và KTV consumption đã ghi (hệ thống không trừ thật ConsumedBaseQuantity)
-                    var usedDisplay = allConsumedByLot
-                        .Where(c => c.ProductId == item.ProductId
-                            && c.LotNumber == item.LotNumber
-                            && c.WarehouseId == item.WarehouseId)
-                        .Sum(c => c.ActualQuantity);
-                    var usedBase = vpu2.HasValue && vpu2.Value > 0
-                        ? usedDisplay / vpu2.Value
-                        : usedDisplay;
-                    var effectiveRemaining = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity - usedBase;
-                    return new
-                    {
-                        item.ProductId,
-                        item.LotNumber,
-                        item.WarehouseId,
-                        item.LotExpiryDate,
-                        RemainingBaseQuantity = effectiveRemaining,
-                    };
+                    l.ProductId,
+                    l.LotNumber,
+                    l.WarehouseId,
+                    l.LotExpiryDate,
+                    RemainingDisplay = l.RemainingDisplay,
                 })
-                // Đảm bảo thứ tự FEFO sau khi tính effectiveRemaining
-                .OrderBy(x => x.LotExpiryDate == null ? 1 : 0)
-                .ThenBy(x => x.LotExpiryDate)
-                .ToList();
-            });
+                .ToList());
 
         foreach (var inp in inputIngredients)
         {
@@ -789,10 +722,10 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                 {
                     // Collect splits theo FEFO, chỉ lô còn tồn > 0
                     var splits = new List<(string? LotNumber, Guid? WarehouseId, decimal TakeQty, decimal StockBefore)>();
-                    foreach (var lotInfo in lots.Where(l => l.RemainingBaseQuantity > 0))
+                    foreach (var lotInfo in lots.Where(l => l.RemainingDisplay > 0))
                     {
                         if (remaining <= 0) break;
-                        var lotRemainingDisplay = ToDisplayQty(vpu, lotInfo.RemainingBaseQuantity);
+                        var lotRemainingDisplay = lotInfo.RemainingDisplay;
                         var takeQty = Math.Min(remaining, lotRemainingDisplay);
                         splits.Add((lotInfo.LotNumber, lotInfo.WarehouseId, takeQty, lotRemainingDisplay));
                         remaining -= takeQty;
@@ -810,7 +743,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
                         {
                             // Tất cả lô đã hết — ghi vào lô cuối cùng (FEFO last)
                             var lastLot = lots[^1];
-                            var lotRemainingDisplay = ToDisplayQty(vpu, lastLot.RemainingBaseQuantity);
+                            var lotRemainingDisplay = lastLot.RemainingDisplay;
                             splits.Add((lastLot.LotNumber, lastLot.WarehouseId, remaining, lotRemainingDisplay));
                         }
                         remaining = 0;
@@ -972,12 +905,255 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
         }
     }
 
-    private PreparedSolutionBatchDto MapToDto(PreparedSolutionBatch batch, DateTime now)
+    /// <summary>
+    /// Tồn dự kiến của một nhóm (vật tư, lô, kho), tính theo đơn vị dung tích (mL):
+    /// sổ sách (nhập − đã trừ) trừ tiêu hao KTV + pha chế ghi sau lần kiểm kê gần nhất.
+    /// Cùng công thức với thẻ lô ở chi tiết vật tư (ProductAppService.GetLotStocksAsync).
+    /// </summary>
+    private sealed class LotStock
     {
-        var status = ComputeStatus(batch, now);
+        public Guid ProductId { get; init; }
+        public string? LotNumber { get; init; }
+        public Guid? WarehouseId { get; init; }
+        public DateTime? LotExpiryDate { get; init; }
+        public DateTime? FirstImportDate { get; init; }
+        public decimal BookDisplay { get; init; }
+        public decimal ConsumedDisplay { get; set; }
+        public decimal RemainingDisplay => BookDisplay - ConsumedDisplay;
+    }
+
+    private sealed record LotConsumption(Guid ProductId, string LotNumber, Guid? WarehouseId, decimal QuantityDisplay);
+
+    private sealed record LotStockSnapshot(List<LotStock> Lots, List<LotConsumption> Consumptions);
+
+    private async Task<LotStockSnapshot> LoadLotStocksAsync(
+        List<Guid> productIds,
+        HashSet<Guid>? warehouseIds,
+        Dictionary<Guid, Product> productMap)
+    {
+        if (productIds.Count == 0)
+            return new LotStockSnapshot(new List<LotStock>(), new List<LotConsumption>());
+
+        var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
+        var receiptQuery = await _importReceiptRepository.GetQueryableAsync();
+        var lineQuery =
+            from item in itemQuery
+            join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+            where productIds.Contains(item.ProductId)
+                  && receipt.Status == WarehouseImportReceiptStatus.Completed
+                  && item.Status == WarehouseImportLineStatus.Checked
+            select new
+            {
+                item.ProductId,
+                item.LotNumber,
+                item.SkuId,
+                WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
+                item.ReceivedBaseQuantity,
+                item.ConsumedBaseQuantity,
+                item.LotExpiryDate,
+                receipt.ActualImportDate,
+            };
+        if (warehouseIds != null)
+            lineQuery = lineQuery.Where(x => x.WarehouseId.HasValue && warehouseIds.Contains(x.WarehouseId.Value));
+        var lines = await AsyncExecuter.ToListAsync(lineQuery);
+
+        var skuMap = productMap.Values
+            .SelectMany(p => p.Skus ?? new List<ProductSku>())
+            .GroupBy(s => s.Id)
+            .ToDictionary(g => g.Key, g => g.First());
+
+        int? LineVpu(Guid productId, Guid? skuId)
+        {
+            if (skuId.HasValue && skuMap.TryGetValue(skuId.Value, out var sku) && sku.VolumePerUnit > 0)
+                return sku.VolumePerUnit;
+            // Giống thẻ lô (ProductAppService.GetLotStocksAsync): dòng không SKU chỉ dùng VolumePerUnit của vật tư,
+            // không mượn SKU khác (lô dung dịch tự pha nhập theo mL → không quy đổi)
+            return productMap.TryGetValue(productId, out var p) && p.VolumePerUnit > 0 ? p.VolumePerUnit : null;
+        }
+
+        // Gộp các dòng nhập cùng (vật tư, lô, kho) trước khi trừ tiêu hao (K133: tránh trừ lặp mỗi dòng)
+        var lots = lines
+            .GroupBy(x => (x.ProductId, x.LotNumber, x.WarehouseId))
+            .Select(g => new LotStock
+            {
+                ProductId = g.Key.ProductId,
+                LotNumber = g.Key.LotNumber,
+                WarehouseId = g.Key.WarehouseId,
+                LotExpiryDate = g.Where(x => x.LotExpiryDate.HasValue).Select(x => x.LotExpiryDate).Min(),
+                FirstImportDate = g.Min(x => (DateTime?)x.ActualImportDate),
+                BookDisplay = g.Sum(x => ToDisplayQty(LineVpu(x.ProductId, x.SkuId),
+                    x.ReceivedBaseQuantity - x.ConsumedBaseQuantity)),
+            })
+            .ToList();
+
+        var pwiQuery = await _productWarehouseInventoryRepository.GetQueryableAsync();
+        var lastInventoryMap = (await AsyncExecuter.ToListAsync(pwiQuery
+                .Where(pwi => productIds.Contains(pwi.ProductId))
+                .Select(pwi => new { pwi.ProductId, pwi.WarehouseId, pwi.LastInventoryDate })))
+            .GroupBy(x => (x.ProductId, x.WarehouseId))
+            .ToDictionary(g => g.Key, g => g.Max(x => x.LastInventoryDate));
+
+        // Tiêu hao chưa trừ sổ: KTV (IsDeducted, theo SubmitDate) + pha chế (PreparedSolutionBatchId, theo ConsumptionDate)
+        var icQuery = await _indicatorConsumptionRepository.GetQueryableAsync();
+        var rawConsumptions = await AsyncExecuter.ToListAsync(icQuery
+            .Where(c => c.ProductId.HasValue && productIds.Contains(c.ProductId.Value)
+                && c.LotNumber != null
+                && ((c.IsDeducted && c.SubmitDate.HasValue)
+                    || (c.PreparedSolutionBatchId != null && c.ActualQuantity > 0)))
+            .Select(c => new
+            {
+                ProductId = c.ProductId!.Value,
+                LotNumber = c.LotNumber!,
+                c.WarehouseId,
+                c.ActualQuantity,
+                c.UnitId,
+                IsPreparation = c.PreparedSolutionBatchId != null,
+                c.SubmitDate,
+                c.ConsumptionDate,
+            }));
+
+        var consumptions = new List<LotConsumption>();
+        foreach (var c in rawConsumptions)
+        {
+            var date = c.IsPreparation ? c.ConsumptionDate : c.SubmitDate;
+            if (c.WarehouseId.HasValue
+                && date.HasValue
+                && lastInventoryMap.TryGetValue((c.ProductId, c.WarehouseId.Value), out var lastInventory)
+                && date.Value <= lastInventory)
+                continue;
+
+            productMap.TryGetValue(c.ProductId, out var product);
+            consumptions.Add(new LotConsumption(c.ProductId, c.LotNumber, c.WarehouseId,
+                ConsumptionToDisplay(c.ActualQuantity, c.UnitId, product)));
+        }
+
+        var lotIndex = lots.ToDictionary(l => (l.ProductId, l.LotNumber, l.WarehouseId));
+        foreach (var c in consumptions)
+        {
+            if (lotIndex.TryGetValue((c.ProductId, c.LotNumber, c.WarehouseId), out var lot))
+                lot.ConsumedDisplay += c.QuantityDisplay;
+        }
+
+        return new LotStockSnapshot(lots, consumptions);
+    }
+
+    /// <summary>
+    /// Quy tiêu hao về đơn vị dung tích: dòng ghi theo ĐV lưu kho (Chai/Lọ) thì nhân dung tích/đơn vị,
+    /// còn lại (mL hoặc không có đơn vị) giữ nguyên.
+    /// </summary>
+    private static decimal ConsumptionToDisplay(decimal quantity, Guid? unitId, Product? product)
+    {
+        if (!unitId.HasValue || product == null) return quantity;
+        if (unitId == product.VolumeUnitId) return quantity;
+
+        var packagingSku = product.Skus?.FirstOrDefault(s => s.PackagingUnitId == unitId && s.VolumePerUnit > 0);
+        if (packagingSku != null) return quantity * packagingSku.VolumePerUnit!.Value;
+        if (unitId == product.PackagingUnitId)
+        {
+            var vpu = ResolveVolumePerUnit(product);
+            if (vpu > 0) return quantity * vpu.Value;
+        }
+        return quantity;
+    }
+
+    /// <summary>
+    /// "Còn lại" của phiếu pha = tồn dự kiến của lô dung dịch (SolutionProductId + LotCode) cộng mọi kho.
+    /// Phiếu đã xử lý giữ số đã chốt lúc xử lý.
+    /// </summary>
+    private async Task<Dictionary<Guid, decimal>> ComputeRemainingVolumesAsync(IReadOnlyCollection<PreparedSolutionBatch> batches)
+    {
+        var result = batches.Where(b => b.IsProcessed).ToDictionary(b => b.Id, b => b.RemainingVolume);
+        var active = batches.Where(b => !b.IsProcessed).ToList();
+        if (active.Count == 0) return result;
+
+        var productIds = active.Select(b => b.SolutionProductId).Distinct().ToList();
+        var productQuery = await _productRepository.WithDetailsAsync(p => p.Skus);
+        var productMap = (await AsyncExecuter.ToListAsync(productQuery.Where(p => productIds.Contains(p.Id))))
+            .ToDictionary(p => p.Id);
+
+        var snapshot = await LoadLotStocksAsync(productIds, null, productMap);
+        var bookByLot = snapshot.Lots
+            .Where(l => l.LotNumber != null)
+            .GroupBy(l => (l.ProductId, l.LotNumber!))
+            .ToDictionary(g => g.Key, g => g.Sum(l => l.BookDisplay));
+        var consumedByLot = snapshot.Consumptions
+            .GroupBy(c => (c.ProductId, c.LotNumber))
+            .ToDictionary(g => g.Key, g => g.Sum(c => c.QuantityDisplay));
+
+        foreach (var batch in active)
+        {
+            var key = (batch.SolutionProductId, batch.LotCode);
+            if (!bookByLot.TryGetValue(key, out var book))
+            {
+                // Chưa có phiếu nhập tổng hợp (dữ liệu cũ) — giữ số đã lưu
+                result[batch.Id] = batch.RemainingVolume;
+                continue;
+            }
+            result[batch.Id] = Math.Max(0m, book - consumedByLot.GetValueOrDefault(key));
+        }
+        return result;
+    }
+
+    /// <summary>Lô dung dịch pha thuộc phiếu đã xử lý (hủy) — không còn dùng làm nguyên liệu.</summary>
+    private async Task<HashSet<(Guid ProductId, string LotCode)>> GetProcessedSolutionLotsAsync(List<Guid> productIds)
+    {
+        var query = (await _repository.GetQueryableAsync())
+            .Where(b => b.IsProcessed && productIds.Contains(b.SolutionProductId))
+            .Select(b => new { b.SolutionProductId, b.LotCode });
+        return (await AsyncExecuter.ToListAsync(query))
+            .Select(x => (x.SolutionProductId, x.LotCode))
+            .ToHashSet();
+    }
+
+    /// <summary>
+    /// Lô được phép lấy làm nguyên liệu pha (K91): bỏ lô hết hạn (HSD trước hôm nay theo giờ VN)
+    /// và lô dung dịch của phiếu đã xử lý. Thứ tự FEFO.
+    /// </summary>
+    private static List<LotStock> FilterUsableLots(
+        IEnumerable<LotStock> lots,
+        HashSet<(Guid ProductId, string LotCode)> processedLots)
+    {
+        var today = VietnamTime.Today;
+        return lots
+            .Where(l => !l.LotExpiryDate.HasValue || ToVietnamDate(l.LotExpiryDate.Value) >= today)
+            .Where(l => l.LotNumber == null || !processedLots.Contains((l.ProductId, l.LotNumber)))
+            .OrderBy(l => l.LotExpiryDate.HasValue ? 0 : 1)
+            .ThenBy(l => l.LotExpiryDate)
+            .ThenBy(l => l.FirstImportDate)
+            .ToList();
+    }
+
+    /// <summary>Kho lấy nguyên liệu: cây con của kho nguồn, bỏ kho cấp 0 / kho mặc định (cùng logic FEFO).</summary>
+    private async Task<HashSet<Guid>> ResolveIngredientWarehouseIdsAsync(Guid? sourceWarehouseId)
+    {
+        var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
+        if (!sourceWarehouseId.HasValue)
+        {
+            return (await AsyncExecuter.ToListAsync(warehouseQuery
+                    .Where(w => w.IsActive && w.Level > 0 && !w.IsDefault)
+                    .Select(w => w.Id)))
+                .ToHashSet();
+        }
+
+        var excludedWarehouseIds = (await AsyncExecuter.ToListAsync(warehouseQuery
+                .Where(w => w.Level == 0 || w.IsDefault)
+                .Select(w => w.Id)))
+            .ToHashSet();
+        var subtree = await CollectWarehouseSubtreeAsync(sourceWarehouseId.Value);
+        return subtree.Where(id => !excludedWarehouseIds.Contains(id)).ToHashSet();
+    }
+
+    /// <summary>Ngày (lịch VN) của giá trị lưu trong DB (giờ server).</summary>
+    private static DateTime ToVietnamDate(DateTime value) =>
+        new DateTimeOffset(DateTime.SpecifyKind(value, DateTimeKind.Local)).ToOffset(VietnamTime.Offset).Date;
+
+    private PreparedSolutionBatchDto MapToDto(PreparedSolutionBatch batch, decimal remainingVolume)
+    {
+        var today = VietnamTime.Today;
         var daysRemaining = batch.ExpiryDate.HasValue
-            ? (int)Math.Floor((batch.ExpiryDate.Value - now).TotalDays)
+            ? (ToVietnamDate(batch.ExpiryDate.Value) - today).Days
             : int.MaxValue;
+        var status = ComputeStatus(batch, remainingVolume, daysRemaining);
 
         List<string> imageUrls;
         try { imageUrls = JsonSerializer.Deserialize<List<string>>(batch.ProcessingImages) ?? new(); }
@@ -996,7 +1172,7 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             PreparationDate = batch.PreparationDate,
             ExpiryDate = batch.ExpiryDate,
             TotalVolume = batch.TotalVolume,
-            RemainingVolume = batch.RemainingVolume,
+            RemainingVolume = remainingVolume,
             VolumeUnitId = batch.VolumeUnitId,
             VolumeUnitName = batch.VolumeUnitName,
             StorageWarehouseId = batch.StorageWarehouseId,
@@ -1032,13 +1208,17 @@ public class PreparedSolutionBatchAppService : ApplicationService, IPreparedSolu
             IsEquipment = i.IsEquipment,
         };
 
-    private static PreparedSolutionStatus ComputeStatus(PreparedSolutionBatch batch, DateTime now)
+    /// <summary>
+    /// Ưu tiên (BA): Đã xử lý > Hết hạn > Hết > Sắp hết hạn (dưới 14 ngày) > Sắp hết (≤ 5%) > Đang dùng.
+    /// Ngày HSD vẫn dùng được, hết hạn từ hôm sau (theo ngày VN).
+    /// </summary>
+    private static PreparedSolutionStatus ComputeStatus(PreparedSolutionBatch batch, decimal remainingVolume, int daysRemaining)
     {
         if (batch.IsProcessed) return PreparedSolutionStatus.Processed;
-        if (batch.ExpiryDate.HasValue && now >= batch.ExpiryDate.Value) return PreparedSolutionStatus.Expired;
-        if (batch.RemainingVolume <= 0) return PreparedSolutionStatus.Empty;
-        if (batch.ExpiryDate.HasValue && (batch.ExpiryDate.Value - now).TotalDays < 14) return PreparedSolutionStatus.NearingExpiry;
-        if (batch.TotalVolume > 0 && batch.RemainingVolume <= 0.05m * batch.TotalVolume) return PreparedSolutionStatus.NearlyEmpty;
+        if (batch.ExpiryDate.HasValue && daysRemaining < 0) return PreparedSolutionStatus.Expired;
+        if (remainingVolume <= 0) return PreparedSolutionStatus.Empty;
+        if (batch.ExpiryDate.HasValue && daysRemaining < 14) return PreparedSolutionStatus.NearingExpiry;
+        if (batch.TotalVolume > 0 && remainingVolume <= 0.05m * batch.TotalVolume) return PreparedSolutionStatus.NearlyEmpty;
         return PreparedSolutionStatus.Active;
     }
 
