@@ -51,6 +51,7 @@ using LabSpecimenManagement.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.AspNetCore.ResponseCompression;
 using System.IO.Compression;
+using Volo.Abp.Domain.Entities.Events;
 
 namespace LabSpecimenManagement;
 
@@ -96,6 +97,11 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
             // RefreshToken: 90 days to minimize re-login after deployment
             builder.SetAccessTokenLifetime(TimeSpan.FromHours(8));
             builder.SetRefreshTokenLifetime(TimeSpan.FromDays(90));
+
+            // Refresh token không xoay vòng: RT cũ vẫn dùng được tới khi hết hạn.
+            // Tránh lỗi tab mất response refresh (F5/đóng tab) rồi gửi lại RT cũ
+            // → OpenIddict coi là reuse và thu hồi cả phiên → 401 liên tục.
+            builder.DisableRollingRefreshTokens();
 
             // Use persistent signing/encryption keys to prevent token invalidation on server restart
             // Keys are stored in wwwroot/Keys (matches Dockerfile + K8s PVC volume mount path)
@@ -228,6 +234,15 @@ public class LabSpecimenManagementHttpApiHostModule : AbpModule
         Configure<AbpClockOptions>(options =>
         {
             options.Kind = DateTimeKind.Local;
+        });
+
+        // ABP 9.0 mặc định đánh dấu entity cha Modified (đổi ConcurrencyStamp) khi thêm entity con.
+        // Mỗi token mới sẽ UPDATE dòng OpenIddictApplication dùng chung → login/refresh đồng thời
+        // bị AbpDbConcurrencyException (500). Lịch sử master data không bị ảnh hưởng vì
+        // bản ghi Updated chỉ chứa trường kỹ thuật vốn đã bị ẩn.
+        Configure<AbpEntityChangeOptions>(options =>
+        {
+            options.PublishEntityUpdatedEventWhenNavigationChanges = false;
         });
     }
 
