@@ -90,11 +90,15 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         if (input.ToDate.HasValue)
             query = query.Where(x => x.CreationTime <= input.ToDate.Value.AddDays(1));
 
-        if (input.WarehouseId.HasValue)
+        if (input.WarehouseId.HasValue || input.ProductId.HasValue)
         {
             var itemQuery = await _itemRepository.GetQueryableAsync();
+            if (input.WarehouseId.HasValue)
+                itemQuery = itemQuery.Where(i => i.WarehouseId == input.WarehouseId.Value);
+            if (input.ProductId.HasValue)
+                itemQuery = itemQuery.Where(i => i.ProductId == input.ProductId.Value);
+
             var matchingAdjustmentIds = itemQuery
-                .Where(i => i.WarehouseId == input.WarehouseId.Value)
                 .Select(i => i.StockAdjustmentId)
                 .Distinct();
 
@@ -138,7 +142,82 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
             dto => items.First(x => x.Id == dto.Id).CreatorId,
             (dto, name) => dto.CreatorName = name);
 
+        if (input.ProductId.HasValue)
+            await FillProductAdjustmentAsync(dtos, input.ProductId.Value, input.WarehouseId);
+
         return new PagedResultDto<StockAdjustmentListDto>(totalCount, dtos);
+    }
+
+    /// <summary>
+    /// Lịch sử kiểm kê trong chi tiết vật tư (KK-13): lượng điều chỉnh của riêng vật tư đó trên từng phiếu đã xác nhận.
+    /// Dương = thừa, âm = thiếu (thực tế − sổ sách).
+    /// </summary>
+    private async Task FillProductAdjustmentAsync(List<StockAdjustmentListDto> dtos, Guid productId, Guid? warehouseId)
+    {
+        var confirmedIds = dtos.Where(d => d.Status == StockAdjustmentStatus.Confirmed).Select(d => d.Id).ToList();
+        if (confirmedIds.Count == 0) return;
+
+        var itemQuery = (await _itemRepository.GetQueryableAsync())
+            .Where(i => confirmedIds.Contains(i.StockAdjustmentId) && i.ProductId == productId);
+        if (warehouseId.HasValue)
+            itemQuery = itemQuery.Where(i => i.WarehouseId == warehouseId.Value);
+        var items = itemQuery.ToList();
+
+        var product = await _productRepository.GetAsync(productId);
+        var sku = (await _skuRepository.GetQueryableAsync())
+            .Where(s => s.ProductId == productId && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0)
+            .FirstOrDefault();
+        int? fallbackVpu = product.VolumePerUnit > 0 ? product.VolumePerUnit : sku?.VolumePerUnit;
+        var packagingUnitId = product.PackagingUnitId ?? sku?.PackagingUnitId;
+        var volumeUnitId = product.VolumeUnitId ?? sku?.VolumeUnitId;
+        var unitIds = new[] { packagingUnitId, volumeUnitId, product.BaseUnitId }
+            .Where(x => x.HasValue).Select(x => x!.Value).Distinct().ToList();
+        var unitNames = (await _unitRepository.GetQueryableAsync())
+            .Where(u => unitIds.Contains(u.Id))
+            .ToDictionary(u => u.Id, u => u.Name);
+        string? NameOf(Guid? uid) => uid.HasValue && unitNames.TryGetValue(uid.Value, out var n) ? n : null;
+        var defaultStorageUnit = NameOf(packagingUnitId) ?? NameOf(product.BaseUnitId);
+
+        // ĐV lưu kho theo SKU của từng lô — vật tư nhiều SKU (Lọ 3000 mL, Chai 6000 mL) không được cộng chung số lượng
+        var rowWarehouseIds = items.Where(i => i.WarehouseId.HasValue).Select(i => i.WarehouseId!.Value).Distinct().ToList();
+        var lotsByWarehouse = rowWarehouseIds.Count > 0
+            ? await BuildLotsPerWarehouseAsync(rowWarehouseIds)
+            : new Dictionary<Guid, List<WarehouseProductLotDto>>();
+        string? StorageUnitOf(StockAdjustmentItem i)
+        {
+            var lot = i.WarehouseId.HasValue
+                ? lotsByWarehouse.GetValueOrDefault(i.WarehouseId.Value)?
+                    .FirstOrDefault(l => l.ProductId == productId && (l.LotNumber ?? "") == (i.LotNumber ?? ""))
+                : null;
+            return lot?.PackagingUnitName ?? lot?.BaseUnitName ?? defaultStorageUnit;
+        }
+
+        foreach (var dto in dtos.Where(d => d.Status == StockAdjustmentStatus.Confirmed))
+        {
+            var rows = items.Where(i => i.StockAdjustmentId == dto.Id).ToList();
+            if (rows.Count == 0) continue;
+
+            dto.AdjustmentDiffBase = -rows.Sum(r => r.AdjustmentQuantity);
+            dto.AdjustmentDiffByUnit = rows
+                .GroupBy(StorageUnitOf)
+                .Select(g => new StockAdjustmentUnitDiffDto { UnitName = g.Key, Quantity = -g.Sum(r => r.AdjustmentQuantity) })
+                .ToList();
+
+            decimal volume = 0;
+            var volumeKnown = true;
+            foreach (var r in rows)
+            {
+                // Dung tích của lô = mL sổ sách / số chai sổ sách lúc xác nhận
+                decimal? vpu = r.QuantityBefore > 0 && r.ConsumableQuantityBefore is > 0
+                    ? r.ConsumableQuantityBefore.Value / r.QuantityBefore
+                    : fallbackVpu;
+                if (vpu is not > 0) { volumeKnown = false; break; }
+                volume += -r.AdjustmentQuantity * vpu.Value;
+            }
+            dto.AdjustmentDiffVolume = volumeKnown ? volume : null;
+            dto.StorageUnitName = dto.AdjustmentDiffByUnit.Count == 1 ? dto.AdjustmentDiffByUnit[0].UnitName : defaultStorageUnit;
+            dto.VolumeUnitName = NameOf(volumeUnitId);
+        }
     }
 
     public async Task<StockAdjustmentDto> GetAsync(Guid id)
@@ -150,8 +229,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     [Authorize(LabSpecimenManagementPermissions.StockAdjustments.Create)]
     public async Task<StockAdjustmentDto> CreateAsync(CreateUpdateStockAdjustmentDto input)
     {
-        if (input.Items == null || !input.Items.Any())
-            throw new UserFriendlyException("Vui lòng thêm ít nhất một sản phẩm.");
+        ValidateItems(input);
 
         var code = await GenerateCodeAsync();
         var inventoryUserName = await _userNameProvider.GetUserNameAsync(CurrentUser.Id);
@@ -179,8 +257,7 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         if (adjustment.Status != StockAdjustmentStatus.Draft)
             throw new UserFriendlyException("Chỉ có thể sửa phiếu ở trạng thái Lưu tạm.");
 
-        if (input.Items == null || !input.Items.Any())
-            throw new UserFriendlyException("Vui lòng thêm ít nhất một sản phẩm.");
+        ValidateItems(input);
 
         adjustment.Notes = input.Notes;
         if (input.InventoryDate.HasValue)
@@ -266,16 +343,236 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
 
         var barcodeTargets = new List<(Guid ProductId, Guid WarehouseId)>();
 
-        var itemsByProductWarehouse = items
-            .GroupBy(x => (x.ProductId, x.WarehouseId))
+        // Sổ sách + tiêu hao lý thuyết tính lại tại thời điểm xác nhận (BA Q18), theo từng lô
+        var countedWarehouseIds = items
+            .Where(x => x.WarehouseId.HasValue)
+            .Select(x => x.WarehouseId!.Value)
+            .Distinct()
             .ToList();
+        var lotsByWarehouse = countedWarehouseIds.Count > 0
+            ? await BuildLotsPerWarehouseAsync(countedWarehouseIds)
+            : new Dictionary<Guid, List<WarehouseProductLotDto>>();
 
-        foreach (var group in itemsByProductWarehouse)
+        foreach (var group in items.GroupBy(x => (x.ProductId, x.WarehouseId)).ToList())
         {
-            var productId = group.Key.ProductId;
-            var warehouseId = group.Key.WarehouseId;
-            var product = await _productRepository.GetAsync(productId);
+            var product = await _productRepository.GetAsync(group.Key.ProductId);
 
+            if (group.Key.WarehouseId.HasValue)
+            {
+                var whId = group.Key.WarehouseId.Value;
+                var productLots = (lotsByWarehouse.GetValueOrDefault(whId) ?? new List<WarehouseProductLotDto>())
+                    .Where(l => l.ProductId == product.Id)
+                    .ToList();
+
+                await ConfirmWarehouseLotsAsync(adjustment, product, whId, group.ToList(), productLots);
+                await UpsertProductWarehouseInventoryAsync(product.Id, whId, Clock.Now);
+                barcodeTargets.Add((product.Id, whId));
+            }
+            else
+            {
+                var touchedWarehouseIds = await ConfirmWithoutWarehouseAsync(
+                    adjustment, product, group.ToList(), importItemQ, importReceiptQ);
+                foreach (var whId in touchedWarehouseIds)
+                    barcodeTargets.Add((product.Id, whId));
+            }
+        }
+
+        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
+
+        adjustment.Status = StockAdjustmentStatus.Confirmed;
+        await _repository.UpdateAsync(adjustment, autoSave: true);
+
+        return await GetAsync(id);
+    }
+
+    /// <summary>
+    /// Xác nhận kiểm kê 1 vật tư trong 1 kho, tính riêng từng lô:
+    /// - Lô có đếm: chênh lệch = sổ sách lô lúc xác nhận − thực tế, quy đổi mL theo dung tích SKU của chính lô;
+    ///   phần thiếu trừ đúng lô đó (không trừ FEFO cả kho), phần thừa cộng vào sổ sách của chính lô đó.
+    /// - Lô không đếm (dòng để trống, BA Q3): không điều chỉnh kiểm kê, nhưng mốc kiểm kê của vật tư trong kho
+    ///   sẽ chuyển sang thời điểm xác nhận nên tiêu hao lý thuyết của lô đó được trừ vào chính lô để không bị mất.
+    /// </summary>
+    private async Task ConfirmWarehouseLotsAsync(
+        StockAdjustment adjustment,
+        Product product,
+        Guid warehouseId,
+        List<StockAdjustmentItem> items,
+        List<WarehouseProductLotDto> productLots)
+    {
+        var lotByKey = productLots
+            .GroupBy(l => l.LotNumber ?? "")
+            .ToDictionary(g => g.Key, g => g.First());
+        var countedLotKeys = new HashSet<string>();
+
+        foreach (var item in items)
+        {
+            var lotKey = item.LotNumber ?? "";
+            countedLotKeys.Add(lotKey);
+            lotByKey.TryGetValue(lotKey, out var lot);
+
+            var bookBase = lot?.RemainingBaseQuantity ?? 0;
+            var actualBase = ConvertActualToBase(product, item.ActualQuantity, item.ActualUnitId,
+                lot?.VolumePerUnit, lot?.VolumeUnitId);
+
+            item.QuantityBefore = bookBase;
+            item.ConsumableQuantityBefore = lot?.ConsumableQuantity ?? 0;
+            if (lot != null)
+                item.ExpectedStock = lot.ConsumableQuantity - lot.TheoreticalConsumption;
+            item.AdjustmentQuantity = bookBase - actualBase;
+            await _itemRepository.UpdateAsync(item, autoSave: true);
+
+            if (actualBase < bookBase)
+            {
+                await _fifoStockService.DeductAsync(
+                    product, bookBase - actualBase,
+                    StockMovementType.StockAdjustment,
+                    adjustment.Id, adjustment.Code, null,
+                    new List<Guid> { warehouseId },
+                    lotNumber: item.LotNumber);
+                continue;
+            }
+
+            // Phần thừa: cộng vào chính lô đã đếm (K6/K32), không in thêm tem
+            if (actualBase > bookBase
+                && await AddSurplusToLotAsync(adjustment, product, warehouseId, item.LotNumber, actualBase - bookBase))
+                continue;
+
+            if (actualBase > bookBase)
+            {
+                // Không tìm thấy dòng nhập kho nào của lô trong kho: giữ cách ghi nhận cũ
+                product.AvailableQuantity += actualBase - bookBase;
+                await _productRepository.UpdateAsync(product, autoSave: true);
+            }
+
+            await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
+                GuidGenerator.Create(),
+                product.Id,
+                product.Name,
+                bookBase,
+                actualBase,
+                StockMovementType.StockAdjustment,
+                adjustment.Id,
+                adjustment.Code,
+                null,
+                warehouseId,
+                item.LotNumber), autoSave: true);
+        }
+
+        foreach (var lot in productLots.Where(l => !countedLotKeys.Contains(l.LotNumber ?? "")))
+        {
+            if (lot.TheoreticalConsumption <= 0 || lot.RemainingBaseQuantity <= 0) continue;
+
+            var consumedBase = lot.VolumePerUnit is > 0
+                ? lot.TheoreticalConsumption / lot.VolumePerUnit.Value
+                : lot.TheoreticalConsumption;
+            consumedBase = Math.Min(consumedBase, lot.RemainingBaseQuantity);
+
+            await _fifoStockService.DeductAsync(
+                product, consumedBase,
+                StockMovementType.StockAdjustment,
+                adjustment.Id, adjustment.Code,
+                "Trừ tiêu hao của lô không kiểm kê",
+                new List<Guid> { warehouseId },
+                lotNumber: lot.LotNumber);
+        }
+    }
+
+    /// <summary>
+    /// Cộng phần thừa kiểm kê vào sổ sách của chính lô trong kho: giảm lượng đã xuất (ConsumedBaseQuantity)
+    /// của các dòng nhập thuộc lô, dòng nhập mới nhất trước. Nếu thừa nhiều hơn tổng đã xuất (thực tế &gt; tổng nhập),
+    /// phần còn lại ghi âm vào dòng nhập mới nhất để không đổi số lượng trên phiếu nhập.
+    /// Trả về false nếu kho không có dòng nhập nào của lô.
+    /// </summary>
+    private async Task<bool> AddSurplusToLotAsync(
+        StockAdjustment adjustment, Product product, Guid warehouseId, string? lotNumber, decimal surplusBase)
+    {
+        var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
+        var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
+        var lotKey = lotNumber ?? "";
+
+        var lotLines = (from ii in importItemQ
+                        join ir in importReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
+                        where ii.ProductId == product.Id
+                              && ir.Status == WarehouseImportReceiptStatus.Completed
+                              && ii.Status == WarehouseImportLineStatus.Checked
+                              && !ii.IsEquipment
+                              && (ii.LotNumber ?? "") == lotKey
+                              && (ii.StorageWarehouseId == warehouseId
+                                  || (ii.StorageWarehouseId == null && ir.WarehouseId == warehouseId))
+                        orderby ir.ActualImportDate descending, ir.CreationTime descending
+                        select ii).ToList();
+
+        if (lotLines.Count == 0) return false;
+
+        var remaining = surplusBase;
+        var changes = new List<(WarehouseImportReceiptItem Line, decimal Qty)>();
+        foreach (var line in lotLines.Where(l => l.ConsumedBaseQuantity > 0))
+        {
+            if (remaining <= 0) break;
+            var give = Math.Min(line.ConsumedBaseQuantity, remaining);
+            changes.Add((line, give));
+            remaining -= give;
+        }
+        if (remaining > 0)
+            changes.Add((lotLines[0], remaining));
+
+        foreach (var (line, qty) in changes)
+        {
+            line.ConsumedBaseQuantity -= qty;
+            await _importReceiptItemRepository.UpdateAsync(line, autoSave: true);
+
+            var qtyBefore = product.AvailableQuantity;
+            product.AvailableQuantity += qty;
+            await _stockMovementLogRepository.InsertAsync(new StockMovementLog(
+                GuidGenerator.Create(),
+                product.Id,
+                product.Name,
+                qtyBefore,
+                product.AvailableQuantity,
+                StockMovementType.StockAdjustment,
+                adjustment.Id,
+                adjustment.Code,
+                "Kiểm kê thừa — cộng vào lô",
+                warehouseId,
+                line.LotNumber,
+                line.Id), autoSave: true);
+        }
+
+        await _productRepository.UpdateAsync(product, autoSave: true);
+        return true;
+    }
+
+    /// <summary>
+    /// Quy đổi số lượng thực tế về đơn vị lưu kho theo dung tích của lô (không dùng dung tích cấp vật tư / SKU đầu tiên).
+    /// </summary>
+    private static decimal ConvertActualToBase(
+        Product product, decimal actualQuantity, Guid? actualUnitId, int? lotVolumePerUnit, Guid? lotVolumeUnitId)
+    {
+        if (!actualUnitId.HasValue) return actualQuantity;
+
+        if (lotVolumePerUnit is > 0 && lotVolumeUnitId.HasValue && actualUnitId == lotVolumeUnitId)
+            return actualQuantity / lotVolumePerUnit.Value;
+
+        if (actualUnitId == product.BaseUnitId) return actualQuantity;
+
+        if (product.PackagingUnitId.HasValue && actualUnitId == product.PackagingUnitId
+            && product.PackagingQuantity is > 0)
+            return actualQuantity / product.PackagingQuantity.Value;
+
+        return actualQuantity;
+    }
+
+    /// <summary>Luồng cũ cho dòng kiểm kê không gắn kho (giữ nguyên hành vi trước đây).</summary>
+    private async Task<List<Guid>> ConfirmWithoutWarehouseAsync(
+        StockAdjustment adjustment,
+        Product product,
+        List<StockAdjustmentItem> group,
+        IQueryable<WarehouseImportReceiptItem> importItemQ,
+        IQueryable<WarehouseImportReceipt> importReceiptQ)
+    {
+        var productId = product.Id;
+        Guid? warehouseId = null;
+        {
             var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
                 importItemQ, importReceiptQ, product, warehouseId);
 
@@ -405,22 +702,8 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                 await _stockMovementLogRepository.InsertAsync(log, autoSave: true);
             }
 
-            if (warehouseId.HasValue)
-            {
-                await UpsertProductWarehouseInventoryAsync(
-                    productId, warehouseId.Value, Clock.Now);
-            }
-
-            foreach (var whId in adjustWhIds)
-                barcodeTargets.Add((productId, whId));
+            return adjustWhIds;
         }
-
-        await _barcodeStatusService.RecalculateForProductsAsync(barcodeTargets);
-
-        adjustment.Status = StockAdjustmentStatus.Confirmed;
-        await _repository.UpdateAsync(adjustment, autoSave: true);
-
-        return await GetAsync(id);
     }
 
     public async Task<ConfirmPreviewDto> GetConfirmPreviewAsync(Guid id)
@@ -489,6 +772,15 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
     }
 
     #region Private Methods
+
+    private static void ValidateItems(CreateUpdateStockAdjustmentDto input)
+    {
+        if (input.Items == null || !input.Items.Any())
+            throw new UserFriendlyException("Vui lòng thêm ít nhất một sản phẩm.");
+
+        if (input.Items.Any(x => x.ActualQuantity < 0))
+            throw new UserFriendlyException("Số lượng thực tế không được âm.");
+    }
 
     private static List<Guid> CollectWarehouseIdsBfs(List<(Guid Id, Guid? ParentWarehouseId)> all, Guid rootId)
     {
@@ -722,6 +1014,15 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var importItemQ = await _importReceiptItemRepository.GetQueryableAsync();
         var importReceiptQ = await _importReceiptRepository.GetQueryableAsync();
 
+        var itemWarehouseIds = inputItems
+            .Where(x => x.WarehouseId.HasValue)
+            .Select(x => x.WarehouseId!.Value)
+            .Distinct()
+            .ToList();
+        var lotsByWarehouse = itemWarehouseIds.Count > 0
+            ? await BuildLotsPerWarehouseAsync(itemWarehouseIds)
+            : new Dictionary<Guid, List<WarehouseProductLotDto>>();
+
         foreach (var itemInput in inputItems)
         {
             var product = await _productRepository.GetAsync(itemInput.ProductId);
@@ -743,6 +1044,44 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     .Where(u => u.Id == itemInput.ActualUnitId.Value)
                     .Select(u => u.Name)
                     .FirstOrDefault();
+            }
+
+            WarehouseProductLotDto? lotDto = null;
+            if (itemInput.WarehouseId.HasValue)
+            {
+                var inputLotKey = itemInput.LotNumber ?? "";
+                lotDto = (lotsByWarehouse.GetValueOrDefault(itemInput.WarehouseId.Value) ?? new List<WarehouseProductLotDto>())
+                    .FirstOrDefault(l => l.ProductId == product.Id && (l.LotNumber ?? "") == inputLotKey);
+            }
+
+            if (lotDto != null)
+            {
+                // Sổ sách + quy đổi theo dung tích SKU của chính lô (K30/K101)
+                var lotActualBase = ConvertActualToBase(product, itemInput.ActualQuantity, itemInput.ActualUnitId,
+                    lotDto.VolumePerUnit, lotDto.VolumeUnitId);
+
+                await _itemRepository.InsertAsync(new StockAdjustmentItem(
+                    GuidGenerator.Create(),
+                    adjustmentId,
+                    product.Id,
+                    product.Name,
+                    product.BaseUnitId ?? Guid.Empty,
+                    unitName,
+                    lotDto.RemainingBaseQuantity,
+                    lotActualBase)
+                {
+                    WarehouseId = itemInput.WarehouseId,
+                    WarehouseName = warehouseName,
+                    ActualUnitId = itemInput.ActualUnitId,
+                    ActualUnitName = actualUnitName,
+                    ActualQuantity = itemInput.ActualQuantity,
+                    Reason = itemInput.Reason,
+                    ExpectedStock = lotDto.ConsumableQuantity - lotDto.TheoreticalConsumption,
+                    ConsumableQuantityBefore = lotDto.ConsumableQuantity,
+                    LotNumber = itemInput.LotNumber,
+                    ManufacturerName = itemInput.ManufacturerName ?? lotDto.ManufacturerName,
+                }, autoSave: true);
+                continue;
             }
 
             var (quantityBefore, consumableQuantityBefore) = await ComputeWarehouseStockAsync(
@@ -927,8 +1266,22 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
         var productIds = items.Select(i => i.ProductId).Distinct().ToList();
         var products = (await _productRepository.GetQueryableAsync())
             .Where(p => productIds.Contains(p.Id))
-            .Select(p => new { p.Id, p.VolumePerUnit, p.PackagingUnitId, p.VolumeUnitId, p.ProductType, p.BaseUnitId })
             .ToList();
+
+        var itemWarehouseIds = items
+            .Where(i => i.WarehouseId.HasValue)
+            .Select(i => i.WarehouseId!.Value)
+            .Distinct()
+            .ToList();
+        var lotsByWarehouse = itemWarehouseIds.Count > 0
+            ? await BuildLotsPerWarehouseAsync(itemWarehouseIds)
+            : new Dictionary<Guid, List<WarehouseProductLotDto>>();
+        WarehouseProductLotDto? FindLot(StockAdjustmentItem i) => i.WarehouseId.HasValue
+            ? (lotsByWarehouse.GetValueOrDefault(i.WarehouseId.Value) ?? new List<WarehouseProductLotDto>())
+                .FirstOrDefault(l => l.ProductId == i.ProductId && (l.LotNumber ?? "") == (i.LotNumber ?? ""))
+            : null;
+        var isDraft = adjustment.Status == StockAdjustmentStatus.Draft;
+        var stockChanged = false;
 
         var skus = (await _skuRepository.GetQueryableAsync())
             .Where(s => productIds.Contains(s.ProductId) && s.VolumePerUnit.HasValue && s.VolumePerUnit > 0)
@@ -981,15 +1334,18 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     Reason = i.Reason,
                     ExpectedStock = i.ExpectedStock,
                 };
+                itemDto.ConsumableQuantityBefore = i.ConsumableQuantityBefore;
+
+                var lot = FindLot(i);
                 if (productLookup.TryGetValue(i.ProductId, out var prod))
                 {
-                    var volumePerUnit = prod.VolumePerUnit;
+                    var volumePerUnit = prod.VolumePerUnit > 0 ? prod.VolumePerUnit : null;
                     var packagingUnitId = prod.PackagingUnitId;
                     var volumeUnitId = prod.VolumeUnitId;
 
-                    if ((!volumePerUnit.HasValue || volumePerUnit <= 0) && skuLookup.TryGetValue(i.ProductId, out var sku))
+                    if (skuLookup.TryGetValue(i.ProductId, out var sku))
                     {
-                        volumePerUnit = sku.VolumePerUnit;
+                        volumePerUnit ??= sku.VolumePerUnit;
                         volumeUnitId ??= sku.VolumeUnitId;
                         packagingUnitId ??= sku.PackagingUnitId;
                     }
@@ -1003,13 +1359,37 @@ public class StockAdjustmentAppService : ApplicationService, IStockAdjustmentApp
                     itemDto.ProductType = prod.ProductType;
                     if (prod.BaseUnitId.HasValue && unitNames.TryGetValue(prod.BaseUnitId.Value, out var baseUnitName))
                         itemDto.BaseUnitName = baseUnitName;
+
+                    // Đơn vị theo SKU của chính lô (KK-08 thiếu "Chai" khi cấp vật tư không khai dung tích)
+                    if (lot != null)
+                    {
+                        if (lot.VolumePerUnit is > 0) itemDto.VolumePerUnit = lot.VolumePerUnit;
+                        itemDto.PackagingUnitName = lot.PackagingUnitName ?? itemDto.PackagingUnitName;
+                        itemDto.VolumeUnitName = lot.VolumeUnitName ?? itemDto.VolumeUnitName;
+                        itemDto.BaseUnitName = lot.BaseUnitName ?? itemDto.BaseUnitName;
+                    }
+
+                    // Phiếu nháp: hiển thị số liệu sổ sách hiện tại (BA Q18), báo nếu đã khác lúc lưu nháp
+                    if (isDraft && lot != null)
+                    {
+                        var liveExpected = lot.ConsumableQuantity - lot.TheoreticalConsumption;
+                        if (Math.Round(lot.RemainingBaseQuantity, 6) != Math.Round(i.QuantityBefore, 6)
+                            || Math.Round(liveExpected, 6) != Math.Round(i.ExpectedStock ?? liveExpected, 6))
+                            stockChanged = true;
+
+                        itemDto.QuantityBefore = lot.RemainingBaseQuantity;
+                        itemDto.ConsumableQuantityBefore = lot.ConsumableQuantity;
+                        itemDto.ExpectedStock = liveExpected;
+                        itemDto.AdjustmentQuantity = lot.RemainingBaseQuantity - ConvertActualToBase(
+                            prod, i.ActualQuantity, i.ActualUnitId, lot.VolumePerUnit, lot.VolumeUnitId);
+                    }
                 }
-                itemDto.ConsumableQuantityBefore = i.ConsumableQuantityBefore;
                 itemDto.LotNumber = i.LotNumber;
                 itemDto.ManufacturerName = i.ManufacturerName;
                 return itemDto;
             }).ToList(),
         };
+        dto.StockChangedSinceSaved = stockChanged;
 
         await _userNameProvider.EnrichWithUserNamesAsync(
             new List<StockAdjustmentDto> { dto },

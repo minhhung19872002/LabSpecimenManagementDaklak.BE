@@ -15,6 +15,21 @@ public class StockAdjustmentListDto : EntityDto<Guid>
     public DateTime CreationTime { get; set; }
     public DateTime InventoryDate { get; set; }
     public string? InventoryUserName { get; set; }
+
+    /// <summary>Chỉ có khi lọc theo ProductId: thực tế − sổ sách (đơn vị lưu kho), phiếu đã xác nhận.</summary>
+    public decimal? AdjustmentDiffBase { get; set; }
+    /// <summary>Như AdjustmentDiffBase nhưng quy ra đơn vị dung tích (mL...), null nếu không quy đổi được.</summary>
+    public decimal? AdjustmentDiffVolume { get; set; }
+    public string? StorageUnitName { get; set; }
+    public string? VolumeUnitName { get; set; }
+    /// <summary>Lượng điều chỉnh tách theo ĐV lưu kho của từng lô (vật tư nhiều SKU: Lọ, Chai... không cộng chung).</summary>
+    public List<StockAdjustmentUnitDiffDto>? AdjustmentDiffByUnit { get; set; }
+}
+
+public class StockAdjustmentUnitDiffDto
+{
+    public decimal Quantity { get; set; }
+    public string? UnitName { get; set; }
 }
 
 public class StockAdjustmentDto : EntityDto<Guid>
@@ -28,6 +43,9 @@ public class StockAdjustmentDto : EntityDto<Guid>
     public Guid? InventoryUserId { get; set; }
     public string? InventoryUserName { get; set; }
     public List<StockAdjustmentItemDto> Items { get; set; } = new();
+
+    /// <summary>Phiếu nháp: sổ sách / tồn dự kiến hiện tại khác lúc lưu nháp (đã có nhập, lĩnh, tiêu hao mới).</summary>
+    public bool StockChangedSinceSaved { get; set; }
 }
 
 public class StockAdjustmentItemDto
@@ -99,6 +117,7 @@ public class GetStockAdjustmentListInput : PagedRequestDto
     public DateTime? FromDate { get; set; }
     public DateTime? ToDate { get; set; }
     public Guid? WarehouseId { get; set; }
+    public Guid? ProductId { get; set; }
 }
 
 public class ConfirmPreviewDto
