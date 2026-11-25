@@ -790,25 +790,40 @@ public class ProductAppService : ApplicationService, IProductAppService
         product.IsActive = input.IsActive;
         product.IsDraft = input.IsDraft;
 
-        await _productRepository.UpdateAsync(product, autoSave: true);
-
-        // Update SKUs — replace all (same pattern as UnitConversions)
+        // VT-11: kiểm tra quy cách bị bỏ khỏi form trước khi lưu bất cứ thứ gì
+        List<ProductSku>? existingSkus = null;
+        HashSet<Guid>? skuInputIds = null;
         if (input.Skus != null)
         {
             ValidateUniqueManufacturerIds(input.Skus);
 
-            var existingSkus = (await _skuRepository.GetQueryableAsync())
+            existingSkus = (await _skuRepository.GetQueryableAsync())
                 .Where(x => x.ProductId == id)
                 .ToList();
 
-            var inputIds = input.Skus
+            skuInputIds = input.Skus
                 .Where(x => x.Id.HasValue)
                 .Select(x => x.Id!.Value)
                 .ToHashSet();
 
+            var removedSkuIds = existingSkus
+                .Where(x => !skuInputIds.Contains(x.Id))
+                .Select(x => x.Id)
+                .ToList();
+            if ((await GetUsedSkuIdsAsync(removedSkuIds)).Count > 0)
+            {
+                throw new UserFriendlyException(SkuUsedMessage);
+            }
+        }
+
+        await _productRepository.UpdateAsync(product, autoSave: true);
+
+        // Update SKUs — replace all (same pattern as UnitConversions)
+        if (input.Skus != null && existingSkus != null && skuInputIds != null)
+        {
             foreach (var existing in existingSkus)
             {
-                if (!inputIds.Contains(existing.Id))
+                if (!skuInputIds.Contains(existing.Id))
                 {
                     await _skuRepository.DeleteAsync(existing, autoSave: true);
                 }
@@ -991,6 +1006,10 @@ public class ProductAppService : ApplicationService, IProductAppService
         if (sku.ProductId != productId)
         {
             throw new UserFriendlyException("SKU không thuộc sản phẩm này.");
+        }
+        if ((await GetUsedSkuIdsAsync(new List<Guid> { skuId })).Count > 0)
+        {
+            throw new UserFriendlyException(SkuUsedMessage);
         }
         await _skuRepository.DeleteAsync(sku);
     }
@@ -1868,6 +1887,31 @@ public class ProductAppService : ApplicationService, IProductAppService
         return warehouseIds;
     }
 
+    private const string SkuUsedMessage = "Không thể xóa quy cách này vì đã được dùng trong phiếu nhập kho.";
+
+    /// <summary>
+    /// VT-11: quy cách đã xuất hiện trên bất kỳ phiếu nhập kho nào (kể cả lô đã dùng hết) thì không được xóa.
+    /// </summary>
+    private async Task<HashSet<Guid>> GetUsedSkuIdsAsync(List<Guid> skuIds)
+    {
+        var used = new HashSet<Guid>();
+        if (skuIds.Count == 0) return used;
+
+        var importItemQuery = await _warehouseImportReceiptItemRepository.GetQueryableAsync();
+        used.UnionWith(await AsyncExecuter.ToListAsync(importItemQuery
+            .Where(x => x.SkuId != null && skuIds.Contains(x.SkuId.Value))
+            .Select(x => x.SkuId!.Value)
+            .Distinct()));
+
+        var barcodeQuery = await _inventoryBarcodeRepository.GetQueryableAsync();
+        used.UnionWith(await AsyncExecuter.ToListAsync(barcodeQuery
+            .Where(x => x.SkuId != null && skuIds.Contains(x.SkuId.Value))
+            .Select(x => x.SkuId!.Value)
+            .Distinct()));
+
+        return used;
+    }
+
     private async Task CheckProductNotReferencedAsync(Guid productId)
     {
         var query = await _goodsReceiptItemRepository.GetQueryableAsync();
@@ -1965,6 +2009,7 @@ public class ProductAppService : ApplicationService, IProductAppService
         var skuQuery = await _skuRepository.GetQueryableAsync();
         var skus = skuQuery.Where(s => productIds.Contains(s.ProductId)).ToList();
         var skuMap = skus.GroupBy(s => s.ProductId).ToDictionary(g => g.Key, g => g.ToList());
+        var usedSkuIds = await GetUsedSkuIdsAsync(skus.Select(s => s.Id).ToList());
 
         // Load manufacturer names for SKUs
         var manufacturerIds = skus.Select(s => s.ManufacturerId).Distinct().ToList();
@@ -2302,6 +2347,7 @@ public class ProductAppService : ApplicationService, IProductAppService
                         VolumeUnitId = s.VolumeUnitId,
                         VolumeUnitName = s.VolumeUnitId.HasValue ? unitMap.GetValueOrDefault(s.VolumeUnitId.Value) : null,
                         CreationTime = s.CreationTime,
+                        IsUsed = usedSkuIds.Contains(s.Id),
                     };
                 }).ToList();
             }

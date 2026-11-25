@@ -7,6 +7,8 @@ public class ManufacturerImportRow
 {
     public string Name { get; set; } = string.Empty;
     public string? Description { get; set; }
+    /// <summary>Số dòng thật trong Excel (tính cả dòng tiêu đề)</summary>
+    public int RowNumber { get; set; }
 }
 
 public class ManufacturerImportPreviewItem

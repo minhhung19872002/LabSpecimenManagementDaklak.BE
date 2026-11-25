@@ -110,6 +110,8 @@ public class ProductSkuDto
     public Guid? VolumeUnitId { get; set; }
     public string? VolumeUnitName { get; set; }
     public DateTime CreationTime { get; set; }
+    /// <summary>Quy cách đã dùng trên phiếu nhập kho → không được xóa (VT-11)</summary>
+    public bool IsUsed { get; set; }
 }
 
 /// <summary>

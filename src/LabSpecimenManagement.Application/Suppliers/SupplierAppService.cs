@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.GoodsReceipts;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -200,6 +201,18 @@ public class SupplierAppService : ApplicationService, ISupplierAppService
     {
         var query = await _goodsReceiptRepository.GetQueryableAsync();
         var isReferenced = query.Any(x => x.SupplierId == supplierId);
+
+        // SU-05: NCC còn được dùng ở dòng phiếu nhập hàng và phiếu nhập kho
+        if (!isReferenced)
+        {
+            var itemQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<GoodsReceiptItem, Guid>>().GetQueryableAsync();
+            isReferenced = itemQuery.Any(x => x.SupplierId == supplierId);
+        }
+        if (!isReferenced)
+        {
+            var importQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<WarehouseImportReceipt, Guid>>().GetQueryableAsync();
+            isReferenced = importQuery.Any(x => x.SupplierId == supplierId);
+        }
         if (isReferenced)
         {
             throw new UserFriendlyException("Không thể xóa nhà cung cấp này vì đang được sử dụng trong phiếu nhập hàng.");

@@ -7343,7 +7343,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         for (int i = 0; i < rows.Count; i++)
         {
             var row = rows[i];
-            var rowNumber = i + 2;
+            var rowNumber = row.RowNumber;
 
             var item = new ManufacturerImportPreviewItem
             {
@@ -7424,13 +7424,16 @@ public class ImportAppService : ApplicationService, IImportAppService
             var row = worksheet.Row(rowNum);
             if (row.IsEmpty()) continue;
 
-            var name = row.Cell(1).GetString()?.Trim();
-            if (string.IsNullOrWhiteSpace(name)) continue;
+            var name = row.Cell(1).GetString()?.Trim() ?? "";
+            var description = row.Cell(2).GetString()?.Trim();
+            // SU-05: dòng có dữ liệu nhưng trống tên vẫn giữ lại để báo lỗi (không bỏ qua âm thầm)
+            if (string.IsNullOrWhiteSpace(name) && string.IsNullOrWhiteSpace(description)) continue;
 
             rows.Add(new ManufacturerImportRow
             {
                 Name = name,
-                Description = row.Cell(2).GetString()?.Trim()
+                Description = description,
+                RowNumber = rowNum
             });
         }
 
