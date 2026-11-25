@@ -6264,6 +6264,36 @@ public class ImportAppService : ApplicationService, IImportAppService
             return null;
         }
 
+        var labIds = existingWarehouses.Where(w => w.LaboratoryId.HasValue)
+            .Select(w => w.LaboratoryId!.Value).Distinct().ToList();
+        var labNameMap = new Dictionary<Guid, string>();
+        if (labIds.Count > 0)
+        {
+            var labQuery = await _laboratoryRepository.GetQueryableAsync();
+            var labs = labQuery.Where(x => labIds.Contains(x.Id)).Select(x => new { x.Id, x.DepartmentId }).ToList();
+            var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
+            var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
+            var deptQuery = await deptRepo.GetQueryableAsync();
+            var deptNames = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
+            foreach (var lab in labs)
+                if (deptNames.TryGetValue(lab.DepartmentId, out var dn))
+                    labNameMap[lab.Id] = dn;
+        }
+
+        // KH-06: kho mặc định (Kho Trung Tâm) không sửa được trên màn hình → import cũng không được sửa.
+        // File mẫu tải về có sẵn dòng kho này nên dòng giữ nguyên thì cho qua (lúc ghi sẽ bỏ qua).
+        bool ChangesDefaultWarehouse(WarehouseImportRow row, Warehouse wh)
+        {
+            static string Norm(string? s) => StringHelper.Normalize(s?.Trim() ?? "");
+            var parentCode = wh.ParentWarehouseId.HasValue && codeById.TryGetValue(wh.ParentWarehouseId.Value, out var pc) ? pc : "";
+            var labName = wh.LaboratoryId.HasValue && labNameMap.TryGetValue(wh.LaboratoryId.Value, out var ln) ? ln : "";
+            return Norm(row.Name) != Norm(wh.Name)
+                || Norm(row.PhysicalLocation) != Norm(wh.PhysicalLocation)
+                || !string.Equals(Norm(row.ParentWarehouseCode), parentCode, StringComparison.OrdinalIgnoreCase)
+                || (!string.IsNullOrWhiteSpace(row.LaboratoryName)
+                    && !string.Equals(Norm(row.LaboratoryName), Norm(labName), StringComparison.OrdinalIgnoreCase));
+        }
+
         var result = new WarehouseImportPreviewDto();
         var validationResult = new ImportValidationResult { TotalRows = rows.Count };
 
@@ -6389,6 +6419,23 @@ public class ImportAppService : ApplicationService, IImportAppService
                 }
             }
 
+            if (!string.IsNullOrWhiteSpace(row.Code)
+                && warehouseByCode.TryGetValue(row.Code.Trim().ToLowerInvariant(), out var defaultCandidate)
+                && defaultCandidate.IsDefault
+                && ChangesDefaultWarehouse(row, defaultCandidate))
+            {
+                item.IsValid = false;
+                var error = "Không thể chỉnh sửa kho mặc định.";
+                rowErrorMessages.Add(error);
+                validationResult.Errors.Add(new ImportRowError
+                {
+                    RowNumber = rowNumber,
+                    ColumnName = "Mã kho",
+                    ErrorMessage = error
+                });
+                AddRowError(rowErrors, rowNumber, error);
+            }
+
             // Gắn Mới/Cập nhật theo mã kho cho cả dòng lỗi (tag xem trước), chỉ dòng hợp lệ mới được đếm.
             if (!string.IsNullOrWhiteSpace(row.Code))
             {
@@ -6397,7 +6444,8 @@ public class ImportAppService : ApplicationService, IImportAppService
                 {
                     item.IsNew = false;
                     item.ExistingId = existingWarehouse.Id;
-                    if (item.IsValid) updateCodes.Add(codeKey);
+                    // Dòng kho mặc định giữ nguyên không tính là "cập nhật".
+                    if (item.IsValid && !existingWarehouse.IsDefault) updateCodes.Add(codeKey);
                 }
                 else
                 {
@@ -6421,22 +6469,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         result.InvalidRows = validationResult.InvalidRows;
         result.NewWarehouses = newCodes.Count;
         result.UpdateWarehouses = updateCodes.Count;
-
-        var labIds = existingWarehouses.Where(w => w.LaboratoryId.HasValue)
-            .Select(w => w.LaboratoryId!.Value).Distinct().ToList();
-        var labNameMap = new Dictionary<Guid, string>();
-        if (labIds.Count > 0)
-        {
-            var labQuery = await _laboratoryRepository.GetQueryableAsync();
-            var labs = labQuery.Where(x => labIds.Contains(x.Id)).Select(x => new { x.Id, x.DepartmentId }).ToList();
-            var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
-            var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
-            var deptQuery = await deptRepo.GetQueryableAsync();
-            var deptNames = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
-            foreach (var lab in labs)
-                if (deptNames.TryGetValue(lab.DepartmentId, out var dn))
-                    labNameMap[lab.Id] = dn;
-        }
 
         foreach (var item in result.Items)
         {
@@ -6596,6 +6628,8 @@ public class ImportAppService : ApplicationService, IImportAppService
 
                 if (warehouseByCode.TryGetValue(item.Code.Trim(), out var existingWarehouse))
                 {
+                    // Preview đã chặn mọi thay đổi trên kho mặc định; dòng còn lại là giữ nguyên → không ghi.
+                    if (existingWarehouse.IsDefault) continue;
                     existingWarehouse.Name = StringHelper.Normalize(item.Name);
                     existingWarehouse.PhysicalLocation = item.PhysicalLocation;
                     existingWarehouse.ParentWarehouseId = parentId;

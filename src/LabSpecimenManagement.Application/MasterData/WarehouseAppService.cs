@@ -4,8 +4,10 @@ using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.Common;
 using LabSpecimenManagement.Permissions;
+using LabSpecimenManagement.PreparedSolutions;
 using LabSpecimenManagement.RoleWarehouses;
 using LabSpecimenManagement.UserWarehouses;
+using LabSpecimenManagement.WarehouseImports;
 using Microsoft.AspNetCore.Authorization;
 using Volo.Abp;
 using Volo.Abp.Application.Dtos;
@@ -145,6 +147,7 @@ public class WarehouseAppService :
             throw new UserFriendlyException("Không thể xóa kho mặc định.");
         }
         await EnsureNoChildrenAsync(id);
+        await EnsureNoStockAsync(id);
         await base.DeleteAsync(id);
     }
 
@@ -169,6 +172,7 @@ public class WarehouseAppService :
                 var entity = await Repository.GetAsync(id);
                 if (entity.IsDefault) continue;
                 await EnsureNoChildrenAsync(id);
+                await EnsureNoStockAsync(id);
                 await Repository.DeleteAsync(id);
                 count++;
             }
@@ -421,6 +425,36 @@ public class WarehouseAppService :
         if (hasChildren)
         {
             throw new UserFriendlyException("Không thể xóa kho cha. Vui lòng xóa hoặc chuyển kho con sang kho cha khác trước.");
+        }
+    }
+
+    /// <summary>
+    /// KH-01: chặn xóa kho còn tồn — lô còn lại &gt; 0 (cùng cách tính tồn với phiếu nhận vật tư)
+    /// hoặc dung dịch pha chưa xử lý còn thể tích đang lưu ở kho này.
+    /// </summary>
+    private async Task EnsureNoStockAsync(Guid id)
+    {
+        var itemQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<WarehouseImportReceiptItem, Guid>>().GetQueryableAsync();
+        var receiptQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<WarehouseImportReceipt, Guid>>().GetQueryableAsync();
+        var hasStock = await AsyncExecuter.AnyAsync(
+            from item in itemQuery
+            join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
+            where receipt.Status == WarehouseImportReceiptStatus.Completed
+                  && item.Status == WarehouseImportLineStatus.Checked
+                  && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
+                  && (item.StorageWarehouseId ?? receipt.WarehouseId) == id
+            select item.Id);
+
+        if (!hasStock)
+        {
+            var batchQuery = await LazyServiceProvider.LazyGetRequiredService<IRepository<PreparedSolutionBatch, Guid>>().GetQueryableAsync();
+            hasStock = await AsyncExecuter.AnyAsync(
+                batchQuery.Where(b => b.StorageWarehouseId == id && !b.IsProcessed && b.RemainingVolume > 0));
+        }
+
+        if (hasStock)
+        {
+            throw new UserFriendlyException("Không thể xóa kho đang còn tồn vật tư. Vui lòng chuyển hoặc kiểm kê về 0 trước.");
         }
     }
 
