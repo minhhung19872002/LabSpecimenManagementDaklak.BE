@@ -64,6 +64,12 @@ public class GenericSyncItemDto
     /// </summary>
     [Required]
     public object Data { get; set; } = new();
+
+    /// <summary>
+    /// User who created/edited the item while offline (OF-09).
+    /// The record is created on behalf of this user even if another user is logged in when it syncs.
+    /// </summary>
+    public Guid? OfflineUserId { get; set; }
 }
 
 /// <summary>

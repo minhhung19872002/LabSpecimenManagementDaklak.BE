@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using LabSpecimenManagement.TestRequests;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Logging;
 using Volo.Abp.Domain.Repositories;
 using Volo.Abp.Validation;
@@ -13,6 +14,7 @@ namespace LabSpecimenManagement.Sync;
 /// Service for handling offline data synchronization
 /// Implements "last write wins" conflict resolution strategy
 /// </summary>
+[Authorize] // OF-09: phiên hết hạn / chưa đăng nhập → 401, FE giữ phiếu "Chờ đồng bộ"
 public partial class SyncAppService : LabSpecimenManagementAppService, ISyncAppService
 {
     private readonly ITestRequestAppService _testRequestAppService;

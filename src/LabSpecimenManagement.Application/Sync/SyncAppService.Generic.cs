@@ -2,11 +2,14 @@ using Microsoft.Extensions.Logging;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Claims;
 using System.Threading.Tasks;
 using LabSpecimenManagement.TestRequests;
 using Microsoft.Extensions.Caching.Distributed;
 using Volo.Abp.Caching;
 using Volo.Abp.DistributedLocking;
+using Volo.Abp.Identity;
+using Volo.Abp.Security.Claims;
 using Volo.Abp.Uow;
 using Volo.Abp.Validation;
 
@@ -21,6 +24,56 @@ public partial class SyncAppService
 
     private IDistributedCache<SyncCreatedCacheItem> SyncCreatedCache =>
         LazyServiceProvider.LazyGetRequiredService<IDistributedCache<SyncCreatedCacheItem>>();
+
+    private ICurrentPrincipalAccessor CurrentPrincipalAccessor =>
+        LazyServiceProvider.LazyGetRequiredService<ICurrentPrincipalAccessor>();
+
+    private IdentityUserManager UserManager =>
+        LazyServiceProvider.LazyGetRequiredService<IdentityUserManager>();
+
+    /// <summary>
+    /// OF-09: phiếu tạo/sửa offline được ghi nhận cho người dùng đã tạo nó trên máy (người tạo, người tiếp nhận...),
+    /// kể cả khi lúc đồng bộ người đang đăng nhập là người khác.
+    /// Trả về null (giữ người đang đăng nhập) nếu không có id, trùng người hiện tại, hoặc tài khoản không tồn tại / đã khoá.
+    /// Chỉ dựng principal: CurrentPrincipalAccessor.Change() dùng AsyncLocal nên phải gọi ở hàm gọi
+    /// (gọi bên trong hàm async này thì giá trị bị hoàn lại khi hàm trả về → không có tác dụng).
+    /// </summary>
+    private async Task<ClaimsPrincipal?> BuildOfflineUserPrincipalAsync(Guid? offlineUserId, string clientId)
+    {
+        if (!offlineUserId.HasValue || offlineUserId == CurrentUser.Id)
+        {
+            return null;
+        }
+
+        var user = await UserManager.FindByIdAsync(offlineUserId.Value.ToString());
+        if (user == null || !user.IsActive)
+        {
+            _logger.LogWarning(
+                "Offline sync ClientId {ClientId}: offline user {OfflineUserId} not found or inactive, using current user {CurrentUserId}",
+                clientId, offlineUserId, CurrentUser.Id);
+            return null;
+        }
+
+        var claims = new List<Claim>
+        {
+            new(AbpClaimTypes.UserId, user.Id.ToString()),
+            new(AbpClaimTypes.UserName, user.UserName ?? string.Empty),
+            new(AbpClaimTypes.Email, user.Email ?? string.Empty),
+        };
+        if (!string.IsNullOrEmpty(user.Name)) claims.Add(new Claim(AbpClaimTypes.Name, user.Name));
+        if (!string.IsNullOrEmpty(user.Surname)) claims.Add(new Claim(AbpClaimTypes.SurName, user.Surname));
+        if (user.TenantId.HasValue) claims.Add(new Claim(AbpClaimTypes.TenantId, user.TenantId.Value.ToString()));
+        foreach (var role in await UserManager.GetRolesAsync(user))
+        {
+            claims.Add(new Claim(AbpClaimTypes.Role, role));
+        }
+
+        _logger.LogInformation(
+            "Offline sync ClientId {ClientId}: recording as offline user {OfflineUserId} ({UserName}), sent by {CurrentUserId}",
+            clientId, user.Id, user.UserName, CurrentUser.Id);
+
+        return new ClaimsPrincipal(new ClaimsIdentity(claims, "OfflineSync"));
+    }
 
     /// <inheritdoc />
     public async Task<GenericSyncBatchResponseDto> SyncBatchAsync(GenericSyncBatchRequestDto input)
@@ -132,6 +185,8 @@ public partial class SyncAppService
 
         try
         {
+            var offlinePrincipal = await BuildOfflineUserPrincipalAsync(item.OfflineUserId, item.ClientId);
+            using var offlineUser = offlinePrincipal != null ? CurrentPrincipalAccessor.Change(offlinePrincipal) : null;
             switch (item.OperationType)
             {
                 case SyncOperationType.Create:
@@ -150,6 +205,12 @@ public partial class SyncAppService
                     result.Success = false;
                     result.Error = $"Unknown operation type: {item.OperationType}";
                     break;
+            }
+
+            // Sửa/xoá lưu khi kết thúc request → lưu ngay khi còn danh tính người tạo offline để ghi đúng người sửa
+            if (offlineUser != null && CurrentUnitOfWork != null)
+            {
+                await CurrentUnitOfWork.SaveChangesAsync();
             }
         }
         catch (AbpValidationException ex)

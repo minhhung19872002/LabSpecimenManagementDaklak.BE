@@ -13,6 +13,8 @@ namespace LabSpecimenManagement.Controllers;
 /// </summary>
 [RemoteService(Name = "Default")]
 [Route("api/v1/sync")]
+// Bắt buộc đăng nhập (OF-09): [Authorize(permission)] một mình không chặn request ẩn danh khi permission checker cho qua
+[Authorize]
 [Authorize(LabSpecimenManagementPermissions.Sync.Default)]
 public class SyncController : LabSpecimenManagementController
 {
