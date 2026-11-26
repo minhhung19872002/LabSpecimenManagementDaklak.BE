@@ -105,6 +105,17 @@ public class IndicatorGroupAppService :
         return Task.CompletedTask;
     }
 
+    public override async Task DeleteAsync(Guid id)
+    {
+        // Nhóm không bắt buộc nhưng không cho xóa nhóm còn chỉ tiêu (tránh chỉ tiêu trỏ tới nhóm đã xóa)
+        if (await _indicatorRepository.AnyAsync(x => x.IndicatorGroupId == id))
+        {
+            throw new UserFriendlyException("Không thể xóa nhóm đang có chỉ tiêu. Hãy chuyển các chỉ tiêu sang nhóm khác hoặc bỏ nhóm trước.");
+        }
+
+        await base.DeleteAsync(id);
+    }
+
     [Authorize(LabSpecimenManagementPermissions.MasterData.Import)]
     public async Task<ImportIndicatorGroupsResultDto> ImportFromExcelAsync(Stream fileStream, string fileName)
     {
@@ -200,8 +211,8 @@ public class IndicatorGroupAppService :
         // Load indicator counts
         var indicatorQuery = await _indicatorRepository.GetQueryableAsync();
         var counts = indicatorQuery
-            .Where(x => groupIds.Contains(x.IndicatorGroupId))
-            .GroupBy(x => x.IndicatorGroupId)
+            .Where(x => x.IndicatorGroupId.HasValue && groupIds.Contains(x.IndicatorGroupId.Value))
+            .GroupBy(x => x.IndicatorGroupId!.Value)
             .Select(g => new { GroupId = g.Key, Count = g.Count() })
             .ToDictionary(x => x.GroupId, x => x.Count);
 

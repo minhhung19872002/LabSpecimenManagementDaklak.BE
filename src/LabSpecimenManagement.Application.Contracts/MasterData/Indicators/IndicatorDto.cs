@@ -18,8 +18,8 @@ public class IndicatorDto : FullAuditedEntityDto<Guid>
     /// </summary>
     public string? FormattedName { get; set; }
     public bool IsActive { get; set; }
-    public Guid IndicatorGroupId { get; set; }
-    public string IndicatorGroupName { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
+    public string? IndicatorGroupName { get; set; }
     public Guid LaboratoryId { get; set; }
     public string? LaboratoryName { get; set; }
     public int SortOrder { get; set; }
@@ -63,8 +63,7 @@ public class CreateIndicatorDto
 
     public bool IsActive { get; set; } = true;
 
-    [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
-    public Guid IndicatorGroupId { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
 
     [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
     public Guid LaboratoryId { get; set; }
@@ -94,8 +93,7 @@ public class UpdateIndicatorDto
 
     public bool IsActive { get; set; }
 
-    [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
-    public Guid IndicatorGroupId { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
 
     [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
     public Guid LaboratoryId { get; set; }
@@ -108,8 +106,7 @@ public class UpdateIndicatorDto
 /// </summary>
 public class CreateBulkIndicatorsDto
 {
-    [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
-    public Guid IndicatorGroupId { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
 
     [Required(ErrorMessage = "Vui lòng nhập danh sách chỉ tiêu")]
     [MinLength(1, ErrorMessage = "Danh sách chỉ tiêu phải có ít nhất 1 phần tử")]
@@ -234,8 +231,7 @@ public class UpdateIndicatorWithSubsDto
 
     public bool IsActive { get; set; }
 
-    [Required(ErrorMessage = "Vui lòng chọn nhóm chỉ tiêu")]
-    public Guid IndicatorGroupId { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
 
     [Required(ErrorMessage = "Vui lòng chọn khoa phòng thực hiện")]
     public Guid LaboratoryId { get; set; }
@@ -277,8 +273,8 @@ public class IndicatorWithMethodsDto
     public string Code { get; set; }
     public string Name { get; set; }
     public string? FormattedName { get; set; }
-    public Guid IndicatorGroupId { get; set; }
-    public string IndicatorGroupName { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
+    public string? IndicatorGroupName { get; set; }
     public bool IsActive { get; set; }
     public int SortOrder { get; set; }
     public List<IndicatorMethodDto> Methods { get; set; } = new();

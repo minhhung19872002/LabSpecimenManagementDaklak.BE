@@ -621,7 +621,7 @@ public class ServiceCatalogAppService : ApplicationService, IServiceCatalogAppSe
                 IndicatorFormattedName = indicator.FormattedName,
                 ParentIndicatorId = indicator.ParentIndicatorId,
                 IndicatorGroupId = indicator.IndicatorGroupId,
-                IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId)?.Name,
+                IndicatorGroupName = (indicator.IndicatorGroupId is Guid groupId ? groups.GetValueOrDefault(groupId)?.Name : null),
                 // Dịch vụ đã xóa mềm → coi như chưa thuộc dịch vụ
                 ServiceGroupId = serviceGroup?.Id,
                 ServiceGroupCode = serviceGroup?.Code,

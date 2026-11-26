@@ -79,7 +79,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             query = query.Where(x =>
                 x.Code.ToLower().Contains(searchLower) ||
                 x.Name.ToLower().Contains(searchLower) ||
-                matchingGroupIds.Contains(x.IndicatorGroupId)
+                (x.IndicatorGroupId.HasValue && matchingGroupIds.Contains(x.IndicatorGroupId.Value))
             );
         }
 
@@ -134,8 +134,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<IndicatorDto> CreateAsync(CreateIndicatorDto input)
     {
-        // Validate group and laboratory exist
-        var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        // Validate group (optional) and laboratory exist
+        await EnsureGroupExistsAsync(input.IndicatorGroupId);
         await _laboratoryRepository.GetAsync(input.LaboratoryId);
 
         var code = await GenerateCodeAsync();
@@ -156,8 +156,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     [Authorize(LabSpecimenManagementPermissions.MasterData.Create)]
     public async Task<List<IndicatorDto>> CreateBulkAsync(CreateBulkIndicatorsDto input)
     {
-        // Validate group exists
-        var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        // Validate group exists (optional)
+        await EnsureGroupExistsAsync(input.IndicatorGroupId);
 
         // Validate all referenced laboratories exist
         var labIds = input.Indicators.Select(i => i.LaboratoryId).Distinct().ToList();
@@ -253,8 +253,8 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         var entity = await _indicatorRepository.GetAsync(id);
 
-        // Validate group and laboratory exist
-        var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        // Validate group (optional) and laboratory exist
+        await EnsureGroupExistsAsync(input.IndicatorGroupId);
         await _laboratoryRepository.GetAsync(input.LaboratoryId);
 
         // Normalize name for consistent Unicode representation
@@ -275,7 +275,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
     {
         // 1. Update parent indicator
         var entity = await _indicatorRepository.GetAsync(id);
-        await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId); // validate group exists
+        await EnsureGroupExistsAsync(input.IndicatorGroupId);
         await _laboratoryRepository.GetAsync(input.LaboratoryId); // validate laboratory exists
 
         entity.Name = StringHelper.NormalizeAndTrim(input.Name);
@@ -474,37 +474,29 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 continue;
             }
 
-            // Validate group
-            if (string.IsNullOrWhiteSpace(groupName))
+            // Nhóm không bắt buộc; nếu có ghi thì phải khớp nhóm đã tồn tại
+            Guid? groupId = null;
+            if (!string.IsNullOrWhiteSpace(groupName))
             {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorErrorDto
+                if (!groups.TryGetValue(groupName.ToLower(), out var foundGroupId))
                 {
-                    RowNumber = rowNumber,
-                    IndicatorName = name,
-                    ErrorMessage = "Tên nhóm chỉ tiêu không được để trống"
-                });
-                continue;
-            }
-
-            var groupKey = groupName.ToLower();
-            if (!groups.ContainsKey(groupKey))
-            {
-                result.ErrorCount++;
-                result.Errors.Add(new ImportIndicatorErrorDto
-                {
-                    RowNumber = rowNumber,
-                    IndicatorName = name,
-                    ErrorMessage = $"Không tìm thấy nhóm chỉ tiêu '{groupName}'"
-                });
-                continue;
+                    result.ErrorCount++;
+                    result.Errors.Add(new ImportIndicatorErrorDto
+                    {
+                        RowNumber = rowNumber,
+                        IndicatorName = name,
+                        ErrorMessage = $"Không tìm thấy nhóm chỉ tiêu '{groupName}'"
+                    });
+                    continue;
+                }
+                groupId = foundGroupId;
             }
 
             // Create indicator
             try
             {
                 var code = $"CT-{(nextSequence + sequenceOffset).ToString("D4")}";
-                var entity = new Indicator(GuidGenerator.Create(), code, name, groups[groupKey], Guid.Empty)
+                var entity = new Indicator(GuidGenerator.Create(), code, name, groupId, Guid.Empty)
                 {
                     IsActive = true
                 };
@@ -688,12 +680,28 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         return newCode;
     }
 
+    /// <summary>
+    /// Nhóm chỉ tiêu không bắt buộc — chỉ kiểm tra tồn tại khi có chọn nhóm.
+    /// </summary>
+    private async Task EnsureGroupExistsAsync(Guid? groupId)
+    {
+        if (groupId.HasValue)
+        {
+            await _indicatorGroupRepository.GetAsync(groupId.Value);
+        }
+    }
+
+    private static string GroupNameOf(Dictionary<Guid, string> groups, Guid? groupId)
+        => groupId.HasValue ? groups.GetValueOrDefault(groupId.Value, "") : "";
+
     private async Task<IndicatorDto> MapToDtoAsync(Indicator entity)
     {
         var dto = ObjectMapper.Map<Indicator, IndicatorDto>(entity);
 
         // Get group name
-        var group = await _indicatorGroupRepository.FindAsync(entity.IndicatorGroupId);
+        var group = entity.IndicatorGroupId.HasValue
+            ? await _indicatorGroupRepository.FindAsync(entity.IndicatorGroupId.Value)
+            : null;
         dto.IndicatorGroupName = group?.Name ?? "";
 
         // Get laboratory name
@@ -707,7 +715,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
 
     private async Task<List<IndicatorDto>> MapToDtosAsync(List<Indicator> entities)
     {
-        var groupIds = entities.Select(x => x.IndicatorGroupId).Distinct().ToList();
+        var groupIds = entities.Where(x => x.IndicatorGroupId.HasValue).Select(x => x.IndicatorGroupId!.Value).Distinct().ToList();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
         var groups = groupQuery.Where(x => groupIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name);
 
@@ -718,7 +726,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         foreach (var entity in entities)
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(entity);
-            dto.IndicatorGroupName = groups.GetValueOrDefault(entity.IndicatorGroupId, "");
+            dto.IndicatorGroupName = GroupNameOf(groups, entity.IndicatorGroupId);
             dto.LaboratoryName = labNames.GetValueOrDefault(entity.LaboratoryId, "");
             dto.CanDelete = true;
             dtos.Add(dto);
@@ -748,7 +756,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
             .ToDictionary(g => g.Key, g => g.ToList());
 
         // Get group names
-        var groupIds = parentIndicators.Select(x => x.IndicatorGroupId).Distinct().ToList();
+        var groupIds = parentIndicators.Where(x => x.IndicatorGroupId.HasValue).Select(x => x.IndicatorGroupId!.Value).Distinct().ToList();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
         var groups = groupQuery.Where(x => groupIds.Contains(x.Id)).ToDictionary(x => x.Id, x => x.Name);
 
@@ -763,7 +771,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         foreach (var parent in parentIndicators)
         {
             var dto = ObjectMapper.Map<Indicator, IndicatorDto>(parent);
-            dto.IndicatorGroupName = groups.GetValueOrDefault(parent.IndicatorGroupId, "");
+            dto.IndicatorGroupName = GroupNameOf(groups, parent.IndicatorGroupId);
             dto.LaboratoryName = labNames.GetValueOrDefault(parent.LaboratoryId, "");
             dto.CanDelete = true;
             dto.HasSubIndicators = subIndicatorsByParent.ContainsKey(parent.Id);
@@ -774,7 +782,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 dto.SubIndicators = subs.Select(sub =>
                 {
                     var subDto = ObjectMapper.Map<Indicator, IndicatorDto>(sub);
-                    subDto.IndicatorGroupName = groups.GetValueOrDefault(sub.IndicatorGroupId, "");
+                    subDto.IndicatorGroupName = GroupNameOf(groups, sub.IndicatorGroupId);
                     subDto.LaboratoryName = labNames.GetValueOrDefault(sub.LaboratoryId, "");
                     subDto.CanDelete = true;
                     subDto.ParentIndicatorCode = parent.Code;
@@ -869,7 +877,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
         }
 
         // Get indicator group names
-        var groupIds = indicators.Select(x => x.IndicatorGroupId).Distinct().ToList();
+        var groupIds = indicators.Where(x => x.IndicatorGroupId.HasValue).Select(x => x.IndicatorGroupId!.Value).Distinct().ToList();
         var groupQuery = await _indicatorGroupRepository.GetQueryableAsync();
         var groups = groupQuery
             .Where(x => groupIds.Contains(x.Id))
@@ -905,7 +913,7 @@ public class IndicatorAppService : ApplicationService, IIndicatorAppService
                 Name = indicator.Name,
                 FormattedName = indicator.FormattedName,
                 IndicatorGroupId = indicator.IndicatorGroupId,
-                IndicatorGroupName = groups.GetValueOrDefault(indicator.IndicatorGroupId, ""),
+                IndicatorGroupName = GroupNameOf(groups, indicator.IndicatorGroupId),
                 IsActive = indicator.IsActive,
                 SortOrder = indicator.SortOrder,
                 Methods = new List<IndicatorMethodDto>()

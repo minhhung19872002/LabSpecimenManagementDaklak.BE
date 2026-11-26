@@ -27,7 +27,10 @@ public partial class TestRequestAppService
             throw new UserFriendlyException("Vui lòng thêm ít nhất 1 chỉ tiêu");
         }
 
-        var group = await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId);
+        // Nhóm chỉ tiêu không bắt buộc
+        var group = input.IndicatorGroupId.HasValue
+            ? await _indicatorGroupRepository.GetAsync(input.IndicatorGroupId.Value)
+            : null;
 
         var specimenTypeIds = input.Indicators.Select(i => i.SpecimenTypeId).Distinct().ToList();
         var specimenTypes = await _specimenTypeRepository.GetListAsync(s => specimenTypeIds.Contains(s.Id));
@@ -162,7 +165,7 @@ public partial class TestRequestAppService
         return new QuickCreateIndicatorsFromTestRequestResultDto { Results = results };
     }
 
-    private static IndicatorDto MapToIndicatorDto(Indicator indicator, IndicatorGroup group)
+    private static IndicatorDto MapToIndicatorDto(Indicator indicator, IndicatorGroup? group)
     {
         return new IndicatorDto
         {
@@ -170,8 +173,8 @@ public partial class TestRequestAppService
             Code = indicator.Code,
             Name = indicator.Name,
             FormattedName = indicator.FormattedName,
-            IndicatorGroupId = group.Id,
-            IndicatorGroupName = group.Name,
+            IndicatorGroupId = group?.Id,
+            IndicatorGroupName = group?.Name,
             IsActive = indicator.IsActive,
             SortOrder = indicator.SortOrder,
             CanDelete = true,

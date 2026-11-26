@@ -1690,7 +1690,7 @@ namespace LabSpecimenManagement.Migrations
                         .HasMaxLength(1000)
                         .HasColumnType("character varying(1000)");
 
-                    b.Property<Guid>("IndicatorGroupId")
+                    b.Property<Guid?>("IndicatorGroupId")
                         .HasColumnType("uuid");
 
                     b.Property<bool>("IsActive")

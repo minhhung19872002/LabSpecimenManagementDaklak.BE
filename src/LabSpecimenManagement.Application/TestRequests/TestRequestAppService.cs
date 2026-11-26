@@ -279,8 +279,8 @@ public partial class TestRequestAppService :
         var indicatorEntityById = await Snapshot.GetDictionaryIncludingDeletedAsync<Indicator>(detailIndicatorIds);
 
         var detailGroupIds = indicatorEntityById.Values
-            .Where(i => i.IndicatorGroupId != Guid.Empty)
-            .Select(i => i.IndicatorGroupId).Distinct().ToList();
+            .Where(i => i.IndicatorGroupId.HasValue && i.IndicatorGroupId != Guid.Empty)
+            .Select(i => i.IndicatorGroupId!.Value).Distinct().ToList();
         var groupById = await Snapshot.GetDictionaryIncludingDeletedAsync<IndicatorGroup>(detailGroupIds);
 
         var labNameById = await Snapshot.GetLaboratoryNamesIncludingDeletedAsync(allSampleIndicators.Select(i => i.LaboratoryId));
@@ -329,9 +329,9 @@ public partial class TestRequestAppService :
 
                 // Get indicator group name
                 string? indicatorGroupName = null;
-                if (indicatorEntity != null && indicatorEntity.IndicatorGroupId != Guid.Empty)
+                if (indicatorEntity?.IndicatorGroupId is Guid groupId && groupId != Guid.Empty)
                 {
-                    var indicatorGroup = groupById.GetValueOrDefault(indicatorEntity.IndicatorGroupId);
+                    var indicatorGroup = groupById.GetValueOrDefault(groupId);
                     if (indicatorGroup != null)
                     {
                         indicatorGroupName = indicatorGroup.Name;

@@ -3043,7 +3043,13 @@ public class ImportAppService : ApplicationService, IImportAppService
             rowNum++;
         }
 
-        foreach (var group in groups)
+        // Thêm nhánh "không nhóm" (Id = null, tên trống) để export cả chỉ tiêu chưa phân nhóm
+        var exportGroups = groups
+            .Select(g => (Id: (Guid?)g.Id, Name: g.Name))
+            .Append((Id: (Guid?)null, Name: (string?)""))
+            .ToList();
+
+        foreach (var group in exportGroups)
         {
             var groupIndicators = indicators.Where(i => i.IndicatorGroupId == group.Id && i.ParentIndicatorId == null).ToList();
 
@@ -3118,11 +3124,15 @@ public class ImportAppService : ApplicationService, IImportAppService
         static string NormalizeKey(string? value)
             => StringHelper.NormalizeAndTrim(value).ToLowerInvariant();
 
-        static string BuildParentIndicatorKey(Guid groupId, string indicatorName)
-            => $"{groupId:N}|{NormalizeKey(indicatorName)}";
+        // Nhóm chỉ tiêu không bắt buộc → chỉ tiêu không nhóm dùng khóa "none"
+        static string GroupKeyPart(Guid? groupId)
+            => groupId.HasValue ? groupId.Value.ToString("N") : "none";
 
-        static string BuildSubIndicatorKey(Guid groupId, Guid parentIndicatorId, string subIndicatorName)
-            => $"{groupId:N}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
+        static string BuildParentIndicatorKey(Guid? groupId, string indicatorName)
+            => $"{GroupKeyPart(groupId)}|{NormalizeKey(indicatorName)}";
+
+        static string BuildSubIndicatorKey(Guid? groupId, Guid parentIndicatorId, string subIndicatorName)
+            => $"{GroupKeyPart(groupId)}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
 
         static string BuildMethodLinkKey(Guid testMethodId, Guid indicatorId, Guid specimenTypeId)
             => $"{testMethodId:N}|{indicatorId:N}|{specimenTypeId:N}";
@@ -3214,20 +3224,7 @@ public class ImportAppService : ApplicationService, IImportAppService
 
             var rowErrorMessages = new List<string>();
 
-            // Validate required fields
-            if (string.IsNullOrWhiteSpace(row.IndicatorGroupName))
-            {
-                item.IsValid = false;
-                var error = "Tên nhóm chỉ tiêu không được để trống";
-                rowErrorMessages.Add(error);
-                validationResult.Errors.Add(new ImportRowError
-                {
-                    RowNumber = rowNumber,
-                    ColumnName = "Tên nhóm chỉ tiêu",
-                    ErrorMessage = error
-                });
-                AddRowError(rowErrors, rowNumber, error);
-            }
+            // Validate required fields (nhóm chỉ tiêu không bắt buộc)
 
             if (string.IsNullOrWhiteSpace(row.IndicatorName))
             {
@@ -3373,9 +3370,10 @@ public class ImportAppService : ApplicationService, IImportAppService
             Indicator? existingParentIndicator = null;
             if (!string.IsNullOrWhiteSpace(indicatorKey))
             {
-                if (existingGroup != null)
+                // Không nhập nhóm → so khớp với chỉ tiêu không nhóm
+                if (existingGroup != null || string.IsNullOrWhiteSpace(groupKey))
                 {
-                    var parentKey = BuildParentIndicatorKey(existingGroup.Id, row.IndicatorName ?? "");
+                    var parentKey = BuildParentIndicatorKey(existingGroup?.Id, row.IndicatorName ?? "");
                     if (parentIndicatorDict.TryGetValue(parentKey, out existingParentIndicator))
                     {
                         item.IsNewIndicator = false;
@@ -3398,9 +3396,9 @@ public class ImportAppService : ApplicationService, IImportAppService
             if (!string.IsNullOrWhiteSpace(row.SubIndicatorName))
             {
                 var subIndicatorKey = NormalizeKey(row.SubIndicatorName);
-                if (existingGroup != null && existingParentIndicator != null)
+                if (existingParentIndicator != null)
                 {
-                    var subKey = BuildSubIndicatorKey(existingGroup.Id, existingParentIndicator.Id, row.SubIndicatorName ?? "");
+                    var subKey = BuildSubIndicatorKey(existingGroup?.Id, existingParentIndicator.Id, row.SubIndicatorName ?? "");
                     if (subIndicatorDict.TryGetValue(subKey, out var existingSubIndicator))
                     {
                         item.IsNewSubIndicator = false;
@@ -3496,11 +3494,15 @@ public class ImportAppService : ApplicationService, IImportAppService
         static string NormalizeKey(string? value)
             => StringHelper.NormalizeAndTrim(value).ToLowerInvariant();
 
-        static string BuildParentIndicatorKey(Guid groupId, string indicatorName)
-            => $"{groupId:N}|{NormalizeKey(indicatorName)}";
+        // Nhóm chỉ tiêu không bắt buộc → chỉ tiêu không nhóm dùng khóa "none"
+        static string GroupKeyPart(Guid? groupId)
+            => groupId.HasValue ? groupId.Value.ToString("N") : "none";
 
-        static string BuildSubIndicatorKey(Guid groupId, Guid parentIndicatorId, string subIndicatorName)
-            => $"{groupId:N}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
+        static string BuildParentIndicatorKey(Guid? groupId, string indicatorName)
+            => $"{GroupKeyPart(groupId)}|{NormalizeKey(indicatorName)}";
+
+        static string BuildSubIndicatorKey(Guid? groupId, Guid parentIndicatorId, string subIndicatorName)
+            => $"{GroupKeyPart(groupId)}|{parentIndicatorId:N}|{NormalizeKey(subIndicatorName)}";
 
         static string BuildMethodLinkKey(Guid testMethodId, Guid indicatorId, Guid specimenTypeId)
             => $"{testMethodId:N}|{indicatorId:N}|{specimenTypeId:N}";
@@ -3568,9 +3570,14 @@ public class ImportAppService : ApplicationService, IImportAppService
                 var groupKey = NormalizeKey(item.IndicatorGroupName);
                 var parentNameKey = NormalizeKey(item.IndicatorName);
 
-                IndicatorGroup indicatorGroup;
+                // Nhóm chỉ tiêu không bắt buộc: để trống → chỉ tiêu không nhóm
+                IndicatorGroup? indicatorGroup = null;
 
-                if (groupDict.TryGetValue(groupKey, out var existingGroup))
+                if (string.IsNullOrWhiteSpace(groupKey))
+                {
+                    // không nhóm
+                }
+                else if (groupDict.TryGetValue(groupKey, out var existingGroup))
                 {
                     await _indicatorGroupRepository.UpdateAsync(existingGroup);
                     indicatorGroup = existingGroup;
@@ -3587,11 +3594,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                     createdGroupKeys.Add(groupKey);
                 }
 
-                var parentKey = BuildParentIndicatorKey(indicatorGroup.Id, item.IndicatorName);
+                var parentKey = BuildParentIndicatorKey(indicatorGroup?.Id, item.IndicatorName);
                 Indicator parentIndicator;
                 if (parentIndicatorDict.TryGetValue(parentKey, out var existingParentIndicator))
                 {
-                    existingParentIndicator.IndicatorGroupId = indicatorGroup.Id;
+                    existingParentIndicator.IndicatorGroupId = indicatorGroup?.Id;
                     if (item.DepartmentId.HasValue)
                     {
                         existingParentIndicator.LaboratoryId = item.DepartmentId.Value;
@@ -3612,7 +3619,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                         _guidGenerator.Create(),
                         code,
                         item.IndicatorName,
-                        indicatorGroup.Id,
+                        indicatorGroup?.Id,
                         item.DepartmentId ?? Guid.Empty
                     )
                     {
@@ -3629,11 +3636,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                 if (item.HasSubIndicator && !string.IsNullOrWhiteSpace(item.SubIndicatorName))
                 {
                     var subNameKey = NormalizeKey(item.SubIndicatorName);
-                    var subKey = BuildSubIndicatorKey(indicatorGroup.Id, parentIndicator.Id, item.SubIndicatorName);
+                    var subKey = BuildSubIndicatorKey(indicatorGroup?.Id, parentIndicator.Id, item.SubIndicatorName);
 
                     if (subIndicatorDict.TryGetValue(subKey, out var existingSubIndicator))
                     {
-                        existingSubIndicator.IndicatorGroupId = indicatorGroup.Id;
+                        existingSubIndicator.IndicatorGroupId = indicatorGroup?.Id;
                         existingSubIndicator.ParentIndicatorId = parentIndicator.Id;
                         existingSubIndicator.LaboratoryId = item.DepartmentId ?? parentIndicator.LaboratoryId;
                         if (!string.IsNullOrWhiteSpace(item.FormattedSubIndicatorName))
@@ -3651,7 +3658,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                             _guidGenerator.Create(),
                             subCode,
                             item.SubIndicatorName,
-                            indicatorGroup.Id,
+                            indicatorGroup?.Id,
                             item.DepartmentId ?? parentIndicator.LaboratoryId,
                             parentIndicator.Id // ParentIndicatorId
                         )
@@ -3927,7 +3934,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         var groupDict = groups.Where(g => g.IsActive).ToDictionary(g => g.Id, g => g.Name ?? "");
 
         var indicators = (await _indicatorRepository.GetListAsync())
-            .Where(i => i.IsActive && groupDict.ContainsKey(i.IndicatorGroupId))
+            .Where(i => i.IsActive && (!i.IndicatorGroupId.HasValue || groupDict.ContainsKey(i.IndicatorGroupId.Value)))
             .OrderBy(i => i.IndicatorGroupId).ThenBy(i => i.SortOrder).ThenBy(i => i.Name)
             .ToList();
 
@@ -3948,7 +3955,7 @@ public class ImportAppService : ApplicationService, IImportAppService
         {
             worksheet.Cell(rowNum, 1).Value = ind.Id.ToString();
             worksheet.Cell(rowNum, 1).Style.Fill.BackgroundColor = XLColor.FromArgb(240, 240, 240);
-            worksheet.Cell(rowNum, 2).Value = groupDict[ind.IndicatorGroupId];
+            worksheet.Cell(rowNum, 2).Value = ind.IndicatorGroupId.HasValue ? groupDict[ind.IndicatorGroupId.Value] : "";
             worksheet.Cell(rowNum, 2).Style.Fill.BackgroundColor = XLColor.FromArgb(240, 240, 240);
 
             var nameToExport = ind.FormattedName ?? ind.Name ?? "";
@@ -4019,7 +4026,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 continue;
             }
 
-            item.GroupName = groupNameById.TryGetValue(existingIndicator.IndicatorGroupId, out var gName) ? gName : "";
+            item.GroupName = existingIndicator.IndicatorGroupId is Guid existingGroupId && groupNameById.TryGetValue(existingGroupId, out var gName) ? gName : "";
             item.CurrentFormattedName = existingIndicator.FormattedName ?? existingIndicator.Name ?? "";
 
             var resolvedNewName = !string.IsNullOrWhiteSpace(newFormattedName) ? newFormattedName : newPlainName;

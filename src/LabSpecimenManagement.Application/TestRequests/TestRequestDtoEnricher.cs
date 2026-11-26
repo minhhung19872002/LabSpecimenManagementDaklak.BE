@@ -91,8 +91,8 @@ public class TestRequestDtoEnricher : ITransientDependency
 
         // Load indicator groups to get LaboratoryId for auto-fill
         var indicatorGroupIds = indicators.Values
-            .Where(i => i.IndicatorGroupId != Guid.Empty)
-            .Select(i => i.IndicatorGroupId)
+            .Where(i => i.IndicatorGroupId.HasValue && i.IndicatorGroupId != Guid.Empty)
+            .Select(i => i.IndicatorGroupId!.Value)
             .Distinct()
             .ToList();
         var indicatorGroups = await LoadIndicatorGroupsAsync(indicatorGroupIds);
@@ -136,8 +136,8 @@ public class TestRequestDtoEnricher : ITransientDependency
                     : new List<IndicatorImage>();
 
                 var indicator = indicators.GetValueOrDefault(indicatorLink.IndicatorId);
-                var indicatorGroup = indicator != null
-                    ? indicatorGroups.GetValueOrDefault(indicator.IndicatorGroupId)
+                var indicatorGroup = indicator?.IndicatorGroupId is Guid groupId
+                    ? indicatorGroups.GetValueOrDefault(groupId)
                     : null;
 
                 var indicatorDto = CreateIndicatorDto(

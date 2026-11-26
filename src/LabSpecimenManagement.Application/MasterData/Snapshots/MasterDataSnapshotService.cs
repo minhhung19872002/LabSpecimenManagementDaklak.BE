@@ -139,7 +139,7 @@ public class MasterDataSnapshotService : ITransientDependency
         var indicators = await GetDictionaryIncludingDeletedAsync<Indicator>(list
             .Where(x => overwrite || string.IsNullOrWhiteSpace(x.IndicatorName))
             .Select(x => x.IndicatorId));
-        var groups = await GetDictionaryIncludingDeletedAsync<IndicatorGroup>(indicators.Values.Select(x => (Guid?)x.IndicatorGroupId));
+        var groups = await GetDictionaryIncludingDeletedAsync<IndicatorGroup>(indicators.Values.Select(x => x.IndicatorGroupId));
         var methods = await GetDictionaryIncludingDeletedAsync<TestMethod>(list
             .Where(x => overwrite || string.IsNullOrWhiteSpace(x.TestMethodName))
             .Select(x => x.TestMethodId));
@@ -158,7 +158,7 @@ public class MasterDataSnapshotService : ITransientDependency
                 item.IndicatorCode = indicator.Code;
                 item.IndicatorName = indicator.Name;
                 item.IndicatorFormattedName = indicator.FormattedName;
-                item.IndicatorGroupName = groups.TryGetValue(indicator.IndicatorGroupId, out var group) ? group.Name : null;
+                item.IndicatorGroupName = indicator.IndicatorGroupId is Guid groupId && groups.TryGetValue(groupId, out var group) ? group.Name : null;
             }
 
             if (overwrite || string.IsNullOrWhiteSpace(item.TestMethodName))

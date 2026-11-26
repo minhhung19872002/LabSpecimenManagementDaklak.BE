@@ -570,7 +570,9 @@ public partial class LaboratoryTaskAppService : ApplicationService, ILaboratoryT
             string? indicatorGroupName = sampleIndicator.IndicatorGroupName;
             if (string.IsNullOrWhiteSpace(indicatorGroupName) && indicator != null)
             {
-                indicatorGroupName = groupById.GetValueOrDefault(indicator.IndicatorGroupId)?.Name;
+                indicatorGroupName = indicator.IndicatorGroupId is Guid groupId
+                    ? groupById.GetValueOrDefault(groupId)?.Name
+                    : null;
             }
 
             // Get user names from batch-fetched dictionary

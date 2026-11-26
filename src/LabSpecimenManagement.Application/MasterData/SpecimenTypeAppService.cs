@@ -264,8 +264,8 @@ public class SpecimenTypeAppService :
                     .Select(sti =>
                     {
                         var indicator = indicatorById.GetValueOrDefault(sti.IndicatorId);
-                        var indicatorGroup = indicator != null
-                            ? groupById.GetValueOrDefault(indicator.IndicatorGroupId)
+                        var indicatorGroup = indicator?.IndicatorGroupId is Guid groupId
+                            ? groupById.GetValueOrDefault(groupId)
                             : null;
 
                         return new SpecimenTypeIndicatorDto
@@ -519,9 +519,9 @@ public class SpecimenTypeAppService :
         // Get indicator and group info for response
         var indicator = await _indicatorRepository.FindAsync(entity.IndicatorId);
         IndicatorGroup? indicatorGroup = null;
-        if (indicator != null)
+        if (indicator?.IndicatorGroupId is Guid groupId)
         {
-            indicatorGroup = await _indicatorGroupRepository.FindAsync(indicator.IndicatorGroupId);
+            indicatorGroup = await _indicatorGroupRepository.FindAsync(groupId);
         }
 
         return new SpecimenTypeIndicatorDto

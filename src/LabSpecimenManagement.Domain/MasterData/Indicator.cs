@@ -31,9 +31,9 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     public bool IsActive { get; set; }
 
     /// <summary>
-    /// ID nhóm chỉ tiêu
+    /// ID nhóm chỉ tiêu (không bắt buộc)
     /// </summary>
-    public Guid IndicatorGroupId { get; set; }
+    public Guid? IndicatorGroupId { get; set; }
 
     /// <summary>
     /// Thứ tự hiển thị
@@ -59,7 +59,7 @@ public class Indicator : FullAuditedAggregateRoot<Guid>, IHasActive
     {
     }
 
-    public Indicator(Guid id, string code, string name, Guid indicatorGroupId, Guid laboratoryId, Guid? parentIndicatorId = null) : base(id)
+    public Indicator(Guid id, string code, string name, Guid? indicatorGroupId, Guid laboratoryId, Guid? parentIndicatorId = null) : base(id)
     {
         Code = code;
         Name = name;
