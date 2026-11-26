@@ -3036,7 +3036,12 @@ public class ImportAppService : ApplicationService, IImportAppService
                     worksheet.Cell(rowNum, 7).Value = methodLink.Unit ?? "";
                 }
 
-                worksheet.Cell(rowNum, 8).Value = methodLink.UnitPrice;
+                // Đơn giá có thể null (import cho phép bỏ trống) — gán null qua dynamic làm ClosedXML lỗi "Ambiguous conversion"
+                decimal? unitPrice = methodLink.UnitPrice;
+                if (unitPrice.HasValue)
+                {
+                    worksheet.Cell(rowNum, 8).Value = unitPrice.Value;
+                }
                 worksheet.Cell(rowNum, 9).Value = methodLink.IsSubcontract == true ? "Y" : "N";
             }
 
