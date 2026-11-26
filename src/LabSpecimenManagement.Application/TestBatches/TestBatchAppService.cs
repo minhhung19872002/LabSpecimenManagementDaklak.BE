@@ -593,8 +593,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
         var productIdsForWh = consumptionItems
             .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct();
-        var labId = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
 
         foreach (var consumptionItem in consumptionItems)
         {
@@ -751,8 +750,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var labId2 = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds, labId2);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
         var perWhAvailable = new Dictionary<Guid, decimal>();
         if (productIds.Any())
         {
@@ -853,12 +851,11 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
             await _testBatchConsumptionRepository.DeleteManyAsync(nonDeducted);
         }
 
-        var labId3 = await ResolveLaboratoryIdFromBatchAsync(batch.Id);
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId3);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -948,9 +945,6 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         }
 
         // Step 2: Handle consumption — each submit round creates a new set of deducted consumptions (accumulate)
-        var labId4 = submittableItems.Any()
-            ? (await _laboratoryTaskRepository.FindAsync(submittableItems[0].LaboratoryTaskId))?.LaboratoryId
-            : await ResolveLaboratoryIdFromBatchAsync(batch.Id);
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
             var existingConsumptions = await _testBatchConsumptionRepository.GetListAsync(x => x.TestBatchId == batch.Id);
@@ -962,7 +956,7 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, labId4);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -1352,15 +1346,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
         var productIdsForWh = consumptionItems
             .Where(c => c.ProductId.HasValue).Select(c => c.ProductId!.Value).Distinct().ToList();
 
-        // Resolve lab filter from the first submitted item's task
-        Guid? laboratoryId = null;
-        if (submittedItems.Any())
-        {
-            var labTask = await _laboratoryTaskRepository.GetAsync(submittedItems[0].LaboratoryTaskId);
-            laboratoryId = labTask.LaboratoryId;
-        }
-
-        var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh, laboratoryId);
+        // FEFO trên mọi kho con, không lọc theo khoa phòng (BA 26/11/2026)
+        var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh);
 
         // Preload unit conversion data
         var products = productIdsForWh.Any()
@@ -1751,27 +1738,17 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
 
     #endregion
 
-    private async Task<Guid?> ResolveLaboratoryIdFromBatchAsync(Guid batchId)
-    {
-        var batchItem = await AsyncExecuter.FirstOrDefaultAsync(
-            (await _testBatchItemRepository.GetQueryableAsync())
-                .Where(bi => bi.TestBatchId == batchId));
-        if (batchItem == null) return null;
-        var labTask = await _laboratoryTaskRepository.FindAsync(batchItem.LaboratoryTaskId);
-        return labTask?.LaboratoryId;
-    }
-
     private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
-        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds, laboratoryId);
+        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds);
         return resolved.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
     }
 
     private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
-        var allLots = await ResolveAllLotsForProductsAsync(productIds, laboratoryId);
+        var allLots = await ResolveAllLotsForProductsAsync(productIds);
         return allLots.ToDictionary(
             kv => kv.Key,
             kv =>
@@ -1782,25 +1759,18 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
     }
 
     private async Task<Dictionary<Guid, List<LotAllocation>>> ResolveAllLotsForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
         var ids = productIds.Distinct().ToList();
         if (!ids.Any()) return new Dictionary<Guid, List<LotAllocation>>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-        var excludedWarehouseIds = warehouseQuery
-            .Where(w => w.Level == 0 || w.IsDefault)
+        // Chỉ trừ ở kho con đang hoạt động: loại kho tổng (Level 0 / IsDefault) và kho đã xoá mềm
+        // (query đã có filter soft-delete nên kho đã xoá tự rơi khỏi danh sách cho phép).
+        var allowedWarehouseIds = warehouseQuery
+            .Where(w => w.Level != 0 && !w.IsDefault)
             .Select(w => w.Id)
             .ToHashSet();
-
-        HashSet<Guid>? labWarehouseIds = null;
-        if (laboratoryId.HasValue)
-        {
-            labWarehouseIds = warehouseQuery
-                .Where(w => w.LaboratoryId == laboratoryId.Value)
-                .Select(w => w.Id)
-                .ToHashSet();
-        }
 
         var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
         var receiptQuery = await _importReceiptRepository.GetQueryableAsync();
@@ -1827,37 +1797,8 @@ public class TestBatchAppService : ApplicationService, ITestBatchAppService
                     })
                     .ToList()
                     .Where(l => l.WarehouseId.HasValue
-                                && !excludedWarehouseIds.Contains(l.WarehouseId.Value)
-                                && (labWarehouseIds == null || labWarehouseIds.Contains(l.WarehouseId.Value)))
+                                && allowedWarehouseIds.Contains(l.WarehouseId.Value))
                     .ToList();
-
-        if (labWarehouseIds != null && !lots.Any())
-        {
-            lots = (from item in itemQuery
-                        join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
-                        where ids.Contains(item.ProductId)
-                              && receipt.Status == WarehouseImportReceiptStatus.Completed
-                              && item.Status == WarehouseImportLineStatus.Checked
-                              && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
-                        orderby item.LotExpiryDate == null ? 1 : 0,
-                                item.LotExpiryDate,
-                                receipt.ActualImportDate
-                        select new LotAllocation
-                        {
-                            WarehouseImportReceiptItemId = item.Id,
-                            ProductId = item.ProductId,
-                            WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
-                            LotNumber = item.LotNumber,
-                            RemainingBaseQuantity = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
-                            LotExpiryDate = item.LotExpiryDate,
-                            BarcodeValues = item.BarcodeValues,
-                            SkuId = item.SkuId,
-                        })
-                        .ToList()
-                        .Where(l => l.WarehouseId.HasValue
-                                    && !excludedWarehouseIds.Contains(l.WarehouseId.Value))
-                        .ToList();
-        }
 
         return ids.ToDictionary(
             id => id,

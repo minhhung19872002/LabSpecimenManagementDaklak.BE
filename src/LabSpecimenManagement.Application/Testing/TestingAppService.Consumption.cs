@@ -108,8 +108,7 @@ public partial class TestingAppService
             }
         }
 
-        var previewTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
-        await EnrichConsumptionLinesAsync(lines, previewTask.LaboratoryId);
+        await EnrichConsumptionLinesAsync(lines);
 
         return new ConsumptionPreviewDto
         {
@@ -163,7 +162,7 @@ public partial class TestingAppService
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
-            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh, task.LaboratoryId);
+            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh);
 
             // Preload unit conversion data for lot splitting
             var products = productIdsForWh.Any()
@@ -338,10 +337,9 @@ public partial class TestingAppService
 
         if (input.ConsumptionLines != null && input.ConsumptionLines.Any())
         {
-            var draftTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct();
-            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh, draftTask.LaboratoryId);
+            var warehouseMap = await ResolveWarehouseForProductsAsync(productIdsForWh);
 
             foreach (var line in input.ConsumptionLines)
             {
@@ -422,8 +420,7 @@ public partial class TestingAppService
             })
             .ToList();
 
-        var bulkTask = await _laboratoryTaskRepository.GetAsync(laboratoryTaskId);
-        await EnrichConsumptionLinesAsync(aggregated, bulkTask.LaboratoryId);
+        await EnrichConsumptionLinesAsync(aggregated);
 
         var hasDeductedHistory = false;
         if (indicatorIds.Any())
@@ -496,7 +493,7 @@ public partial class TestingAppService
         {
             var productIdsForWh = input.ConsumptionLines
                 .Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
-            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh, task.LaboratoryId);
+            var allLotsMap = await ResolveAllLotsForProductsAsync(productIdsForWh);
 
             var products = productIdsForWh.Any()
                 ? await _productRepository.GetListAsync(p => productIdsForWh.Contains(p.Id))
@@ -821,7 +818,7 @@ public partial class TestingAppService
         }
     }
 
-    private async Task EnrichConsumptionLinesAsync(List<ConsumptionPreviewLineDto> lines, Guid? laboratoryId = null)
+    private async Task EnrichConsumptionLinesAsync(List<ConsumptionPreviewLineDto> lines)
     {
         var productIds = lines.Where(l => l.ProductId.HasValue).Select(l => l.ProductId!.Value).Distinct().ToList();
         var equipmentIds = lines.Where(l => l.EquipmentId.HasValue).Select(l => l.EquipmentId!.Value).Distinct().ToList();
@@ -847,7 +844,7 @@ public partial class TestingAppService
         var unitMap = units.ToDictionary(u => u.Id, u => u.Name);
         var conversionMap = conversions.ToDictionary(c => (c.ProductId, c.ConvertedUnitId));
 
-        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds, laboratoryId);
+        var warehouseMap = await ResolveWarehouseForProductsAsync(productIds);
         var perWhAvailable = new Dictionary<Guid, decimal>();
         if (productIds.Any())
         {
@@ -924,16 +921,16 @@ public partial class TestingAppService
     }
 
     private async Task<Dictionary<Guid, Guid?>> ResolveWarehouseForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
-        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds, laboratoryId);
+        var resolved = await ResolveWarehouseAndLotForProductsAsync(productIds);
         return resolved.ToDictionary(kv => kv.Key, kv => kv.Value.WarehouseId);
     }
 
     private async Task<Dictionary<Guid, (Guid? WarehouseId, string? LotNumber)>> ResolveWarehouseAndLotForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
-        var allLots = await ResolveAllLotsForProductsAsync(productIds, laboratoryId);
+        var allLots = await ResolveAllLotsForProductsAsync(productIds);
         return allLots.ToDictionary(
             kv => kv.Key,
             kv =>
@@ -944,25 +941,18 @@ public partial class TestingAppService
     }
 
     private async Task<Dictionary<Guid, List<LotAllocation>>> ResolveAllLotsForProductsAsync(
-        IEnumerable<Guid> productIds, Guid? laboratoryId = null)
+        IEnumerable<Guid> productIds)
     {
         var ids = productIds.Distinct().ToList();
         if (!ids.Any()) return new Dictionary<Guid, List<LotAllocation>>();
 
         var warehouseQuery = await _warehouseRepository.GetQueryableAsync();
-        var excludedWarehouseIds = warehouseQuery
-            .Where(w => w.Level == 0 || w.IsDefault)
+        // Chỉ trừ ở kho con đang hoạt động: loại kho tổng (Level 0 / IsDefault) và kho đã xoá mềm
+        // (query đã có filter soft-delete nên kho đã xoá tự rơi khỏi danh sách cho phép).
+        var allowedWarehouseIds = warehouseQuery
+            .Where(w => w.Level != 0 && !w.IsDefault)
             .Select(w => w.Id)
             .ToHashSet();
-
-        HashSet<Guid>? labWarehouseIds = null;
-        if (laboratoryId.HasValue)
-        {
-            labWarehouseIds = warehouseQuery
-                .Where(w => w.LaboratoryId == laboratoryId.Value)
-                .Select(w => w.Id)
-                .ToHashSet();
-        }
 
         var itemQuery = await _importReceiptItemRepository.GetQueryableAsync();
         var receiptQuery = await _warehouseImportReceiptRepository.GetQueryableAsync();
@@ -989,38 +979,8 @@ public partial class TestingAppService
                     })
                     .ToList()
                     .Where(l => l.WarehouseId.HasValue
-                                && !excludedWarehouseIds.Contains(l.WarehouseId.Value)
-                                && (labWarehouseIds == null || labWarehouseIds.Contains(l.WarehouseId.Value)))
+                                && allowedWarehouseIds.Contains(l.WarehouseId.Value))
                     .ToList();
-
-        // Fallback: if lab filter returned empty but lots exist without lab filter, use all warehouses
-        if (labWarehouseIds != null && !lots.Any())
-        {
-            lots = (from item in itemQuery
-                        join receipt in receiptQuery on item.WarehouseImportReceiptId equals receipt.Id
-                        where ids.Contains(item.ProductId)
-                              && receipt.Status == WarehouseImportReceiptStatus.Completed
-                              && item.Status == WarehouseImportLineStatus.Checked
-                              && (item.ReceivedBaseQuantity - item.ConsumedBaseQuantity) > 0
-                        orderby item.LotExpiryDate == null ? 1 : 0,
-                                item.LotExpiryDate,
-                                receipt.ActualImportDate
-                        select new LotAllocation
-                        {
-                            WarehouseImportReceiptItemId = item.Id,
-                            ProductId = item.ProductId,
-                            WarehouseId = item.StorageWarehouseId ?? receipt.WarehouseId,
-                            LotNumber = item.LotNumber,
-                            RemainingBaseQuantity = item.ReceivedBaseQuantity - item.ConsumedBaseQuantity,
-                            LotExpiryDate = item.LotExpiryDate,
-                            BarcodeValues = item.BarcodeValues,
-                            SkuId = item.SkuId,
-                        })
-                        .ToList()
-                        .Where(l => l.WarehouseId.HasValue
-                                    && !excludedWarehouseIds.Contains(l.WarehouseId.Value))
-                        .ToList();
-        }
 
         return ids.ToDictionary(
             id => id,

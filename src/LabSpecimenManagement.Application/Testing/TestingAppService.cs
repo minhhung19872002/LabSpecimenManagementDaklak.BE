@@ -1640,7 +1640,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         await NotifyExternalConsumptionAsync(submittedIndicators, task.Id);
 
         // Deduct stock based on material consumption setup
-        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id, task.LaboratoryId);
+        await DeductStockForSubmittedIndicatorsAsync(submittedIndicators, task.Id);
 
         // Mark corresponding batch items as externally completed
         await MarkBatchItemsAsExternallyCompletedAsync(submittedIndicators);
@@ -1664,7 +1664,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         }
     }
 
-    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators, Guid taskId, Guid laboratoryId)
+    private async Task DeductStockForSubmittedIndicatorsAsync(List<LaboratoryTaskIndicator> submittedIndicators, Guid taskId)
     {
         var indicatorsWithMethod = submittedIndicators.Where(i => i.MethodId.HasValue).ToList();
         if (!indicatorsWithMethod.Any()) return;
@@ -1722,7 +1722,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
         var convSkuByProduct = convSkus.GroupBy(s => s.ProductId)
             .ToDictionary(g => g.Key, g => g.ToList());
 
-        // lotTracker: productId → list lô FEFO trong kho của khoa phòng
+        // lotTracker: productId → list lô FEFO trên mọi kho con (loại kho tổng Level 0 / IsDefault)
         // Mỗi lô giữ WarehouseId + ReceiptItemId để ghi đúng vào consumption record, tính stockBefore per-kho, và lookup barcode
         var lotTracker = new Dictionary<Guid, List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal Remaining)>>();
         // stockBeforeByWarehouse: (productId, warehouseId) → tổng consumable stock (mL) tại kho đó trước khi split
@@ -1732,19 +1732,16 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
             var lotItemQ = await _importReceiptItemRepository.GetQueryableAsync();
             var lotReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
 
-            // Lấy kho không hợp lệ (Level=0 hoặc IsDefault) để loại ra
+            // Chỉ trừ ở kho con đang hoạt động: loại kho tổng (Level 0 / IsDefault) và kho đã xoá mềm
+            // (query đã có filter soft-delete nên kho đã xoá tự rơi khỏi danh sách cho phép).
             var whQ = await _warehouseRepository.GetQueryableAsync();
-            var excludedWhIds = whQ
-                .Where(w => w.Level == 0 || w.IsDefault)
+            var allowedWhIds = whQ
+                .Where(w => w.Level != 0 && !w.IsDefault)
                 .Select(w => w.Id)
                 .ToHashSet();
 
-            // Filter kho theo khoa phòng thực hiện chỉ tiêu
-            var labWarehouseIds = whQ
-                .Where(w => w.LaboratoryId == laboratoryId)
-                .Select(w => w.Id)
-                .ToHashSet();
-
+            // FEFO trên mọi kho con, không lọc theo khoa phòng (BA 26/11/2026): chưa biết KTV lấy chai ở kho nào,
+            // khi có quét QR thì trừ đúng kho/lô theo barcode.
             var rawLots = (from ii in lotItemQ
                            join ir in lotReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
                            where lotProductIds.Contains(ii.ProductId)
@@ -1763,16 +1760,8 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                                BaseReceived = ii.ReceivedBaseQuantity,
                                BaseConsumed = ii.ConsumedBaseQuantity
                            }).ToList()
-                           .Where(l => !l.EffWh.HasValue || !excludedWhIds.Contains(l.EffWh.Value))
+                           .Where(l => l.EffWh.HasValue && allowedWhIds.Contains(l.EffWh.Value))
                            .ToList();
-
-            // Filter theo kho của khoa phòng, fallback global nếu lab chưa gán kho
-            if (labWarehouseIds.Count > 0)
-            {
-                var labFilteredLots = rawLots.Where(l => l.EffWh.HasValue && labWarehouseIds.Contains(l.EffWh.Value)).ToList();
-                if (labFilteredLots.Any())
-                    rawLots = labFilteredLots;
-            }
 
             // Lấy lastInventoryDate per (productId, warehouseId) để filter consumption sau kiểm kê
             var pwiQ = await _productWarehouseInventoryRepository.GetQueryableAsync();
@@ -1801,7 +1790,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                 })
                 .ToList();
 
-            // Build lotTracker per product (FEFO trong kho của khoa phòng, giữ WarehouseId per lô)
+            // Build lotTracker per product (FEFO mọi kho con, giữ WarehouseId per lô)
             foreach (var g in rawLots.GroupBy(l => l.ProductId))
             {
                 var pid2 = g.Key;
@@ -1904,7 +1893,7 @@ public partial class TestingAppService : ApplicationService, ITestingAppService
                     var remainingBase = baseQty.Value;
                     var ratio = consumeQty / baseQty.Value;
 
-                    // Collect splits FEFO (kho của khoa phòng), chỉ lô còn tồn > 0
+                    // Collect splits FEFO (mọi kho con), chỉ lô còn tồn > 0
                     var splits = new List<(string? LotNumber, Guid? WarehouseId, Guid ReceiptItemId, decimal TakeBase)>();
                     for (int i = 0; i < lots.Count && remainingBase > 0; i++)
                     {

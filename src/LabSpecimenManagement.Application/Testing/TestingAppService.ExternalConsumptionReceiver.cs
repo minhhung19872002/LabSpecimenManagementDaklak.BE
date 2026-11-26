@@ -101,17 +101,15 @@ public partial class TestingAppService
             var lotItemQ = await _importReceiptItemRepository.GetQueryableAsync();
             var lotReceiptQ = await _warehouseImportReceiptRepository.GetQueryableAsync();
 
+            // Chỉ trừ ở kho con đang hoạt động: loại kho tổng (Level 0 / IsDefault) và kho đã xoá mềm
+            // (query đã có filter soft-delete nên kho đã xoá tự rơi khỏi danh sách cho phép).
             var whQ = await _warehouseRepository.GetQueryableAsync();
-            var excludedWhIds = whQ
-                .Where(w => w.Level == 0 || w.IsDefault)
+            var allowedWhIds = whQ
+                .Where(w => w.Level != 0 && !w.IsDefault)
                 .Select(w => w.Id)
                 .ToHashSet();
 
-            var labWarehouseIds = whQ
-                .Where(w => w.LaboratoryId == lab.Id)
-                .Select(w => w.Id)
-                .ToHashSet();
-
+            // FEFO trên mọi kho con, không lọc theo khoa phòng (BA 26/11/2026)
             var rawLots = (from ii in lotItemQ
                            join ir in lotReceiptQ on ii.WarehouseImportReceiptId equals ir.Id
                            where lotProductIds.Contains(ii.ProductId)
@@ -130,15 +128,8 @@ public partial class TestingAppService
                                BaseReceived = ii.ReceivedBaseQuantity,
                                BaseConsumed = ii.ConsumedBaseQuantity
                            }).ToList()
-                           .Where(l => !l.EffWh.HasValue || !excludedWhIds.Contains(l.EffWh.Value))
+                           .Where(l => l.EffWh.HasValue && allowedWhIds.Contains(l.EffWh.Value))
                            .ToList();
-
-            if (labWarehouseIds.Count > 0)
-            {
-                var labFilteredLots = rawLots.Where(l => l.EffWh.HasValue && labWarehouseIds.Contains(l.EffWh.Value)).ToList();
-                if (labFilteredLots.Any())
-                    rawLots = labFilteredLots;
-            }
 
             var pwiQ = await _productWarehouseInventoryRepository.GetQueryableAsync();
             var lastInventoryMap = pwiQ
