@@ -6190,22 +6190,6 @@ public class ImportAppService : ApplicationService, IImportAppService
         var warehouses = await _warehouseRepository.GetListAsync();
         var activeWarehouses = warehouses.Where(w => w.IsActive).ToList();
 
-        var labIds = activeWarehouses.Where(w => w.LaboratoryId.HasValue)
-            .Select(w => w.LaboratoryId!.Value).Distinct().ToList();
-        var labNames = new Dictionary<Guid, string>();
-        if (labIds.Count > 0)
-        {
-            var labQuery = await _laboratoryRepository.GetQueryableAsync();
-            var labs = labQuery.Where(x => labIds.Contains(x.Id)).Select(x => new { x.Id, x.DepartmentId }).ToList();
-            var deptIds = labs.Select(x => x.DepartmentId).Distinct().ToList();
-            var deptRepo = LazyServiceProvider.LazyGetRequiredService<IRepository<Department, Guid>>();
-            var deptQuery = await deptRepo.GetQueryableAsync();
-            var deptNameMap = deptQuery.Where(x => deptIds.Contains(x.Id)).ToList().ToDictionary(x => x.Id, x => x.Name);
-            foreach (var lab in labs)
-                if (deptNameMap.TryGetValue(lab.DepartmentId, out var deptName))
-                    labNames[lab.Id] = deptName;
-        }
-
         var templateBytes = ReadStaticTemplate("Danh muc kho.xlsx");
         using var templateStream = new MemoryStream(templateBytes);
         using var workbook = new XLWorkbook(templateStream);
@@ -6225,11 +6209,11 @@ public class ImportAppService : ApplicationService, IImportAppService
                     ? parent.Code : "";
                 worksheet.Cell(row, 3).Value = parentCode;
                 worksheet.Cell(row, 4).Value = sorted[i].PhysicalLocation ?? "";
-                var labName = sorted[i].LaboratoryId.HasValue
-                    && labNames.TryGetValue(sorted[i].LaboratoryId.Value, out var ln) ? ln : "";
-                worksheet.Cell(row, 5).Value = labName;
             }
         }
+
+        // BA 26/11: tạm bỏ cột "Khoa phòng quản lý" (cột E của file mẫu).
+        worksheet.Column(5).Delete();
 
         using var outputStream = new MemoryStream();
         workbook.SaveAs(outputStream);
@@ -6538,7 +6522,7 @@ public class ImportAppService : ApplicationService, IImportAppService
             var name = row.Cell(2).GetString()?.Trim();
             var parentCode = row.Cell(3).GetString()?.Trim();
             var physicalLocation = row.Cell(4).GetString()?.Trim();
-            var laboratoryName = row.Cell(5).GetString()?.Trim();
+            // BA 26/11: tạm bỏ "Khoa phòng quản lý" → bỏ qua cột E nếu file cũ còn cột này.
 
             if (string.IsNullOrWhiteSpace(code) && string.IsNullOrWhiteSpace(name)
                 && string.IsNullOrWhiteSpace(parentCode) && string.IsNullOrWhiteSpace(physicalLocation))
@@ -6549,8 +6533,7 @@ public class ImportAppService : ApplicationService, IImportAppService
                 Code = code ?? "",
                 Name = name ?? "",
                 ParentWarehouseCode = parentCode,
-                PhysicalLocation = physicalLocation,
-                LaboratoryName = laboratoryName
+                PhysicalLocation = physicalLocation
             });
         }
 
@@ -6727,8 +6710,9 @@ public class ImportAppService : ApplicationService, IImportAppService
         using var workbook = new XLWorkbook(originalStream);
         var worksheet = workbook.Worksheet(1);
 
-        var errorColumnIndex = 6;
+        // Cột "Lỗi" nằm ngay sau cột cuối của file (file mẫu mới 4 cột, file cũ còn cột Khoa phòng).
         var headerRow = worksheet.Row(1);
+        var errorColumnIndex = Math.Max(5, (headerRow.LastCellUsed()?.Address.ColumnNumber ?? 4) + 1);
         headerRow.Cell(errorColumnIndex).Value = "Lỗi";
         headerRow.Cell(errorColumnIndex).Style.Font.Bold = true;
         headerRow.Cell(errorColumnIndex).Style.Font.FontColor = XLColor.Red;

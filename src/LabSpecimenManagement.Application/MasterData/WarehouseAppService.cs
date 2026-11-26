@@ -325,7 +325,10 @@ public class WarehouseAppService :
         entity.PhysicalLocation = updateInput.PhysicalLocation;
         entity.IsActive = updateInput.IsActive;
         entity.ParentWarehouseId = updateInput.ParentWarehouseId;
-        entity.LaboratoryId = updateInput.LaboratoryId ?? await ResolveAncestorLaboratoryIdAsync(updateInput.ParentWarehouseId);
+        // BA 26/11: tạm ẩn "Khoa phòng quản lý" trên form → form không gửi lên thì giữ giá trị cũ.
+        entity.LaboratoryId = updateInput.LaboratoryId
+            ?? entity.LaboratoryId
+            ?? await ResolveAncestorLaboratoryIdAsync(updateInput.ParentWarehouseId);
         entity.Level = await ComputeLevelAsync(updateInput.ParentWarehouseId);
     }
 
